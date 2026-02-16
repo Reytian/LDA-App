@@ -6,12 +6,12 @@ A tool that strips sensitive information from legal documents before they touch 
 
 ## Why Anonymize Legal Documents?
 
-Lawyers are bound by strict confidentiality rules. In the United States, ABA Model Rule 1.6 and its state equivalents (e.g., New York RPC 1.6) prohibit disclosing client information without informed consent. Similar obligations exist in virtually every jurisdiction worldwide — from the SRA Code in England and Wales to China's *Lawyers Law* (律师法) Article 38.
+Lawyers are bound by strict confidentiality rules. In the United States, ABA Model Rule 1.6 and its state equivalents (e.g., New York RPC 1.6) prohibit disclosing client information without informed consent. Similar obligations exist in virtually every jurisdiction worldwide — from the SRA Code in England and Wales to the professional conduct rules across the EU, Asia, and Latin America.
 
 The problem is practical: modern AI tools are extraordinarily useful for legal work — drafting, translation, summarization, clause comparison, risk analysis — but every major AI platform processes user inputs on remote servers. When a lawyer pastes a merger agreement into ChatGPT, they are transmitting client names, deal terms, financial figures, and personal data to a third party. This creates real professional responsibility risk:
 
 - **Disciplinary exposure.** Bar associations have begun issuing ethics opinions on AI use (e.g., NY State Bar Ethics Opinion 1238, Florida Bar Opinion 24-1). The consensus is clear: lawyers must take reasonable steps to prevent unauthorized disclosure when using cloud-based tools.
-- **Data protection liability.** Cross-border agreements often contain personal data subject to GDPR, PIPL (China), or other privacy regimes. Uploading these documents to a US-based AI service without anonymization can constitute an unauthorized cross-border data transfer.
+- **Data protection liability.** Cross-border agreements often contain personal data subject to GDPR or other privacy regimes. Uploading these documents to a US-based AI service without anonymization can constitute an unauthorized cross-border data transfer.
 - **Client trust.** Even where no rule is technically violated, clients do not expect their confidential deal terms to appear in training data or be accessible to platform employees.
 
 Anonymization solves this by replacing every sensitive element — names, addresses, amounts, registration numbers, bank accounts — with neutral placeholders *before* the document leaves the lawyer's machine. The AI sees `{COMPANY_1}` instead of the actual company name. It can still perform useful work on the document structure and legal content. Afterward, the lawyer restores the original information locally.
@@ -29,7 +29,7 @@ The typical workflow looks like this:
 This workflow gives lawyers the full benefit of AI assistance while maintaining an auditable compliance posture:
 
 - **Use any AI tool freely.** No need to negotiate enterprise data processing agreements or wait for your firm's IT department to approve a new vendor. The anonymized document contains nothing confidential.
-- **Cross-border work becomes safer.** A New York lawyer working on a Shanghai acquisition can run the anonymized agreement through any AI service without triggering PIPL cross-border transfer concerns, because no personal data leaves the local machine.
+- **Cross-border work becomes safer.** A lawyer working on cross-border transactions can run anonymized agreements through any AI service without triggering GDPR or other cross-border data transfer concerns, because no personal data leaves the local machine.
 - **Preserve work product.** The mapping table serves as a local record of exactly what was redacted and restored, creating a defensible audit trail if a client or regulator ever asks how AI was used on their matter.
 - **No vendor lock-in.** This tool works with any OpenAI-compatible LLM API. Use a cloud API during evaluation; switch to a local model (Ollama, vLLM) for production. The anonymization logic stays the same.
 - **The ultimate version runs 100% locally.** The current PoC uses a cloud API only to validate the scanning approach quickly. In production, the LLM itself runs on your machine — via Ollama, vLLM, or any local inference server that exposes an OpenAI-compatible endpoint. At that point, *nothing* leaves your laptop: the original document stays local, the LLM scanning happens local, the anonymized output stays local, and the mapping table stays local. The cloud AI app only ever sees a document with every sensitive detail already replaced.
@@ -112,7 +112,7 @@ Open `http://localhost:8501` in your browser.
 │   ├── deanonymize_page.py # Restoration workflow UI
 │   └── settings_page.py    # API configuration UI
 ├── tests/
-│   └── sample_contract.txt # Sample Chinese equity transfer agreement (fictitious)
+│   └── sample_contract.txt # Sample equity transfer agreement (fictitious)
 ├── data/
 │   └── mappings/           # Saved mapping tables (gitignored)
 ├── requirements.txt
@@ -127,7 +127,7 @@ This PoC validates the two-pass scanning and three-step restoration approach usi
 1. **Local LLM integration.** Replace the cloud API with a local model running via Ollama or vLLM. The tool already uses an OpenAI-compatible interface — switching to a local endpoint (`http://localhost:11434/v1`) requires only a config change, no code changes. Candidate models include Qwen 2.5, DeepSeek-V2, and Llama 3 variants with strong multilingual and instruction-following capabilities.
 2. **One-click desktop app.** Package the Streamlit app + local model into a standalone desktop application so lawyers can run it without any technical setup.
 3. **Encrypted mapping storage.** Encrypt mapping tables at rest so they cannot be read if the machine is compromised.
-4. **English-first prompt templates.** Expand prompt coverage for pure English common-law contracts (current prompts are optimized for Chinese and bilingual documents).
+4. **Broader language support.** Expand prompt templates for additional languages and jurisdictions beyond the current bilingual (Chinese/English) contract support.
 
 ## Limitations
 
@@ -135,7 +135,7 @@ This is a proof-of-concept. Current limitations include:
 
 - **Uses a cloud API for entity detection in this PoC.** The scanning step currently calls an external LLM API. This means the raw document text is sent to a third-party server during scanning. The production version will eliminate this by running the LLM locally. Until then, do not process real client documents through this tool unless you have configured a local model endpoint.
 - Relies on LLM accuracy for entity detection — manual review of the entity list before anonymization is essential
-- Prompt templates are optimized for Chinese legal documents (bilingual Chinese/English contracts work well; pure English contracts may need prompt adjustments)
+- Prompt templates are currently optimized for bilingual (Chinese/English) contracts; pure English or other-language contracts may need prompt adjustments
 - `.doc` support requires macOS `textutil`
 - No encryption on mapping tables — store them securely
 
