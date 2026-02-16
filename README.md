@@ -2,6 +2,8 @@
 
 A tool that strips sensitive information from legal documents before they touch any cloud AI service, then restores it afterward. Built for lawyers who want to use consumer AI apps like ChatGPT, Claude, or Kimi — without violating client confidentiality.
 
+> **The end goal is fully local.** This proof-of-concept uses a cloud LLM API for entity detection during development, but the production version is designed to run entirely on your machine — no API calls, no cloud services, no data leaving your laptop. The anonymization engine will use a local model (via [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), or similar) so that even the scanning step never transmits client data anywhere. The architecture is already built for this: swap the API endpoint from a remote URL to `http://localhost:11434` and everything else stays the same.
+
 ## Why Anonymize Legal Documents?
 
 Lawyers are bound by strict confidentiality rules. In the United States, ABA Model Rule 1.6 and its state equivalents (e.g., New York RPC 1.6) prohibit disclosing client information without informed consent. Similar obligations exist in virtually every jurisdiction worldwide — from the SRA Code in England and Wales to China's *Lawyers Law* (律师法) Article 38.
@@ -30,6 +32,7 @@ This workflow gives lawyers the full benefit of AI assistance while maintaining 
 - **Cross-border work becomes safer.** A New York lawyer working on a Shanghai acquisition can run the anonymized agreement through any AI service without triggering PIPL cross-border transfer concerns, because no personal data leaves the local machine.
 - **Preserve work product.** The mapping table serves as a local record of exactly what was redacted and restored, creating a defensible audit trail if a client or regulator ever asks how AI was used on their matter.
 - **No vendor lock-in.** This tool works with any OpenAI-compatible LLM API. Use a cloud API during evaluation; switch to a local model (Ollama, vLLM) for production. The anonymization logic stays the same.
+- **The ultimate version runs 100% locally.** The current PoC uses a cloud API only to validate the scanning approach quickly. In production, the LLM itself runs on your machine — via Ollama, vLLM, or any local inference server that exposes an OpenAI-compatible endpoint. At that point, *nothing* leaves your laptop: the original document stays local, the LLM scanning happens local, the anonymized output stays local, and the mapping table stays local. The cloud AI app only ever sees a document with every sensitive detail already replaced.
 
 ## How It Works
 
@@ -117,10 +120,20 @@ Open `http://localhost:8501` in your browser.
 └── .gitignore
 ```
 
+## Roadmap: Fully Local Operation
+
+This PoC validates the two-pass scanning and three-step restoration approach using a cloud API. The production roadmap is:
+
+1. **Local LLM integration.** Replace the cloud API with a local model running via Ollama or vLLM. The tool already uses an OpenAI-compatible interface — switching to a local endpoint (`http://localhost:11434/v1`) requires only a config change, no code changes. Candidate models include Qwen 2.5, DeepSeek-V2, and Llama 3 variants with strong multilingual and instruction-following capabilities.
+2. **One-click desktop app.** Package the Streamlit app + local model into a standalone desktop application so lawyers can run it without any technical setup.
+3. **Encrypted mapping storage.** Encrypt mapping tables at rest so they cannot be read if the machine is compromised.
+4. **English-first prompt templates.** Expand prompt coverage for pure English common-law contracts (current prompts are optimized for Chinese and bilingual documents).
+
 ## Limitations
 
 This is a proof-of-concept. Current limitations include:
 
+- **Uses a cloud API for entity detection in this PoC.** The scanning step currently calls an external LLM API. This means the raw document text is sent to a third-party server during scanning. The production version will eliminate this by running the LLM locally. Until then, do not process real client documents through this tool unless you have configured a local model endpoint.
 - Relies on LLM accuracy for entity detection — manual review of the entity list before anonymization is essential
 - Prompt templates are optimized for Chinese legal documents (bilingual Chinese/English contracts work well; pure English contracts may need prompt adjustments)
 - `.doc` support requires macOS `textutil`
