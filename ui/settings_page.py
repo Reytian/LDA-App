@@ -9,6 +9,21 @@ from core import llm_client
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
+def _write_env(api_base: str, api_key: str, model: str) -> str:
+    """Write the LLM config to .env with owner-only (0600) permissions.
+
+    Returns the path written. The file holds a secret (the API key), so it
+    is restricted to the owner via os.chmod after writing.
+    """
+    env_path = os.path.join(PROJECT_ROOT, ".env")
+    with open(env_path, "w") as f:
+        f.write(f"LLM_API_BASE={api_base}\n")
+        f.write(f"LLM_API_KEY={api_key}\n")
+        f.write(f"LLM_MODEL={model}\n")
+    os.chmod(env_path, 0o600)
+    return env_path
+
+
 def render():
     """Render the settings page."""
 
@@ -70,12 +85,8 @@ def render():
                 st.error("All fields are required.")
                 return
 
-            # Write to .env
-            env_path = os.path.join(PROJECT_ROOT, ".env")
-            with open(env_path, "w") as f:
-                f.write(f"LLM_API_BASE={api_base}\n")
-                f.write(f"LLM_API_KEY={api_key}\n")
-                f.write(f"LLM_MODEL={model}\n")
+            # Write to .env (owner-only permissions)
+            _write_env(api_base, api_key, model)
 
             # Reload config in the client module
             llm_client.reload_config()
@@ -97,11 +108,7 @@ def render():
                 st.error("All fields are required.")
                 return
 
-            env_path = os.path.join(PROJECT_ROOT, ".env")
-            with open(env_path, "w") as f:
-                f.write(f"LLM_API_BASE={api_base}\n")
-                f.write(f"LLM_API_KEY={api_key}\n")
-                f.write(f"LLM_MODEL={model}\n")
+            _write_env(api_base, api_key, model)
 
             llm_client.reload_config()
             st.success("Settings saved.")

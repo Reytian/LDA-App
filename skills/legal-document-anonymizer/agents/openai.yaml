@@ -1,0 +1,4 @@
+interface:
+  display_name: "Legal Document Anonymizer"
+  short_description: "Anonymize legal docs before outside AI"
+  default_prompt: "Use $legal-document-anonymizer to anonymize this legal document before I send it to a third-party AI tool."

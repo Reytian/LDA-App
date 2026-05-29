@@ -70,6 +70,10 @@ def render():
             st.session_state.anonymized_text = None
             st.session_state.anonymized_file_bytes = None
             st.session_state.mapping_data = None
+            # Clear data_editor widget state so a previous file's edit deltas
+            # (added / deleted / edited rows) do not bleed onto the new file.
+            st.session_state.pop("alias_editor", None)
+            st.session_state.pop("entity_editor", None)
 
         with st.expander("File preview", expanded=False):
             text = st.session_state.uploaded_text
@@ -304,8 +308,21 @@ def render():
             mime="application/json",
         )
 
-    try:
-        save_path = save_mapping(st.session_state.mapping_data, "anonymized")
-        st.caption(f"Mapping saved to: {save_path}")
-    except Exception:
-        pass
+    # Opt-in disk save (default off). The mapping is the most sensitive
+    # artifact (full plaintext PII), so it is only persisted when the user
+    # explicitly asks. Failures are surfaced, never swallowed silently.
+    save_to_disk = st.checkbox(
+        "Also save the mapping to disk (data/mappings/)",
+        value=False,
+        help=(
+            "Writes the full plaintext PII mapping to local disk. "
+            "The download button above already provides this file. "
+            "Leave off unless you need a server-side copy."
+        ),
+    )
+    if save_to_disk:
+        try:
+            save_path = save_mapping(st.session_state.mapping_data, "anonymized")
+            st.caption(f"Mapping saved to: {save_path}")
+        except Exception as e:
+            st.warning(f"Failed to save mapping to disk: {e}")

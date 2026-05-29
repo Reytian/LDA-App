@@ -74,7 +74,7 @@ def restore_by_context(text: str, replacement_log: list[dict]) -> tuple[str, int
     """
     context_matched = 0
 
-    remaining_placeholders = list(re.finditer(r"\{[A-Z]+_\d+\}", text))
+    remaining_placeholders = list(re.finditer(r"\{[A-Z][A-Z0-9]*_\d+\}", text))
 
     if not remaining_placeholders:
         return text, 0
@@ -134,7 +134,7 @@ def restore_by_canonical(text: str, mappings: dict) -> tuple[str, int]:
     """
     fallback_count = 0
 
-    remaining = list(re.finditer(r"\{[A-Z]+_\d+\}", text))
+    remaining = list(re.finditer(r"\{[A-Z][A-Z0-9]*_\d+\}", text))
 
     for match in reversed(remaining):
         placeholder_text = match.group()
@@ -182,7 +182,7 @@ def run_deanonymize(
     # Step C
     text, fallback_count = restore_by_canonical(text, mappings)
 
-    remaining = len(re.findall(r"\{[A-Z]+_\d+\}", text))
+    remaining = len(re.findall(r"\{[A-Z][A-Z0-9]*_\d+\}", text))
 
     stats = {
         "position_matched": position_matched,
