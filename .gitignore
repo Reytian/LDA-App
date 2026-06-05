@@ -22,3 +22,6 @@ Thumbs.db
 # Internal spec/prompt docs
 lda-poc-prompt.md
 lda-prompt-v2.md
+.build/
+macos/LDACore/.build/
+*.xcuserstate
