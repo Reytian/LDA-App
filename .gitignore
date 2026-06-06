@@ -27,3 +27,4 @@ macos/LDACore/.build/
 *.xcuserstate
 *.gguf
 macos/LDACore/Models/
+.lda-wf-*.js

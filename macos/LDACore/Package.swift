@@ -20,6 +20,10 @@ let package = Package(
         .executable(
             name: "lda-mcp",
             targets: ["lda-mcp"]
+        ),
+        .executable(
+            name: "LDAApp",
+            targets: ["LDAApp"]
         )
     ],
     dependencies: [
@@ -52,6 +56,18 @@ let package = Package(
             ]
         ),
         .target(
+            name: "LDAUI",
+            dependencies: ["LDACore"],
+            path: "Sources/LDAUI",
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("Accelerate"),
+                .linkedLibrary("c++")
+            ]
+        ),
+        .target(
             name: "LDACLI",
             dependencies: [
                 "LDACore",
@@ -74,9 +90,14 @@ let package = Package(
             dependencies: ["LDAMCP"],
             path: "Sources/lda-mcp"
         ),
+        .executableTarget(
+            name: "LDAApp",
+            dependencies: ["LDAUI"],
+            path: "Sources/LDAApp"
+        ),
         .testTarget(
             name: "LDACoreTests",
-            dependencies: ["LDACore", "LDACLI", "LDAMCP"],
+            dependencies: ["LDACore", "LDACLI", "LDAMCP", "LDAUI"],
             path: "Tests/LDACoreTests"
         )
     ]
