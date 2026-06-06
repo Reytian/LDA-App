@@ -26,13 +26,19 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import LDACore
 
 /// The document review pane. Renders the editable, paper-styled text surface
-/// with entity highlights and sealed token chips.
+/// with entity highlights and sealed token chips, and a drag-and-drop intake
+/// zone before any document is open.
 public struct DocumentPane: View {
     @ObservedObject private var model: ReviewModel
+
+    /// True while a draggable document hovers over the drop zone.
+    @State private var isDropTargeted = false
 
     public init(model: ReviewModel) {
         self.model = model
@@ -42,14 +48,111 @@ public struct DocumentPane: View {
         ZStack {
             CounselTheme.paper
 
-            if shouldShowPlaceholder {
-                placeholder
+            if isBusy {
+                progressPlaceholder
+            } else if model.documentText.isEmpty {
+                dropZone
             } else {
                 readingColumn
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: - Drop zone (empty state)
+
+    /// The first-run intake: a dashed drop target plus a Choose File button.
+    /// Accepts a dragged document or a click to browse.
+    private var dropZone: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "tray.and.arrow.down")
+                .font(.system(size: 46, weight: .light))
+                .foregroundStyle(CounselTheme.inkAccent.opacity(0.85))
+
+            VStack(spacing: 6) {
+                Text("Drop a document to anonymize")
+                    .font(.system(.title3, design: .serif))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Text("PDF, Word (.docx), or plain text. Everything stays on this Mac.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .multilineTextAlignment(.center)
+
+            Button {
+                presentOpenPanel()
+            } label: {
+                Text("Choose File")
+                    .padding(.horizontal, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CounselTheme.inkAccent)
+
+            if case .failed(let detail) = model.status {
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: 440)
+        .padding(48)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(CounselTheme.raised.opacity(isDropTargeted ? 1.0 : 0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(
+                    isDropTargeted ? CounselTheme.inkAccent : CounselTheme.hairline,
+                    style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1.5, dash: [9, 7])
+                )
+        )
+        .padding(48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { presentOpenPanel() }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            openURL(url)
+            return true
+        } isTargeted: { isDropTargeted = $0 }
+    }
+
+    // MARK: - Open
+
+    /// Present a native open panel and open the chosen document.
+    private func presentOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = Self.openContentTypes
+        panel.message = "Choose a .txt, .docx, or .pdf document to anonymize."
+        panel.prompt = "Open"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        openURL(url)
+    }
+
+    /// Open a document URL (from a drop or the panel) on the review model.
+    private func openURL(_ url: URL) {
+        let needsScope = url.startAccessingSecurityScopedResource()
+        Task {
+            await model.open(url)
+            if needsScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+    }
+
+    /// The document types accepted for opening: plain text, Word, and PDF.
+    private static let openContentTypes: [UTType] = {
+        var types: [UTType] = [.plainText, .text, .pdf]
+        if let docx = UTType("org.openxmlformats.wordprocessingml.document") {
+            types.append(docx)
+        }
+        return types
+    }()
 
     // MARK: - Reading column
 
@@ -69,45 +172,31 @@ public struct DocumentPane: View {
         }
     }
 
-    // MARK: - Placeholder
+    // MARK: - Busy placeholder
 
-    /// Whether to show the placeholder instead of the document body.
-    private var shouldShowPlaceholder: Bool {
+    /// True while a document is being imported or scanned for entities.
+    private var isBusy: Bool {
         switch model.status {
         case .importing, .detecting:
             return true
         case .idle, .ready, .failed:
-            return model.documentText.isEmpty
+            return false
         }
     }
 
-    /// A graceful placeholder: a progress indicator and the current status.
-    private var placeholder: some View {
+    /// A graceful placeholder shown during import or detection.
+    private var progressPlaceholder: some View {
         VStack(spacing: Layout.placeholderSpacing) {
             ProgressView()
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
 
-            Text(placeholderMessage)
+            Text(model.status == .importing ? "Importing document" : "Detecting entities")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .padding(Layout.gutter)
-    }
-
-    /// A one-line status message for the placeholder.
-    private var placeholderMessage: String {
-        switch model.status {
-        case .importing:
-            return "Importing document"
-        case .detecting:
-            return "Detecting entities"
-        case .failed(let detail):
-            return detail
-        case .idle, .ready:
-            return "No document open"
-        }
     }
 
     // MARK: - Attributed document
