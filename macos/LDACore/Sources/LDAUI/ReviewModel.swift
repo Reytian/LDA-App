@@ -108,6 +108,14 @@ public final class ReviewModel: ObservableObject {
     /// to the CustomPatternStore; the default is an empty list.
     public var customPatternProvider: () -> [CustomPattern] = { [] }
 
+    /// On-device learning. When set, the model applies learned redactions and
+    /// suppressions during anonymize and records the user's decisions on export.
+    public var learningStore: LearningStore?
+
+    /// A short summary of what learning contributed to the last run, for example
+    /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
+    @Published public var learningNote: String?
+
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
     private var sourceURL: URL?
@@ -156,25 +164,50 @@ public final class ReviewModel: ObservableObject {
         let shouldUseLLM = useLLM
         let path = modelPath
         let custom = customPatternProvider()
+        let learnedRedact = learningStore?.redactPatterns ?? []
+        let suppress = learningStore?.suppressKeys ?? []
         let runsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
 
         status = .detecting
         progress = 0
         etaText = runsLLM ? "Loading model" : nil
+        learningNote = nil
         anonymizeStart = Date()
 
         let report: @Sendable (Int, Int) -> Void = { [weak self] done, total in
             DispatchQueue.main.async { self?.applyProgress(done: done, total: total) }
         }
 
-        let spans = await Task.detached(priority: .userInitiated) {
-            Self.detect(in: text, useLLM: shouldUseLLM, modelPath: path, custom: custom, onProgress: report)
+        let outcome = await Task.detached(priority: .userInitiated) {
+            Self.detect(
+                in: text,
+                useLLM: shouldUseLLM,
+                modelPath: path,
+                custom: custom,
+                learnedRedact: learnedRedact,
+                suppressKeys: suppress,
+                onProgress: report
+            )
         }.value
 
-        entities = spans.map { ReviewEntity(span: $0, accepted: true) }
+        entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
+        learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
         progress = 1
         etaText = nil
         status = .ready
+    }
+
+    /// A short, human note about what learning contributed, or nil when nothing.
+    private static func learningNote(applied: Int, suppressed: Int) -> String? {
+        var parts: [String] = []
+        if applied > 0 {
+            parts.append("applied \(applied) learned " + (applied == 1 ? "term" : "terms"))
+        }
+        if suppressed > 0 {
+            parts.append("hid \(suppressed) you rejected before")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: ", ").prefix(1).uppercased() + parts.joined(separator: ", ").dropFirst()
     }
 
     /// Update progress and the time estimate from a (done, total) report.
@@ -285,6 +318,16 @@ public final class ReviewModel: ObservableObject {
                 : nil
         }
 
+        // Learn from this export: the accept and reject decisions the user just
+        // committed reinforce future auto-redaction and suppression.
+        if let learningStore {
+            let accepted = entities.filter { $0.accepted }
+                .map { (value: $0.span.text, type: $0.span.type) }
+            let rejected = entities.filter { !$0.accepted }
+                .map { (value: $0.span.text, type: $0.span.type) }
+            learningStore.record(accepted: accepted, rejected: rejected)
+        }
+
         return ExportResult(
             redactedURL: redactedURL,
             mappingURL: mappingURL,
@@ -312,21 +355,48 @@ public final class ReviewModel: ObservableObject {
     /// Run deterministic detection and, when requested and the model path is a
     /// valid file, merge in LLM spans. Any LLM failure degrades to
     /// deterministic-only so detection never fails because of the LLM seam.
+    /// The result of a detection pass plus what learning contributed.
+    private struct DetectionOutcome {
+        let spans: [Span]
+        let learnedApplied: Int
+        let suppressed: Int
+    }
+
     private nonisolated static func detect(
         in text: String,
         useLLM: Bool,
         modelPath: String?,
         custom: [CustomPattern] = [],
+        learnedRedact: [CustomPattern] = [],
+        suppressKeys: Set<String> = [],
         onProgress: ((Int, Int) -> Void)? = nil
-    ) -> [Span] {
-        // Custom vocabulary joins the deterministic list with a higher priority,
-        // so a user-chosen term always wins overlap conflicts.
+    ) -> DetectionOutcome {
+        // Custom vocabulary and learned redactions join the deterministic list
+        // with a higher priority, so a user-chosen or previously-accepted term
+        // always wins overlap conflicts.
         let deterministic = DeterministicEngine().detect(text)
             + CustomPatternEngine.detect(text, patterns: custom)
-        return SpanMerger.merge(
+            + CustomPatternEngine.detect(text, patterns: learnedRedact)
+        let merged = SpanMerger.merge(
             deterministic: deterministic,
             llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
         )
+
+        // Suppress values the user has repeatedly rejected.
+        let kept = suppressKeys.isEmpty
+            ? merged
+            : merged.filter { !suppressKeys.contains(LearningStore.key(value: $0.text, type: $0.type)) }
+        let suppressed = merged.count - kept.count
+
+        // Count distinct learned values that actually landed in this document.
+        let learnedValues = Set(learnedRedact.map {
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        })
+        let appliedValues = Set(
+            kept.map { $0.text.lowercased() }.filter { learnedValues.contains($0) }
+        )
+
+        return DetectionOutcome(spans: kept, learnedApplied: appliedValues.count, suppressed: suppressed)
     }
 
     /// Produce the LLM span list, or empty on any failure or when disabled.

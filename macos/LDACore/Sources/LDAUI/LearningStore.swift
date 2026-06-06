@@ -1,0 +1,137 @@
+//
+//  LearningStore.swift
+//  LDAUI
+//
+//  On-device learning. Every export records the user's final accept and reject
+//  decisions. Over time the app:
+//    - auto-redacts values the user keeps accepting (recurring clients, parties,
+//      project names), pre-applied on future documents without re-typing; and
+//    - suppresses values the user keeps rejecting, so the same false positive
+//      stops appearing.
+//  This is what makes the tool feel smarter with use. It is fully local and
+//  persists to the app sandbox via UserDefaults. Learning only remembers the
+//  fuzzy types (PERSON, COMPANY, ADDRESS) for redaction, since structured PII is
+//  already caught deterministically. Rejections are remembered for every type.
+//
+//  House rules: English only. No em-dash or en-dash-as-separator.
+//
+
+import Foundation
+import LDACore
+
+/// What the learned counts imply for a value.
+public enum LearnedDecision: String, Codable {
+    case redact     // net accepted: auto-redact next time
+    case suppress   // net rejected: hide next time
+    case neutral    // tied: let the engine decide
+}
+
+/// One remembered value and how the user has treated it over time.
+public struct LearnedTerm: Codable, Identifiable, Equatable {
+    public var id: String        // "TYPE|lowercased value"
+    public var value: String     // last seen surface, for display
+    public var type: EntityType
+    public var acceptCount: Int
+    public var rejectCount: Int
+
+    public var decision: LearnedDecision {
+        if acceptCount > rejectCount { return .redact }
+        if rejectCount > acceptCount { return .suppress }
+        return .neutral
+    }
+}
+
+/// Persisted, observable record of what the app has learned from the user.
+@MainActor
+public final class LearningStore: ObservableObject {
+
+    @Published public private(set) var terms: [String: LearnedTerm]
+
+    /// The fuzzy types worth remembering as redaction vocabulary.
+    private static let learnableForRedaction: Set<EntityType> = [.person, .company, .address]
+
+    private let defaults: UserDefaults
+    private let storageKey: String
+
+    public init(
+        defaults: UserDefaults = .standard,
+        storageKey: String = "com.haotianyi.LDA.learnedTerms"
+    ) {
+        self.defaults = defaults
+        self.storageKey = storageKey
+        if let data = defaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([String: LearnedTerm].self, from: data) {
+            self.terms = decoded
+        } else {
+            self.terms = [:]
+        }
+    }
+
+    /// A stable key for a value and type. Pure, so usable off the main actor.
+    public nonisolated static func key(value: String, type: EntityType) -> String {
+        "\(type.rawValue)|\(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    }
+
+    /// Record the user's final decisions from one export. Accepted fuzzy values
+    /// reinforce redaction; rejected values (any type) reinforce suppression.
+    public func record(
+        accepted: [(value: String, type: EntityType)],
+        rejected: [(value: String, type: EntityType)]
+    ) {
+        var changed = false
+        for item in accepted where Self.learnableForRedaction.contains(item.type) {
+            bump(value: item.value, type: item.type, accepted: true)
+            changed = true
+        }
+        for item in rejected {
+            bump(value: item.value, type: item.type, accepted: false)
+            changed = true
+        }
+        if changed { save() }
+    }
+
+    /// Net-accepted terms to auto-redact, as literal custom patterns.
+    public var redactPatterns: [CustomPattern] {
+        terms.values
+            .filter { $0.decision == .redact }
+            .map { CustomPattern(text: $0.value, type: $0.type, caseSensitive: false, isRegex: false) }
+    }
+
+    /// Net-rejected (value, type) keys to suppress from detection.
+    public var suppressKeys: Set<String> {
+        Set(terms.values.filter { $0.decision == .suppress }.map { $0.id })
+    }
+
+    /// Learned terms sorted for display (most reinforced first).
+    public var sortedTerms: [LearnedTerm] {
+        terms.values.sorted { ($0.acceptCount + $0.rejectCount) > ($1.acceptCount + $1.rejectCount) }
+    }
+
+    /// Forget one learned term.
+    public func forget(_ id: String) {
+        terms[id] = nil
+        save()
+    }
+
+    /// Forget everything.
+    public func reset() {
+        terms = [:]
+        save()
+    }
+
+    private func bump(value: String, type: EntityType, accepted: Bool) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let id = Self.key(value: trimmed, type: type)
+        var term = terms[id] ?? LearnedTerm(id: id, value: trimmed, type: type, acceptCount: 0, rejectCount: 0)
+        term.value = trimmed
+        if accepted { term.acceptCount += 1 } else { term.rejectCount += 1 }
+        terms[id] = term
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(terms) {
+            defaults.set(data, forKey: storageKey)
+        }
+    }
+}

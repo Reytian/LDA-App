@@ -21,18 +21,23 @@ struct LDAApp: App {
     /// The persisted custom vocabulary, shared by the window and Settings.
     @StateObject private var patternStore = CustomPatternStore()
 
+    /// The persisted on-device learning store, shared by the window and Settings.
+    @StateObject private var learningStore = LearningStore()
+
     var body: some Scene {
         WindowGroup("LDA") {
             AppShell(model: model)
                 .frame(minWidth: 1100, minHeight: 720)
                 .onAppear {
-                    // Feed the user's custom vocabulary into each anonymize run.
+                    // Feed the user's custom vocabulary into each anonymize run,
+                    // and let the model learn from each export.
                     model.customPatternProvider = { [patternStore] in patternStore.activePatterns }
+                    model.learningStore = learningStore
                 }
         }
 
         Settings {
-            SettingsView(store: patternStore)
+            SettingsView(patterns: patternStore, learning: learningStore)
         }
     }
 

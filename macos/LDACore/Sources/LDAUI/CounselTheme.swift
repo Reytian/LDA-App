@@ -47,6 +47,9 @@ public enum CounselTheme {
     /// The hairline border used in place of shadows.
     public static let hairline = Color(hex: 0xE2E4E8)
 
+    /// A muted rose used for errors and warnings (for example an invalid regex).
+    public static let danger = Color(hex: 0xB05F5C)
+
     // MARK: - Entity colors
 
     /// The low-chroma hue for an entity type. Used as a highlight underline and

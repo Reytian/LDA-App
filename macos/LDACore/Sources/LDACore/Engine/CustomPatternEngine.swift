@@ -13,26 +13,40 @@
 
 import Foundation
 
-/// One user-defined term to always redact.
+/// One user-defined term to always redact. The term is either a literal string
+/// or an ICU regular expression (for example a matter number M-\d{5}).
 public struct CustomPattern: Identifiable, Equatable, Codable, Sendable {
     public var id: UUID
-    /// The literal term to find in the document.
+    /// The literal term, or the regular expression source when isRegex is true.
     public var text: String
     /// The token type to assign when this term is redacted.
     public var type: EntityType
     /// When false (the default), matching ignores letter case.
     public var caseSensitive: Bool
+    /// When true, text is treated as a regular expression instead of a literal.
+    public var isRegex: Bool
 
     public init(
         id: UUID = UUID(),
         text: String,
         type: EntityType = .company,
-        caseSensitive: Bool = false
+        caseSensitive: Bool = false,
+        isRegex: Bool = false
     ) {
         self.id = id
         self.text = text
         self.type = type
         self.caseSensitive = caseSensitive
+        self.isRegex = isRegex
+    }
+
+    /// True when this pattern is a regex whose source fails to compile, so the UI
+    /// can flag it. A literal is always valid.
+    public var isInvalidRegex: Bool {
+        guard isRegex else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return (try? NSRegularExpression(pattern: trimmed)) == nil
     }
 }
 
@@ -54,27 +68,56 @@ public enum CustomPatternEngine {
             let needle = pattern.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !needle.isEmpty else { continue }
 
-            let options: NSString.CompareOptions = pattern.caseSensitive ? [] : [.caseInsensitive]
-            var searchStart = 0
-            while searchStart < ns.length {
-                let searchRange = NSRange(location: searchStart, length: ns.length - searchStart)
-                let found = ns.range(of: needle, options: options, range: searchRange)
-                if found.location == NSNotFound { break }
-                let surface = ns.substring(with: found)
-                spans.append(
-                    Span(
-                        start: found.location,
-                        end: found.location + found.length,
-                        type: pattern.type,
-                        text: surface,
-                        source: .manual,
-                        confidence: 1.0,
-                        priority: priority
-                    )
-                )
-                searchStart = found.location + max(found.length, 1)
+            if pattern.isRegex {
+                appendRegexMatches(pattern, needle: needle, ns: ns, range: fullRange, into: &spans)
+            } else {
+                appendLiteralMatches(pattern, needle: needle, ns: ns, into: &spans)
             }
         }
         return spans
+    }
+
+    private static func appendLiteralMatches(
+        _ pattern: CustomPattern,
+        needle: String,
+        ns: NSString,
+        into spans: inout [Span]
+    ) {
+        let options: NSString.CompareOptions = pattern.caseSensitive ? [] : [.caseInsensitive]
+        var searchStart = 0
+        while searchStart < ns.length {
+            let searchRange = NSRange(location: searchStart, length: ns.length - searchStart)
+            let found = ns.range(of: needle, options: options, range: searchRange)
+            if found.location == NSNotFound { break }
+            spans.append(makeSpan(ns: ns, range: found, type: pattern.type))
+            searchStart = found.location + max(found.length, 1)
+        }
+    }
+
+    private static func appendRegexMatches(
+        _ pattern: CustomPattern,
+        needle: String,
+        ns: NSString,
+        range: NSRange,
+        into spans: inout [Span]
+    ) {
+        let options: NSRegularExpression.Options = pattern.caseSensitive ? [] : [.caseInsensitive]
+        guard let regex = try? NSRegularExpression(pattern: needle, options: options) else { return }
+        regex.enumerateMatches(in: ns as String, options: [], range: range) { match, _, _ in
+            guard let match, match.range.length > 0 else { return }
+            spans.append(makeSpan(ns: ns, range: match.range, type: pattern.type))
+        }
+    }
+
+    private static func makeSpan(ns: NSString, range: NSRange, type: EntityType) -> Span {
+        Span(
+            start: range.location,
+            end: range.location + range.length,
+            type: type,
+            text: ns.substring(with: range),
+            source: .manual,
+            confidence: 1.0,
+            priority: priority
+        )
     }
 }

@@ -43,6 +43,22 @@ final class CustomPatternEngineTests: XCTestCase {
         XCTAssertTrue(CustomPatternEngine.detect("hello", patterns: []).isEmpty)
     }
 
+    func testRegexMatchesMatterNumbers() {
+        let text = "See matters M-10293 and M-44810; M-1 is too short."
+        let patterns = [CustomPattern(text: #"M-\d{5}"#, type: .unknown, isRegex: true)]
+
+        let spans = CustomPatternEngine.detect(text, patterns: patterns)
+
+        XCTAssertEqual(spans.map { $0.text }, ["M-10293", "M-44810"])
+        XCTAssertTrue(spans.allSatisfy { $0.source == .manual })
+    }
+
+    func testInvalidRegexIsIgnoredNotCrashing() {
+        let pattern = CustomPattern(text: "M-[", type: .unknown, isRegex: true)
+        XCTAssertTrue(pattern.isInvalidRegex)
+        XCTAssertTrue(CustomPatternEngine.detect("M-[ anything", patterns: [pattern]).isEmpty)
+    }
+
     func testCustomTermWinsOverlapAgainstLLMSpan() {
         // A custom COMPANY term overlapping a lower-priority llm PERSON span: the
         // custom term must win after merging.

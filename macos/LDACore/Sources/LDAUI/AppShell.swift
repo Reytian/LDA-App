@@ -182,7 +182,9 @@ public struct AppShell: View {
         case .detecting:
             return "Detecting entities"
         case .ready:
-            return exportMessage ?? "Ready for review"
+            if let exportMessage { return exportMessage }
+            if let note = model.learningNote { return "Ready for review. \(note)." }
+            return "Ready for review"
         case .failed(let detail):
             return detail
         }
