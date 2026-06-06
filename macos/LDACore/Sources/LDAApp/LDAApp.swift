@@ -25,10 +25,15 @@ struct LDAApp: App {
         }
     }
 
-    /// The default v2 GGUF model path, returned only when the file exists.
+    /// The default v2 GGUF model path. Prefers the copy bundled inside the app
+    /// (a distributed, self-contained .app), then falls back to the developer
+    /// location, then nil (deterministic-only).
     private static func defaultModelPath() -> String? {
-        let path = ("~/Developer/lda-models/lda-v2-Q4_K_M.gguf" as NSString)
+        if let bundled = Bundle.main.path(forResource: "lda-v2-Q4_K_M", ofType: "gguf") {
+            return bundled
+        }
+        let dev = ("~/Developer/lda-models/lda-v2-Q4_K_M.gguf" as NSString)
             .expandingTildeInPath
-        return FileManager.default.fileExists(atPath: path) ? path : nil
+        return FileManager.default.fileExists(atPath: dev) ? dev : nil
     }
 }

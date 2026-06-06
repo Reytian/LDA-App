@@ -28,3 +28,4 @@ macos/LDACore/.build/
 *.gguf
 macos/LDACore/Models/
 .lda-wf-*.js
+macos/LDACore/dist/
