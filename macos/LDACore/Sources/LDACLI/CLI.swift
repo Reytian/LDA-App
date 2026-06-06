@@ -122,6 +122,7 @@ public enum LDACLI {
         input: URL,
         outputDir: URL,
         passphrase: String?,
+        llmModelPath: String? = nil,
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> AnonymizeResult {
         try requireExists(input)
@@ -133,7 +134,8 @@ public enum LDACLI {
             input: input,
             outputDir: outputDir,
             protection: protection,
-            createdAtISO8601: timestamp()
+            createdAtISO8601: timestamp(),
+            llmModelPath: llmModelPath
         )
     }
 
@@ -161,9 +163,9 @@ public enum LDACLI {
     }
 
     /// Detect core: validate the input exists and run LDAService.detect.
-    public static func runDetect(input: URL) throws -> [Span] {
+    public static func runDetect(input: URL, llmModelPath: String? = nil) throws -> [Span] {
         try requireExists(input)
-        return try LDAService.detect(input: input)
+        return try LDAService.detect(input: input, llmModelPath: llmModelPath)
     }
 
     // MARK: Helper internals
@@ -228,12 +230,16 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Passphrase to protect the mapping. Optional.")
     var passphrase: String?
 
+    @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
+    var model: String?
+
     func run() throws {
         do {
             let result = try LDACLI.runAnonymize(
                 input: URL(fileURLWithPath: input),
                 outputDir: URL(fileURLWithPath: outputDir),
-                passphrase: passphrase
+                passphrase: passphrase,
+                llmModelPath: model
             )
             print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
         } catch {
@@ -284,9 +290,12 @@ struct Detect: ParsableCommand {
     @Option(name: .long, help: "Path to the source document.")
     var input: String
 
+    @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
+    var model: String?
+
     func run() throws {
         do {
-            let spans = try LDACLI.runDetect(input: URL(fileURLWithPath: input))
+            let spans = try LDACLI.runDetect(input: URL(fileURLWithPath: input), llmModelPath: model)
             let entities = spans.map(DetectedEntityJSON.init)
             print(try CLIJSON.encode(entities))
         } catch {

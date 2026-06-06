@@ -175,11 +175,13 @@ public struct MCPServer {
         // The edge owns the clock: stamp createdAt with an ISO-8601 timestamp now.
         let createdAt = MCPServer.iso8601Now()
 
+        let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let result = try LDAService.anonymize(
             input: input,
             outputDir: outputDir,
             protection: protection,
-            createdAtISO8601: createdAt
+            createdAtISO8601: createdAt,
+            llmModelPath: modelPath
         )
 
         var summary: [String: Any] = [
@@ -218,7 +220,8 @@ public struct MCPServer {
     /// detect_entities: run LDAService.detect and summarize the detected spans.
     private func callDetect(_ arguments: [String: Any]) throws -> [String: Any] {
         let input = try requireURL(arguments, key: "input")
-        let spans = try LDAService.detect(input: input)
+        let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let spans = try LDAService.detect(input: input, llmModelPath: modelPath)
 
         let entities: [[String: Any]] = spans.map { span in
             [
@@ -405,7 +408,8 @@ public struct MCPServer {
                 "properties": [
                     "input": ["type": "string", "description": "Path to the source document."],
                     "outputDir": ["type": "string", "description": "Directory for the redacted file and sidecar."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."]
+                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."],
+                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
                 ],
                 "required": ["input", "outputDir"]
             ]
@@ -430,7 +434,8 @@ public struct MCPServer {
             "inputSchema": [
                 "type": "object",
                 "properties": [
-                    "input": ["type": "string", "description": "Path to the source document."]
+                    "input": ["type": "string", "description": "Path to the source document."],
+                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
                 ],
                 "required": ["input"]
             ]
