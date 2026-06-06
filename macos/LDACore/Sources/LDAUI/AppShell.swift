@@ -76,17 +76,21 @@ public struct AppShell: View {
         }
 
         ToolbarItemGroup(placement: .automatic) {
+            // A clearly labeled feature toggle, not a mode switch. The label shows
+            // its current on/off state so the user always knows what is happening.
             Toggle(isOn: $model.useLLM) {
-                Label("AI entities", systemImage: "sparkles")
+                Label(model.useLLM ? "AI detection: On" : "AI detection: Off", systemImage: "sparkles")
             }
             .toggleStyle(.switch)
-            .help("Also run the AI extractor for names, companies, and addresses")
+            .labelStyle(.titleAndIcon)
+            .help("On: also detect names, companies, and addresses with the on-device AI model (slower). Off: fast pattern matching only.")
 
             Button {
                 Task { await model.anonymize() }
             } label: {
                 Label("Anonymize", systemImage: "wand.and.rays")
             }
+            .labelStyle(.titleAndIcon)
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccent)
             .disabled(!canAnonymize)
@@ -97,6 +101,7 @@ public struct AppShell: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(!canExport)
             .help("Tokenize accepted entities and write the redacted document")
         }
