@@ -14,6 +14,7 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
 import LDACore
 
@@ -58,6 +59,46 @@ public struct EntitySidebar: View {
         .tint(CounselTheme.inkAccent)
         .scrollContentBackground(.hidden)
         .background(CounselTheme.appSurface)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            sidebarFooter
+        }
+    }
+
+    // MARK: - Footer
+
+    /// A thin footer pinned to the lower-left with a Settings gear.
+    private var sidebarFooter: some View {
+        HStack(spacing: 6) {
+            Button {
+                Self.openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .frame(width: 26, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
+            .accessibilityLabel(Text("Settings"))
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(CounselTheme.appSurface)
+        .overlay(alignment: .top) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+    }
+
+    /// Open the Settings window. Uses the Ventura selector first, falling back to
+    /// the older Preferences selector, so it works without the macOS 14
+    /// openSettings environment action.
+    private static func openSettings() {
+        if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
     }
 
     // MARK: - Grouping
