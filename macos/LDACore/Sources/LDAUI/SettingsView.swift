@@ -28,6 +28,8 @@ public struct SettingsView: View {
 
     public var body: some View {
         TabView {
+            GeneralTab()
+                .tabItem { Label("General", systemImage: "gearshape") }
             VocabularyTab(store: patterns)
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
             LearnedTab(store: learning)
@@ -141,6 +143,43 @@ private struct SharingTab: View {
             + (added == 1 ? "term" : "terms")
             + " and merged \(merged) learned "
             + (merged == 1 ? "entry." : "entries.")
+    }
+}
+
+// MARK: - General tab
+
+private struct GeneralTab: View {
+    @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Appearance")
+                .font(.system(.headline, design: .serif))
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Picker("Theme", selection: appearanceBinding) {
+                ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 320, alignment: .leading)
+
+            Text("System follows your Mac's light or dark setting. Choose Light or Dark to override it.")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var appearanceBinding: Binding<AppearanceMode> {
+        Binding(
+            get: { AppearanceMode.from(rawValue: appearanceRaw) },
+            set: { appearanceRaw = $0.rawValue }
+        )
     }
 }
 

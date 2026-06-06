@@ -137,7 +137,7 @@ public struct AppShell: View {
                 Text(text)
                     .font(.callout)
                     .foregroundStyle(bannerIsError
-                        ? Color(srgb: 0xB05F5C)
+                        ? CounselTheme.danger
                         : CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -337,15 +337,3 @@ public struct AppShell: View {
     }()
 }
 
-// MARK: - Local color helper
-
-private extension Color {
-    /// Builds an sRGB color from a 24-bit 0xRRGGBB literal. Mirrors the helper in
-    /// CounselTheme so the banner can reuse the PHONE hue for error text.
-    init(srgb hex: UInt32) {
-        let red = Double((hex >> 16) & 0xFF) / 255.0
-        let green = Double((hex >> 8) & 0xFF) / 255.0
-        let blue = Double(hex & 0xFF) / 255.0
-        self.init(.sRGB, red: red, green: green, blue: blue, opacity: 1.0)
-    }
-}

@@ -24,10 +24,18 @@ struct LDAApp: App {
     /// The persisted on-device learning store, shared by the window and Settings.
     @StateObject private var learningStore = LearningStore()
 
+    /// The theme preference (System, Light, Dark), shared with Settings.
+    @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
+
+    private var colorScheme: ColorScheme? {
+        AppearanceMode.from(rawValue: appearanceRaw).colorScheme
+    }
+
     var body: some Scene {
         WindowGroup("LDA") {
             AppShell(model: model)
                 .frame(minWidth: 1100, minHeight: 720)
+                .preferredColorScheme(colorScheme)
                 .onAppear {
                     // Feed the user's custom vocabulary into each anonymize run,
                     // and let the model learn from each export.
@@ -38,6 +46,7 @@ struct LDAApp: App {
 
         Settings {
             SettingsView(patterns: patternStore, learning: learningStore)
+                .preferredColorScheme(colorScheme)
         }
     }
 
