@@ -23,6 +23,9 @@ import LDACore
 public struct EntitySidebar: View {
     @ObservedObject private var model: ReviewModel
 
+    /// Opens the Settings scene reliably (does not rely on menu wiring).
+    @Environment(\.openSettings) private var openSettings
+
     /// The currently selected group row. Selection is purely a UI affordance; it
     /// uses the ink accent and does not change accept state.
     @State private var selection: String?
@@ -70,7 +73,7 @@ public struct EntitySidebar: View {
     private var sidebarFooter: some View {
         HStack(spacing: 6) {
             Button {
-                Self.openSettings()
+                openSettings()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14, weight: .regular))
@@ -92,14 +95,6 @@ public struct EntitySidebar: View {
         }
     }
 
-    /// Open the Settings window. Uses the Ventura selector first, falling back to
-    /// the older Preferences selector, so it works without the macOS 14
-    /// openSettings environment action.
-    private static func openSettings() {
-        if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
-    }
 
     // MARK: - Grouping
 
