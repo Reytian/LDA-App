@@ -44,6 +44,16 @@ struct LDAApp: App {
                 }
         }
 
+        .commands {
+            CommandGroup(after: .saveItem) {
+                Button("Export Redacted Document…") {
+                    model.requestExport()
+                }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(!model.canExport)
+            }
+        }
+
         Settings {
             SettingsView(patterns: patternStore, learning: learningStore)
                 .preferredColorScheme(colorScheme)

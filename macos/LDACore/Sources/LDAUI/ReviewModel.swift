@@ -116,6 +116,22 @@ public final class ReviewModel: ObservableObject {
     /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
     @Published public var learningNote: String?
 
+    /// Bumped when the Export menu command fires, so the window can present the
+    /// export flow (which owns the panels and passphrase sheet).
+    @Published public var exportRequestToken: Int = 0
+
+    /// True once a document has been anonymized and is ready to export.
+    public var canExport: Bool {
+        if case .ready = status { return true }
+        return false
+    }
+
+    /// Ask the window to begin the export flow. Used by the File menu command.
+    public func requestExport() {
+        guard canExport else { return }
+        exportRequestToken += 1
+    }
+
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
     private var sourceURL: URL?

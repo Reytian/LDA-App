@@ -60,6 +60,9 @@ public struct AppShell: View {
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
         }
+        .onChange(of: model.exportRequestToken) { _ in
+            beginExport()
+        }
     }
 
     // MARK: - Toolbar
@@ -93,8 +96,8 @@ public struct AppShell: View {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
             .labelStyle(.titleAndIcon)
-            .disabled(!canExport)
-            .help("Tokenize accepted entities and write the redacted document")
+            .disabled(!model.canExport)
+            .help("Write the redacted document and its encrypted mapping")
         }
     }
 
@@ -244,11 +247,6 @@ public struct AppShell: View {
 
     // MARK: - Open flow
 
-    private var canExport: Bool {
-        if case .ready = model.status { return true }
-        return false
-    }
-
     /// Present a native open panel for the source document. NSOpenPanel is used
     /// instead of SwiftUI .fileImporter because two .fileImporter modifiers on the
     /// same view conflict and silently fail to present.
@@ -274,7 +272,7 @@ public struct AppShell: View {
     // MARK: - Export flow
 
     private func beginExport() {
-        guard canExport else { return }
+        guard model.canExport else { return }
         exportMessage = nil
         passphrase = ""
         let panel = NSOpenPanel()
