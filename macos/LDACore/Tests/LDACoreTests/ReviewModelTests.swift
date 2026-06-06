@@ -197,4 +197,34 @@ final class ReviewModelTests: XCTestCase {
         let rejectedAfter = try XCTUnwrap(model.entities.first { $0.id == emailEntity.id })
         XCTAssertNil(rejectedAfter.token, "a rejected entity must not be assigned a token")
     }
+
+    // MARK: - Restore round-trip (in-app de-anonymize)
+
+    func testRestoreRoundTripsAnExportedDocument() async throws {
+        let model = ReviewModel(modelPath: nil)
+        let inputURL = try writeFixtureText()
+        await model.open(inputURL)
+        await model.anonymize()
+
+        let outDir = workDir.appendingPathComponent("out", isDirectory: true)
+        let exportResult = try model.export(
+            to: outDir,
+            passphrase: "pw",
+            createdAtISO8601: Self.createdAt
+        )
+
+        let restoredURL = workDir.appendingPathComponent("restored.txt")
+        let report = try model.restore(
+            editedRedacted: exportResult.redactedURL,
+            mapping: exportResult.mappingURL,
+            passphrase: "pw",
+            output: restoredURL
+        )
+
+        let original = try String(contentsOf: inputURL, encoding: .utf8)
+        let restored = try String(contentsOf: restoredURL, encoding: .utf8)
+        XCTAssertEqual(restored, original, "restore must reproduce the original text")
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertGreaterThan(report.restoredCount, 0)
+    }
 }

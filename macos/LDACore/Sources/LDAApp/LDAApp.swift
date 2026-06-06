@@ -51,6 +51,11 @@ struct LDAApp: App {
                 }
                 .keyboardShortcut("e", modifiers: .command)
                 .disabled(!model.canExport)
+
+                Button("Restore Original…") {
+                    model.requestRestore()
+                }
+                .keyboardShortcut("r", modifiers: .command)
             }
         }
 

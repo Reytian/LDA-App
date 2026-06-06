@@ -55,13 +55,33 @@ public struct AppShell: View {
             .background(CounselTheme.paper)
         }
         .background(CounselTheme.appSurface)
-        .navigationTitle("Legal Document Anonymizer")
+        .navigationTitle(model.documentName ?? "Legal Document Anonymizer")
         .toolbar { toolbarContent }
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
         }
         .onChange(of: model.exportRequestToken) { _ in
             beginExport()
+        }
+        .onChange(of: model.restoreRequestToken) { _ in
+            presentRestore()
+        }
+        .onChange(of: model.status) { status in
+            announce(status)
+        }
+    }
+
+    /// Announce run completion to VoiceOver (status banners are otherwise silent).
+    private func announce(_ status: ReviewStatus) {
+        switch status {
+        case .ready:
+            AccessibilityNotification.Announcement(
+                "Review ready. \(model.redactedCount) to redact, \(model.visibleCount) will remain visible."
+            ).post()
+        case .failed(let detail):
+            AccessibilityNotification.Announcement("Could not process the document. \(detail)").post()
+        default:
+            break
         }
     }
 
@@ -86,7 +106,7 @@ public struct AppShell: View {
             }
             .labelStyle(.titleAndIcon)
             .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccent)
+            .tint(CounselTheme.inkAccentFill)
             .disabled(!canAnonymize)
             .help("Detect sensitive information in the open document")
 
@@ -131,6 +151,8 @@ public struct AppShell: View {
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
+        } else if case .ready = model.status {
+            reviewSummaryBanner
         } else if let text = bannerText {
             bannerChrome {
                 if isWorking {
@@ -143,6 +165,49 @@ public struct AppShell: View {
                         ? CounselTheme.danger
                         : CounselTheme.textSecondary)
                 Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// The post-anonymize review summary: how many will be redacted, how many the
+    /// user rejected (so will remain visible), an AI-unavailable warning, the
+    /// learning note, and any export outcome. Gives the lawyer a trust signal
+    /// before relying on the output.
+    @ViewBuilder
+    private var reviewSummaryBanner: some View {
+        bannerChrome {
+            Image(systemName: "checkmark.seal")
+                .foregroundStyle(CounselTheme.inkAccent)
+            Text("\(model.redactedCount) to redact")
+                .font(.callout).monospacedDigit()
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            if model.visibleCount > 0 {
+                Text("\u{00B7}  \(model.visibleCount) will remain visible")
+                    .font(.callout).monospacedDigit()
+                    .foregroundStyle(CounselTheme.danger)
+            }
+
+            if !model.aiActive {
+                Label("Pattern matching only", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
+                    .help("The AI model was unavailable, so names, companies, and addresses may have been missed.")
+            }
+
+            if let note = model.learningNote {
+                Text("\u{00B7}  \(note)")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+
+            if let exportMessage {
+                Text(exportMessage)
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .lineLimit(1)
             }
         }
     }
@@ -221,6 +286,16 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Trust confirmation: what is and is not being redacted.
+            (Text("\(model.redactedCount)").bold() + Text(" entities will be redacted.")
+                + (model.visibleCount > 0
+                    ? Text("  \(model.visibleCount) you rejected will remain visible in the exported file.")
+                        .foregroundColor(CounselTheme.danger)
+                    : Text("")))
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
             SecureField("Passphrase (optional)", text: $passphrase)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
@@ -237,7 +312,7 @@ public struct AppShell: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccent)
+                .tint(CounselTheme.inkAccentFill)
             }
         }
         .padding(24)
@@ -319,6 +394,105 @@ public struct AppShell: View {
         } catch {
             exportMessage = "Export failed. \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Restore flow (de-anonymize)
+
+    /// Restore an edited redacted document back to its originals: pick the file,
+    /// locate or pick its .ldamap, ask for the passphrase if any, choose an
+    /// output, run the restore, and report the result (including any tokens that
+    /// could not be restored).
+    private func presentRestore() {
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = Self.openContentTypes
+        openPanel.message = "Choose the edited redacted document to restore."
+        openPanel.prompt = "Choose"
+        guard openPanel.runModal() == .OK, let redacted = openPanel.url else { return }
+
+        guard let mapping = locateMapping(for: redacted) else { return }
+        guard let entered = askRestorePassphrase() else { return }
+        let phrase = entered.isEmpty ? nil : entered
+
+        let savePanel = NSSavePanel()
+        savePanel.message = "Save the restored document."
+        let base = redacted.deletingPathExtension().lastPathComponent
+        let ext = redacted.pathExtension.isEmpty ? "txt" : redacted.pathExtension
+        savePanel.nameFieldStringValue = "\(base)_restored.\(ext)"
+        guard savePanel.runModal() == .OK, let output = savePanel.url else { return }
+
+        do {
+            let report = try model.restore(
+                editedRedacted: redacted,
+                mapping: mapping,
+                passphrase: phrase,
+                output: output
+            )
+            showRestoreResult(report)
+        } catch {
+            showAlert(title: "Restore failed", text: error.localizedDescription, warning: true)
+        }
+    }
+
+    /// Find the sibling <base>.ldamap next to the redacted file, or let the user
+    /// pick it. Returns nil if the user cancels.
+    private func locateMapping(for redacted: URL) -> URL? {
+        let sibling = redacted.deletingPathExtension().appendingPathExtension("ldamap")
+        if FileManager.default.fileExists(atPath: sibling.path) { return sibling }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the .ldamap mapping that goes with this document."
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    /// Ask for the mapping passphrase. Returns the entered string (which may be
+    /// empty, meaning Keychain), or nil if the user cancels.
+    private func askRestorePassphrase() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Mapping passphrase"
+        alert.informativeText = "If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain."
+        alert.addButton(withTitle: "Restore")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    private func showRestoreResult(_ report: RestoreReport) {
+        if report.orphanTokens.isEmpty {
+            showAlert(
+                title: "Document restored",
+                text: "Restored \(report.restoredCount) value"
+                    + (report.restoredCount == 1 ? "" : "s")
+                    + " to \(report.outputURL.lastPathComponent).",
+                warning: false
+            )
+        } else {
+            let sample = report.orphanTokens.prefix(5).joined(separator: ", ")
+            showAlert(
+                title: "Restored with warnings",
+                text: "Restored \(report.restoredCount) values, but \(report.orphanTokens.count) token"
+                    + (report.orphanTokens.count == 1 ? "" : "s")
+                    + " could not be matched (they may have been edited): \(sample). "
+                    + "Those placeholders remain in \(report.outputURL.lastPathComponent).",
+                warning: true
+            )
+        }
+    }
+
+    private func showAlert(title: String, text: String, warning: Bool) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.alertStyle = warning ? .warning : .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     // MARK: - Content types

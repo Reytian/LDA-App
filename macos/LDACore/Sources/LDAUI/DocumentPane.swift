@@ -86,7 +86,7 @@ public struct DocumentPane: View {
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccent)
+            .tint(CounselTheme.inkAccentFill)
 
             if case .failed(let detail) = model.status {
                 Text(detail)
@@ -117,6 +117,9 @@ public struct DocumentPane: View {
             openURL(url)
             return true
         } isTargeted: { isDropTargeted = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Drop a document to anonymize, or choose a file")
+        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Open
@@ -282,8 +285,10 @@ public struct DocumentPane: View {
         if entity.accepted {
             // Sealed token: stronger low-opacity fill in the entity hue and a
             // monospaced face so it reads as a filled chip carrying its token.
+            // Token text uses primary ink (not the hue) so it clears WCAG AA;
+            // the hue stays in the fill.
             attributed[range].backgroundColor = hue.opacity(Style.sealedFillOpacity)
-            attributed[range].foregroundColor = hue.opacity(Style.sealedTextOpacity)
+            attributed[range].foregroundColor = CounselTheme.textPrimary
             attributed[range].font = .system(.body, design: .monospaced)
             attributed[range].underlineStyle = nil
         } else {

@@ -23,8 +23,13 @@ public enum CounselTheme {
 
     // MARK: - Brand and surfaces
 
-    /// The single ink-blue accent. Primary actions, focus, and selection only.
+    /// The single ink-blue accent for focus, selection, dots, and small marks.
     public static let inkAccent = dynamic(light: 0x3A4FA0, dark: 0x6E82DA)
+
+    /// The fill for prominent buttons, where WHITE text sits on top. The dark
+    /// variant is darker than inkAccent so white-on-fill clears WCAG AA 4.5:1
+    /// (inkAccent's dark 0x6E82DA only reached 3.58:1).
+    public static let inkAccentFill = dynamic(light: 0x3A4FA0, dark: 0x4A5DB8)
 
     /// The document pane surface (warm paper).
     public static let paper = dynamic(light: 0xFCFBF9, dark: 0x242529)
@@ -40,8 +45,9 @@ public enum CounselTheme {
     /// Primary text.
     public static let textPrimary = dynamic(light: 0x2B2E33, dark: 0xE9EAED)
 
-    /// Secondary text.
-    public static let textSecondary = dynamic(light: 0x71757C, dark: 0x9CA1A9)
+    /// Secondary text. Light variant darkened from 0x71757C (which only reached
+    /// 4.24:1 on the sidebar surface) to clear WCAG AA on appSurface and paper.
+    public static let textSecondary = dynamic(light: 0x5F636B, dark: 0x9CA1A9)
 
     /// The hairline border used in place of shadows.
     public static let hairline = dynamic(light: 0xE2E4E8, dark: 0x3A3C41)
@@ -63,8 +69,12 @@ public enum CounselTheme {
             return dynamic(light: 0x4E8C68, dark: 0x86C9A1)
         case .email:
             return dynamic(light: 0x3F84B5, dark: 0x77B6E0)
-        case .nationalID, .uscc, .bankAccount:
-            return dynamic(light: 0xA07A2E, dark: 0xD9B968)
+        case .nationalID:
+            return dynamic(light: 0xA07A2E, dark: 0xD9B968) // gold
+        case .uscc:
+            return dynamic(light: 0x8C6239, dark: 0xCB9A6A) // bronze
+        case .bankAccount:
+            return dynamic(light: 0x6B6326, dark: 0xB3A85A) // olive
         case .amount:
             return dynamic(light: 0x9A5499, dark: 0xD18FCF)
         case .phone:
@@ -72,6 +82,25 @@ public enum CounselTheme {
         case .date, .unknown:
             return dynamic(light: 0x8A8175, dark: 0xBFB6A6)
         }
+    }
+
+    // MARK: - Spacing and radius tokens
+
+    /// The 4pt-based spacing scale. Chrome uses xs...lg; the document pane uses
+    /// the larger editorial rhythm directly.
+    public enum Space {
+        public static let xs: CGFloat = 4
+        public static let sm: CGFloat = 8
+        public static let md: CGFloat = 12
+        public static let lg: CGFloat = 16
+        public static let xl: CGFloat = 24
+    }
+
+    /// Corner radii.
+    public enum Radius {
+        public static let sm: CGFloat = 8
+        public static let md: CGFloat = 12
+        public static let lg: CGFloat = 18
     }
 
     // MARK: - Dynamic color builder

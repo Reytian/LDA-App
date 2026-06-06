@@ -216,12 +216,20 @@ private struct EntityGroupRow: View {
 
             Spacer(minLength: 8)
 
+            if !accepted {
+                Image(systemName: "eye")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
+                    .help("Rejected: this will remain visible in the exported document")
+                    .accessibilityLabel("Will remain visible")
+            }
+
             Toggle("", isOn: acceptedBinding)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .controlSize(.mini)
+                .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
-                .accessibilityLabel(Text("Accept \(group.type.rawValue) \(group.value)"))
+                .accessibilityLabel(Text("Redact \(group.type.rawValue) \(group.value)"))
         }
         .padding(.vertical, 3)
         .opacity(accepted ? 1.0 : 0.55)
@@ -298,7 +306,7 @@ private struct TokenChip: View {
     var body: some View {
         Text(displayToken)
             .font(.caption2.monospaced())
-            .foregroundStyle(CounselTheme.color(for: type))
+            .foregroundStyle(CounselTheme.textPrimary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(

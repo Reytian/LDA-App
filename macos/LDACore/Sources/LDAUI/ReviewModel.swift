@@ -116,9 +116,30 @@ public final class ReviewModel: ObservableObject {
     /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
     @Published public var learningNote: String?
 
+    /// Whether the AI extractor actually ran for the last anonymize pass. When
+    /// false, detection was pattern-matching only, so the window can warn that
+    /// names, companies, and addresses may have been missed.
+    @Published public var aiActive: Bool = false
+
     /// Bumped when the Export menu command fires, so the window can present the
     /// export flow (which owns the panels and passphrase sheet).
     @Published public var exportRequestToken: Int = 0
+
+    /// Bumped when the Restore menu command fires.
+    @Published public var restoreRequestToken: Int = 0
+
+    /// The open document's file name, for the window title.
+    public var documentName: String? { sourceURL?.lastPathComponent }
+
+    /// How many entities will be redacted (accepted) on export.
+    public var redactedCount: Int { entities.filter { $0.accepted }.count }
+
+    /// How many detected entities the user rejected and that will therefore
+    /// remain visible in the exported document.
+    public var visibleCount: Int { entities.filter { !$0.accepted }.count }
+
+    /// Ask the window to begin the restore flow. Used by the File menu command.
+    public func requestRestore() { restoreRequestToken += 1 }
 
     /// True once a document has been anonymized and is ready to export.
     public var canExport: Bool {
@@ -208,9 +229,30 @@ public final class ReviewModel: ObservableObject {
 
         entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
+        aiActive = runsLLM
         progress = 1
         etaText = nil
         status = .ready
+    }
+
+    // MARK: - Restore (de-anonymize)
+
+    /// Restore an edited redacted document back to its original values using its
+    /// encrypted mapping sidecar. Standalone: does not touch the review session.
+    public func restore(
+        editedRedacted: URL,
+        mapping: URL,
+        passphrase: String?,
+        output: URL
+    ) throws -> RestoreReport {
+        let protection: MappingProtection = passphrase.map { .passphrase($0) }
+            ?? .keychain(account: mapping.deletingPathExtension().lastPathComponent)
+        return try LDAService.restore(
+            editedRedacted: editedRedacted,
+            mapping: mapping,
+            protection: protection,
+            output: output
+        )
     }
 
     /// A short, human note about what learning contributed, or nil when nothing.

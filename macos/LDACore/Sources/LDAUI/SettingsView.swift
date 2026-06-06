@@ -68,7 +68,7 @@ private struct SharingTab: View {
                     Label("Export Profile", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccent)
+                .tint(CounselTheme.inkAccentFill)
 
                 Button { importProfile() } label: {
                     Label("Import Profile", systemImage: "square.and.arrow.down")
@@ -216,7 +216,7 @@ private struct VocabularyTab: View {
             HStack {
                 Button { store.add() } label: { Label("Add Term", systemImage: "plus") }
                     .buttonStyle(.borderedProminent)
-                    .tint(CounselTheme.inkAccent)
+                    .tint(CounselTheme.inkAccentFill)
                 Spacer()
                 Text("\(store.activePatterns.count) active")
                     .font(.caption.monospacedDigit())
@@ -249,6 +249,7 @@ private struct PatternRow: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(CounselTheme.danger)
                             .help("Invalid regular expression")
+                            .accessibilityLabel("Invalid regular expression")
                             .padding(.trailing, 6)
                     }
                 }
@@ -256,16 +257,19 @@ private struct PatternRow: View {
             Toggle(".*", isOn: $pattern.isRegex)
                 .toggleStyle(.button)
                 .help("Treat the term as a regular expression")
+                .accessibilityLabel("Regular expression")
 
             Picker("", selection: $pattern.type) {
                 ForEach(Self.assignableTypes, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .labelsHidden()
             .frame(width: 140)
+            .accessibilityLabel("Token type")
 
             Toggle("Aa", isOn: $pattern.caseSensitive)
                 .toggleStyle(.button)
                 .help("Match letter case exactly")
+                .accessibilityLabel("Case sensitive")
         }
         .padding(.vertical, 3)
     }
@@ -334,10 +338,15 @@ private struct LearnedRow: View {
             }
             Spacer(minLength: 8)
             decisionBadge
-            Button { onForget() } label: { Image(systemName: "xmark.circle.fill") }
-                .buttonStyle(.borderless)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .help("Forget this term")
+            Button { onForget() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(CounselTheme.textSecondary)
+            .help("Forget this term")
+            .accessibilityLabel("Forget \(term.value)")
         }
         .padding(.vertical, 2)
     }
