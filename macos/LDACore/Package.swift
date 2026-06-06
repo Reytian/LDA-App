@@ -14,9 +14,16 @@ let package = Package(
             targets: ["LDACore"]
         )
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/weichsel/ZIPFoundation.git",
+            .upToNextMajor(from: "0.9.0")
+        )
+    ],
     targets: [
         .target(
             name: "LDACore",
+            dependencies: ["ZIPFoundation"],
             path: "Sources/LDACore"
         ),
         .testTarget(
