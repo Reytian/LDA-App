@@ -203,6 +203,15 @@ public final class ReviewModel: ObservableObject {
         entities[index].accepted = accepted
     }
 
+    /// Set the accepted flag for several entities at once, so a grouped row (all
+    /// occurrences of the same value) can be accepted or rejected together.
+    public func setAccepted(ids: Set<ReviewEntity.ID>, _ accepted: Bool) {
+        guard !ids.isEmpty else { return }
+        for index in entities.indices where ids.contains(entities[index].id) {
+            entities[index].accepted = accepted
+        }
+    }
+
     // MARK: - Export
 
     /// Tokenize the accepted spans over the current (possibly edited) text, write

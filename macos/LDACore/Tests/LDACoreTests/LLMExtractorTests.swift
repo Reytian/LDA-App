@@ -146,6 +146,24 @@ final class LLMExtractorTests: XCTestCase {
         )
     }
 
+    func testDropsFinancingRoleLabels() throws {
+        // "Investor" / "Investors" are party roles (terms of art), not people, even
+        // when the model reports them as PERSON. Only the real name survives.
+        let text = "The Investor and the Investors appointed Maria Chen."
+        let json = """
+        {"entities":[\
+        {"value":"Investor","type":"PERSON"},\
+        {"value":"Investors","type":"PERSON"},\
+        {"value":"Maria Chen","type":"PERSON"}],"redacted_text":""}
+        """
+        let extractor = LLMExtractor(completer: MockCompleter(defaultOutput: json))
+
+        let spans = try extractor.extract(from: text)
+
+        XCTAssertEqual(spans.map { $0.text }, ["Maria Chen"])
+        XCTAssertFalse(spans.contains { $0.text == "Investor" || $0.text == "Investors" })
+    }
+
     // MARK: - A garbage chunk is skipped without failing
 
     func testSkipsChunkWithGarbageCompletionWithoutFailing() throws {

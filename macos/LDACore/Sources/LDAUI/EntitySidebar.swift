@@ -22,9 +22,9 @@ import LDACore
 public struct EntitySidebar: View {
     @ObservedObject private var model: ReviewModel
 
-    /// The currently selected row. Selection is purely a UI affordance here; it
+    /// The currently selected group row. Selection is purely a UI affordance; it
     /// uses the ink accent and does not change accept state.
-    @State private var selection: ReviewEntity.ID?
+    @State private var selection: String?
 
     public init(model: ReviewModel) {
         self.model = model
@@ -33,22 +33,23 @@ public struct EntitySidebar: View {
     public var body: some View {
         List(selection: $selection) {
             ForEach(Self.orderedTypes, id: \.self) { type in
-                let group = entities(of: type)
-                if !group.isEmpty {
+                let groups = groups(of: type)
+                if !groups.isEmpty {
                     Section {
-                        ForEach(group) { entity in
-                            EntityRow(
-                                entity: entity,
-                                isSelected: selection == entity.id,
+                        ForEach(groups) { group in
+                            EntityGroupRow(
+                                group: group,
+                                isSelected: selection == group.id,
                                 onSetAccepted: { accepted in
-                                    model.setAccepted(entity.id, accepted)
+                                    model.setAccepted(ids: group.ids, accepted)
                                 }
                             )
-                            .tag(entity.id)
-                            .listRowBackground(rowBackground(for: entity.id))
+                            .tag(group.id)
+                            .listRowBackground(rowBackground(for: group.id))
                         }
                     } header: {
-                        SectionHeader(type: type, count: group.count)
+                        // The header count is distinct values, not raw occurrences.
+                        SectionHeader(type: type, count: groups.count)
                     }
                 }
             }
@@ -68,15 +69,60 @@ public struct EntitySidebar: View {
         .bankAccount, .nationalID, .uscc, .amount, .date, .unknown
     ]
 
-    /// The entities of a given type, preserving their order in the model.
-    private func entities(of type: EntityType) -> [ReviewEntity] {
-        model.entities.filter { $0.span.type == type }
+    /// Group the entities of a type by their value (case and whitespace
+    /// insensitive), so every occurrence of "Investors" collapses into one row
+    /// with an occurrence count and a single accept control. Group order follows
+    /// first appearance.
+    private func groups(of type: EntityType) -> [EntityGroup] {
+        var order: [String] = []
+        var byKey: [String: EntityGroup] = [:]
+
+        for entity in model.entities where entity.span.type == type {
+            let key = entity.span.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if var existing = byKey[key] {
+                existing.ids.insert(entity.id)
+                existing.occurrences += 1
+                existing.anyAccepted = existing.anyAccepted || entity.accepted
+                if existing.token == nil, entity.accepted { existing.token = entity.token }
+                byKey[key] = existing
+            } else {
+                order.append(key)
+                byKey[key] = EntityGroup(
+                    id: "\(type.rawValue)|\(key)",
+                    value: entity.span.text,
+                    type: type,
+                    source: entity.span.source,
+                    ids: [entity.id],
+                    occurrences: 1,
+                    anyAccepted: entity.accepted,
+                    token: entity.accepted ? entity.token : nil
+                )
+            }
+        }
+        return order.compactMap { byKey[$0] }
     }
 
     /// The ink-tinted selection background, or clear for unselected rows.
-    private func rowBackground(for id: ReviewEntity.ID) -> Color {
+    private func rowBackground(for id: EntityGroup.ID) -> Color {
         selection == id ? CounselTheme.inkAccent.opacity(0.10) : Color.clear
     }
+}
+
+// MARK: - EntityGroup
+
+/// All occurrences of one value within a type, collapsed into a single
+/// reviewable row.
+private struct EntityGroup: Identifiable {
+    let id: String
+    let value: String
+    let type: EntityType
+    let source: DetectionSource
+    var ids: Set<ReviewEntity.ID>
+    var occurrences: Int
+    var anyAccepted: Bool
+    var token: String?
 }
 
 // MARK: - SectionHeader
@@ -106,20 +152,21 @@ private struct SectionHeader: View {
 
 // MARK: - EntityRow
 
-/// One dense detection row: a type dot, the serif surface value, a quiet
-/// type-and-source caption, and an accept toggle. Rejected rows read dimmed; the
+/// One dense group row: a type dot, the serif value, a quiet caption (type,
+/// source, and an occurrence count when the value repeats), and a single accept
+/// toggle that applies to every occurrence. Rejected rows read dimmed; the
 /// assigned token, when present, renders as a sealed mono chip.
-private struct EntityRow: View {
-    let entity: ReviewEntity
+private struct EntityGroupRow: View {
+    let group: EntityGroup
     let isSelected: Bool
     let onSetAccepted: (Bool) -> Void
 
-    private var accepted: Bool { entity.accepted }
+    private var accepted: Bool { group.anyAccepted }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             Circle()
-                .fill(CounselTheme.color(for: entity.span.type))
+                .fill(CounselTheme.color(for: group.type))
                 .frame(width: 8, height: 8)
                 .opacity(accepted ? 1.0 : 0.4)
                 .alignmentGuide(.firstTextBaseline) { dimension in
@@ -138,24 +185,35 @@ private struct EntityRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .tint(CounselTheme.inkAccent)
-                .accessibilityLabel(Text("Accept \(entity.span.type.rawValue)"))
+                .accessibilityLabel(Text("Accept \(group.type.rawValue) \(group.value)"))
         }
         .padding(.vertical, 3)
         .opacity(accepted ? 1.0 : 0.55)
     }
 
-    /// The surface value in serif, truncated, with the sealed token chip shown
-    /// alongside once a token has been assigned for an accepted entity.
+    /// The value in serif, truncated, an occurrence-count pill when it repeats,
+    /// and the sealed token chip once a token has been assigned.
     private var valueLine: some View {
         HStack(spacing: 6) {
-            Text(entity.span.text)
+            Text(group.value)
                 .font(.system(.callout, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if accepted, let token = entity.token {
-                TokenChip(token: token, type: entity.span.type)
+            if group.occurrences > 1 {
+                Text("\u{00D7}\(group.occurrences)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule(style: .continuous).fill(CounselTheme.hairline.opacity(0.6))
+                    )
+            }
+
+            if accepted, let token = group.token {
+                TokenChip(token: token, type: group.type)
             }
         }
     }
@@ -163,17 +221,17 @@ private struct EntityRow: View {
     /// The quiet caption: type plus the detection source rendered as a human
     /// label (regex vs LLM).
     private var captionLine: some View {
-        Text("\(entity.span.type.rawValue)  \u{00B7}  \(Self.sourceLabel(for: entity.span.source))")
+        Text("\(group.type.rawValue)  \u{00B7}  \(Self.sourceLabel(for: group.source))")
             .font(.caption2)
             .foregroundStyle(CounselTheme.textSecondary)
             .lineLimit(1)
     }
 
-    /// A binding that routes accept changes back through the model so the model
-    /// stays the single source of truth.
+    /// A binding that routes accept changes back through the model for every
+    /// occurrence in the group, so the model stays the single source of truth.
     private var acceptedBinding: Binding<Bool> {
         Binding(
-            get: { entity.accepted },
+            get: { group.anyAccepted },
             set: { onSetAccepted($0) }
         )
     }
