@@ -12,12 +12,24 @@ let package = Package(
         .library(
             name: "LDACore",
             targets: ["LDACore"]
+        ),
+        .executable(
+            name: "lda",
+            targets: ["lda"]
+        ),
+        .executable(
+            name: "lda-mcp",
+            targets: ["lda-mcp"]
         )
     ],
     dependencies: [
         .package(
             url: "https://github.com/weichsel/ZIPFoundation.git",
             .upToNextMajor(from: "0.9.0")
+        ),
+        .package(
+            url: "https://github.com/apple/swift-argument-parser.git",
+            .upToNextMajor(from: "1.3.0")
         )
     ],
     targets: [
@@ -26,9 +38,32 @@ let package = Package(
             dependencies: ["ZIPFoundation"],
             path: "Sources/LDACore"
         ),
+        .target(
+            name: "LDACLI",
+            dependencies: [
+                "LDACore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "Sources/LDACLI"
+        ),
+        .target(
+            name: "LDAMCP",
+            dependencies: ["LDACore"],
+            path: "Sources/LDAMCP"
+        ),
+        .executableTarget(
+            name: "lda",
+            dependencies: ["LDACLI"],
+            path: "Sources/lda"
+        ),
+        .executableTarget(
+            name: "lda-mcp",
+            dependencies: ["LDAMCP"],
+            path: "Sources/lda-mcp"
+        ),
         .testTarget(
             name: "LDACoreTests",
-            dependencies: ["LDACore"],
+            dependencies: ["LDACore", "LDACLI", "LDAMCP"],
             path: "Tests/LDACoreTests"
         )
     ]
