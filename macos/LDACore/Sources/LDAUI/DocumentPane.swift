@@ -174,24 +174,21 @@ public struct DocumentPane: View {
 
     // MARK: - Busy placeholder
 
-    /// True while a document is being imported or scanned for entities.
+    /// True only while importing (before any text exists). During detection the
+    /// imported text stays visible and the progress bar lives in the banner.
     private var isBusy: Bool {
-        switch model.status {
-        case .importing, .detecting:
-            return true
-        case .idle, .ready, .failed:
-            return false
-        }
+        if case .importing = model.status { return true }
+        return false
     }
 
-    /// A graceful placeholder shown during import or detection.
+    /// A graceful placeholder shown during import.
     private var progressPlaceholder: some View {
         VStack(spacing: Layout.placeholderSpacing) {
             ProgressView()
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
 
-            Text(model.status == .importing ? "Importing document" : "Detecting entities")
+            Text("Importing document")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)

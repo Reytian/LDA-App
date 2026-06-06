@@ -91,7 +91,10 @@ final class ReviewModelTests: XCTestCase {
 
         let inputURL = try writeFixtureText()
         await model.open(inputURL)
+        XCTAssertEqual(model.status, .imported, "open imports and shows the text but does not auto-detect")
+        XCTAssertTrue(model.entities.isEmpty, "no detection until anonymize is called")
 
+        await model.anonymize()
         XCTAssertEqual(model.status, .ready)
         XCTAssertFalse(model.documentText.isEmpty)
 
@@ -119,6 +122,7 @@ final class ReviewModelTests: XCTestCase {
         let model = ReviewModel(modelPath: nil)
         let inputURL = try writeFixtureText()
         await model.open(inputURL)
+        await model.anonymize()
         XCTAssertEqual(model.status, .ready)
 
         // Reject the EMAIL entity; keep the NATIONAL_ID (and any other) accepted.

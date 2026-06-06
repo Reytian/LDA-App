@@ -49,6 +49,8 @@ public struct ReviewEntity: Identifiable, Equatable {
 public enum ReviewStatus: Equatable {
     case idle
     case importing
+    /// The document is imported and shown, awaiting the user to start anonymizing.
+    case imported
     case detecting
     case ready
     case failed(String)
@@ -86,6 +88,14 @@ public final class ReviewModel: ObservableObject {
     /// The session lifecycle state.
     @Published public var status: ReviewStatus = .idle
 
+    /// Determinate progress of the anonymize pass, 0...1. Meaningful while
+    /// status is .detecting.
+    @Published public var progress: Double = 0
+
+    /// A short human-readable estimate of remaining time during the anonymize
+    /// pass (for example "about 12s remaining"), or nil when not applicable.
+    @Published public var etaText: String?
+
     /// When true and modelPath is a valid file, detection also runs the LLM
     /// extractor and merges its spans with the deterministic ones.
     @Published public var useLLM: Bool = false
@@ -97,6 +107,9 @@ public final class ReviewModel: ObservableObject {
     /// edit-surface writer on export (docx vs text/pdf companion).
     private var sourceURL: URL?
 
+    /// When the current anonymize pass started, used to estimate time remaining.
+    private var anonymizeStart: Date?
+
     public init(modelPath: String?) {
         self.modelPath = modelPath
     }
@@ -104,14 +117,15 @@ public final class ReviewModel: ObservableObject {
     // MARK: - Open
 
     /// Import the document with the right importer (txt, docx, or pdf with OCR
-    /// fallback) and then detect entities. Import and detection run off the main
-    /// thread; the text, entities, and status are published on the main actor.
+    /// fallback) and show it. Detection does NOT run here; the user starts it with
+    /// anonymize(). Import runs off the main thread; results publish on the main
+    /// actor.
     public func open(_ url: URL) async {
         status = .importing
         sourceURL = url
-
-        let shouldUseLLM = useLLM
-        let path = modelPath
+        entities = []
+        progress = 0
+        etaText = nil
 
         do {
             let text = try await Task.detached(priority: .userInitiated) {
@@ -119,18 +133,66 @@ public final class ReviewModel: ObservableObject {
             }.value
 
             documentText = text
-            status = .detecting
-
-            let spans = await Task.detached(priority: .userInitiated) {
-                Self.detect(in: text, useLLM: shouldUseLLM, modelPath: path)
-            }.value
-
-            entities = spans.map { ReviewEntity(span: $0, accepted: true) }
-            status = .ready
+            status = .imported
         } catch {
             entities = []
             status = .failed(Self.describe(error))
         }
+    }
+
+    // MARK: - Anonymize
+
+    /// Detect entities over the current text: deterministic always, plus the LLM
+    /// pass when enabled. Reports determinate progress and an ETA while running.
+    /// Safe to call again to re-run (for example after toggling AI entities).
+    public func anonymize() async {
+        guard !documentText.isEmpty else { return }
+        let text = documentText
+        let shouldUseLLM = useLLM
+        let path = modelPath
+        let runsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
+
+        status = .detecting
+        progress = 0
+        etaText = runsLLM ? "Loading model" : nil
+        anonymizeStart = Date()
+
+        let report: @Sendable (Int, Int) -> Void = { [weak self] done, total in
+            DispatchQueue.main.async { self?.applyProgress(done: done, total: total) }
+        }
+
+        let spans = await Task.detached(priority: .userInitiated) {
+            Self.detect(in: text, useLLM: shouldUseLLM, modelPath: path, onProgress: report)
+        }.value
+
+        entities = spans.map { ReviewEntity(span: $0, accepted: true) }
+        progress = 1
+        etaText = nil
+        status = .ready
+    }
+
+    /// Update progress and the time estimate from a (done, total) report.
+    private func applyProgress(done: Int, total: Int) {
+        guard case .detecting = status, total > 0 else { return }
+        progress = Double(done) / Double(total)
+        guard done > 0, done < total, let start = anonymizeStart else {
+            etaText = done == 0 ? etaText : nil
+            return
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        let remaining = elapsed / Double(done) * Double(total - done)
+        etaText = Self.formatETA(remaining)
+    }
+
+    /// Format a remaining-seconds estimate as a short human string.
+    private static func formatETA(_ seconds: Double) -> String {
+        let total = max(1, Int(seconds.rounded()))
+        if total < 60 { return "about \(total)s remaining" }
+        let minutes = total / 60
+        let secs = total % 60
+        return secs == 0
+            ? "about \(minutes)m remaining"
+            : "about \(minutes)m \(secs)s remaining"
     }
 
     // MARK: - Accept toggle
@@ -238,11 +300,12 @@ public final class ReviewModel: ObservableObject {
     private nonisolated static func detect(
         in text: String,
         useLLM: Bool,
-        modelPath: String?
+        modelPath: String?,
+        onProgress: ((Int, Int) -> Void)? = nil
     ) -> [Span] {
         SpanMerger.merge(
             deterministic: DeterministicEngine().detect(text),
-            llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath)
+            llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
         )
     }
 
@@ -250,13 +313,14 @@ public final class ReviewModel: ObservableObject {
     private nonisolated static func llmSpans(
         in text: String,
         useLLM: Bool,
-        modelPath: String?
+        modelPath: String?,
+        onProgress: ((Int, Int) -> Void)? = nil
     ) -> [Span] {
         guard useLLM, let modelPath else { return [] }
         guard FileManager.default.fileExists(atPath: modelPath) else { return [] }
         do {
             let engine = try LLMEngine(config: .init(modelPath: modelPath))
-            return try LLMExtractor(completer: engine).extract(from: text)
+            return try LLMExtractor(completer: engine).extract(from: text, onProgress: onProgress)
         } catch {
             return []
         }

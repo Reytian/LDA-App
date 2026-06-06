@@ -47,52 +47,58 @@ public final class LLMExtractor {
     ///
     /// - Parameter text: the source document text.
     /// - Returns: located spans suitable for SpanMerger's llm input.
-    public func extract(from text: String) throws -> [Span] {
+    /// - Parameters:
+    ///   - text: the source document text.
+    ///   - onProgress: optional callback invoked as (segmentsDone, segmentsTotal)
+    ///     after each model call, so a UI can show a determinate progress bar and
+    ///     estimate the remaining time. Called once with (0, total) up front.
+    public func extract(
+        from text: String,
+        onProgress: ((Int, Int) -> Void)? = nil
+    ) throws -> [Span] {
         // 1. Split the document into the windows the v2 model was trained to see.
         let chunks = Chunker.chunk(text)
 
-        // 2. Run each chunk through the single-shot extraction prompt and collect
-        //    the parsed entities. A chunk that fails to complete or returns
-        //    unparseable JSON is skipped, never failing the whole extraction.
-        //
-        //    Because consecutive chunks overlap, the overlap tail of chunk N
-        //    re-appears at the head of chunk N+1. To avoid re-processing overlap
-        //    content AND to prevent a throwable overlap region from suppressing
-        //    entities that exist only in the fresh (non-overlap) portion, each
-        //    chunk's text is split at paragraph breaks (double newlines) and each
-        //    paragraph-delimited segment is sent to the model independently. This
-        //    ensures that a throwing paragraph in chunk N does not suppress a
-        //    succeeding paragraph in the same chunk or its overlap tail.
-        //    EntityLocator always searches the full source text, so entity values
-        //    found in any segment are correctly anchored across the whole document.
-        var rawEntities: [ExtractedEntity] = []
-        var seenSegments = Set<String>()  // deduplicate overlap segments by content
-
+        // 2. Determine the unique paragraph-delimited segments to send to the
+        //    model. Consecutive chunks overlap, so the overlap tail of chunk N
+        //    re-appears at the head of chunk N+1; deduplicating by content avoids
+        //    re-processing it. Sending each paragraph segment independently
+        //    ensures a throwing segment never suppresses its neighbors.
+        //    Precomputing the full list gives a stable total for progress.
+        var segmentsToProcess: [String] = []
+        var seenSegments = Set<String>()
         for chunk in chunks {
-            let segments = LLMExtractor.paragraphSegments(of: chunk.text)
-            for segment in segments {
-                // Skip segments we have already sent to the model (they appear in
-                // the overlap tail of the PREVIOUS chunk).
+            for segment in LLMExtractor.paragraphSegments(of: chunk.text) {
                 let key = segment.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !key.isEmpty, seenSegments.insert(key).inserted else { continue }
-
-                let prompt = LLMEngine.buildChatMLPrompt(
-                    system: prompts.currentExtractionSystem,
-                    user: prompts.extractionUser(chunk: segment)
-                )
-                let completion: String
-                do {
-                    completion = try completer.complete(
-                        prompt: prompt,
-                        maxTokens: LLMExtractor.maxCompletionTokens,
-                        stop: [LLMExtractor.imEndMarker]
-                    )
-                } catch {
-                    // Skip this segment but keep going with the rest.
-                    continue
-                }
-                rawEntities.append(contentsOf: EntityJSONParser.parse(completion))
+                segmentsToProcess.append(segment)
             }
+        }
+
+        // 3. Run each segment. A segment that fails to complete or returns
+        //    unparseable JSON is skipped, never failing the whole extraction.
+        //    EntityLocator always searches the full source text, so entity values
+        //    found in any segment are correctly anchored across the whole document.
+        let total = segmentsToProcess.count
+        onProgress?(0, total)
+
+        var rawEntities: [ExtractedEntity] = []
+        for (index, segment) in segmentsToProcess.enumerated() {
+            let prompt = LLMEngine.buildChatMLPrompt(
+                system: prompts.currentExtractionSystem,
+                user: prompts.extractionUser(chunk: segment)
+            )
+            do {
+                let completion = try completer.complete(
+                    prompt: prompt,
+                    maxTokens: LLMExtractor.maxCompletionTokens,
+                    stop: [LLMExtractor.imEndMarker]
+                )
+                rawEntities.append(contentsOf: EntityJSONParser.parse(completion))
+            } catch {
+                // Skip this segment but keep going with the rest.
+            }
+            onProgress?(index + 1, total)
         }
 
         // 3. Keep only the fuzzy types LDA owns from the LLM, and drop any value

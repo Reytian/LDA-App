@@ -80,17 +80,37 @@ public struct AppShell: View {
                 Label("AI entities", systemImage: "sparkles")
             }
             .toggleStyle(.switch)
-            .help("Also run the AI extractor and merge its entities")
+            .help("Also run the AI extractor for names, companies, and addresses")
+
+            Button {
+                Task { await model.anonymize() }
+            } label: {
+                Label("Anonymize", systemImage: "wand.and.rays")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CounselTheme.inkAccent)
+            .disabled(!canAnonymize)
+            .help("Detect sensitive information in the open document")
 
             Button {
                 beginExport()
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccent)
             .disabled(!canExport)
             .help("Tokenize accepted entities and write the redacted document")
+        }
+    }
+
+    /// Anonymize is available once a document is imported, and again after a run
+    /// (so the user can re-run, for example after toggling AI entities). It is not
+    /// available while a pass is in flight.
+    private var canAnonymize: Bool {
+        switch model.status {
+        case .imported, .ready:
+            return true
+        case .idle, .importing, .detecting, .failed:
+            return false
         }
     }
 
@@ -100,8 +120,20 @@ public struct AppShell: View {
     /// recent export outcome. Hidden when idle with nothing to report.
     @ViewBuilder
     private var statusBanner: some View {
-        if let text = bannerText {
-            HStack(spacing: 8) {
+        if case .detecting = model.status {
+            bannerChrome {
+                ProgressView(value: model.progress)
+                    .progressViewStyle(.linear)
+                    .tint(CounselTheme.inkAccent)
+                    .frame(maxWidth: 300)
+                Text(detectingLabel)
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(CounselTheme.textSecondary)
+                Spacer(minLength: 0)
+            }
+        } else if let text = bannerText {
+            bannerChrome {
                 if isWorking {
                     ProgressView()
                         .controlSize(.small)
@@ -113,15 +145,34 @@ public struct AppShell: View {
                         : CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(CounselTheme.raised)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(CounselTheme.hairline)
-                    .frame(height: 1)
-            }
         }
+    }
+
+    /// Shared banner container chrome.
+    private func bannerChrome<Content: View>(
+        @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        HStack(spacing: 12) {
+            content()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(CounselTheme.hairline)
+                .frame(height: 1)
+        }
+    }
+
+    /// "Anonymizing 42%  ·  about 12s remaining"
+    private var detectingLabel: String {
+        let pct = Int((model.progress * 100).rounded())
+        var label = "Anonymizing \(pct)%"
+        if let eta = model.etaText {
+            label += "  \u{00B7}  \(eta)"
+        }
+        return label
     }
 
     private var bannerText: String? {
@@ -130,6 +181,8 @@ public struct AppShell: View {
             return exportMessage
         case .importing:
             return "Importing document"
+        case .imported:
+            return "Document ready. Click Anonymize to detect sensitive information."
         case .detecting:
             return "Detecting entities"
         case .ready:
