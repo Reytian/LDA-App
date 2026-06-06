@@ -87,7 +87,9 @@ final class ReviewModelTests: XCTestCase {
 
     func testOpenDetectsEmailAndNationalID() async throws {
         let model = ReviewModel(modelPath: nil)
-        XCTAssertFalse(model.useLLM, "useLLM defaults to false; no GGUF model is needed")
+        // AI detection is on by default but is a no-op here because modelPath is
+        // nil, so this test exercises the deterministic path without a GGUF model.
+        XCTAssertTrue(model.useLLM)
 
         let inputURL = try writeFixtureText()
         await model.open(inputURL)

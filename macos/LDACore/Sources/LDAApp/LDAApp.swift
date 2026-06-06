@@ -18,10 +18,21 @@ struct LDAApp: App {
     /// deterministic-only.
     @StateObject private var model = ReviewModel(modelPath: LDAApp.defaultModelPath())
 
+    /// The persisted custom vocabulary, shared by the window and Settings.
+    @StateObject private var patternStore = CustomPatternStore()
+
     var body: some Scene {
         WindowGroup("LDA") {
             AppShell(model: model)
                 .frame(minWidth: 1100, minHeight: 720)
+                .onAppear {
+                    // Feed the user's custom vocabulary into each anonymize run.
+                    model.customPatternProvider = { [patternStore] in patternStore.activePatterns }
+                }
+        }
+
+        Settings {
+            SettingsView(store: patternStore)
         }
     }
 

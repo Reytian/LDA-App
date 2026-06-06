@@ -76,15 +76,6 @@ public struct AppShell: View {
         }
 
         ToolbarItemGroup(placement: .automatic) {
-            // A clearly labeled feature toggle, not a mode switch. The label shows
-            // its current on/off state so the user always knows what is happening.
-            Toggle(isOn: $model.useLLM) {
-                Label(model.useLLM ? "AI detection: On" : "AI detection: Off", systemImage: "sparkles")
-            }
-            .toggleStyle(.switch)
-            .labelStyle(.titleAndIcon)
-            .help("On: also detect names, companies, and addresses with the on-device AI model (slower). Off: fast pattern matching only.")
-
             Button {
                 Task { await model.anonymize() }
             } label: {

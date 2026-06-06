@@ -97,11 +97,16 @@ public final class ReviewModel: ObservableObject {
     @Published public var etaText: String?
 
     /// When true and modelPath is a valid file, detection also runs the LLM
-    /// extractor and merges its spans with the deterministic ones.
-    @Published public var useLLM: Bool = false
+    /// extractor and merges its spans with the deterministic ones. AI detection is
+    /// on by default; it degrades to deterministic-only if no model is present.
+    @Published public var useLLM: Bool = true
 
     /// Optional absolute path to the v2 GGUF model. nil means deterministic-only.
     public var modelPath: String?
+
+    /// Supplies the user's custom vocabulary at anonymize time. The app wires this
+    /// to the CustomPatternStore; the default is an empty list.
+    public var customPatternProvider: () -> [CustomPattern] = { [] }
 
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
@@ -150,6 +155,7 @@ public final class ReviewModel: ObservableObject {
         let text = documentText
         let shouldUseLLM = useLLM
         let path = modelPath
+        let custom = customPatternProvider()
         let runsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
 
         status = .detecting
@@ -162,7 +168,7 @@ public final class ReviewModel: ObservableObject {
         }
 
         let spans = await Task.detached(priority: .userInitiated) {
-            Self.detect(in: text, useLLM: shouldUseLLM, modelPath: path, onProgress: report)
+            Self.detect(in: text, useLLM: shouldUseLLM, modelPath: path, custom: custom, onProgress: report)
         }.value
 
         entities = spans.map { ReviewEntity(span: $0, accepted: true) }
@@ -310,10 +316,15 @@ public final class ReviewModel: ObservableObject {
         in text: String,
         useLLM: Bool,
         modelPath: String?,
+        custom: [CustomPattern] = [],
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> [Span] {
-        SpanMerger.merge(
-            deterministic: DeterministicEngine().detect(text),
+        // Custom vocabulary joins the deterministic list with a higher priority,
+        // so a user-chosen term always wins overlap conflicts.
+        let deterministic = DeterministicEngine().detect(text)
+            + CustomPatternEngine.detect(text, patterns: custom)
+        return SpanMerger.merge(
+            deterministic: deterministic,
             llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
         )
     }
