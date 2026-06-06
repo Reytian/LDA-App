@@ -1,0 +1,4 @@
+module Cllama {
+    header "cllama.h"
+    export *
+}

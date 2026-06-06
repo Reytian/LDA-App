@@ -33,10 +33,23 @@ let package = Package(
         )
     ],
     targets: [
+        // Prebuilt llama.cpp static libraries (Metal embedded) for on-device inference.
+        // Built from ~/Developer/llama.cpp via ~/Developer/make_xcframework.sh.
+        .binaryTarget(
+            name: "Cllama",
+            path: "Frameworks/llama.xcframework"
+        ),
         .target(
             name: "LDACore",
-            dependencies: ["ZIPFoundation"],
-            path: "Sources/LDACore"
+            dependencies: ["ZIPFoundation", "Cllama"],
+            path: "Sources/LDACore",
+            linkerSettings: [
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("Accelerate"),
+                .linkedLibrary("c++")
+            ]
         ),
         .target(
             name: "LDACLI",
