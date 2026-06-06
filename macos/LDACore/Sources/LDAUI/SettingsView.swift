@@ -10,7 +10,9 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import LDACore
 
 /// The Settings root: a two-tab editor for the custom vocabulary and the learned
@@ -30,9 +32,115 @@ public struct SettingsView: View {
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
             LearnedTab(store: learning)
                 .tabItem { Label("Learned", systemImage: "brain") }
+            SharingTab(patterns: patterns, learning: learning)
+                .tabItem { Label("Sharing", systemImage: "square.and.arrow.up.on.square") }
         }
         .frame(width: 580, height: 440)
         .background(CounselTheme.appSurface)
+    }
+}
+
+// MARK: - Sharing tab
+
+/// Export the vocabulary and learned memory to one file, or merge a shared file
+/// in. Lets a team share one list, or a user carry their setup to another device.
+private struct SharingTab: View {
+    @ObservedObject var patterns: CustomPatternStore
+    @ObservedObject var learning: LearningStore
+    @State private var status: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Share or move your setup")
+                    .font(.system(.headline, design: .serif))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Text("Export your custom vocabulary and learned terms to one file. Share it with your team or import it on another Mac. Importing merges into what you already have; nothing is overwritten or removed.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                Button { exportProfile() } label: {
+                    Label("Export Profile", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccent)
+
+                Button { importProfile() } label: {
+                    Label("Import Profile", systemImage: "square.and.arrow.down")
+                }
+            }
+
+            Text("\(patterns.patterns.count) vocabulary terms  \u{00B7}  \(learning.allTerms.count) learned entries")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(CounselTheme.textSecondary)
+
+            if let status {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textPrimary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(CounselTheme.raised))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(CounselTheme.hairline, lineWidth: 1))
+            }
+
+            Text("The file is plain JSON (a glossary of terms to redact). Treat it like any shared list that may name clients or matters.")
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func exportProfile() {
+        let profile = VocabularyProfile(
+            exportedAtISO8601: ISO8601DateFormatter().string(from: Date()),
+            patterns: patterns.patterns,
+            learned: learning.allTerms
+        )
+        guard let data = try? Portability.encode(profile) else {
+            status = "Could not prepare the profile."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "LDA-Vocabulary.json"
+        panel.message = "Save your vocabulary and learned terms to share or move."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url)
+            status = "Exported \(profile.patterns.count) vocabulary terms and \(profile.learned.count) learned entries."
+        } catch {
+            status = "Export failed. \(error.localizedDescription)"
+        }
+    }
+
+    private func importProfile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.message = "Choose a shared LDA vocabulary file to merge."
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = try? Data(contentsOf: url),
+              let profile = try? Portability.decode(data) else {
+            status = "That file is not a valid LDA vocabulary profile."
+            return
+        }
+        let added = patterns.merge(profile.patterns)
+        let merged = learning.merge(profile.learned)
+        status = "Imported \(added) new vocabulary "
+            + (added == 1 ? "term" : "terms")
+            + " and merged \(merged) learned "
+            + (merged == 1 ? "entry." : "entries.")
     }
 }
 

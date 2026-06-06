@@ -48,6 +48,31 @@ public final class CustomPatternStore: ObservableObject {
         patterns.remove(atOffsets: offsets)
     }
 
+    /// Merge in patterns from a shared profile, skipping ones already present
+    /// (by term, type, regex flag, and case sensitivity). Imported patterns get
+    /// fresh ids so they never collide with local ones. Returns how many were added.
+    @discardableResult
+    public func merge(_ incoming: [CustomPattern]) -> Int {
+        var existingKeys = Set(patterns.map(Self.contentKey))
+        var added = 0
+        for var pattern in incoming {
+            let key = Self.contentKey(pattern)
+            guard !key.isEmpty, !existingKeys.contains(key) else { continue }
+            pattern.id = UUID()
+            patterns.append(pattern)
+            existingKeys.insert(key)
+            added += 1
+        }
+        return added
+    }
+
+    private static func contentKey(_ p: CustomPattern) -> String {
+        let text = p.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "" }
+        let normalized = p.caseSensitive ? text : text.lowercased()
+        return "\(p.type.rawValue)|\(p.isRegex ? "re" : "lit")|\(p.caseSensitive ? "cs" : "ci")|\(normalized)"
+    }
+
     /// The terms that are non-empty and therefore actually applied to documents.
     public var activePatterns: [CustomPattern] {
         patterns.filter {

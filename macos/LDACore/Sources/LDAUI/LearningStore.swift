@@ -107,6 +107,30 @@ public final class LearningStore: ObservableObject {
         terms.values.sorted { ($0.acceptCount + $0.rejectCount) > ($1.acceptCount + $1.rejectCount) }
     }
 
+    /// All learned terms (unordered), for export.
+    public var allTerms: [LearnedTerm] {
+        Array(terms.values)
+    }
+
+    /// Merge in learned terms from a shared profile by summing their accept and
+    /// reject counts into any matching local term. Returns how many were touched.
+    @discardableResult
+    public func merge(_ incoming: [LearnedTerm]) -> Int {
+        guard !incoming.isEmpty else { return 0 }
+        for term in incoming {
+            if var existing = terms[term.id] {
+                existing.acceptCount += term.acceptCount
+                existing.rejectCount += term.rejectCount
+                if !term.value.isEmpty { existing.value = term.value }
+                terms[term.id] = existing
+            } else {
+                terms[term.id] = term
+            }
+        }
+        save()
+        return incoming.count
+    }
+
     /// Forget one learned term.
     public func forget(_ id: String) {
         terms[id] = nil
