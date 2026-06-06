@@ -83,11 +83,17 @@ public enum LDAService {
     ///   - outputDir: directory to write the edit surface, sidecar, and review PDF.
     ///   - protection: how to encrypt the mapping sidecar at rest.
     ///   - createdAtISO8601: caller-supplied creation timestamp (keeps this pure).
+    ///   - llmModelPath: optional absolute path to the v2 GGUF model. When nil the
+    ///     llm span list stays empty and behavior is identical to the
+    ///     deterministic-only V1 path. When non-nil and the file exists, an
+    ///     LLMExtractor backed by an LLMEngine loaded from this path fills the
+    ///     list; any load or extraction failure degrades gracefully to empty.
     public static func anonymize(
         input: URL,
         outputDir: URL,
         protection: MappingProtection,
-        createdAtISO8601: String
+        createdAtISO8601: String,
+        llmModelPath: String? = nil
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
@@ -104,7 +110,7 @@ public enum LDAService {
         let imported = try importDocument(input, extension: ext)
         let spans = SpanMerger.merge(
             deterministic: DeterministicEngine().detect(imported.text),
-            llm: []
+            llm: llmSpans(for: imported.text, modelPath: llmModelPath)
         )
         let tokenized = Tokenizer.tokenize(
             text: imported.text,
@@ -211,15 +217,48 @@ public enum LDAService {
 
     /// Detect entities only. Imports the document and runs deterministic
     /// detection merged with an empty llm list. Performs no writes.
-    public static func detect(input: URL) throws -> [Span] {
+    ///
+    /// - Parameters:
+    ///   - input: the source document.
+    ///   - llmModelPath: optional absolute path to the v2 GGUF model. When nil the
+    ///     llm span list stays empty and behavior is identical to the
+    ///     deterministic-only V1 path. When non-nil and the file exists, an
+    ///     LLMExtractor backed by an LLMEngine loaded from this path fills the
+    ///     list; any load or extraction failure degrades gracefully to empty.
+    public static func detect(
+        input: URL,
+        llmModelPath: String? = nil
+    ) throws -> [Span] {
         let imported = try importDocument(input, extension: input.pathExtension.lowercased())
         return SpanMerger.merge(
             deterministic: DeterministicEngine().detect(imported.text),
-            llm: []
+            llm: llmSpans(for: imported.text, modelPath: llmModelPath)
         )
     }
 
     // MARK: - Private helpers
+
+    /// Produce the LLM span list for SpanMerger's llm input.
+    ///
+    /// When modelPath is nil the list is empty and behavior is identical to the
+    /// deterministic-only V1 path. When modelPath is non-nil and the file exists,
+    /// an LLMEngine is loaded from it and an LLMExtractor runs over the text. Any
+    /// failure (missing file, model load error, extraction error) falls back to an
+    /// empty list so anonymize and detect never fail because of the LLM seam; the
+    /// deterministic detections still flow through.
+    private static func llmSpans(for text: String, modelPath: String?) -> [Span] {
+        guard let modelPath else { return [] }
+        guard FileManager.default.fileExists(atPath: modelPath) else { return [] }
+        do {
+            let engine = try LLMEngine(config: .init(modelPath: modelPath))
+            let extractor = LLMExtractor(completer: engine)
+            return try extractor.extract(from: text)
+        } catch {
+            // Graceful fallback: a broken or missing model degrades to
+            // deterministic-only detection rather than failing the operation.
+            return []
+        }
+    }
 
     /// Import a document by file extension. PDF with no usable text layer falls
     /// back to Vision OCR. Unknown extensions are treated as plain text so the

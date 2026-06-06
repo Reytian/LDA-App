@@ -19,6 +19,25 @@
 import Foundation
 import Cllama
 
+// MARK: - TextCompleter
+
+/// A minimal text-completion seam. LLMEngine is the production conformer (it
+/// drives llama.cpp); tests inject a lightweight fake so LLMExtractor and the
+/// higher Pass layers can be exercised without loading the 2.7 GB GGUF model.
+///
+/// The single requirement matches LLMEngine.complete(prompt:maxTokens:stop:);
+/// the concrete method keeps its defaults, which a protocol witness is allowed
+/// to supply.
+public protocol TextCompleter {
+    /// Greedy-decode a completion for a raw prompt, stopping on an
+    /// end-of-generation token, on any provided stop string, or at maxTokens.
+    func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String
+}
+
+/// LLMEngine already exposes complete(prompt:maxTokens:stop:) with defaults, so
+/// it satisfies TextCompleter without any additional code.
+extension LLMEngine: TextCompleter {}
+
 /// A loaded GGUF model plus an inference context. Not Sendable: it owns raw
 /// llama.cpp pointers and must be used from a single thread at a time.
 public final class LLMEngine {

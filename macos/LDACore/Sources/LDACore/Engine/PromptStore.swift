@@ -42,6 +42,7 @@ import Foundation
 public enum PromptKind: String, Codable, Sendable, CaseIterable {
     case pass1
     case pass2
+    case extraction
 }
 
 // MARK: - PromptSnapshot
@@ -147,6 +148,15 @@ public final class PromptStore {
     {document_segment}
     """
 
+    /// Default system prompt for the v2 single-shot extraction format. This is
+    /// the exact instruction the bundled v2 model was trained on (see the
+    /// original infer.py). Unlike the Pass-1/Pass-2 bodies above, this prompt is
+    /// English because the v2 model was trained on this English instruction.
+    public static let defaultExtractionSystem: String = """
+    You are a legal document anonymizer. Identify every piece of sensitive or personally identifying \
+    information and return strict JSON. Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS.
+    """
+
     // MARK: Validation anchors
 
     /// Substrings that mark the JSON-output contract in a body. Presence of any
@@ -180,18 +190,26 @@ public final class PromptStore {
     /// The current Pass-2 body. Defaults to defaultPass2; edit freely.
     public var currentPass2: String
 
+    /// The current v2 extraction system prompt. Defaults to
+    /// defaultExtractionSystem; edit freely. reset(.extraction) restores it.
+    public var currentExtractionSystem: String
+
     // MARK: Init
 
     /// Creates a store seeded with the ported defaults.
     public init() {
         self.currentPass1 = PromptStore.defaultPass1
         self.currentPass2 = PromptStore.defaultPass2
+        self.currentExtractionSystem = PromptStore.defaultExtractionSystem
     }
 
-    /// Creates a store seeded from a previously persisted snapshot.
+    /// Creates a store seeded from a previously persisted snapshot. The
+    /// extraction system prompt is not carried in PromptSnapshot, so it is
+    /// seeded to its default here.
     public init(snapshot: PromptSnapshot) {
         self.currentPass1 = snapshot.pass1
         self.currentPass2 = snapshot.pass2
+        self.currentExtractionSystem = PromptStore.defaultExtractionSystem
     }
 
     // MARK: Reset
@@ -203,13 +221,28 @@ public final class PromptStore {
             currentPass1 = PromptStore.defaultPass1
         case .pass2:
             currentPass2 = PromptStore.defaultPass2
+        case .extraction:
+            currentExtractionSystem = PromptStore.defaultExtractionSystem
         }
     }
 
-    /// Restores both prompts to their ported defaults.
+    /// Restores all prompts to their ported defaults.
     public func resetAll() {
         reset(.pass1)
         reset(.pass2)
+        reset(.extraction)
+    }
+
+    // MARK: Extraction prompt builder
+
+    /// Build the v2 single-shot extraction USER text for one document chunk.
+    /// This is the exact user-turn format the bundled v2 model was trained on
+    /// (see the original infer.py). The model returns JSON with keys "entities"
+    /// (an array of {value, type}) and "redacted_text".
+    public func extractionUser(chunk: String) -> String {
+        return "Anonymize. Return ONLY JSON with keys entities "
+            + "(array of {value,type}) and redacted_text.\n\nTEXT:\n"
+            + chunk
     }
 
     // MARK: Snapshot
