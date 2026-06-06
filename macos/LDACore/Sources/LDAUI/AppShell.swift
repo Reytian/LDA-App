@@ -16,6 +16,7 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import LDACore
@@ -24,12 +25,6 @@ import LDACore
 /// NavigationSplitView and owns the toolbar that drives import and export.
 public struct AppShell: View {
     @ObservedObject private var model: ReviewModel
-
-    /// True while the .fileImporter open panel is presented.
-    @State private var isImportingFile = false
-
-    /// True while the directory .fileExporter-style picker is presented.
-    @State private var isPickingExportDir = false
 
     /// True while the passphrase sheet is presented, after a directory is chosen.
     @State private var isPromptingPassphrase = false
@@ -62,20 +57,6 @@ public struct AppShell: View {
         .background(CounselTheme.appSurface)
         .navigationTitle("Legal Document Anonymizer")
         .toolbar { toolbarContent }
-        .fileImporter(
-            isPresented: $isImportingFile,
-            allowedContentTypes: Self.openContentTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            handleOpen(result)
-        }
-        .fileImporter(
-            isPresented: $isPickingExportDir,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            handleExportDirPick(result)
-        }
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
         }
@@ -87,7 +68,7 @@ public struct AppShell: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             Button {
-                isImportingFile = true
+                presentOpenPanel()
             } label: {
                 Label("Open", systemImage: "doc.badge.plus")
             }
@@ -217,20 +198,25 @@ public struct AppShell: View {
         return false
     }
 
-    private func handleOpen(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            exportMessage = nil
-            let needsScope = url.startAccessingSecurityScopedResource()
-            Task {
-                await model.open(url)
-                if needsScope {
-                    url.stopAccessingSecurityScopedResource()
-                }
+    /// Present a native open panel for the source document. NSOpenPanel is used
+    /// instead of SwiftUI .fileImporter because two .fileImporter modifiers on the
+    /// same view conflict and silently fail to present.
+    private func presentOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = Self.openContentTypes
+        panel.message = "Choose a .txt, .docx, or .pdf document to anonymize."
+        panel.prompt = "Open"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        exportMessage = nil
+        let needsScope = url.startAccessingSecurityScopedResource()
+        Task {
+            await model.open(url)
+            if needsScope {
+                url.stopAccessingSecurityScopedResource()
             }
-        case .failure(let error):
-            exportMessage = error.localizedDescription
         }
     }
 
@@ -240,18 +226,16 @@ public struct AppShell: View {
         guard canExport else { return }
         exportMessage = nil
         passphrase = ""
-        isPickingExportDir = true
-    }
-
-    private func handleExportDirPick(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let dir = urls.first else { return }
-            pendingExportDir = dir
-            isPromptingPassphrase = true
-        case .failure(let error):
-            exportMessage = error.localizedDescription
-        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder for the redacted document and encrypted mapping."
+        panel.prompt = "Export Here"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        pendingExportDir = dir
+        isPromptingPassphrase = true
     }
 
     private func cancelPassphrase() {
