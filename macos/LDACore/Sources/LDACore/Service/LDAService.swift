@@ -117,7 +117,7 @@ public enum LDAService {
         let imported = try importDocument(input, extension: ext)
         let detect = makeDetector(modelPath: llmModelPath)
         let spans = detect(imported.text)
-        let tokenized = Tokenizer.tokenize(
+        var tokenized = Tokenizer.tokenize(
             text: imported.text,
             spans: spans,
             sourceFile: input.lastPathComponent,
@@ -126,6 +126,7 @@ public enum LDAService {
 
         let redactedFileURL: URL
         var visualPdfURL: URL?
+        var imageRedactionCount = 0
 
         switch ext {
         case "docx":
@@ -147,9 +148,29 @@ public enum LDAService {
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
 
             let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
-            let boxes: [RedactionBox] = imported.isScanned
+            var boxes: [RedactionBox] = imported.isScanned
                 ? PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
                 : PdfImporter.redactionBoxes(in: input, surfaceTexts: pairs)
+
+            // Image-PII channel: a non-scanned PDF can still embed raster images
+            // (signatures, stamps) the text layer cannot see. OCR those regions,
+            // conservatively box them, and record classified PII in the mapping.
+            if !imported.isScanned {
+                let imagePages = PdfImageInventory.pagesWithImages(input)
+                if !imagePages.isEmpty {
+                    let observations = PdfOCRImporter().imageOriginObservations(in: input, pages: imagePages)
+                    let resolved = ImageRedactionResolver.resolve(
+                        mapping: tokenized.mapping,
+                        observations: observations,
+                        detect: detect
+                    )
+                    boxes += resolved.boxes
+                    for entry in resolved.newEntries {
+                        tokenized.mapping.entries[entry.token] = entry
+                    }
+                    imageRedactionCount = resolved.imageRedactionCount
+                }
+            }
 
             let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
             try PdfRedactor.renderRedactedPDF(original: input, boxes: boxes, to: reviewURL)
@@ -174,7 +195,7 @@ public enum LDAService {
             visualPdfURL: visualPdfURL,
             entityCount: spans.count,
             entities: spans,
-            imageRedactionCount: 0
+            imageRedactionCount: imageRedactionCount
         )
     }
 
