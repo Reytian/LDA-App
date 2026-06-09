@@ -99,8 +99,17 @@ New units are small, isolated, and independently testable. Names are provisional
   coordinates, then checks `PDFPage.selection(for: rect)?.string`. If that selection text
   is empty/whitespace, the observation is image-origin and is kept; otherwise it is
   text-layer text already handled by `findString` and is dropped.
-- **Dedup tolerance:** Coverage is judged with a ratio/inset tolerance, not exact rect
-  equality, to absorb `selection(for:)` boundary slop.
+- **Dedup by text content, not geometry:** to decide whether the text layer already
+  covers an observation, inset the observation rect by ~20%, read
+  `PDFPage.selection(for: insetRect)?.string`, normalize both strings (trim, case-fold,
+  collapse internal whitespace), and drop the observation ONLY if the selection text
+  contains the observation's OCR text. Otherwise keep it. This biases toward keeping,
+  which is correct given the asymmetry: wrongly dropping a signature observation is a
+  leak, while wrongly keeping a text-layer observation is just one redundant box over
+  already-boxed text. A purely geometric overlap threshold gets this backwards near
+  boundaries (a signature rect grazing a neighboring caption would be dropped on overlap
+  alone); content matching only drops when the text layer genuinely holds that text. The
+  ~20% inset keeps a neighbor's sliver from poisoning the selection lookup.
 - **Coordinate consistency:** image-origin rects are produced in the same mediaBox-relative,
   bottom-left space that `PdfRedactor.renderRedactedPDF` and the existing text-box path
   (`PDFSelection.bounds(for:)`) already assume, so the two box sources compose without a
@@ -133,10 +142,14 @@ After the existing tokenization and before rendering the review PDF, for `pdf &&
    text boxes have different rects and are never equal, so no set-dedup is intended).
 6. Merge `newEntries` into `tokenized.mapping` before `MappingStore.save`.
 
-`entityCount`/`entities` in `AnonymizeResult` continue to reflect text-layer spans;
-image-channel additions are reflected in the mapping and boxes. (Whether to also bump
-`entityCount` is an implementation detail to settle in the plan; default: leave as-is to
-avoid implying text-layer offsets exist for image entities.)
+`entityCount`/`entities` in `AnonymizeResult` continue to mean exactly what they mean
+today: text-layer spans with real UTF-16 offsets. They are NOT changed, because
+`entities: [Span]` requires offsets that image entities do not have, and the LDAUI sidebar
+renders from `entities`. Instead, `AnonymizeResult` gains one additive field
+`imageRedactionCount: Int` (defaults to 0; nonzero only for PDFs with image-channel
+redactions) so the image redactions are reported honestly without conflating them with
+text PII or breaking the `entityCount == entities.count` invariant. This count feeds the
+existing trust/completeness affordance and should match the number of image boxes painted.
 
 ## 6. Conservative boxing and token rules
 
@@ -210,5 +223,5 @@ returns nothing).
 ## 9. Open items for the plan
 
 - Final unit names and file placement under `Sources/LDACore/IO/`.
-- Exact dedup coverage threshold for `selection(for:)`.
-- Whether `AnonymizeResult.entityCount` should include image-channel additions.
+- The exact normalization function shared by the dedup content-match (5.2) and the
+  token-reuse match key (6), so they stay consistent.
