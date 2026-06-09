@@ -99,17 +99,25 @@ New units are small, isolated, and independently testable. Names are provisional
   coordinates, then checks `PDFPage.selection(for: rect)?.string`. If that selection text
   is empty/whitespace, the observation is image-origin and is kept; otherwise it is
   text-layer text already handled by `findString` and is dropped.
-- **Dedup by text content, not geometry:** to decide whether the text layer already
-  covers an observation, inset the observation rect by ~20%, read
-  `PDFPage.selection(for: insetRect)?.string`, normalize both strings (trim, case-fold,
-  collapse internal whitespace), and drop the observation ONLY if the selection text
-  contains the observation's OCR text. Otherwise keep it. This biases toward keeping,
-  which is correct given the asymmetry: wrongly dropping a signature observation is a
-  leak, while wrongly keeping a text-layer observation is just one redundant box over
-  already-boxed text. A purely geometric overlap threshold gets this backwards near
-  boundaries (a signature rect grazing a neighboring caption would be dropped on overlap
-  alone); content matching only drops when the text layer genuinely holds that text. The
-  ~20% inset keeps a neighbor's sliver from poisoning the selection lookup.
+- **Dedup by text content (verified mechanism):** to decide whether the text layer
+  already covers an observation, take the observation's page rect, apply a **vertical-only
+  inset** (shrink height ~30%, width ~5%) so the lookup does not bleed into the line above
+  or below but still captures the full line horizontally, read
+  `PDFPage.selection(for: insetRect)?.string`, and treat the observation as **text-layer
+  (drop)** if that selection is non-empty AND shares a significant word (>= 4 alphanumeric
+  characters, case-folded) with the OCR text; otherwise treat it as **image-origin (keep)**.
+  This was prototyped against the demonstrated fixture: every body-text line drops, and the
+  signature band returns an empty selection and is kept.
+- **Accuracy is bilateral under conservative boxing.** A naive "inset 20% and test
+  containment" rule was prototyped and FAILED: a 20% horizontal inset truncates wide lines
+  ("CONSULTING SERVICES AGREEMENT" -> selection "LTING SERVICES AGR"), and a short selection
+  cannot contain the longer OCR string, so every line was wrongly kept. That matters because
+  under conservative boxing a wrongly-KEPT text-layer observation is NOT a harmless
+  redundant box: it paints opaque black over real body text and destroys the document. So
+  the dedup must be accurate in BOTH directions (a false keep over-redacts body text; a
+  false drop leaks a signature), which is why the rule matches on shared full words from a
+  full-width selection rather than biasing one way. The vertical-only inset and word-overlap
+  test are the verified means to that accuracy.
 - **Coordinate consistency:** image-origin rects are produced in the same mediaBox-relative,
   bottom-left space that `PdfRedactor.renderRedactedPDF` and the existing text-box path
   (`PDFSelection.bounds(for:)`) already assume, so the two box sources compose without a
