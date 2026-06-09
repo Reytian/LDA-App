@@ -35,6 +35,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$PKG/packaging/Info.plist" "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/LDAApp"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+if [ -f "$PKG/packaging/AppIcon.icns" ]; then
+  cp "$PKG/packaging/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+fi
 
 if [ -f "$MODEL_PATH" ]; then
   echo "==> Bundling model ($(du -h "$MODEL_PATH" | cut -f1))"
