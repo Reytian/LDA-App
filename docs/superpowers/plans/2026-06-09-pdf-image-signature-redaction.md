@@ -932,9 +932,56 @@ lower signature band, and (c) a pure-text PDF yields `imageRedactionCount == 0`.
     }
 ```
 
-Add fixture helpers to the test file (reuse the CGPDF + CTLineDraw + image technique
-from `PdfOCRImporterImageOriginTests`; the signature image word should be a unique
-string like `"ZZSIGNZZ"` that does not occur in the typed body).
+Add these fixture helpers to `LDAServiceTests`. They need `import CoreGraphics` and
+`import CoreText` at the top of the file (add if absent). The signature image word
+`"ZZSIGNZZ"` is unique and does not occur in the typed body, so any box over it proves
+the image channel ran. Fixtures are written into `workDir`, which the suite already
+cleans up.
+
+```swift
+    private func makeHybridSignaturePdf() throws -> URL { try makePdf(imageWord: "ZZSIGNZZ") }
+    private func makeTextOnlyPdf() throws -> URL { try makePdf(imageWord: nil) }
+
+    /// One-page PDF with a typed text layer and, optionally, an image-only word
+    /// drawn well clear of the text line so the image-PII pass can isolate it.
+    private func makePdf(imageWord: String?) throws -> URL {
+        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let url = workDir.appendingPathComponent("svc-\(UUID().uuidString).pdf")
+        guard let consumer = CGDataConsumer(url: url as CFURL),
+              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw XCTSkip("no PDF context")
+        }
+        ctx.beginPDFPage(nil)
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 26, nil)
+        let body = NSAttributedString(string: "ENGAGEMENT LETTER FOR ACME CORP",
+                                      attributes: [.font: font,
+                                                   .foregroundColor: CGColor(gray: 0, alpha: 1)])
+        ctx.textPosition = CGPoint(x: 72, y: 700)
+        CTLineDraw(CTLineCreateWithAttributedString(body), ctx)
+        if let word = imageWord, let img = Self.wordImage(word) {
+            ctx.draw(img, in: CGRect(x: 72, y: 300, width: 360, height: 90))
+        }
+        ctx.endPDFPage()
+        ctx.closePDF()
+        return url
+    }
+
+    private static func wordImage(_ word: String) -> CGImage? {
+        let w = 720, h = 180
+        guard let c = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        c.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        c.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 96, nil)
+        let attr = NSAttributedString(string: word,
+                                      attributes: [.font: font, .foregroundColor: CGColor(gray: 0, alpha: 1)])
+        c.textPosition = CGPoint(x: 20, y: 50)
+        CTLineDraw(CTLineCreateWithAttributedString(attr), c)
+        return c.makeImage()
+    }
+```
 
 - [ ] **Step 2: Run test to verify it fails**
 
