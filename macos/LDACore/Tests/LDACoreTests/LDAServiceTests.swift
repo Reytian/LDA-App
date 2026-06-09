@@ -390,7 +390,10 @@ final class LDAServiceTests: XCTestCase {
                                                    .foregroundColor: CGColor(gray: 0, alpha: 1)])
         ctx.textPosition = CGPoint(x: 72, y: 700)
         CTLineDraw(CTLineCreateWithAttributedString(body), ctx)
-        if let word = imageWord, let img = Self.wordImage(word) {
+        if let word = imageWord {
+            guard let img = Self.wordImage(word) else {
+                throw XCTSkip("CGContext unavailable to render the image fixture")
+            }
             ctx.draw(img, in: CGRect(x: 72, y: 300, width: 360, height: 90))
         }
         ctx.endPDFPage()

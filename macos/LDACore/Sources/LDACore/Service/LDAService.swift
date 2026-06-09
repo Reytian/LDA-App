@@ -147,6 +147,8 @@ public enum LDAService {
             redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
 
+            // Pairs come from text-layer entries only; image-origin regions are boxed
+            // separately by the image-PII channel below, not via text search.
             let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
             var boxes: [RedactionBox] = imported.isScanned
                 ? PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
@@ -165,6 +167,8 @@ public enum LDAService {
                         detect: detect
                     )
                     boxes += resolved.boxes
+                    // Merge image-origin entries into the mapping before it is saved
+                    // below. This mutation requires `tokenized` to be declared `var`.
                     for entry in resolved.newEntries {
                         tokenized.mapping.entries[entry.token] = entry
                     }

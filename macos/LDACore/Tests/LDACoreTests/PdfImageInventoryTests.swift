@@ -2,7 +2,6 @@
 import XCTest
 import CoreGraphics
 import CoreText
-import PDFKit
 @testable import LDACore
 
 final class PdfImageInventoryTests: XCTestCase {
