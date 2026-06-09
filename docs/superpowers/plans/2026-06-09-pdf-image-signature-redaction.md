@@ -771,14 +771,23 @@ Replace the private `llmSpans(for:modelPath:)` usage with a once-loaded engine. 
 
 Note: `(try? extractor?.extract(...)) ?? [] ?? []` flattens `LLMExtractor?` + throwing into `[Span]`. If the optional-chaining double-`??` reads awkwardly in review, expand it to an explicit `if let extractor` block returning `[]` on any failure (behavior identical to the current graceful fallback).
 
-Then in `anonymize` and `detect`, replace the inline `SpanMerger.merge(deterministic:llm: llmSpans(...))` with a single detector:
+There are TWO call sites and BOTH must be rewired, otherwise deleting `llmSpans` (next paragraph) breaks the build. Grep first to confirm: `grep -n llmSpans Sources/LDACore/Service/LDAService.swift` (currently lines ~113 in `anonymize` and ~235 in `detect`).
+
+In `anonymize` (replace the `let spans = SpanMerger.merge(deterministic:llm: llmSpans(...))` near line 111-114). Declare `detect` at FUNCTION scope, before the `switch ext` block, so Task 6's `case "pdf":` arm can also use it:
 
 ```swift
         let detect = makeDetector(modelPath: llmModelPath)
         let spans = detect(imported.text)
 ```
 
-Keep the old `llmSpans` private function only if something else uses it; otherwise delete it (grep first: `grep -n llmSpans Sources/LDACore/Service/LDAService.swift`).
+In `detect(input:llmModelPath:)` (the public function, near line 232-236), replace the same inline merge:
+
+```swift
+        let imported = try importDocument(input, extension: input.pathExtension.lowercased())
+        return makeDetector(modelPath: llmModelPath)(imported.text)
+```
+
+Then delete the now-unused private `llmSpans(for:modelPath:)` function. Re-run the grep above; it must return only the `makeDetector` internals, no remaining `llmSpans` references.
 
 - [ ] **Step 4: Run the LLM + service tests**
 
@@ -794,9 +803,9 @@ In `Sources/LDACLI/CLI.swift`, extend `AnonymizeSummaryJSON`:
 ```
 and in its `init(result:)`: `self.imageRedactionCount = result.imageRedactionCount`.
 
-Then grep for any MCP-side summary that mirrors this and add the same field:
-Run: `grep -rn "entityCount" Sources/LDAMCP Sources/LDACLI`
-If the MCP server builds its own anonymize summary, add `imageRedactionCount` there too.
+Then update the MCP anonymize summary. Grep to confirm the sites:
+Run: `grep -rn "entityCount\|spans.count" Sources/LDAMCP`
+There are two summary sites in `Sources/LDAMCP/MCPServer.swift`: the anonymize summary (near line 190, built from an `AnonymizeResult` via `result.entityCount`) and a detect summary (near line 236, `spans.count`, NO `AnonymizeResult`). Add `imageRedactionCount` to ONLY the anonymize summary at ~line 190. Do NOT touch the detect summary; it has no image channel.
 
 - [ ] **Step 6: Run CLI + MCP tests**
 
@@ -903,7 +912,7 @@ lower signature band, and (c) a pure-text PDF yields `imageRedactionCount == 0`.
     func testAnonymizeBoxesImageOnlySignatureOnHybridPdf() throws {
         let pdf = try makeHybridSignaturePdf()  // helper below
         let result = try LDAService.anonymize(
-            input: pdf, outputDir: workDir, protection: .none,
+            input: pdf, outputDir: workDir, protection: .passphrase("pw"),
             createdAtISO8601: Self.createdAt, llmModelPath: nil)
 
         XCTAssertGreaterThanOrEqual(result.imageRedactionCount, 1,
@@ -917,7 +926,7 @@ lower signature band, and (c) a pure-text PDF yields `imageRedactionCount == 0`.
     func testAnonymizeTextOnlyPdfHasNoImageRedactions() throws {
         let pdf = try makeTextOnlyPdf()  // helper below
         let result = try LDAService.anonymize(
-            input: pdf, outputDir: workDir, protection: .none,
+            input: pdf, outputDir: workDir, protection: .passphrase("pw"),
             createdAtISO8601: Self.createdAt, llmModelPath: nil)
         XCTAssertEqual(result.imageRedactionCount, 0)
     }
