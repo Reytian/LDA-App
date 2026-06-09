@@ -34,6 +34,18 @@ final class PdfOCRImporterImageOriginTests: XCTestCase {
             XCTAssertGreaterThan(o.rect.width, 0)
             XCTAssertGreaterThan(o.rect.height, 0)
         }
+
+        // Coordinate guard: the recovered image word must map back to the page
+        // region where the image was actually drawn (x in [72, 432], y in [300, 390]
+        // on a 612x792 page, bottom-left origin). A vertical-flip or offset bug in
+        // the OCR-to-page mapping would place it elsewhere (a flip lands near y~450).
+        let sigObs = try XCTUnwrap(
+            obs.first { $0.text.lowercased().contains("signature") },
+            "no observation contained the image word")
+        XCTAssertGreaterThanOrEqual(sigObs.rect.midX, 60)
+        XCTAssertLessThanOrEqual(sigObs.rect.midX, 450)
+        XCTAssertGreaterThanOrEqual(sigObs.rect.midY, 280)
+        XCTAssertLessThanOrEqual(sigObs.rect.midY, 405)
     }
 
     private func makeHybridPdf(typed: String, imageWord: String) throws -> URL {
