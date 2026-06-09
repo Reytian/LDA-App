@@ -87,6 +87,8 @@ public enum ImageRedactionResolver {
                     counters[typeToken] = n
                     token = "{\(typeToken)_\(n)}"
                     tokenByNormSurface[norm] = token
+                    // Redact-only entry: value equals the surface text because these
+                    // image-channel entries are never restored via token substitution.
                     newEntries.append(MappingEntry(token: token, value: span.text,
                                                    type: span.type, surfaceText: span.text, aliases: []))
                 }

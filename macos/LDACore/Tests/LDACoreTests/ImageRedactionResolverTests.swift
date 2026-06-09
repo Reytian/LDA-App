@@ -47,6 +47,36 @@ final class ImageRedactionResolverTests: XCTestCase {
         XCTAssertEqual(r.newEntries.first?.type, .person)
     }
 
+    /// Two observations, each with its own detected PERSON span. Verifies spans are
+    /// attributed to the correct observation by offset and minted in document order.
+    func testAttributesDistinctSpansToCorrectObservations() {
+        let m = mapping([])
+        let detect: (String) -> [Span] = { text in
+            let ns = text as NSString
+            let r1 = ns.range(of: "Sarah Whitman")
+            let r2 = ns.range(of: "Daniel Okafor")
+            return [
+                Span(start: r1.location, end: r1.location + r1.length, type: .person,
+                     text: "Sarah Whitman", source: .llm, confidence: 0.9, priority: 5),
+                Span(start: r2.location, end: r2.location + r2.length, type: .person,
+                     text: "Daniel Okafor", source: .llm, confidence: 0.9, priority: 5),
+            ]
+        }
+        let r = ImageRedactionResolver.resolve(
+            mapping: m,
+            observations: [obs("Sarah Whitman", 0), obs("Daniel Okafor", 20)],
+            detect: detect)
+
+        XCTAssertEqual(r.boxes.count, 2)
+        // obs[0] (x=0, "Sarah Whitman") must get PERSON_1; obs[1] (x=20) must get PERSON_2.
+        XCTAssertEqual(r.boxes[0].token, "{PERSON_1}")
+        XCTAssertEqual(r.boxes[0].rect.minX, 0, accuracy: 0.001)
+        XCTAssertEqual(r.boxes[1].token, "{PERSON_2}")
+        XCTAssertEqual(r.boxes[1].rect.minX, 20, accuracy: 0.001)
+        XCTAssertEqual(r.newEntries.count, 2)
+        XCTAssertEqual(r.imageRedactionCount, 2)
+    }
+
     /// Detection finds nothing: conservatively box with a generic token, no entry.
     func testGenericBoxWhenNoDetection() {
         let m = mapping([])
