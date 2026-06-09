@@ -33,42 +33,58 @@ func drawIcon(size S: CGFloat) -> NSBitmapImageRep {
     // Background squircle with an ink-blue gradient.
     let margin = S * 0.075
     let bgRect = NSRect(x: margin, y: margin, width: S - 2 * margin, height: S - 2 * margin)
-    let bg = roundedRect(bgRect, bgRect.width * 0.225)
-    let grad = NSGradient(colors: [color(0x5A6BCC), color(0x2C3B7A)])!
-    grad.draw(in: bg, angle: -90)
+    NSGradient(colors: [color(0x5A6BCC), color(0x2C3B7A)])!.draw(in: roundedRect(bgRect, bgRect.width * 0.225), angle: -90)
 
-    // White document sheet, centered, slightly portrait.
-    let sheetW = S * 0.48
-    let sheetH = S * 0.60
-    let sheetRect = NSRect(x: (S - sheetW) / 2, y: (S - sheetH) / 2, width: sheetW, height: sheetH)
-    let sheet = roundedRect(sheetRect, S * 0.028)
+    // The redacted document: a white sheet with a folded top-right corner, a soft
+    // drop shadow for depth, and one bold black redaction bar where a name was.
+    let sheetW = S * 0.50
+    let sheetH = S * 0.62
+    let sr = NSRect(x: (S - sheetW) / 2, y: (S - sheetH) / 2, width: sheetW, height: sheetH)
+    let fold = sheetW * 0.22
+
+    let sheetPath = NSBezierPath()
+    sheetPath.move(to: NSPoint(x: sr.minX, y: sr.minY))
+    sheetPath.line(to: NSPoint(x: sr.minX, y: sr.maxY))
+    sheetPath.line(to: NSPoint(x: sr.maxX - fold, y: sr.maxY))
+    sheetPath.line(to: NSPoint(x: sr.maxX, y: sr.maxY - fold))
+    sheetPath.line(to: NSPoint(x: sr.maxX, y: sr.minY))
+    sheetPath.close()
+
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -S * 0.012), blur: S * 0.03,
+                  color: color(0x101830).withAlphaComponent(0.30).cgColor)
     color(0xFCFBF9).setFill()
-    sheet.fill()
+    sheetPath.fill()
+    ctx.restoreGState()
 
-    // Text lines and redaction bars.
+    // The folded corner (a darker triangle).
+    color(0xE2E4E8).setFill()
+    let fp = NSBezierPath()
+    fp.move(to: NSPoint(x: sr.maxX - fold, y: sr.maxY))
+    fp.line(to: NSPoint(x: sr.maxX - fold, y: sr.maxY - fold))
+    fp.line(to: NSPoint(x: sr.maxX, y: sr.maxY - fold))
+    fp.close()
+    fp.fill()
+
+    // Text lines, with one bold black redaction bar as the focal element.
     let pad = sheetW * 0.16
-    let lineX = sheetRect.minX + pad
+    let lineX = sr.minX + pad
     let fullW = sheetW - 2 * pad
-    let lineH = sheetH * 0.062
+    let lineH = sheetH * 0.055
     let gap = sheetH * 0.085
-    // From the top of the sheet downward. Each entry: (relativeWidth, isRedaction).
-    let lines: [(CGFloat, Bool)] = [
-        (1.0, false),
-        (1.0, true),   // redaction bar
-        (0.82, false),
-        (0.7, true),   // redaction bar
-        (0.55, false),
-    ]
-    var y = sheetRect.maxY - sheetH * 0.20
     let light = color(0xC7CCD3)
-    let ink = color(0x23262B)
-    for (w, isRedaction) in lines {
-        let barW = fullW * w
-        let r = NSRect(x: lineX, y: y - lineH, width: barW, height: lineH)
-        (isRedaction ? ink : light).setFill()
-        roundedRect(r, lineH / 2).fill()
-        y -= (lineH + gap)
+    let ink = color(0x141414)
+    var y = sr.maxY - sheetH * 0.24
+    func bar(_ rel: CGFloat, _ c: NSColor, _ hMul: CGFloat = 1) {
+        let bh = lineH * hMul
+        c.setFill()
+        roundedRect(NSRect(x: lineX, y: y - bh, width: fullW * rel, height: bh), bh / 2).fill()
+        y -= (bh + gap)
     }
+    bar(0.9, light)
+    bar(1.0, ink, 1.9)   // the redaction bar
+    bar(0.85, light)
+    bar(0.6, light)
 
     NSGraphicsContext.restoreGraphicsState()
     return rep
