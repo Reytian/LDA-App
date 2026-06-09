@@ -241,6 +241,121 @@ final class DeterministicEngineTests: XCTestCase {
         assertOffsetsSliceBack(spans, in: text)
     }
 
+    // MARK: - DATE (English month names)
+
+    func testLongFormMonthFirstDate() {
+        // Exact reproduction of the reported bug: a written-out US long-form date
+        // went undetected because detectDate carried only numeric and Chinese
+        // shapes. DATE is deterministic-only (the LLM never emits it), so this
+        // gap meant the date was never redacted.
+        let text = "This Agreement is dated January 5, 2026 by the parties."
+        let spans = engine.detect(text)
+
+        let span = assertHasSpan(spans, type: .date, text: "January 5, 2026")
+        XCTAssertEqual(span.priority, 40)
+        XCTAssertEqual(span.confidence, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(span.source, .deterministic)
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testAbbreviatedMonthDate() {
+        // Abbreviated month name with a trailing period.
+        let text = "Closing occurred on Sept. 30, 2025 in New York."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "Sept. 30, 2025")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testMonthFirstDateWithOrdinalSuffix() {
+        let text = "Delivered January 5th, 2026 to counsel."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "January 5th, 2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testDayFirstLongFormDate() {
+        // European day-first order, no comma.
+        let text = "Executed on 5 January 2026 in London."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "5 January 2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testBareMonthWordIsNotADate() {
+        // Guard against over-redaction: a month word with no day and no
+        // four-digit year must NOT be a DATE, or common prose (including the
+        // verb "may") would be redacted. This passes before and after the fix.
+        let text = "The parties may close in March of next year."
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .date },
+            "A bare month word must not be a DATE; got \(spans.filter { $0.type == .date }.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    // MARK: - DATE (month + year, legal "day of", European dotted)
+
+    func testMonthAndYearOnlyDate() {
+        // "Effective as of" clauses commonly carry a month and year with no day.
+        let text = "The lease is effective as of January 2026 for all parties."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "January 2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testAbbreviatedMonthAndYearOnlyDate() {
+        let text = "Renewal begins Sep. 2027 absent notice."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "Sep. 2027")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testLegalDayOfDate() {
+        // The execution-block recital form, e.g. "this 5th day of January, 2026".
+        let text = "Executed this 5th day of January, 2026 in New York."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "5th day of January, 2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testOfConnectorDate() {
+        // The shorter "Day of Month Year" connector form.
+        let text = "Dated the 5th of January 2026 by counsel."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "5th of January 2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testEuropeanDottedDate() {
+        let text = "Signed 05.01.2026 in Frankfurt."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "05.01.2026")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testDottedReferenceWithoutYearIsNotADate() {
+        // Guard: the dotted form requires a four-digit year, so a clause reference
+        // like "Section 5.1.2" must NOT be read as a date.
+        let text = "See Section 5.1.2 of the agreement."
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .date },
+            "A dotted reference without a four-digit year must not be a DATE; got \(spans.filter { $0.type == .date }.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
     // MARK: - AMOUNT (RMB with 万)
 
     func testRMBAmountWithWan() {

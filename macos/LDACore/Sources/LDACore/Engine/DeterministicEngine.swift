@@ -343,19 +343,47 @@ public struct DeterministicEngine: Sendable {
 
     // MARK: - DATE
 
-    /// Dates in three shapes:
-    ///   1. ISO: YYYY-MM-DD.
-    ///   2. Slashed: YYYY/MM/DD or M/D/YYYY style numeric dates.
-    ///   3. Chinese: YYYY年M月D日, allowing one- or two-digit month and day.
+    /// Dates across numeric, Chinese, and English written forms:
+    ///   - Numeric: ISO YYYY-MM-DD, slashed YYYY/MM/DD or M/D/YYYY, and European
+    ///     dotted DD.MM.YYYY.
+    ///   - Chinese: YYYY年M月D日, allowing one- or two-digit month and day.
+    ///   - English month-first: "January 5, 2026", "Jan. 5th 2026".
+    ///   - English day-first: "5 January 2026", "5th Jan 2026".
+    ///   - English month-and-year: "January 2026", "Sep. 2027".
+    ///   - English legal recital: "5th day of January, 2026", "5th of January 2026".
+    ///
+    /// Every form that carries a day REQUIRES a four-digit year, and the dotted
+    /// form does too, so bare month words (including "may", "march", "august") and
+    /// clause references like "5.1.2" are never matched. Two-digit years are
+    /// deliberately out of scope to keep precision high; DATE is deterministic-only,
+    /// so the design trades recall on common written dates against false positives
+    /// on prose.
+    ///
+    /// All patterns run case-insensitively. The numeric and Chinese shapes contain
+    /// no ASCII letters, so the flag is a no-op for them and affects only the
+    /// English month names. Month-and-year deliberately overlaps the day-bearing
+    /// English forms (it sub-matches "January 2026" inside "5 January 2026");
+    /// SpanMerger keeps the longer span, so the day is never dropped.
     private func detectDate(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
 
         let iso = #"(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)"#
         let slashed = #"(?<!\d)\d{1,4}/\d{1,2}/\d{1,4}(?!\d)"#
+        let dotted = #"(?<!\d)\d{1,2}\.\d{1,2}\.\d{4}(?!\d)"#
         let chinese = #"\d{4}年\d{1,2}月\d{1,2}日"#
 
-        for pattern in [iso, slashed, chinese] {
-            enumerate(pattern, in: ns, range: range) { match in
+        // English month names: full names, three-letter abbreviations, the "Sept"
+        // variant, and an optional trailing period. The day takes an optional
+        // ordinal suffix and the comma is optional.
+        let month = #"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"#
+        let ordinal = #"(?:st|nd|rd|th)?"#
+        let monthFirst = #"(?<![A-Za-z])"# + month + #"\.?\s+\d{1,2}"# + ordinal + #",?\s+\d{4}(?!\d)"#
+        let dayFirst = #"(?<!\d)\d{1,2}"# + ordinal + #"\s+"# + month + #"\.?,?\s+\d{4}(?!\d)"#
+        let monthYear = #"(?<![A-Za-z])"# + month + #"\.?\s+\d{4}(?!\d)"#
+        let dayOf = #"(?<!\d)\d{1,2}"# + ordinal + #"\s+(?:day\s+of|of)\s+"# + month + #"\.?,?\s+\d{4}(?!\d)"#
+
+        for pattern in [iso, slashed, dotted, chinese, monthFirst, dayFirst, monthYear, dayOf] {
+            enumerate(pattern, options: [.caseInsensitive], in: ns, range: range) { match in
                 out.append(
                     self.makeSpan(
                         ns,
