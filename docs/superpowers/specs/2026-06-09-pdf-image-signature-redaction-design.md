@@ -101,6 +101,11 @@ New units are small, isolated, and independently testable. Names are provisional
   text-layer text already handled by `findString` and is dropped.
 - **Dedup tolerance:** Coverage is judged with a ratio/inset tolerance, not exact rect
   equality, to absorb `selection(for:)` boundary slop.
+- **Coordinate consistency:** image-origin rects are produced in the same mediaBox-relative,
+  bottom-left space that `PdfRedactor.renderRedactedPDF` and the existing text-box path
+  (`PDFSelection.bounds(for:)`) already assume, so the two box sources compose without a
+  transform. The integration test (section 8) asserts an image box lands on the signature
+  region, which is the concrete guard against any coordinate mismatch.
 - **Depends on:** PDFKit, Vision, CoreGraphics (all already imported by this file).
 
 ### 5.3 `ImageRedactionResolver` (new)
@@ -123,8 +128,9 @@ After the existing tokenization and before rendering the review PDF, for `pdf &&
 3. Run detection over the concatenated observation text using the same seam already used
    for the main pass (`DeterministicEngine().detect` merged with `llmSpans(for:modelPath:)`).
 4. `(imageBoxes, newEntries) = ImageRedactionResolver.resolve(mapping:, observations:, detect:)`.
-5. Union `imageBoxes` with the existing `findString` boxes before
-   `PdfRedactor.renderRedactedPDF`.
+5. Concatenate `imageBoxes` with the existing `findString` boxes before
+   `PdfRedactor.renderRedactedPDF` ("union" here means appending the two lists; image and
+   text boxes have different rects and are never equal, so no set-dedup is intended).
 6. Merge `newEntries` into `tokenized.mapping` before `MappingStore.save`.
 
 `entityCount`/`entities` in `AnonymizeResult` continue to reflect text-layer spans;
@@ -136,20 +142,29 @@ avoid implying text-layer offsets exist for image entities.)
 
 Every kept image-origin observation produces exactly one box. Token assignment:
 
-- **Reuse:** If detection over the image text yields an entity whose surface text already
-  exists in `Mapping` (the demonstrated case: signature "Daniel Okafor" duplicates the
+- **Reuse:** If detection over the image text yields an entity whose surface text matches
+  one already in `Mapping` (the demonstrated case: signature "Daniel Okafor" duplicates the
   typed name), reuse that existing token (for example `{PERSON_1}`). No duplicate mapping
-  entry is created.
+  entry is created. **Match key:** normalized surface text (trimmed, case-folded,
+  internal whitespace collapsed) compared against each entry's `surfaceText` and its
+  `aliases`. Exact byte equality is not required, because OCR rarely reproduces the typed
+  surface character-for-character (case, punctuation, spacing). The plan must pin the exact
+  normalization.
 - **Mint:** If detection yields a new entity (a signature-only name), mint the next
-  `{TYPE_N}` token, continuing `Mapping`'s per-type numbering, and add a redact-only
-  `MappingEntry` whose `value` and `surfaceText` are the OCR'd text. This is recorded for
-  audit; it is not restorable (see 7).
+  `{TYPE_N}` token and add a redact-only `MappingEntry` whose `value` and `surfaceText` are
+  the OCR'd text. Recorded for audit; not restorable (see 7).
 - **Generic fallback:** If detection fires on nothing (a stylized logo, OCR noise), still
   box the region with a generic `{REDACTED_N}` label and create NO mapping entry. The box
-  alone closes the leak.
+  alone closes the leak. `{REDACTED_N}` is only a `RedactionBox.token` display string; it
+  is never a mapping key and never needs to be a valid `EntityType`.
 
-Token minting uses `TokenGrammar` and continues numbering from the maximum existing index
-per type so image tokens never collide with text-layer tokens.
+**Token minting mechanism.** `Tokenizer.tokenize` builds its per-type counters fresh inside
+one call, so there is no shared utility that mints against an existing `Mapping`. The
+resolver derives the next index per type by scanning the existing `Mapping.entries` **keys**
+(which are always canonical `{TYPE_N}` tokens) for that type and taking `max(N) + 1`. Only
+entry keys are scanned, never values or surface texts, so a surface that happens to look
+like a token cannot perturb numbering. This guarantees image tokens never collide with
+text-layer tokens.
 
 ## 7. Error handling and edge cases
 
