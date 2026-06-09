@@ -22,6 +22,8 @@
 //
 
 import XCTest
+import CoreGraphics
+import CoreText
 @testable import LDACore
 
 final class LDAServiceTests: XCTestCase {
@@ -337,6 +339,79 @@ final class LDAServiceTests: XCTestCase {
         out = out.replacingOccurrences(of: "\"", with: "&quot;")
         out = out.replacingOccurrences(of: "'", with: "&apos;")
         return out
+    }
+
+    // MARK: - Image-PII channel integration tests
+
+    /// A hybrid PDF (text layer + embedded raster image of "ZZSIGNZZ") must produce
+    /// imageRedactionCount >= 1. The word is unique, absent from the typed body, and
+    /// well clear of the text line, so any box over it proves the image channel ran.
+    func testAnonymizeBoxesImageOnlySignatureOnHybridPdf() throws {
+        let pdf = try makeHybridSignaturePdf()
+        let result = try LDAService.anonymize(
+            input: pdf, outputDir: workDir, protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt, llmModelPath: nil)
+
+        XCTAssertGreaterThanOrEqual(result.imageRedactionCount, 1,
+            "image-only signature was not redacted")
+        XCTAssertNotNil(result.visualPdfURL)
+        let review = try XCTUnwrap(result.visualPdfURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: review.path))
+    }
+
+    /// A PDF with no embedded images must have imageRedactionCount == 0: the image
+    /// channel must not fire on a pure-text page.
+    func testAnonymizeTextOnlyPdfHasNoImageRedactions() throws {
+        let pdf = try makeTextOnlyPdf()
+        let result = try LDAService.anonymize(
+            input: pdf, outputDir: workDir, protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt, llmModelPath: nil)
+        XCTAssertEqual(result.imageRedactionCount, 0)
+    }
+
+    // MARK: - PDF fixture builders
+
+    private func makeHybridSignaturePdf() throws -> URL { try makePdf(imageWord: "ZZSIGNZZ") }
+    private func makeTextOnlyPdf() throws -> URL { try makePdf(imageWord: nil) }
+
+    /// One-page PDF with a typed text layer and, optionally, an image-only word
+    /// drawn well clear of the text line so the image-PII pass can isolate it.
+    private func makePdf(imageWord: String?) throws -> URL {
+        var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let url = workDir.appendingPathComponent("svc-\(UUID().uuidString).pdf")
+        guard let consumer = CGDataConsumer(url: url as CFURL),
+              let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw XCTSkip("no PDF context")
+        }
+        ctx.beginPDFPage(nil)
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 26, nil)
+        let body = NSAttributedString(string: "ENGAGEMENT LETTER FOR ACME CORP",
+                                      attributes: [.font: font,
+                                                   .foregroundColor: CGColor(gray: 0, alpha: 1)])
+        ctx.textPosition = CGPoint(x: 72, y: 700)
+        CTLineDraw(CTLineCreateWithAttributedString(body), ctx)
+        if let word = imageWord, let img = Self.wordImage(word) {
+            ctx.draw(img, in: CGRect(x: 72, y: 300, width: 360, height: 90))
+        }
+        ctx.endPDFPage()
+        ctx.closePDF()
+        return url
+    }
+
+    private static func wordImage(_ word: String) -> CGImage? {
+        let w = 720, h = 180
+        guard let c = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        c.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        c.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 96, nil)
+        let attr = NSAttributedString(string: word,
+                                      attributes: [.font: font, .foregroundColor: CGColor(gray: 0, alpha: 1)])
+        c.textPosition = CGPoint(x: 20, y: 50)
+        CTLineDraw(CTLineCreateWithAttributedString(attr), c)
+        return c.makeImage()
     }
 
     // MARK: - Byte search helper
