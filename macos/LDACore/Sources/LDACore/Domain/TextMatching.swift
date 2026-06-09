@@ -22,15 +22,18 @@ public enum TextMatching {
     }
 
     /// The set of "significant" words: alphanumeric-only, length >= 4, case-folded.
-    /// Short words and punctuation are dropped so the overlap test is not fooled by
-    /// stopwords, OCR-truncated word ends, or stray symbols.
+    /// Diacritics are folded first so accented names (for example "Societe",
+    /// "Muller") reduce to base letters instead of having their accents stripped by
+    /// the alphanumeric filter. Short words and punctuation are dropped so the
+    /// overlap test is not fooled by stopwords, OCR-truncated word ends, or stray
+    /// symbols.
     public static func significantWords(_ s: String) -> Set<String> {
-        var words: Set<String> = []
-        for raw in normalize(s).components(separatedBy: " ") {
-            let alnum = String(raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
-            if alnum.count >= 4 { words.insert(alnum) }
-        }
-        return words
+        let words = normalize(s).components(separatedBy: " ")
+        return Set(words.compactMap { raw -> String? in
+            let folded = raw.folding(options: .diacriticInsensitive, locale: nil)
+            let alnum = String(folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+            return alnum.count >= 4 ? alnum : nil
+        })
     }
 
     /// True when the two strings share at least one significant word.
