@@ -81,12 +81,14 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     public let mappingFileURL: String
     public let visualPdfURL: String?
     public let entityCount: Int
+    public let imageRedactionCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
         self.mappingFileURL = result.mappingFileURL.path
         self.visualPdfURL = result.visualPdfURL?.path
         self.entityCount = result.entityCount
+        self.imageRedactionCount = result.imageRedactionCount
     }
 }
 
