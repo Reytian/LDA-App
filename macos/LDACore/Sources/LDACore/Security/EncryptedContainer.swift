@@ -371,7 +371,7 @@ public struct EncryptedContainer {
     // MARK: - Randomness
 
     /// Returns count cryptographically secure random bytes.
-    static func randomBytes(count: Int) -> [UInt8] {
+    private static func randomBytes(count: Int) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: count)
         let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
         if status == errSecSuccess {
