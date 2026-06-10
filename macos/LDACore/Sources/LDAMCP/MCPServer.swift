@@ -153,6 +153,10 @@ public struct MCPServer {
                 summary = try callRestore(arguments)
             case "detect_entities":
                 summary = try callDetect(arguments)
+            case "extract_profile":
+                summary = try callExtractProfile(arguments)
+            case "fill":
+                summary = try callFill(arguments)
             default:
                 return toolErrorResult(id: id, message: "Unknown tool: \(name)")
             }
@@ -307,15 +311,39 @@ public struct MCPServer {
         return ordered
     }
 
-    /// A human-readable description for any error surfaced from LDAService.
+    /// A human-readable description for any error surfaced from LDAService or
+    /// the fill tool argument validators.
     private func describe(_ error: Error) -> String {
         if let toolError = error as? MCPToolError {
             return toolError.message
+        }
+        if let fillToolError = error as? MCPFillToolError {
+            return fillToolError.message
+        }
+        if let serviceError = error as? LDAServiceError {
+            return describe(serviceError)
         }
         if let ioError = error as? DocumentIOError {
             return describe(ioError)
         }
         return String(describing: error)
+    }
+
+    /// A readable message for each LDAServiceError case.
+    private func describe(_ error: LDAServiceError) -> String {
+        switch error {
+        case .incompleteExtraction(let count):
+            return "The document could not be fully scanned: \(count) segment(s) were truncated. " +
+                   "The output has NOT been written to avoid presenting a partial result as clean."
+        case .outputEqualsInput:
+            return "Output path must differ from the input path."
+        case .noReadableSources:
+            return "None of the source documents could be read as text. " +
+                   "Check that the files are valid DOCX, PDF, or TXT."
+        case .staleTarget(let detail):
+            return "The target document changed since the plan was produced (\(detail)). " +
+                   "Re-run fill with mode plan before applying."
+        }
     }
 
     /// A readable message for each DocumentIOError case.
@@ -429,7 +457,7 @@ public struct MCPServer {
 
     // MARK: - Tool descriptors
 
-    /// The three advertised tools with JSON-Schema input schemas. Declared once so
+    /// The five advertised tools with JSON-Schema input schemas. Declared once so
     /// tools/list and the dispatcher cannot drift.
     static let toolDescriptors: [[String: Any]] = [
         [
@@ -470,6 +498,45 @@ public struct MCPServer {
                     "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
                 ],
                 "required": ["input"]
+            ]
+        ],
+        [
+            "name": "extract_profile",
+            "description": "Build an encrypted CompanyProfile from source documents and save it to disk. Returns a value-free summary (field count, keys, conflicts); no field values are included in the response.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "sources": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "One or more source document paths (DOCX, PDF, or TXT) to extract profile fields from."
+                    ],
+                    "label": ["type": "string", "description": "Short human label for the resulting profile."],
+                    "out": ["type": "string", "description": "Destination path for the encrypted .ldaprofile file."],
+                    "model": ["type": "string", "description": "Absolute path to the v2 GGUF model. Required for profile extraction."],
+                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the profile. Omit to use a per-profile Keychain key."]
+                ],
+                "required": ["sources", "label", "out", "model"]
+            ]
+        ],
+        [
+            "name": "fill",
+            "description": "Fill blanks in a document from an encrypted CompanyProfile. mode=plan returns the fill plan (with proposed values) for review. mode=apply promotes proposed blanks and writes the filled document, returning a value-free report.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "profile": ["type": "string", "description": "Path to the encrypted .ldaprofile."],
+                    "input": ["type": "string", "description": "Path to the fill target (.docx or .pdf)."],
+                    "mode": [
+                        "type": "string",
+                        "enum": ["plan", "apply"],
+                        "description": "plan: return the fill plan for review. apply: promote proposed blanks and write the filled document."
+                    ],
+                    "model": ["type": "string", "description": "Optional path to the v2 GGUF model for unmatched blanks."],
+                    "passphrase": ["type": "string", "description": "Optional passphrase protecting the profile."],
+                    "output_dir": ["type": "string", "description": "Directory to write the filled document. Required when mode is apply."]
+                ],
+                "required": ["profile", "input", "mode"]
             ]
         ]
     ]
