@@ -179,14 +179,16 @@ public final class PromptStore {
     jurisdiction, companyNumber, incorporationDate, registeredOffice, \
     authorizedCapital, issuedCapital, parValue, shareClass, directorName, \
     shareholderName, shareholderShares, companySecretary, registeredAgent. \
-    If you find an important fact that fits none of these, use a short lowercase \
-    key of your own.
+    If you find an important fact that fits none of these, use a single camelCase \
+    word of your own (no spaces, no underscores).
 
     Rules:
     - "value" is the exact fact as written in the document. Do not translate, \
     reformat, or abbreviate it.
     - "snippet" is the EXACT sentence or line from the document containing the \
     value, copied verbatim.
+    - If the snippet is truncated by a chunk boundary, include what is visible; \
+    that is acceptable.
     - "confidence" is between 0 and 1.
     - One object per fact. Repeat keys for lists (several directors, several \
     shareholders).
@@ -369,6 +371,11 @@ public final class PromptStore {
     /// The host keeps the JSON contract and thinking-off directive fixed at the
     /// engine layer regardless of these warnings; validate() only flags an
     /// editable body that has drifted away from the expected anchors.
+    ///
+    /// Note: this function is calibrated for the Chinese pass1/pass2 bodies only;
+    /// it emits spurious warnings for the English extraction, profile, and
+    /// blankMatch bodies because those bodies use different JSON-instruction
+    /// phrasing and no str.format-style substitution placeholders.
     public static func validate(_ body: String) -> [String] {
         var warnings: [String] = []
 
