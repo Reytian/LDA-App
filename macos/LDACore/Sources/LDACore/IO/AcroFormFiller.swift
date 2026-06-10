@@ -44,12 +44,19 @@ public enum AcroFormFiller {
         /// PDFKit refused to write the filled document (for example a
         /// permissions-locked file).
         case writeFailed
+        /// The output URL is the same path as the source; writing would
+        /// overwrite the original.
+        case outputEqualsInput
     }
 
     // MARK: - Public API
 
     /// Enumerate all AcroForm widgets in the PDF at url. Returns an empty
     /// FormInventory for a plain PDF that contains no widgets.
+    ///
+    /// Read-only text widgets (isReadOnly == true) are routed to
+    /// manualWidgetNames, not textFieldNames, so the planner never proposes
+    /// them for auto-fill.
     public static func enumerate(at url: URL) throws -> FormInventory {
         guard let document = PDFDocument(url: url) else { throw FillError.unreadable }
 
@@ -66,18 +73,13 @@ public enum AcroFormFiller {
                 let name = annotation.fieldName ?? ""
                 guard !name.isEmpty else { continue }
 
-                if isTextWidget(annotation) {
+                if isTextWidget(annotation) && !annotation.isReadOnly {
                     if seenText.insert(name).inserted {
                         textNames.append(name)
-                        // toolTip is deprecated but there is no replacement; suppress
-                        // the warning with a local alias.
-                        let tip: String
-                        // PDFAnnotation has no un-deprecated tooltip accessor on this
-                        // macOS version; use the annotationKeyValues dictionary instead.
+                        // PDFAnnotation has no un-deprecated tooltip accessor;
+                        // read the /TU entry from the raw dictionary instead.
                         let keyVals = annotation.annotationKeyValues
-                        let rawTip = keyVals[PDFAnnotationKey(rawValue: "/TU")] as? String
-                            ?? keyVals[PDFAnnotationKey(rawValue: "TU")] as? String
-                        tip = rawTip ?? ""
+                        let tip = keyVals[PDFAnnotationKey(rawValue: "/TU")] as? String ?? ""
                         labels[name] = tip.isEmpty ? name : "\(name) \(tip)"
                     }
                 } else {
@@ -99,13 +101,24 @@ public enum AcroFormFiller {
     /// treats same-named widgets as one logical field; the value is written to
     /// EVERY annotation carrying that name across all pages.
     ///
-    /// Throws FillError.staleTarget if any key in values has no matching widget.
+    /// Read-only text widgets are never written. If a caller-supplied name
+    /// targets a read-only widget (or a non-existent field), that name appears
+    /// in the staleTarget missing list.
+    ///
+    /// Throws FillError.outputEqualsInput when out resolves to the same path as
+    /// original, to prevent overwriting the source.
+    /// Throws FillError.staleTarget if any key in values has no matching
+    /// writable widget.
     /// The original file is never modified.
     public static func fill(
         original: URL,
         values: [String: String],
         to out: URL
     ) throws {
+        guard out.standardized != original.standardized else {
+            throw FillError.outputEqualsInput
+        }
+
         guard let document = PDFDocument(url: original) else { throw FillError.unreadable }
 
         var filledNames: Set<String> = []
@@ -114,6 +127,7 @@ public enum AcroFormFiller {
             guard let page = document.page(at: pageIndex) else { continue }
             for annotation in page.annotations {
                 guard isWidget(annotation), isTextWidget(annotation) else { continue }
+                guard !annotation.isReadOnly else { continue }
                 guard let name = annotation.fieldName,
                       let value = values[name] else { continue }
                 annotation.widgetStringValue = value
@@ -131,31 +145,16 @@ public enum AcroFormFiller {
 
     // MARK: - Private helpers
 
-    /// Returns true when the annotation is an AcroForm widget. PDFKit may
-    /// return the type string "Widget" (capital W) or the subtype key; check
-    /// both the typed annotation.type and the raw annotation subtype to cover
-    /// all PDFKit versions.
+    /// Returns true when the annotation is an AcroForm widget.
+    /// annotation.type returns "Widget" (capital W) for widget annotations on
+    /// macOS 11+.
     private static func isWidget(_ annotation: PDFAnnotation) -> Bool {
-        // annotation.type returns the subtype string for the annotation.
-        // For widget annotations it is "Widget" on macOS 11+.
-        if let type_ = annotation.type, type_ == "Widget" { return true }
-        // Belt-and-suspenders: check if the annotation has a widget field type
-        // set (PDFKit populates this for recognized widget annotations).
-        // A zero-valued widgetFieldType means "unknown", which can also mean it
-        // is a widget not recognized by PDFKit, so prefer the string check above.
-        return false
+        guard let type_ = annotation.type else { return false }
+        return type_ == "Widget"
     }
 
     /// Returns true when the widget represents a plain-text entry field.
     private static func isTextWidget(_ annotation: PDFAnnotation) -> Bool {
-        // Check via the typed enum first.
-        if annotation.widgetFieldType == .text { return true }
-        // Fall back to the raw /FT dictionary key for PDFs that PDFKit has not
-        // fully parsed into the typed property. annotationKeyValues is non-Optional.
-        let props = annotation.annotationKeyValues
-        if let ft = props[PDFAnnotationKey.widgetFieldType] as? String, ft == "Tx" {
-            return true
-        }
-        return false
+        return annotation.widgetFieldType == .text
     }
 }

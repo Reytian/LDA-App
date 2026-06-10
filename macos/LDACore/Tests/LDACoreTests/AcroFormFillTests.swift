@@ -198,6 +198,93 @@ final class AcroFormFillTests: XCTestCase {
         XCTAssertTrue(form.manualWidgetNames.isEmpty, "no manual widgets expected in a plain page")
     }
 
+    // MARK: - Read-only widget tests
+
+    /// A read-only text widget must land in manualWidgetNames during enumeration
+    /// and must never be written during fill. Supplying its name to fill throws
+    /// staleTarget; omitting it lets fill succeed with the locked value unchanged.
+    func testReadOnlyTextWidgetIsManualAndNotFilled() throws {
+        let document = PDFDocument()
+        let page = PDFPage()
+        page.setBounds(Self.pageBounds, for: .mediaBox)
+
+        // Normal writable text widget.
+        let normal = makeWidget(
+            name: "CompanyName", fieldType: "Tx",
+            rect: CGRect(x: 50, y: 700, width: 300, height: 20)
+        )
+        page.addAnnotation(normal)
+
+        // Read-only text widget.
+        let locked = makeWidget(
+            name: "LockedRef", fieldType: "Tx",
+            rect: CGRect(x: 50, y: 660, width: 300, height: 20)
+        )
+        locked.isReadOnly = true
+        page.addAnnotation(locked)
+
+        document.insert(page, at: 0)
+        let sourceURL = tempURL("pdf")
+        guard document.write(to: sourceURL) else {
+            throw NSError(domain: "AcroFormFillTests.fixture", code: 3)
+        }
+
+        // Enumerate: LockedRef must be manual, not in textFieldNames.
+        let form = try AcroFormFiller.enumerate(at: sourceURL)
+        XCTAssertTrue(form.textFieldNames.contains("CompanyName"),
+                      "CompanyName must be in textFieldNames")
+        XCTAssertFalse(form.textFieldNames.contains("LockedRef"),
+                       "read-only widget must NOT be in textFieldNames")
+        XCTAssertTrue(form.manualWidgetNames.contains("LockedRef"),
+                      "read-only widget must be in manualWidgetNames")
+
+        // Fill with both names: LockedRef is not writable, so it lands in missing.
+        let out1 = tempURL("pdf")
+        XCTAssertThrowsError(
+            try AcroFormFiller.fill(
+                original: sourceURL,
+                values: ["CompanyName": "Acme Corp", "LockedRef": "REF-001"],
+                to: out1
+            )
+        ) { error in
+            guard case AcroFormFiller.FillError.staleTarget(let missing) = error else {
+                return XCTFail("expected staleTarget, got \(error)")
+            }
+            XCTAssertEqual(missing, ["LockedRef"])
+        }
+
+        // Fill with only the writable field: must succeed and locked value unchanged.
+        let out2 = tempURL("pdf")
+        XCTAssertNoThrow(
+            try AcroFormFiller.fill(
+                original: sourceURL,
+                values: ["CompanyName": "Acme Corp"],
+                to: out2
+            )
+        )
+
+        // Verify CompanyName was written and LockedRef was not touched.
+        let saved = readTextWidgetValues(from: out2)
+        XCTAssertEqual(saved["CompanyName"], "Acme Corp",
+                       "CompanyName must contain the filled value")
+        // The locked widget's widgetStringValue must not have been set to anything
+        // by fill(). A freshly constructed, never-filled annotation returns nil or
+        // an empty string; either is acceptable as long as it is not the value we
+        // did not write.
+        let lockedValue = saved["LockedRef"] ?? ""
+        XCTAssertNotEqual(lockedValue, "REF-001",
+                          "fill must not have written to the read-only widget")
+    }
+
+    /// Enumerate on a URL that does not exist must throw FillError.unreadable.
+    func testEnumerateUnreadableURLThrowsUnreadable() {
+        let nonExistent = workDir.appendingPathComponent("does_not_exist.pdf")
+        XCTAssertThrowsError(try AcroFormFiller.enumerate(at: nonExistent)) { error in
+            XCTAssertEqual(error as? AcroFormFiller.FillError, .unreadable,
+                           "enumerate on a missing file must throw .unreadable")
+        }
+    }
+
     /// AcroForm semantics: same-named widgets on different pages are one logical
     /// field. fill() writes the value to EVERY matching widget, not just the first.
     func testFillSameNamedWidgetOnBothPagesReceivesValue() throws {
