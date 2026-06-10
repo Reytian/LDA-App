@@ -84,6 +84,14 @@ public enum DocxRedactor {
         return newEntries
     }
 
+    /// How many embedded media files (word/media/...) the package carries.
+    /// These copy verbatim into the redacted output without PII scanning, so
+    /// a non-zero count must be surfaced to the user as a warning (wet-ink
+    /// signature scans and stamps live there).
+    public static func embeddedMediaCount(in url: URL) -> Int {
+        DocxParts.embeddedMediaPaths(in: url).count
+    }
+
     /// A single run-local edit: replace the run-local UTF-16 range
     /// [localStart, localEnd) with insertText.
     struct RunEdit {

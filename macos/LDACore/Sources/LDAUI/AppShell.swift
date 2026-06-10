@@ -60,13 +60,13 @@ public struct AppShell: View {
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
         }
-        .onChange(of: model.exportRequestToken) { _ in
+        .onChange(of: model.exportRequestToken) { _, _ in
             beginExport()
         }
-        .onChange(of: model.restoreRequestToken) { _ in
+        .onChange(of: model.restoreRequestToken) { _, _ in
             presentRestore()
         }
-        .onChange(of: model.status) { status in
+        .onChange(of: model.status) { _, status in
             announce(status)
         }
     }
@@ -192,7 +192,16 @@ public struct AppShell: View {
                 Label("Pattern matching only", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
-                    .help("The AI model was unavailable, so names, companies, and addresses may have been missed.")
+                    .help(model.aiWarning
+                        ?? "The AI model was unavailable, so names, companies, and addresses may have been missed.")
+            }
+
+            if let warning = model.aiWarning {
+                Text("\u{00B7}  \(warning)")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
+                    .lineLimit(1)
+                    .help(warning)
             }
 
             if let note = model.learningNote {
@@ -286,6 +295,20 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Confidentiality nudge: the mapping sidecar holds the original
+            // values (encrypted). Exporting into an iCloud-synced folder ships
+            // that file off this Mac.
+            if let dir = pendingExportDir, Self.isUnderICloud(dir) {
+                Label(
+                    "This folder syncs to iCloud. The encrypted mapping (which "
+                        + "contains the original names) will be uploaded with it.",
+                    systemImage: "icloud.and.arrow.up"
+                )
+                .font(.callout)
+                .foregroundStyle(CounselTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Trust confirmation: what is and is not being redacted.
             (Text("\(model.redactedCount)").bold() + Text(" entities will be redacted.")
                 + (model.visibleCount > 0
@@ -337,10 +360,12 @@ public struct AppShell: View {
         exportMessage = nil
         let needsScope = url.startAccessingSecurityScopedResource()
         Task {
-            await model.open(url)
-            if needsScope {
-                url.stopAccessingSecurityScopedResource()
+            // defer releases the sandbox scope even if the Task is cancelled
+            // mid-import; leaking it can make later opens of the same URL fail.
+            defer {
+                if needsScope { url.stopAccessingSecurityScopedResource() }
             }
+            await model.open(url)
         }
     }
 
@@ -374,25 +399,32 @@ public struct AppShell: View {
 
         let phrase = passphrase.isEmpty ? nil : passphrase
         let createdAt = ISO8601DateFormatter().string(from: Date())
+        pendingExportDir = nil
+        passphrase = ""
 
         let needsScope = dir.startAccessingSecurityScopedResource()
-        defer {
-            if needsScope { dir.stopAccessingSecurityScopedResource() }
-            pendingExportDir = nil
-            passphrase = ""
-        }
-
-        do {
-            let outcome = try model.export(
-                to: dir,
-                passphrase: phrase,
-                createdAtISO8601: createdAt
-            )
-            exportMessage = "Exported \(outcome.tokenCount) "
-                + (outcome.tokenCount == 1 ? "token to " : "tokens to ")
-                + outcome.redactedURL.lastPathComponent
-        } catch {
-            exportMessage = "Export failed. \(error.localizedDescription)"
+        Task {
+            defer {
+                if needsScope { dir.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let outcome = try await model.export(
+                    to: dir,
+                    passphrase: phrase,
+                    createdAtISO8601: createdAt
+                )
+                var message = "Exported \(outcome.tokenCount) "
+                    + (outcome.tokenCount == 1 ? "token to " : "tokens to ")
+                    + outcome.redactedURL.lastPathComponent
+                if outcome.embeddedMediaCount > 0 {
+                    message += "  \u{00B7}  Warning: \(outcome.embeddedMediaCount) embedded "
+                        + (outcome.embeddedMediaCount == 1 ? "image was" : "images were")
+                        + " copied unscanned (signatures or stamps may remain)."
+                }
+                exportMessage = message
+            } catch {
+                exportMessage = "Export failed. \(error.localizedDescription)"
+            }
         }
     }
 
@@ -493,6 +525,12 @@ public struct AppShell: View {
         alert.alertStyle = warning ? .warning : .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    /// True when the directory lives inside iCloud Drive (any app container or
+    /// the Desktop and Documents sync surface).
+    private static func isUnderICloud(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.contains("/Library/Mobile Documents/")
     }
 
     // MARK: - Content types

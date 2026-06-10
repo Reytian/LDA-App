@@ -310,4 +310,105 @@ final class MCPTests: XCTestCase {
         let text = try XCTUnwrap(content.first?["text"] as? String)
         XCTAssertFalse(text.isEmpty)
     }
+    // MARK: - Per-document Keychain accounts
+
+    /// Two documents anonymized without a passphrase must NOT share one
+    /// Keychain key: a single shared account is a single point of failure and
+    /// each new key would orphan every earlier sidecar. The account derives
+    /// from the mapping base name; restore still works through the server.
+    func testKeychainProtectedMappingsUsePerDocumentAccountsAndRestore() throws {
+        let inputA = workDir.appendingPathComponent("alpha.txt")
+        try Data("Mail alpha@example.com now.".utf8).write(to: inputA)
+        let inputB = workDir.appendingPathComponent("beta.txt")
+        try Data("Mail beta@example.com now.".utf8).write(to: inputB)
+
+        for input in [inputA, inputB] {
+            let response = try roundTrip([
+                "jsonrpc": "2.0", "id": 71, "method": "tools/call",
+                "params": [
+                    "name": "anonymize_document",
+                    "arguments": ["input": input.path, "outputDir": workDir.path]
+                ]
+            ])
+            let summary = try toolSummary(from: response)
+            let mappingPath = try XCTUnwrap(summary["mappingFile"] as? String)
+
+            // The sidecar decrypts under its own per-document account.
+            let account = MCPServer.keychainAccount(
+                forMappingBaseName: URL(fileURLWithPath: mappingPath)
+                    .deletingPathExtension().lastPathComponent
+            )
+            XCTAssertNoThrow(
+                try MappingStore.load(
+                    from: URL(fileURLWithPath: mappingPath),
+                    protection: .keychain(account: account)
+                )
+            )
+        }
+
+        // The two accounts must differ.
+        XCTAssertNotEqual(
+            MCPServer.keychainAccount(forMappingBaseName: "alpha_redacted"),
+            MCPServer.keychainAccount(forMappingBaseName: "beta_redacted")
+        )
+
+        // And restore through the server round-trips document A.
+        let redactedA = workDir.appendingPathComponent("alpha_redacted.txt")
+        let mappingA = workDir.appendingPathComponent("alpha_redacted.ldamap")
+        let outputA = workDir.appendingPathComponent("alpha_restored.txt")
+        let restore = try roundTrip([
+            "jsonrpc": "2.0", "id": 72, "method": "tools/call",
+            "params": [
+                "name": "restore_document",
+                "arguments": [
+                    "editedRedacted": redactedA.path,
+                    "mapping": mappingA.path,
+                    "output": outputA.path
+                ]
+            ]
+        ])
+        _ = try toolSummary(from: restore)
+        let restored = try String(contentsOf: outputA, encoding: .utf8)
+        XCTAssertTrue(restored.contains("alpha@example.com"))
+    }
+
+    /// Sidecars created by older builds under the single shared account must
+    /// still restore: the server falls back to the legacy account when the
+    /// per-document key cannot open the mapping.
+    func testRestoreFallsBackToLegacySharedKeychainAccount() throws {
+        // Build a sidecar encrypted under the LEGACY shared account directly.
+        let tokenized = Tokenizer.tokenize(
+            text: "Mail legacy@example.com now.",
+            spans: EntityLocator.spans(
+                forValue: "legacy@example.com", type: .email,
+                in: "Mail legacy@example.com now."
+            ),
+            sourceFile: "legacy.txt",
+            createdAtISO8601: "2026-01-01T00:00:00Z"
+        )
+        let redacted = workDir.appendingPathComponent("legacy_redacted.txt")
+        try CompanionWriter.writeText(tokenized.tokenizedText, to: redacted)
+        let mapping = workDir.appendingPathComponent("legacy_redacted.ldamap")
+        try MappingStore.save(
+            tokenized.mapping, to: mapping,
+            protection: .keychain(account: MCPServer.defaultKeychainAccount)
+        )
+
+        let output = workDir.appendingPathComponent("legacy_restored.txt")
+        let response = try roundTrip([
+            "jsonrpc": "2.0", "id": 73, "method": "tools/call",
+            "params": [
+                "name": "restore_document",
+                "arguments": [
+                    "editedRedacted": redacted.path,
+                    "mapping": mapping.path,
+                    "output": output.path
+                ]
+            ]
+        ])
+        _ = try toolSummary(from: response)
+        let restored = try String(contentsOf: output, encoding: .utf8)
+        XCTAssertTrue(restored.contains("legacy@example.com"))
+    }
+
 }

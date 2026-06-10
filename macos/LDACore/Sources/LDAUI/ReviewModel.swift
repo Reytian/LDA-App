@@ -64,11 +64,16 @@ public struct ExportResult: Equatable {
     public let redactedURL: URL
     public let mappingURL: URL
     public let tokenCount: Int
+    /// Embedded media files (word/media/...) copied verbatim into the redacted
+    /// DOCX without PII scanning. Non-zero means the UI must warn: wet-ink
+    /// signature scans and stamps live there. Always 0 for non-DOCX sources.
+    public let embeddedMediaCount: Int
 
-    public init(redactedURL: URL, mappingURL: URL, tokenCount: Int) {
+    public init(redactedURL: URL, mappingURL: URL, tokenCount: Int, embeddedMediaCount: Int = 0) {
         self.redactedURL = redactedURL
         self.mappingURL = mappingURL
         self.tokenCount = tokenCount
+        self.embeddedMediaCount = embeddedMediaCount
     }
 }
 
@@ -116,10 +121,16 @@ public final class ReviewModel: ObservableObject {
     /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
     @Published public var learningNote: String?
 
-    /// Whether the AI extractor actually ran for the last anonymize pass. When
-    /// false, detection was pattern-matching only, so the window can warn that
-    /// names, companies, and addresses may have been missed.
+    /// Whether the AI extractor actually ran TO COMPLETION for the last
+    /// anonymize pass. False when AI was off, the model was missing, the
+    /// engine failed, or the scan did not fully cover the document; in every
+    /// one of those cases the window must warn that names, companies, and
+    /// addresses may have been missed.
     @Published public var aiActive: Bool = false
+
+    /// A user-facing explanation when the AI pass was expected but failed or
+    /// could not fully scan the document. nil when AI ran cleanly or was off.
+    @Published public var aiWarning: String?
 
     /// Bumped when the Export menu command fires, so the window can present the
     /// export flow (which owns the panels and passphrase sheet).
@@ -160,6 +171,24 @@ public final class ReviewModel: ObservableObject {
     /// When the current anonymize pass started, used to estimate time remaining.
     private var anonymizeStart: Date?
 
+    /// Monotonic generation for the open document. Every open() bumps it; any
+    /// in-flight import or detection captured an older value and must discard
+    /// its results instead of landing them on the newer document (showing doc
+    /// A's detections over doc B's text is the worst failure mode for a legal
+    /// review tool).
+    private var sessionGeneration = 0
+
+    // MARK: - Test seams
+
+    /// Test-only artificial delay inside the detection pass, used to stage the
+    /// stale-result race deterministically. Production never sets it.
+    nonisolated(unsafe) internal static var detectDelayForTesting: TimeInterval?
+
+    /// Test-only LLM extractor factory so AI-path outcomes (failure,
+    /// incomplete coverage) can be exercised without a real GGUF model.
+    /// Receives the configured model path. Production leaves this nil.
+    nonisolated(unsafe) internal static var llmExtractorFactoryForTesting: ((String) -> LLMExtractor)?
+
     public init(modelPath: String?) {
         self.modelPath = modelPath
     }
@@ -171,20 +200,28 @@ public final class ReviewModel: ObservableObject {
     /// anonymize(). Import runs off the main thread; results publish on the main
     /// actor.
     public func open(_ url: URL) async {
+        // Invalidate any in-flight import or detection for the previous
+        // document; their results must not land on this one.
+        sessionGeneration += 1
+        let generation = sessionGeneration
+
         status = .importing
         sourceURL = url
         entities = []
         progress = 0
         etaText = nil
+        aiWarning = nil
 
         do {
             let text = try await Task.detached(priority: .userInitiated) {
                 try Self.importText(from: url)
             }.value
 
+            guard generation == sessionGeneration else { return }
             documentText = text
             status = .imported
         } catch {
+            guard generation == sessionGeneration else { return }
             entities = []
             status = .failed(Self.describe(error))
         }
@@ -197,22 +234,26 @@ public final class ReviewModel: ObservableObject {
     /// Safe to call again to re-run (for example after toggling AI entities).
     public func anonymize() async {
         guard !documentText.isEmpty else { return }
+        let generation = sessionGeneration
         let text = documentText
         let shouldUseLLM = useLLM
         let path = modelPath
         let custom = customPatternProvider()
         let learnedRedact = learningStore?.redactPatterns ?? []
         let suppress = learningStore?.suppressKeys ?? []
-        let runsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
+        let expectsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
 
         status = .detecting
         progress = 0
-        etaText = runsLLM ? "Loading model" : nil
+        etaText = expectsLLM ? "Loading model" : nil
         learningNote = nil
+        aiWarning = nil
         anonymizeStart = Date()
 
         let report: @Sendable (Int, Int) -> Void = { [weak self] done, total in
-            DispatchQueue.main.async { self?.applyProgress(done: done, total: total) }
+            DispatchQueue.main.async {
+                self?.applyProgress(done: done, total: total, generation: generation)
+            }
         }
 
         let outcome = await Task.detached(priority: .userInitiated) {
@@ -227,9 +268,16 @@ public final class ReviewModel: ObservableObject {
             )
         }.value
 
+        // A newer document was opened while this pass ran: discard everything.
+        guard generation == sessionGeneration else { return }
+
         entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
-        aiActive = runsLLM
+        // AI is only "active" when the pass ran to full coverage; a load
+        // failure or partial scan must warn, never silently pose as a clean
+        // AI pass.
+        aiActive = outcome.aiRan
+        aiWarning = outcome.aiFailure
         progress = 1
         etaText = nil
         status = .ready
@@ -269,7 +317,9 @@ public final class ReviewModel: ObservableObject {
     }
 
     /// Update progress and the time estimate from a (done, total) report.
-    private func applyProgress(done: Int, total: Int) {
+    /// Reports from a superseded session (an older document) are dropped.
+    private func applyProgress(done: Int, total: Int, generation: Int) {
+        guard generation == sessionGeneration else { return }
         guard case .detecting = status, total > 0 else { return }
         progress = Double(done) / Double(total)
         guard done > 0, done < total, let start = anonymizeStart else {
@@ -317,19 +367,74 @@ public final class ReviewModel: ObservableObject {
     ///
     /// The edit surface depends on the source format: a run-preserving redacted
     /// .docx for .docx input, otherwise a redacted .txt companion. The sidecar is
-    /// always written next to the edit surface as <baseName>.ldamap.
+    /// always written next to the edit surface as <baseName>.ldamap. When a
+    /// previous export already occupies the name, a numeric suffix is added
+    /// instead of overwriting: the prior .ldamap may be the only key to restore
+    /// an already-shared document, so silent overwrite is never acceptable.
+    ///
+    /// The heavy work (tokenize, DOCX rewrite, the non-body LLM pass) runs off
+    /// the main actor so the window stays responsive during export.
     public func export(
         to outputDir: URL,
         passphrase: String?,
         createdAtISO8601: String
-    ) throws -> ExportResult {
+    ) async throws -> ExportResult {
         let acceptedSpans = entities.filter { $0.accepted }.map { $0.span }
         let text = documentText
         let source = sourceURL
         // Read the custom vocabulary on the main actor so the non-body detector
         // (built below) uses the same inputs the body detection used.
         let custom = customPatternProvider()
+        let shouldUseLLM = useLLM
+        let path = modelPath
 
+        let result = try await Task.detached(priority: .userInitiated) {
+            try Self.performExport(
+                text: text,
+                acceptedSpans: acceptedSpans,
+                source: source,
+                custom: custom,
+                useLLM: shouldUseLLM,
+                modelPath: path,
+                outputDir: outputDir,
+                passphrase: passphrase,
+                createdAtISO8601: createdAtISO8601
+            )
+        }.value
+
+        // Record the assigned tokens back onto the matching entities so the UI
+        // can render sealed chips after export.
+        for index in entities.indices {
+            entities[index].token = entities[index].accepted
+                ? result.tokenBySurface[entities[index].span.text]
+                : nil
+        }
+
+        // Learn from this export: the accept and reject decisions the user just
+        // committed reinforce future auto-redaction and suppression.
+        if let learningStore {
+            let accepted = entities.filter { $0.accepted }
+                .map { (value: $0.span.text, type: $0.span.type) }
+            let rejected = entities.filter { !$0.accepted }
+                .map { (value: $0.span.text, type: $0.span.type) }
+            learningStore.record(accepted: accepted, rejected: rejected)
+        }
+
+        return result.export
+    }
+
+    /// The off-main-actor body of export. Pure function of its inputs.
+    private nonisolated static func performExport(
+        text: String,
+        acceptedSpans: [Span],
+        source: URL?,
+        custom: [CustomPattern],
+        useLLM: Bool,
+        modelPath: String?,
+        outputDir: URL,
+        passphrase: String?,
+        createdAtISO8601: String
+    ) throws -> (export: ExportResult, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
         let sourceExt = source?.pathExtension.lowercased() ?? "txt"
@@ -347,16 +452,24 @@ public final class ReviewModel: ObservableObject {
             createdAtISO8601: createdAtISO8601
         )
 
-        let redactedURL: URL
+        let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"
+        let redactedBaseName = collisionFreeBaseName(
+            "\(baseName)_redacted",
+            extension: redactedExt,
+            in: outputDir
+        )
+        let redactedURL = outputDir.appendingPathComponent("\(redactedBaseName).\(redactedExt)")
+        var embeddedMediaCount = 0
+
         if sourceExt == "docx", let source {
-            redactedURL = outputDir.appendingPathComponent("\(baseName)_redacted.docx")
+            embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
             let replacements = Self.buildReplacements(
                 spans: acceptedSpans,
                 mapping: tokenized.mapping
             )
             // Redact the body AND every other text-bearing part (headers, footers,
-            // footnotes, endnotes, comments), scrub docProps author/title metadata,
-            // and neutralize external mailto:/tel: hyperlink targets, mirroring
+            // footnotes, endnotes, comments), scrub docProps metadata, and
+            // neutralize external mailto:/tel: hyperlink targets, mirroring
             // LDAService.anonymize. The non-body detector is the same deterministic
             // plus best-effort LLM detection the body used, built from this model's
             // own settings; it never re-runs the LLM over the body. Surfaces found
@@ -373,41 +486,40 @@ public final class ReviewModel: ObservableObject {
                 tokenized.mapping.entries[entry.token] = entry
             }
         } else {
-            redactedURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
         }
 
-        let redactedBaseName = redactedURL.deletingPathExtension().lastPathComponent
         let mappingURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
         let protection: MappingProtection = passphrase
             .map { .passphrase($0) }
             ?? .keychain(account: redactedBaseName)
         try MappingStore.save(tokenized.mapping, to: mappingURL, protection: protection)
 
-        // Record the assigned tokens back onto the matching entities so the UI
-        // can render sealed chips after export.
-        let tokenBySurface = Self.tokenBySurface(mapping: tokenized.mapping)
-        for index in entities.indices {
-            entities[index].token = entities[index].accepted
-                ? tokenBySurface[entities[index].span.text]
-                : nil
-        }
-
-        // Learn from this export: the accept and reject decisions the user just
-        // committed reinforce future auto-redaction and suppression.
-        if let learningStore {
-            let accepted = entities.filter { $0.accepted }
-                .map { (value: $0.span.text, type: $0.span.type) }
-            let rejected = entities.filter { !$0.accepted }
-                .map { (value: $0.span.text, type: $0.span.type) }
-            learningStore.record(accepted: accepted, rejected: rejected)
-        }
-
-        return ExportResult(
+        let export = ExportResult(
             redactedURL: redactedURL,
             mappingURL: mappingURL,
-            tokenCount: tokenized.mapping.entries.count
+            tokenCount: tokenized.mapping.entries.count,
+            embeddedMediaCount: embeddedMediaCount
         )
+        return (export: export, tokenBySurface: tokenBySurface(mapping: tokenized.mapping))
+    }
+
+    /// First base name (base, base_2, base_3, ...) whose edit-surface file AND
+    /// mapping sidecar are both absent from the directory.
+    private nonisolated static func collisionFreeBaseName(
+        _ base: String,
+        extension ext: String,
+        in directory: URL
+    ) -> String {
+        let fm = FileManager.default
+        func taken(_ name: String) -> Bool {
+            fm.fileExists(atPath: directory.appendingPathComponent("\(name).\(ext)").path)
+                || fm.fileExists(atPath: directory.appendingPathComponent("\(name).ldamap").path)
+        }
+        guard taken(base) else { return base }
+        var counter = 2
+        while taken("\(base)_\(counter)") { counter += 1 }
+        return "\(base)_\(counter)"
     }
 
     // MARK: - Detection helpers (off the main actor)
@@ -428,13 +540,20 @@ public final class ReviewModel: ObservableObject {
     }
 
     /// Run deterministic detection and, when requested and the model path is a
-    /// valid file, merge in LLM spans. Any LLM failure degrades to
-    /// deterministic-only so detection never fails because of the LLM seam.
+    /// valid file, merge in LLM spans. An LLM failure degrades to
+    /// deterministic-only spans but is REPORTED in the outcome so the UI can
+    /// warn; a silent degrade would let the lawyer trust a pattern-only pass
+    /// as an AI pass.
     /// The result of a detection pass plus what learning contributed.
     private struct DetectionOutcome {
         let spans: [Span]
         let learnedApplied: Int
         let suppressed: Int
+        /// True when the AI pass ran to full coverage.
+        let aiRan: Bool
+        /// User-facing explanation when AI was expected but failed or could
+        /// not fully scan; nil when AI ran cleanly or was not attempted.
+        let aiFailure: String?
     }
 
     private nonisolated static func detect(
@@ -446,15 +565,19 @@ public final class ReviewModel: ObservableObject {
         suppressKeys: Set<String> = [],
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> DetectionOutcome {
+        if let delay = detectDelayForTesting {
+            Thread.sleep(forTimeInterval: delay)
+        }
         // Custom vocabulary and learned redactions join the deterministic list
         // with a higher priority, so a user-chosen or previously-accepted term
         // always wins overlap conflicts.
         let deterministic = DeterministicEngine().detect(text)
             + CustomPatternEngine.detect(text, patterns: custom)
             + CustomPatternEngine.detect(text, patterns: learnedRedact)
+        let llm = llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
         let merged = SpanMerger.merge(
             deterministic: deterministic,
-            llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
+            llm: llm.spans
         )
 
         // Suppress values the user has repeatedly rejected.
@@ -471,23 +594,64 @@ public final class ReviewModel: ObservableObject {
             kept.map { $0.text.lowercased() }.filter { learnedValues.contains($0) }
         )
 
-        return DetectionOutcome(spans: kept, learnedApplied: appliedValues.count, suppressed: suppressed)
+        return DetectionOutcome(
+            spans: kept,
+            learnedApplied: appliedValues.count,
+            suppressed: suppressed,
+            aiRan: llm.attempted && llm.failure == nil,
+            aiFailure: llm.failure
+        )
     }
 
-    /// Produce the LLM span list, or empty on any failure or when disabled.
+    /// The LLM contribution to a detection pass.
+    private struct LLMPassOutcome {
+        /// Located fuzzy spans (possibly partial salvage on failure).
+        let spans: [Span]
+        /// True when the AI pass was supposed to run (enabled + model file).
+        let attempted: Bool
+        /// User-facing failure text, nil when the pass ran to full coverage.
+        let failure: String?
+    }
+
+    /// Produce the LLM span list. Failures and incomplete coverage degrade to
+    /// the salvaged spans but are reported, never swallowed.
     private nonisolated static func llmSpans(
         in text: String,
         useLLM: Bool,
         modelPath: String?,
         onProgress: ((Int, Int) -> Void)? = nil
-    ) -> [Span] {
-        guard useLLM, let modelPath else { return [] }
-        guard FileManager.default.fileExists(atPath: modelPath) else { return [] }
+    ) -> LLMPassOutcome {
+        guard useLLM, let modelPath else {
+            return LLMPassOutcome(spans: [], attempted: false, failure: nil)
+        }
+        guard FileManager.default.fileExists(atPath: modelPath) else {
+            return LLMPassOutcome(spans: [], attempted: false, failure: nil)
+        }
         do {
-            let engine = try LLMEngine(config: .init(modelPath: modelPath))
-            return try LLMExtractor(completer: engine).extract(from: text, onProgress: onProgress)
+            let extractor: LLMExtractor
+            if let factory = llmExtractorFactoryForTesting {
+                extractor = factory(modelPath)
+            } else {
+                let engine = try LLMEngine(config: .init(modelPath: modelPath))
+                extractor = LLMExtractor(completer: engine)
+            }
+            let result = try extractor.extractDetailed(from: text, onProgress: onProgress)
+            guard result.fullyCovered else {
+                return LLMPassOutcome(
+                    spans: result.spans,
+                    attempted: true,
+                    failure: "AI could not fully scan \(result.incompleteSegmentCount) "
+                        + (result.incompleteSegmentCount == 1 ? "segment" : "segments")
+                        + "; unscanned text may still contain names or companies."
+                )
+            }
+            return LLMPassOutcome(spans: result.spans, attempted: true, failure: nil)
         } catch {
-            return []
+            return LLMPassOutcome(
+                spans: [],
+                attempted: true,
+                failure: "AI detection failed to run; this pass was pattern matching only."
+            )
         }
     }
 
@@ -509,14 +673,14 @@ public final class ReviewModel: ObservableObject {
                 + CustomPatternEngine.detect(text, patterns: custom)
             return SpanMerger.merge(
                 deterministic: deterministic,
-                llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath)
+                llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath).spans
             )
         }
     }
 
     /// Map each accepted span to a Replacement by looking up its token via the
     /// tokenizer mapping (one token per distinct surface text).
-    private static func buildReplacements(
+    private nonisolated static func buildReplacements(
         spans: [Span],
         mapping: Mapping
     ) -> [Replacement] {
@@ -528,7 +692,7 @@ public final class ReviewModel: ObservableObject {
     }
 
     /// surfaceText -> token, keeping the first token seen for a given surface.
-    private static func tokenBySurface(mapping: Mapping) -> [String: String] {
+    private nonisolated static func tokenBySurface(mapping: Mapping) -> [String: String] {
         var result: [String: String] = [:]
         for entry in mapping.entries.values where result[entry.surfaceText] == nil {
             result[entry.surfaceText] = entry.token

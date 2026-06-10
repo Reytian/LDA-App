@@ -170,7 +170,10 @@ public struct MCPServer {
     private func callAnonymize(_ arguments: [String: Any]) throws -> [String: Any] {
         let input = try requireURL(arguments, key: "input")
         let outputDir = try requireURL(arguments, key: "outputDir")
-        let protection = protectionMode(from: arguments)
+        // The mapping sidecar is keyed by the redacted base name, which the
+        // service derives as "<input base>_redacted".
+        let mappingBase = input.deletingPathExtension().lastPathComponent + "_redacted"
+        let protection = protectionMode(from: arguments, mappingBaseName: mappingBase)
 
         // The edge owns the clock: stamp createdAt with an ISO-8601 timestamp now.
         let createdAt = MCPServer.iso8601Now()
@@ -203,14 +206,30 @@ public struct MCPServer {
         let editedRedacted = try requireURL(arguments, key: "editedRedacted")
         let mapping = try requireURL(arguments, key: "mapping")
         let output = try requireURL(arguments, key: "output")
-        let protection = protectionMode(from: arguments)
+        let mappingBase = mapping.deletingPathExtension().lastPathComponent
+        let protection = protectionMode(from: arguments, mappingBaseName: mappingBase)
 
-        let report = try LDAService.restore(
-            editedRedacted: editedRedacted,
-            mapping: mapping,
-            protection: protection,
-            output: output
-        )
+        let report: RestoreReport
+        do {
+            report = try LDAService.restore(
+                editedRedacted: editedRedacted,
+                mapping: mapping,
+                protection: protection,
+                output: output
+            )
+        } catch {
+            // Sidecars written by older builds were all encrypted under one
+            // shared Keychain account. When the per-document key cannot open
+            // the mapping (and no passphrase was supplied), retry once with
+            // the legacy account so old sidecars keep restoring.
+            guard case .keychain = protection else { throw error }
+            report = try LDAService.restore(
+                editedRedacted: editedRedacted,
+                mapping: mapping,
+                protection: .keychain(account: MCPServer.defaultKeychainAccount),
+                output: output
+            )
+        }
 
         return [
             "output": report.outputURL.path,
@@ -254,13 +273,24 @@ public struct MCPServer {
 
     /// Choose the mapping protection mode from the arguments. A passphrase, when
     /// present and non-empty, selects PBKDF2 passphrase protection; otherwise the
-    /// server falls back to a fixed Keychain account so a sidecar is always
-    /// encrypted at rest.
-    private func protectionMode(from arguments: [String: Any]) -> MappingProtection {
+    /// server uses a Keychain account derived from the mapping base name, so a
+    /// sidecar is always encrypted at rest and every document gets its OWN key
+    /// (one shared key would be a single point of failure for every sidecar
+    /// ever produced through this server).
+    private func protectionMode(
+        from arguments: [String: Any],
+        mappingBaseName: String
+    ) -> MappingProtection {
         if let passphrase = arguments["passphrase"] as? String, !passphrase.isEmpty {
             return .passphrase(passphrase)
         }
-        return .keychain(account: MCPServer.defaultKeychainAccount)
+        return .keychain(account: MCPServer.keychainAccount(forMappingBaseName: mappingBaseName))
+    }
+
+    /// The per-document Keychain account for a mapping sidecar, derived from
+    /// the sidecar's base file name.
+    static func keychainAccount(forMappingBaseName base: String) -> String {
+        "\(MCPServer.defaultKeychainAccount).\(base)"
     }
 
     /// The distinct entity-type wire strings present in a set of spans, in stable

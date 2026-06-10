@@ -53,18 +53,39 @@ public final class LearningStore: ObservableObject {
     private let defaults: UserDefaults
     private let storageKey: String
 
+    /// UserDefaults key for the encrypted blob. The bare storageKey is the
+    /// LEGACY plaintext location, migrated away on first load.
+    private var sealedKey: String { storageKey + ".sealed" }
+
+    /// Keychain account for this store's vault key.
+    private var vaultAccount: String { "store.\(storageKey)" }
+
     public init(
         defaults: UserDefaults = .standard,
         storageKey: String = "com.haotianyi.LDA.learnedTerms"
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
-        if let data = defaults.data(forKey: storageKey),
+
+        // Preferred path: the encrypted blob. (Local constants: computed
+        // properties are unavailable before stored properties initialize.)
+        if let sealed = defaults.data(forKey: storageKey + ".sealed"),
+           let data = try? LocalDataVault.open(sealed, account: "store.\(storageKey)"),
            let decoded = try? JSONDecoder().decode([String: LearnedTerm].self, from: data) {
             self.terms = decoded
-        } else {
-            self.terms = [:]
+            return
         }
+
+        // Legacy plaintext blob: load once, then migrate to the vault. Learned
+        // terms are a de facto client list; they must not stay readable on disk.
+        if let legacy = defaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([String: LearnedTerm].self, from: legacy) {
+            self.terms = decoded
+            save()
+            return
+        }
+
+        self.terms = [:]
     }
 
     /// A stable key for a value and type. Pure, so usable off the main actor.
@@ -154,8 +175,17 @@ public final class LearningStore: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(terms) {
-            defaults.set(data, forKey: storageKey)
+        do {
+            let data = try JSONEncoder().encode(terms)
+            let sealed = try LocalDataVault.seal(data, account: vaultAccount)
+            defaults.set(sealed, forKey: sealedKey)
+            // Never leave a plaintext copy behind, including right after the
+            // legacy migration.
+            defaults.removeObject(forKey: storageKey)
+        } catch {
+            // Persisting learned terms must never corrupt the in-memory state;
+            // a failed save keeps the previous blob. Loud in debug builds.
+            assertionFailure("LearningStore failed to persist: \(error)")
         }
     }
 }

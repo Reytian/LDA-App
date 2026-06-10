@@ -144,7 +144,7 @@ final class ReviewModelTests: XCTestCase {
         // Act: export with a passphrase to a fresh directory.
         let outputDir = workDir.appendingPathComponent("out", isDirectory: true)
         let passphrase = "correct horse battery staple"
-        let result = try model.export(
+        let result = try await model.export(
             to: outputDir,
             passphrase: passphrase,
             createdAtISO8601: Self.createdAt
@@ -226,7 +226,7 @@ final class ReviewModelTests: XCTestCase {
         )
 
         let outputDir = workDir.appendingPathComponent("docx-out", isDirectory: true)
-        let result = try model.export(
+        let result = try await model.export(
             to: outputDir,
             passphrase: "pw",
             createdAtISO8601: Self.createdAt
@@ -265,7 +265,7 @@ final class ReviewModelTests: XCTestCase {
         await model.anonymize()
 
         let outDir = workDir.appendingPathComponent("out", isDirectory: true)
-        let exportResult = try model.export(
+        let exportResult = try await model.export(
             to: outDir,
             passphrase: "pw",
             createdAtISO8601: Self.createdAt
@@ -372,4 +372,166 @@ final class ReviewModelTests: XCTestCase {
         ], to: url)
         return url
     }
+    // MARK: - Stale detection must not land on a newer document
+
+    /// Opening document B while document A's detection is still running must
+    /// discard A's late results: showing A's detections over B's text is the
+    /// worst possible failure for a review tool.
+    func testOpeningSecondDocumentDiscardsStaleDetection() async throws {
+        let urlA = workDir.appendingPathComponent("a.txt")
+        try Data("Contact \(Self.email) now.".utf8).write(to: urlA)
+        let urlB = workDir.appendingPathComponent("b.txt")
+        try Data("No sensitive content in this one.".utf8).write(to: urlB)
+
+        let model = ReviewModel(modelPath: nil)
+        model.useLLM = false
+        await model.open(urlA)
+
+        ReviewModel.detectDelayForTesting = 0.4
+        defer { ReviewModel.detectDelayForTesting = nil }
+
+        let detection = Task { await model.anonymize() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await model.open(urlB)
+        _ = await detection.value
+
+        XCTAssertEqual(model.status, .imported, "doc B must stay imported; stale run flipped it")
+        XCTAssertTrue(model.entities.isEmpty, "doc A's stale entities landed on doc B")
+        XCTAssertTrue(model.documentText.contains("No sensitive content"))
+    }
+
+    // MARK: - LLM failure must be loud
+
+    /// A model file that exists but fails to load must NOT report AI as active;
+    /// the lawyer would otherwise trust a pattern-matching-only pass as an AI
+    /// pass. The failure surfaces as a warning.
+    func testCorruptModelFileSurfacesAiInactiveWithWarning() async throws {
+        let url = workDir.appendingPathComponent("c.txt")
+        try Data("Contact \(Self.email) now.".utf8).write(to: url)
+        let garbageModel = workDir.appendingPathComponent("fake.gguf")
+        try Data("this is not a gguf model".utf8).write(to: garbageModel)
+
+        let model = ReviewModel(modelPath: garbageModel.path)
+        model.useLLM = true
+        await model.open(url)
+        await model.anonymize()
+
+        XCTAssertEqual(model.status, .ready)
+        XCTAssertFalse(model.aiActive, "AI reported active although the engine failed to load")
+        XCTAssertNotNil(model.aiWarning, "the AI failure must surface, not be swallowed")
+        XCTAssertFalse(model.entities.isEmpty, "deterministic detection still contributes")
+    }
+
+    /// A truncated (not fully scanned) AI pass must not present itself as a
+    /// complete AI pass: salvaged spans are kept, but aiActive turns off and a
+    /// warning explains that unscanned text may still contain names.
+    func testIncompleteAIScanSurfacesWarning() async throws {
+        let url = workDir.appendingPathComponent("d.txt")
+        try Data("Acme".utf8).write(to: url)
+        let dummyModel = workDir.appendingPathComponent("dummy.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+
+        struct AlwaysTruncating: TextCompleter {
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                // An unterminated entities array: parseDetailed flags truncation.
+                return #"{"entities":[{"value":"Acm"#
+            }
+        }
+        ReviewModel.llmExtractorFactoryForTesting = { _ in
+            LLMExtractor(completer: AlwaysTruncating())
+        }
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let model = ReviewModel(modelPath: dummyModel.path)
+        model.useLLM = true
+        await model.open(url)
+        await model.anonymize()
+
+        XCTAssertEqual(model.status, .ready)
+        XCTAssertFalse(model.aiActive, "an incomplete scan is not a complete AI pass")
+        XCTAssertNotNil(model.aiWarning)
+    }
+
+    // MARK: - Export collision guard
+
+    /// A second export into the same folder must not overwrite the first one:
+    /// the prior .ldamap may be the only key to restore an already-shared
+    /// document. The export auto-suffixes instead.
+    func testExportDoesNotOverwriteExistingExport() async throws {
+        let url = workDir.appendingPathComponent("e.txt")
+        try Data("Contact \(Self.email) now.".utf8).write(to: url)
+        let outDir = workDir.appendingPathComponent("exports", isDirectory: true)
+
+        let model = ReviewModel(modelPath: nil)
+        model.useLLM = false
+        await model.open(url)
+        await model.anonymize()
+
+        let first = try await model.export(
+            to: outDir, passphrase: "pw", createdAtISO8601: Self.createdAt
+        )
+        let second = try await model.export(
+            to: outDir, passphrase: "pw", createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertNotEqual(first.redactedURL, second.redactedURL, "second export overwrote the first")
+        XCTAssertNotEqual(first.mappingURL, second.mappingURL, "second export clobbered the first mapping")
+        for fileURL in [first.redactedURL, first.mappingURL, second.redactedURL, second.mappingURL] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: fileURL.path),
+                "missing \(fileURL.lastPathComponent)"
+            )
+        }
+    }
+
+    // MARK: - Embedded media warning
+
+    /// Exporting a DOCX that embeds media must report the count so the UI can
+    /// warn that signature images were not scanned.
+    func testExportReportsEmbeddedMediaCount() async throws {
+        let docx = workDir.appendingPathComponent("media.docx")
+        let contentTypes = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Default Extension="png" ContentType="image/png"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+        </Types>
+        """
+        let rels = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+        </Relationships>
+        """
+        let document = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body><w:p><w:r><w:t xml:space="preserve">Contact \(Self.email) today.</w:t></w:r></w:p></w:body>
+        </w:document>
+        """
+        try DocxZip.writeArchive(
+            parts: [
+                ("[Content_Types].xml", Data(contentTypes.utf8)),
+                ("_rels/.rels", Data(rels.utf8)),
+                ("word/document.xml", Data(document.utf8)),
+                ("word/media/image1.png", Data([0x89, 0x50, 0x4E, 0x47]))
+            ],
+            to: docx
+        )
+
+        let model = ReviewModel(modelPath: nil)
+        model.useLLM = false
+        await model.open(docx)
+        await model.anonymize()
+
+        let result = try await model.export(
+            to: workDir.appendingPathComponent("media-out", isDirectory: true),
+            passphrase: "pw",
+            createdAtISO8601: Self.createdAt
+        )
+        XCTAssertEqual(result.embeddedMediaCount, 1)
+    }
+
 }

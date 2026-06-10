@@ -40,6 +40,18 @@ public struct DocumentPane: View {
     /// True while a draggable document hovers over the drop zone.
     @State private var isDropTargeted = false
 
+    /// The plain document text as an AttributedString, rebuilt only when the
+    /// text itself changes. Kept separate from the styled copy so an entity
+    /// toggle never re-parses the whole document.
+    @State private var baseDocument = AttributedString("")
+
+    /// The styled document (base plus entity highlights), rebuilt only when
+    /// the text or the entity list changes. Without this cache the computed
+    /// property re-built the full AttributedString on EVERY published model
+    /// change, including each progress tick during detection, which stalls
+    /// the window on long documents.
+    @State private var styledDocument = AttributedString("")
+
     public init(model: ReviewModel) {
         self.model = model
     }
@@ -57,6 +69,30 @@ public struct DocumentPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            rebuildBase()
+        }
+        .onChange(of: model.documentText) { _, _ in
+            rebuildBase()
+        }
+        .onChange(of: model.entities) { _, newEntities in
+            restyle(entities: newEntities)
+        }
+    }
+
+    /// Re-parse the document text and re-apply the current entity styling.
+    private func rebuildBase() {
+        baseDocument = AttributedString(model.documentText)
+        restyle(entities: model.entities)
+    }
+
+    /// Apply entity styling onto a copy of the cached base document.
+    private func restyle(entities: [ReviewEntity]) {
+        styledDocument = Self.applyEntityStyles(
+            base: baseDocument,
+            text: model.documentText,
+            entities: entities
+        )
     }
 
     // MARK: - Drop zone (empty state)
@@ -141,10 +177,12 @@ public struct DocumentPane: View {
     private func openURL(_ url: URL) {
         let needsScope = url.startAccessingSecurityScopedResource()
         Task {
-            await model.open(url)
-            if needsScope {
-                url.stopAccessingSecurityScopedResource()
+            // defer releases the sandbox scope even if the Task is cancelled
+            // mid-import; leaking it can make later opens of the same URL fail.
+            defer {
+                if needsScope { url.stopAccessingSecurityScopedResource() }
             }
+            await model.open(url)
         }
     }
 
@@ -162,7 +200,7 @@ public struct DocumentPane: View {
     /// The scrolling, width-capped serif reading column on the paper surface.
     private var readingColumn: some View {
         ScrollView(.vertical) {
-            Text(attributedDocument)
+            Text(styledDocument)
                 .font(.system(.body, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
                 .textSelection(.enabled)
@@ -201,23 +239,25 @@ public struct DocumentPane: View {
 
     // MARK: - Attributed document
 
-    /// The document text as an AttributedString with each entity span marked.
-    private var attributedDocument: AttributedString {
-        Self.makeAttributed(
-            text: model.documentText,
-            entities: model.entities
-        )
-    }
-
-    /// Build the attributed document. Pure and side-effect free so it can be
-    /// reasoned about and reused. Spans are applied back to front so the UTF-16
-    /// to AttributedString index mapping computed against the original text
-    /// stays valid for every span.
+    /// Build the attributed document from scratch. Pure and side-effect free.
+    /// Kept as the single-call entry point for tests and previews; the view
+    /// itself uses the cached base + applyEntityStyles split.
     static func makeAttributed(
         text: String,
         entities: [ReviewEntity]
     ) -> AttributedString {
-        var attributed = AttributedString(text)
+        applyEntityStyles(base: AttributedString(text), text: text, entities: entities)
+    }
+
+    /// Apply entity styling onto a copy of an already-parsed base document.
+    /// Spans are applied back to front so the UTF-16 to AttributedString index
+    /// mapping computed against the original text stays valid for every span.
+    static func applyEntityStyles(
+        base: AttributedString,
+        text: String,
+        entities: [ReviewEntity]
+    ) -> AttributedString {
+        var attributed = base
 
         let utf16 = text.utf16
         let total = utf16.count

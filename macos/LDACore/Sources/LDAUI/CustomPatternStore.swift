@@ -24,18 +24,40 @@ public final class CustomPatternStore: ObservableObject {
     private let defaults: UserDefaults
     private let storageKey: String
 
+    /// UserDefaults key for the encrypted blob. The bare storageKey is the
+    /// LEGACY plaintext location, migrated away on first load.
+    private var sealedKey: String { storageKey + ".sealed" }
+
+    /// Keychain account for this store's vault key.
+    private var vaultAccount: String { "store.\(storageKey)" }
+
     public init(
         defaults: UserDefaults = .standard,
         storageKey: String = "com.haotianyi.LDA.customPatterns"
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
-        if let data = defaults.data(forKey: storageKey),
+
+        // Preferred path: the encrypted blob. (Local constants: computed
+        // properties are unavailable before stored properties initialize.)
+        if let sealed = defaults.data(forKey: storageKey + ".sealed"),
+           let data = try? LocalDataVault.open(sealed, account: "store.\(storageKey)"),
            let decoded = try? JSONDecoder().decode([CustomPattern].self, from: data) {
             self.patterns = decoded
-        } else {
-            self.patterns = []
+            return
         }
+
+        // Legacy plaintext blob: load once, then migrate to the vault (the
+        // vocabulary holds client and party names). Property observers do not
+        // fire during init, so the migration save is explicit.
+        if let legacy = defaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([CustomPattern].self, from: legacy) {
+            self.patterns = decoded
+            save()
+            return
+        }
+
+        self.patterns = []
     }
 
     /// Append a new, empty term ready for editing.
@@ -81,8 +103,16 @@ public final class CustomPatternStore: ObservableObject {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(patterns) {
-            defaults.set(data, forKey: storageKey)
+        do {
+            let data = try JSONEncoder().encode(patterns)
+            let sealed = try LocalDataVault.seal(data, account: vaultAccount)
+            defaults.set(sealed, forKey: sealedKey)
+            // Never leave a plaintext copy behind, including right after the
+            // legacy migration.
+            defaults.removeObject(forKey: storageKey)
+        } catch {
+            // A failed save keeps the previous blob; loud in debug builds.
+            assertionFailure("CustomPatternStore failed to persist: \(error)")
         }
     }
 }
