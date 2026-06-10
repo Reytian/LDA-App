@@ -477,6 +477,23 @@ final class CLITests: XCTestCase {
         )
     }
 
+    // MARK: CLIRuntimeError message mapping
+
+    func testStaleTargetRendersReadableMessage() {
+        let detail = "offset 10-25"
+        let error = LDAServiceError.staleTarget(detail: detail)
+        let runtimeError = CLIRuntimeError(error)
+        let message = runtimeError.description
+        XCTAssertTrue(
+            message.contains("Re-run fill --plan"),
+            "staleTarget message must contain 'Re-run fill --plan', got: \(message)"
+        )
+        XCTAssertTrue(
+            message.contains(detail),
+            "staleTarget message must include the detail string, got: \(message)"
+        )
+    }
+
     // MARK: fill --apply: writes filled file and prints value-free report
 
     func testFillApplyWritesFilledDocxAndReturnsValueFreeReport() throws {

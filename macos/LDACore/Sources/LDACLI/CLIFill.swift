@@ -291,6 +291,7 @@ struct ExtractProfile: ParsableCommand {
     @Option(name: .long, help: "Destination path for the encrypted .ldaprofile.")
     var out: String
 
+    // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
     @Option(name: .long, help: "Passphrase to protect the profile. Optional.")
     var passphrase: String?
 
@@ -337,6 +338,7 @@ struct Fill: ParsableCommand {
     @Option(name: .long, help: "Path to the .ldaprofile to fill from.")
     var profile: String
 
+    // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
     @Option(name: .long, help: "Passphrase protecting the profile. Optional.")
     var passphrase: String?
 
@@ -381,7 +383,11 @@ struct Fill: ParsableCommand {
                 )
                 print(try CLIJSON.encode(entries))
             } else {
-                let outDir = URL(fileURLWithPath: outputDir!)
+                guard let outputDirString = outputDir, !outputDirString.isEmpty else {
+                    throw ValidationError("--output-dir is required with --apply.")
+                }
+                fputs("Note: fill --apply re-plans from the current profile state. If you edited the profile after --plan, review the output carefully.\n", stderr)
+                let outDir = URL(fileURLWithPath: outputDirString)
                 let report = try LDACLI.runFillApply(
                     profile: profileURL,
                     passphrase: passphrase,

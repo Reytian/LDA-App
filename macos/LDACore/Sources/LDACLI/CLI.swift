@@ -235,6 +235,7 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Directory to write the edit surface and sidecar.")
     var outputDir: String
 
+    // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
     @Option(name: .long, help: "Passphrase to protect the mapping. Optional.")
     var passphrase: String?
 
@@ -271,6 +272,7 @@ struct Restore: ParsableCommand {
     @Option(name: .long, help: "Path to write the restored document.")
     var output: String
 
+    // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
     @Option(name: .long, help: "Passphrase that protects the mapping. Optional.")
     var passphrase: String?
 
@@ -344,6 +346,10 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
             return "Could not decrypt the mapping (wrong passphrase or tampered file)."
         case DocumentIOError.keychainError(let status):
             return "Keychain operation failed with status \(status)."
+        case LDAServiceError.staleTarget(let detail):
+            return "The target document changed since the plan was produced (\(detail)). Re-run fill --plan before applying."
+        case LDAServiceError.noReadableSources:
+            return "None of the source documents could be read as text. Check that the files are valid DOCX, PDF, or TXT."
         default:
             return "\(error)"
         }
