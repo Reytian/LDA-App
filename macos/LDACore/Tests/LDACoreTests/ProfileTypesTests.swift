@@ -135,6 +135,31 @@ final class ProfileTypesTests: XCTestCase {
         XCTAssertEqual(rback, report)
     }
 
+    func testBlankDecodesWithoutCandidateFieldIDsForBackwardCompat() throws {
+        // Legacy JSON blobs written before candidateFieldIDs was added must still
+        // decode without error and must produce candidateFieldIDs == nil.
+        // The Blank decoder uses decodeIfPresent for that key, so absence of the
+        // key is not an error.
+        let legacyUUID = UUID()
+        let legacyJSON = """
+        {
+            "id": "\(legacyUUID.uuidString)",
+            "location": {"textSpan": {"start": 5, "end": 10}},
+            "label": "Company Name",
+            "context": "between [Company Name], a company",
+            "status": "unmatched"
+        }
+        """
+        let data = Data(legacyJSON.utf8)
+        let blank = try JSONDecoder().decode(Blank.self, from: data)
+        XCTAssertEqual(blank.id, legacyUUID)
+        XCTAssertEqual(blank.label, "Company Name")
+        XCTAssertEqual(blank.context, "between [Company Name], a company")
+        XCTAssertEqual(blank.status, .unmatched)
+        XCTAssertNil(blank.candidateFieldIDs,
+                     "candidateFieldIDs must be nil when the key is absent in legacy JSON")
+    }
+
     func testFillPlanCodableRoundTrip() throws {
         let blank = Blank(
             location: .textSpan(start: 0, end: 4),

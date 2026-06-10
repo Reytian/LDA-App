@@ -131,6 +131,16 @@ final class FillPlannerTests: XCTestCase {
         XCTAssertEqual(planned[0].status, .proposed)
         XCTAssertNil(planned[0].proposedFieldID)
         XCTAssertNil(planned[0].proposedValue)
+        // candidateFieldIDs must be populated for ambiguous hits so the review
+        // UI and CLI can present a picker without re-querying the profile.
+        let candidates = try! XCTUnwrap(planned[0].candidateFieldIDs,
+                                        "candidateFieldIDs must be non-nil for an ambiguous match")
+        XCTAssertEqual(candidates.count, 2,
+                       "candidateFieldIDs must contain exactly one entry per matching director field")
+        XCTAssertTrue(candidates.contains(directors[0].id),
+                      "candidateFieldIDs must contain the first director field id")
+        XCTAssertTrue(candidates.contains(directors[1].id),
+                      "candidateFieldIDs must contain the second director field id")
     }
 
     func testNoCompleterLeavesUnlabeledUnmatched() {
