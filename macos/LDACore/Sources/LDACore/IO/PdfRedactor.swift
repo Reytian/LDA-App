@@ -83,8 +83,14 @@ public enum PdfRedactor {
         for index in 0..<document.pageCount {
             guard let page = document.page(at: index) else { continue }
 
-            var mediaBox = page.bounds(for: .mediaBox)
-            context.beginPage(mediaBox: &mediaBox)
+            // The output page is emitted in DISPLAY orientation (origin zero,
+            // size swapped for /Rotate 90/270) with no rotation flag of its
+            // own, so the redacted review PDF always reads upright.
+            var pageBox = CGRect(
+                origin: .zero,
+                size: PdfPageGeometry.displaySize(of: page)
+            )
+            context.beginPage(mediaBox: &pageBox)
 
             // Flatten the page content and the redaction boxes into a single
             // raster, then emit ONLY that raster as the page content. Because the
@@ -92,10 +98,10 @@ public enum PdfRedactor {
             // and embedded image XObjects do not survive under the boxes.
             if let flattened = renderFlattenedPage(
                 page,
-                mediaBox: mediaBox,
+                displayBox: pageBox,
                 boxes: boxesByPage[index] ?? []
             ) {
-                context.draw(flattened, in: mediaBox)
+                context.draw(flattened, in: pageBox)
             } else {
                 // Rasterization failed (for example a degenerate media box). Fall
                 // back to painting only the opaque boxes onto a blank page so no
@@ -103,10 +109,11 @@ public enum PdfRedactor {
                 // the worst case the page is blank where the raster would be.
                 context.saveGState()
                 context.setFillColor(CGColor(gray: 1.0, alpha: 1.0))
-                context.fill(mediaBox)
+                context.fill(pageBox)
                 context.restoreGState()
+                let toDisplay = PdfPageGeometry.contentToDisplay(of: page)
                 for box in boxesByPage[index] ?? [] {
-                    drawOpaqueBox(box, in: context)
+                    drawOpaqueBox(displayRect(of: box, using: toDisplay), token: box.token, in: context)
                 }
             }
 
@@ -116,21 +123,23 @@ public enum PdfRedactor {
         context.closePDF()
     }
 
-    /// Rasterizes one page into a bitmap, paints the page content and the opaque
-    /// redaction boxes (with token labels) into that bitmap, and returns the
-    /// flattened CGImage in page user-space coordinates.
+    /// Rasterizes one page into a bitmap in upright DISPLAY orientation, paints
+    /// the page content and the opaque redaction boxes (with token labels) into
+    /// that bitmap, and returns the flattened CGImage.
     ///
-    /// Painting happens in the same coordinate space PDFSelection.bounds(for:)
-    /// reports, so a box rect lands exactly over the glyphs it covers. The page
+    /// Box rects arrive in RAW content space (the space both
+    /// PDFSelection.bounds(for:) and the OCR box mapper report), and are
+    /// transformed into display space before painting, so they land exactly
+    /// over the glyphs they cover even on /Rotate 90/180/270 pages. The page
     /// content goes into pixels only; it never reaches the output PDF, so the
     /// covered text and image XObjects cannot be extracted from the result.
     private static func renderFlattenedPage(
         _ page: PDFPage,
-        mediaBox: CGRect,
+        displayBox: CGRect,
         boxes: [RedactionBox]
     ) -> CGImage? {
-        let pixelWidth = Int((mediaBox.width * renderScale).rounded())
-        let pixelHeight = Int((mediaBox.height * renderScale).rounded())
+        let pixelWidth = Int((displayBox.width * renderScale).rounded())
+        let pixelHeight = Int((displayBox.height * renderScale).rounded())
         guard pixelWidth > 0, pixelHeight > 0 else { return nil }
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -148,27 +157,34 @@ public enum PdfRedactor {
         bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         bitmap.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
 
-        // Map page user space into the bitmap: scale to render DPI and shift so
-        // the media box origin maps to the bitmap origin.
+        // Map display space into the bitmap, then draw the content upright
+        // through the page's rotation transform (pixels only).
         bitmap.scaleBy(x: renderScale, y: renderScale)
-        bitmap.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
+        PdfPageGeometry.drawContentUpright(page, in: bitmap)
 
-        // Draw the page content into the bitmap (pixels only).
-        bitmap.saveGState()
-        page.draw(with: .mediaBox, to: bitmap)
-        bitmap.restoreGState()
-
-        // Paint the opaque boxes and labels ON the same bitmap, over the content.
+        // Paint the opaque boxes and labels ON the same bitmap, over the
+        // content, after mapping each rect into display space. Labels stay
+        // upright because the context CTM holds only the raster scale here.
+        let toDisplay = PdfPageGeometry.contentToDisplay(of: page)
         for box in boxes {
-            drawOpaqueBox(box, in: bitmap)
+            drawOpaqueBox(displayRect(of: box, using: toDisplay), token: box.token, in: bitmap)
         }
 
         return bitmap.makeImage()
     }
 
+    /// Maps a content-space redaction rect into display space. Axis-aligned
+    /// rects stay axis-aligned because the transform rotates by a multiple of
+    /// 90 degrees.
+    private static func displayRect(
+        of box: RedactionBox,
+        using toDisplay: CGAffineTransform
+    ) -> CGRect {
+        box.rect.applying(toDisplay).standardized
+    }
+
     /// Draws one opaque box plus a small token label inside it.
-    private static func drawOpaqueBox(_ box: RedactionBox, in context: CGContext) {
-        let rect = box.rect
+    private static func drawOpaqueBox(_ rect: CGRect, token: String, in context: CGContext) {
         if rect.isNull || rect.isEmpty {
             return
         }
@@ -181,7 +197,7 @@ public enum PdfRedactor {
         context.fill(rect)
         context.restoreGState()
 
-        drawTokenLabel(box.token, in: rect, context: context)
+        drawTokenLabel(token, in: rect, context: context)
     }
 
     /// Draws the token in small monospace white text inside the box. Best-effort:

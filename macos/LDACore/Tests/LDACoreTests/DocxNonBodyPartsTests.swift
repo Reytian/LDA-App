@@ -152,6 +152,109 @@ final class DocxNonBodyPartsTests: XCTestCase {
         XCTAssertTrue(out.contains("</dc:creator>"), "the creator close tag should survive")
     }
 
+    /// custom.xml string-typed property values are blanked while the property
+    /// names and structure survive. DMS-stamped custom properties (client
+    /// names, matter numbers, billing codes) are a routine PII channel.
+    func testScrubCustomPropsBlanksStringValues() {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" \
+        xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+        <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Client"><vt:lpwstr>Acme Corporation</vt:lpwstr></property>
+        <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="Matter"><vt:lpwstr>2026-0042 Roe Settlement</vt:lpwstr></property>
+        <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="4" name="Reviewed"><vt:bool>true</vt:bool></property>
+        </Properties>
+        """
+        let out = DocxParts.scrubCustomProps(xml)
+        XCTAssertFalse(out.contains("Acme Corporation"), "string property values must be blanked")
+        XCTAssertFalse(out.contains("Roe Settlement"), "string property values must be blanked")
+        XCTAssertTrue(out.contains("name=\"Client\""), "property names survive")
+        XCTAssertTrue(out.contains("<vt:lpwstr></vt:lpwstr>"), "value tags survive empty")
+        XCTAssertTrue(out.contains("<vt:bool>true</vt:bool>"), "non-string types are untouched")
+    }
+
+    /// The anonymize pipeline must scrub docProps/custom.xml and report how many
+    /// embedded media files (signature images, stamps) were copied through
+    /// unscanned, so the caller can warn the user.
+    func testAnonymizeScrubsCustomPropsAndCountsMedia() throws {
+        let withMedia = try writeCustomPropsFixtureDocx(includeMedia: true)
+        let result = try LDAService.anonymize(
+            input: withMedia,
+            outputDir: workDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: nil
+        )
+
+        let custom = try readPart("docProps/custom.xml", from: result.redactedFileURL)
+        XCTAssertFalse(custom.contains("Acme Corporation"), "custom property value leaked")
+        XCTAssertFalse(custom.contains("2026-0042"), "matter number leaked")
+        XCTAssertEqual(
+            result.embeddedMediaCount, 1,
+            "one embedded media file must be reported as unscanned"
+        )
+
+        let withoutMedia = try writeCustomPropsFixtureDocx(includeMedia: false)
+        let outputDir2 = workDir.appendingPathComponent("nomedia", isDirectory: true)
+        let result2 = try LDAService.anonymize(
+            input: withoutMedia,
+            outputDir: outputDir2,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: nil
+        )
+        XCTAssertEqual(result2.embeddedMediaCount, 0)
+    }
+
+    /// Minimal package with a custom.xml carrying client and matter identifiers
+    /// and optionally an embedded media file.
+    private func writeCustomPropsFixtureDocx(includeMedia: Bool) throws -> URL {
+        let suffix = includeMedia ? "media" : "nomedia"
+        let url = workDir.appendingPathComponent("customprops-\(suffix).docx")
+        let contentTypes = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Default Extension="png" ContentType="image/png"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+        <Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml"/>
+        </Types>
+        """
+        let rels = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+        </Relationships>
+        """
+        let document = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body><w:p><w:r><w:t xml:space="preserve">Contact jane.roe@example.com today.</w:t></w:r></w:p></w:body>
+        </w:document>
+        """
+        let custom = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" \
+        xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+        <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Client"><vt:lpwstr>Acme Corporation</vt:lpwstr></property>
+        <property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="Matter"><vt:lpwstr>2026-0042</vt:lpwstr></property>
+        </Properties>
+        """
+        var parts: [(String, Data)] = [
+            ("[Content_Types].xml", Data(contentTypes.utf8)),
+            ("_rels/.rels", Data(rels.utf8)),
+            ("word/document.xml", Data(document.utf8)),
+            ("docProps/custom.xml", Data(custom.utf8))
+        ]
+        if includeMedia {
+            // Any bytes work; the pipeline only counts media entries.
+            parts.append(("word/media/image1.png", Data([0x89, 0x50, 0x4E, 0x47])))
+        }
+        try DocxZip.writeArchive(parts: parts, to: url)
+        return url
+    }
+
     /// A package that has no header/footer/notes/comments/docProps parts must be
     /// redacted exactly like the legacy body-only path (no crash, body PII gone).
     func testBodyOnlyDocxStillRedactsCleanly() throws {

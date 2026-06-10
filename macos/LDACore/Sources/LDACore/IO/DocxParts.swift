@@ -33,6 +33,7 @@ import ZIPFoundation
 /// The fixed paths of the docProps parts whose metadata is scrubbed.
 let docxCorePropsPath = "docProps/core.xml"
 let docxAppPropsPath = "docProps/app.xml"
+let docxCustomPropsPath = "docProps/custom.xml"
 
 /// Processes the non-body parts of a .docx package: redaction of additional
 /// text-bearing parts, metadata scrubbing, and external-link neutralization.
@@ -144,7 +145,12 @@ enum DocxParts {
         var counters = perTypeMaxIndices(in: mapping.entries.keys)
 
         for part in loadTextBearingParts(from: url) {
-            let spans = detect(part.layout.text)
+            // Split spans crossing the synthetic paragraph newline; a surface
+            // carrying it cannot restore into a single run (see SpanSplitter).
+            let spans = SpanSplitter.splitAtLineBreaks(
+                detect(part.layout.text),
+                in: part.layout.text
+            )
             guard !spans.isEmpty else { continue }
 
             // Resolve a token for each accepted span, extending the mapping.
@@ -173,6 +179,12 @@ enum DocxParts {
         if let data = try? DocxZip.readEntry(docxAppPropsPath, from: url),
            let xml = String(data: data, encoding: .utf8) {
             replacements[docxAppPropsPath] = Data(scrubAppProps(xml).utf8)
+        }
+        // Scrub custom document properties: DMS-stamped client names, matter
+        // numbers, and billing codes routinely live here as string values.
+        if let data = try? DocxZip.readEntry(docxCustomPropsPath, from: url),
+           let xml = String(data: data, encoding: .utf8) {
+            replacements[docxCustomPropsPath] = Data(scrubCustomProps(xml).utf8)
         }
 
         // Neutralize external mailto:/tel: hyperlink targets in every .rels part.
@@ -362,6 +374,33 @@ enum DocxParts {
             out = blankElementContent(out, element: element)
         }
         return out
+    }
+
+    /// String-typed variant elements whose content is blanked in custom.xml.
+    /// Non-string variants (vt:bool, vt:i4, vt:filetime) carry far less direct
+    /// PII and are left untouched so document tooling keeps working.
+    private static let customScrubElements = ["vt:lpwstr", "vt:lpstr", "vt:bstr"]
+
+    /// Blank every string-typed custom property value. Property names and the
+    /// element structure survive so the part stays schema-valid.
+    static func scrubCustomProps(_ xml: String) -> String {
+        var out = xml
+        for element in customScrubElements {
+            out = blankElementContent(out, element: element)
+        }
+        return out
+    }
+
+    // MARK: - Embedded media inventory
+
+    /// Paths of embedded media files (word/media/...). These are copied
+    /// verbatim into the redacted package because there is no DOCX image
+    /// redaction channel yet, so wet-ink signature scans or stamps inside them
+    /// are NOT scanned for PII. Callers surface the count as a warning.
+    static func embeddedMediaPaths(in url: URL) -> [String] {
+        enumerateEntryPaths(in: url)
+            .filter { $0.hasPrefix("word/media/") }
+            .sorted()
     }
 
     /// Replace the inner text of every "<element ...>...</element>" with empty,

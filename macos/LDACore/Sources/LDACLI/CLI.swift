@@ -82,6 +82,9 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     public let visualPdfURL: String?
     public let entityCount: Int
     public let imageRedactionCount: Int
+    /// Embedded media files copied into the redacted DOCX without PII scanning
+    /// (signature images, stamps). Non-zero is a warning for the user.
+    public let embeddedMediaCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -89,6 +92,7 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.visualPdfURL = result.visualPdfURL?.path
         self.entityCount = result.entityCount
         self.imageRedactionCount = result.imageRedactionCount
+        self.embeddedMediaCount = result.embeddedMediaCount
     }
 }
 

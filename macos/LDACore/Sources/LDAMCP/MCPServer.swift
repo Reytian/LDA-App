@@ -189,7 +189,8 @@ public struct MCPServer {
             "mappingFile": result.mappingFileURL.path,
             "entityCount": result.entityCount,
             "entityTypes": entityTypeStrings(result.entities),
-            "imageRedactionCount": result.imageRedactionCount
+            "imageRedactionCount": result.imageRedactionCount,
+            "embeddedMediaCount": result.embeddedMediaCount
         ]
         if let visual = result.visualPdfURL {
             summary["visualPdf"] = visual.path

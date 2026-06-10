@@ -78,16 +78,19 @@ public final class LLMEngine {
     private let vocab: OpaquePointer
     private let config: Config
 
-    private static var backendInitialized = false
+    /// One-time llama backend bootstrap. A `static let` initializer is run
+    /// exactly once even under concurrent first access, unlike the previous
+    /// unsynchronized boolean flag, which could double-call
+    /// llama_backend_init() when two engines were constructed at once.
+    private static let backendBootstrap: Void = {
+        llama_backend_init()
+    }()
 
     public init(config: Config) throws {
         guard FileManager.default.fileExists(atPath: config.modelPath) else {
             throw LLMError.modelFileMissing(config.modelPath)
         }
-        if !LLMEngine.backendInitialized {
-            llama_backend_init()
-            LLMEngine.backendInitialized = true
-        }
+        _ = LLMEngine.backendBootstrap
 
         var modelParams = llama_model_default_params()
         modelParams.n_gpu_layers = config.gpuLayers
@@ -143,6 +146,14 @@ public final class LLMEngine {
     ) throws -> String {
         let cap = maxTokens ?? config.maxTokens
 
+        // Each call is a stateless completion. Clear the context memory so this
+        // prompt decodes from position 0 instead of appending to the previous
+        // call's KV cache. Without this, per-segment calls accumulate until the
+        // context overflows; llama_decode then fails and the caller skips the
+        // segment, silently leaving its PII un-scanned. Earlier segments also
+        // bleed attention state into later ones.
+        llama_memory_clear(llama_get_memory(context), false)
+
         // Tokenize. add_special = false because the prompt already carries the
         // ChatML special tokens; parse_special = true so they are recognized.
         let byteCount = Int32(prompt.utf8.count)
@@ -175,12 +186,12 @@ public final class LLMEngine {
 
             appendPiece(of: token, to: &outputBytes)
 
-            // Stop strings (checked on the decoded-so-far text).
-            if !stop.isEmpty {
-                let soFar = String(decoding: outputBytes, as: UTF8.self)
-                if let hit = stop.first(where: { soFar.hasSuffix($0) }) {
-                    return String(soFar.dropLast(hit.count))
-                }
+            // Stop strings, checked in UTF-8 byte space. Comparing bytes (not a
+            // decoded String) is exact when the tail holds a partial multi-byte
+            // sequence mid-character, and avoids re-decoding the whole output
+            // on every token.
+            if let trimmed = LLMEngine.trimmingStopSuffix(outputBytes, stop: stop) {
+                return String(decoding: trimmed, as: UTF8.self)
             }
 
             // Feed the sampled token back in.
@@ -193,6 +204,21 @@ public final class LLMEngine {
         }
 
         return String(decoding: outputBytes, as: UTF8.self)
+    }
+
+    /// If bytes ends with the UTF-8 encoding of any stop string, return bytes
+    /// with that suffix removed; otherwise nil. Operating in byte space keeps
+    /// the trim exact (a Character-space dropLast can disagree with the emitted
+    /// byte stream under canonical equivalence or a partial multi-byte tail).
+    static func trimmingStopSuffix(_ bytes: [UInt8], stop: [String]) -> [UInt8]? {
+        for stopString in stop {
+            let stopBytes = Array(stopString.utf8)
+            guard !stopBytes.isEmpty, bytes.count >= stopBytes.count else { continue }
+            if bytes.suffix(stopBytes.count).elementsEqual(stopBytes) {
+                return Array(bytes.dropLast(stopBytes.count))
+            }
+        }
+        return nil
     }
 
     /// Convert a token to its raw bytes and append them. Accumulating bytes (not

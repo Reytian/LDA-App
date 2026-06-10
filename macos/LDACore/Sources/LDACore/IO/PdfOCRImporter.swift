@@ -91,8 +91,39 @@ public struct PdfOCRImporter: DocumentImporter {
             text: fullText,
             format: .pdf,
             isScanned: true,
-            pageCount: pageCount
+            pageCount: pageCount,
+            scannedPageIndexes: Array(0..<pageCount)
         )
+    }
+
+    /// OCRs only the given pages and returns the recovered text per page
+    /// index. Used for hybrid PDFs, where born-digital pages keep their text
+    /// layer and only the scanned pages need recovery.
+    ///
+    /// Throws when a requested page cannot be rasterized or recognized: a
+    /// silently skipped scanned page would leave its PII out of detection
+    /// entirely, which must surface as an error rather than a clean result.
+    public static func pageTexts(in url: URL, pages: [Int]) throws -> [Int: String] {
+        guard !pages.isEmpty else { return [:] }
+        guard let document = PDFDocument(url: url) else {
+            throw DocumentIOError.unreadable(
+                "PDFDocument could not open file at \(url.path)"
+            )
+        }
+
+        var result: [Int: String] = [:]
+        for pageIndex in pages {
+            guard pageIndex >= 0, pageIndex < document.pageCount,
+                  let page = document.page(at: pageIndex) else {
+                throw DocumentIOError.corrupt(
+                    "PDF page \(pageIndex) could not be accessed"
+                )
+            }
+            let cgImage = try render(page: page)
+            let lines = try recognizeLines(in: cgImage)
+            result[pageIndex] = lines.joined(separator: "\n")
+        }
+        return result
     }
 
     // MARK: - Bounding boxes for visual redaction
@@ -107,9 +138,14 @@ public struct PdfOCRImporter: DocumentImporter {
     /// Matching is case-insensitive and substring-based, which tolerates OCR noise
     /// and the fact that one observation line can hold several words. Returns an
     /// empty array when nothing matches or when OCR yields no observations.
+    ///
+    /// - Parameter pages: when non-nil, only these zero-based page indexes are
+    ///   scanned (the hybrid-PDF path passes just the scanned pages); nil scans
+    ///   the whole document.
     public static func ocrBoxes(
         in url: URL,
-        matching surfaceTexts: [(text: String, token: String)]
+        matching surfaceTexts: [(text: String, token: String)],
+        pages: [Int]? = nil
     ) -> [RedactionBox] {
         guard let document = PDFDocument(url: url) else {
             return []
@@ -127,12 +163,12 @@ public struct PdfOCRImporter: DocumentImporter {
 
         var boxes: [RedactionBox] = []
 
-        for pageIndex in 0..<document.pageCount {
-            guard let page = document.page(at: pageIndex) else { continue }
+        let pageIndexes = pages ?? Array(0..<document.pageCount)
+        for pageIndex in pageIndexes {
+            guard pageIndex >= 0, pageIndex < document.pageCount,
+                  let page = document.page(at: pageIndex) else { continue }
             guard let cgImage = try? render(page: page) else { continue }
             guard let observations = try? recognize(in: cgImage) else { continue }
-
-            let mediaBox = page.bounds(for: .mediaBox)
 
             for observation in observations {
                 guard let candidate = observation.topCandidates(1).first else {
@@ -144,7 +180,7 @@ public struct PdfOCRImporter: DocumentImporter {
                 for entry in needles where recognized.contains(entry.needle) {
                     let rect = pageRect(
                         fromNormalized: observation.boundingBox,
-                        mediaBox: mediaBox
+                        page: page
                     )
                     boxes.append(
                         RedactionBox(
@@ -188,13 +224,12 @@ public struct PdfOCRImporter: DocumentImporter {
                   let image = try? Self.render(page: page),
                   let observations = try? Self.recognize(in: image) else { continue }
 
-            let mediaBox = page.bounds(for: .mediaBox)
             for observation in observations {
                 guard let candidate = observation.topCandidates(1).first else { continue }
                 let text = candidate.string
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
 
-                let rect = Self.pageRect(fromNormalized: observation.boundingBox, mediaBox: mediaBox)
+                let rect = Self.pageRect(fromNormalized: observation.boundingBox, page: page)
                 if Self.textLayerCovers(text: text, rect: rect, page: page) { continue }
                 result.append(ImageTextObservation(pageIndex: pageIndex, rect: rect, text: text))
             }
@@ -214,13 +249,19 @@ public struct PdfOCRImporter: DocumentImporter {
 
     // MARK: - Rendering
 
-    /// Rasterizes a single PDF page into a CGImage at renderDPI.
+    /// Rasterizes a single PDF page into an UPRIGHT CGImage at renderDPI.
+    ///
+    /// The canvas uses the page's display size (swapped for /Rotate 90/270)
+    /// and the content is drawn through the page's rotation transform, so
+    /// scanner output stored sideways OCRs in reading orientation. Vision
+    /// boxes therefore come back in display space; pageRect(fromNormalized:
+    /// page:) maps them into raw content space.
     private static func render(page: PDFPage) throws -> CGImage {
-        let pageRect = page.bounds(for: .mediaBox)
+        let displaySize = PdfPageGeometry.displaySize(of: page)
         let scale = renderDPI / pdfPointsPerInch
 
-        let pixelWidth = Int((pageRect.width * scale).rounded())
-        let pixelHeight = Int((pageRect.height * scale).rounded())
+        let pixelWidth = Int((displaySize.width * scale).rounded())
+        let pixelHeight = Int((displaySize.height * scale).rounded())
 
         guard pixelWidth > 0, pixelHeight > 0 else {
             throw DocumentIOError.corrupt("PDF page has empty media box")
@@ -247,9 +288,7 @@ public struct PdfOCRImporter: DocumentImporter {
 
         context.saveGState()
         context.scaleBy(x: scale, y: scale)
-        // Shift so the page media box origin maps to the context origin.
-        context.translateBy(x: -pageRect.origin.x, y: -pageRect.origin.y)
-        page.draw(with: .mediaBox, to: context)
+        PdfPageGeometry.drawContentUpright(page, in: context)
         context.restoreGState()
 
         guard let image = context.makeImage() else {
@@ -305,21 +344,27 @@ public struct PdfOCRImporter: DocumentImporter {
 
     // MARK: - Coordinate mapping
 
-    /// Maps a Vision normalized bounding box (origin bottom-left, 0 through 1)
-    /// into PDF page coordinates using the page media box.
+    /// Maps a Vision normalized bounding box (origin bottom-left, 0 through 1,
+    /// relative to the upright raster) into the page's RAW content space.
     ///
-    /// PDF/CoreGraphics page coordinates also use a bottom-left origin, so the
-    /// vertical axis does not need flipping; we only scale by the media box size
-    /// and offset by its origin.
+    /// The raster is rendered in display space, so the normalized box scales
+    /// by the display size and then maps back through the inverse of the
+    /// page's content-to-display transform. For an unrotated page this
+    /// reduces to the old behavior (scale by the media box and shift by its
+    /// origin). Axis-aligned rects stay axis-aligned because the transform is
+    /// a multiple-of-90-degrees rotation plus translation.
     private static func pageRect(
         fromNormalized box: CGRect,
-        mediaBox: CGRect
+        page: PDFPage
     ) -> CGRect {
-        CGRect(
-            x: mediaBox.origin.x + box.origin.x * mediaBox.width,
-            y: mediaBox.origin.y + box.origin.y * mediaBox.height,
-            width: box.width * mediaBox.width,
-            height: box.height * mediaBox.height
+        let display = PdfPageGeometry.displaySize(of: page)
+        let displayRect = CGRect(
+            x: box.origin.x * display.width,
+            y: box.origin.y * display.height,
+            width: box.width * display.width,
+            height: box.height * display.height
         )
+        let toDisplay = PdfPageGeometry.contentToDisplay(of: page)
+        return displayRect.applying(toDisplay.inverted()).standardized
     }
 }

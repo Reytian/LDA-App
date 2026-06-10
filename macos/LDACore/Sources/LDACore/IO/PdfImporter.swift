@@ -41,8 +41,29 @@ public struct PdfImporter: DocumentImporter {
     /// - Concatenates page.string across all pages, joined by pageSeparator.
     /// - isScanned is true when the total extracted text is empty or whitespace,
     ///   signalling that OCR is needed; the (empty) text is still returned.
+    /// - scannedPageIndexes flags the individual pages with no usable text
+    ///   layer, so a hybrid PDF (digital agreement plus scanned exhibit) gets
+    ///   per-page OCR instead of silently skipping the scanned pages.
     /// - pageCount comes from the document.
     public func importDocument(_ url: URL) throws -> ImportedDocument {
+        let layers = try PdfImporter.pageTextLayers(in: url)
+        let text = layers.texts.joined(separator: pageSeparator)
+        let isScanned = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return ImportedDocument(
+            text: text,
+            format: .pdf,
+            isScanned: isScanned,
+            pageCount: layers.texts.count,
+            scannedPageIndexes: layers.scannedPages
+        )
+    }
+
+    /// Extracts the per-page text layer and reports which pages have no usable
+    /// text. The caller splices OCR text into those slots for hybrid PDFs.
+    public static func pageTextLayers(
+        in url: URL
+    ) throws -> (texts: [String], scannedPages: [Int]) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw DocumentIOError.unreadable("File not found at \(url.path)")
         }
@@ -52,24 +73,19 @@ public struct PdfImporter: DocumentImporter {
         }
 
         let pageCount = document.pageCount
+        var texts: [String] = []
+        texts.reserveCapacity(pageCount)
+        var scannedPages: [Int] = []
 
-        var pageTexts: [String] = []
-        pageTexts.reserveCapacity(pageCount)
         for index in 0..<pageCount {
-            guard let page = document.page(at: index) else { continue }
-            pageTexts.append(page.string ?? "")
+            let pageText = document.page(at: index)?.string ?? ""
+            texts.append(pageText)
+            if pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                scannedPages.append(index)
+            }
         }
 
-        let text = pageTexts.joined(separator: pageSeparator)
-
-        let isScanned = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-
-        return ImportedDocument(
-            text: text,
-            format: .pdf,
-            isScanned: isScanned,
-            pageCount: pageCount
-        )
+        return (texts: texts, scannedPages: scannedPages)
     }
 
     // MARK: - Redaction box location

@@ -364,4 +364,45 @@ final class LLMExtractorTests: XCTestCase {
         XCTAssertEqual(spans.count, 1)
         XCTAssertEqual(spans.first?.text, "Acme Corp")
     }
+
+    // MARK: - Casing mismatch between report and document (leak guard)
+
+    func testCaseMismatchedReportStillLocatesEntity() throws {
+        // The model reports the company upcased while the document spells it in
+        // title case. Dedup keeps only the upcased report; location must still
+        // find the document occurrence or the name leaks through anonymization.
+        let text = "Engagement letter for Acme Corp, attention John Smith."
+        let json = """
+        {"entities":[\
+        {"value":"ACME CORP","type":"COMPANY"},\
+        {"value":"JOHN SMITH","type":"PERSON"}],"redacted_text":""}
+        """
+        let extractor = LLMExtractor(completer: MockCompleter(defaultOutput: json))
+
+        let spans = try extractor.extract(from: text)
+
+        XCTAssertEqual(spans.count, 2, "case-mismatched reports must still locate")
+        XCTAssertEqual(
+            Set(spans.map { $0.text }),
+            ["Acme Corp", "John Smith"],
+            "spans must carry the document surface, not the report casing"
+        )
+    }
+
+    func testMixedCasingDocumentOccurrencesAllLocatedDespiteDedup() throws {
+        // The document uses two casings; the model reports both, dedup collapses
+        // them to one report. Every occurrence must still be located.
+        let text = "Acme Corp signed first. ACME CORP countersigned later."
+        let json = """
+        {"entities":[\
+        {"value":"ACME CORP","type":"COMPANY"},\
+        {"value":"Acme Corp","type":"COMPANY"}],"redacted_text":""}
+        """
+        let extractor = LLMExtractor(completer: MockCompleter(defaultOutput: json))
+
+        let spans = try extractor.extract(from: text)
+
+        XCTAssertEqual(spans.count, 2, "both casing variants in the document must be found")
+        XCTAssertEqual(Set(spans.map { $0.text }), ["Acme Corp", "ACME CORP"])
+    }
 }

@@ -70,11 +70,28 @@ public struct TextDocumentIO: DocumentImporter, Sendable {
         }
 
         return ImportedDocument(
-            text: text,
+            text: TextDocumentIO.normalize(text),
             format: .plainText,
             isScanned: false,
             pageCount: 1
         )
+    }
+
+    /// Deliberate import normalization: strip a leading UTF-8 BOM (it would
+    /// shift every detection offset by one UTF-16 unit and leak U+FEFF into
+    /// the restored output) and normalize CRLF and bare CR line endings to LF
+    /// (a CR surviving into the companion .docx breaks the Word edit surface).
+    /// The restored output is therefore LF-normalized by design.
+    static func normalize(_ text: String) -> String {
+        var out = text
+        if out.hasPrefix("\u{FEFF}") {
+            out = String(out.dropFirst())
+        }
+        if out.contains("\r") {
+            out = out.replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+        }
+        return out
     }
 
     // MARK: Export

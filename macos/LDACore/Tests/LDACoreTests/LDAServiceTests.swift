@@ -441,4 +441,38 @@ final class LDAServiceTests: XCTestCase {
         }
         return false
     }
+    // MARK: - Restore same-path guard
+
+    /// Restoring with output equal to the edited input used to delete the
+    /// input before reading it (the rewrite clears the destination first),
+    /// destroying the user's redacted file and failing with a confusing
+    /// "corrupt" error. It must fail fast with a clear error instead.
+    func testRestoreRefusesOutputEqualToInput() throws {
+        let original = "Reach me at \(Self.email) please."
+        let inputURL = workDir.appendingPathComponent("note.txt")
+        try Data(original.utf8).write(to: inputURL)
+        let outputDir = workDir.appendingPathComponent("out2", isDirectory: true)
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertThrowsError(
+            try LDAService.restore(
+                editedRedacted: result.redactedFileURL,
+                mapping: result.mappingFileURL,
+                protection: .passphrase("pw"),
+                output: result.redactedFileURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? LDAServiceError, .outputEqualsInput)
+        }
+
+        // The redacted file must survive untouched.
+        let stillThere = try String(contentsOf: result.redactedFileURL, encoding: .utf8)
+        XCTAssertTrue(stillThere.contains("{EMAIL_1}"))
+    }
+
 }

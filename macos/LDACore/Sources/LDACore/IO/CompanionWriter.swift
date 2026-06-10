@@ -127,8 +127,15 @@ public enum CompanionWriter {
     /// lines still produce an empty paragraph so the line structure round-trips.
     private static func documentXML(for text: String) -> String {
         // Split on newlines while keeping empty trailing lines so the paragraph
-        // count matches the visible line count.
-        let lines = text.components(separatedBy: "\n")
+        // count matches the visible line count. CRLF and bare CR split exactly
+        // like LF: a raw CR must never reach w:t content (Word renders it as a
+        // stray break and rewrites the document on save). Text import already
+        // normalizes line endings, but other producers (PDFKit page text) can
+        // still carry CR, so this stays defensive.
+        let lines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
 
         var body = ""
         for line in lines {

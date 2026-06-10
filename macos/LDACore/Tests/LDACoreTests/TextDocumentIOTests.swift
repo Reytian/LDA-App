@@ -150,6 +150,23 @@ final class TextDocumentIOTests: XCTestCase {
         XCTAssertEqual(imported.text, text)
     }
 
+    /// Windows files arrive with CRLF line endings and often a UTF-8 BOM.
+    /// Import must normalize both: a BOM surviving as U+FEFF shifts every
+    /// detection offset, and a CR surviving into the companion docx breaks the
+    /// edit surface in Word. Line-ending normalization is deliberate; the
+    /// restored output is LF-normalized.
+    func testImportNormalizesCRLFAndStripsBOM() throws {
+        let url = tempDir.appendingPathComponent("windows.txt")
+        var bytes = Data([0xEF, 0xBB, 0xBF])
+        bytes.append(Data("line1\r\nline2\rline3\nline4".utf8))
+        try bytes.write(to: url)
+
+        let imported = try TextDocumentIO().importDocument(url)
+
+        XCTAssertEqual(imported.text, "line1\nline2\nline3\nline4")
+        XCTAssertFalse(imported.text.unicodeScalars.contains("\u{FEFF}"))
+    }
+
     func testExportOverwritesExistingFile() throws {
         let url = tempDir.appendingPathComponent("over.txt")
         try TextDocumentIO.exportText("old content here", to: url)

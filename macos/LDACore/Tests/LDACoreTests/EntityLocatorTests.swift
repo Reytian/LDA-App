@@ -289,4 +289,58 @@ final class EntityLocatorTests: XCTestCase {
         XCTAssertEqual(spans.count, 1)
         XCTAssertEqual(Array(spans.first!.text.utf16), Array("Alice".utf16))
     }
+
+    // MARK: - Case-insensitive location (casing-mismatch leak)
+
+    /// The model may report an entity in a different casing than the document
+    /// ("ACME CORP" vs "Acme Corp"). The locator must still find the occurrence;
+    /// a zero-span result here means the value survives anonymization (PII leak).
+    func testCaseMismatchedValueLocatesDocumentSurface() {
+        let text = "Contract with Acme Corp today."
+        let spans = EntityLocator.spans(forValue: "ACME CORP", type: .company, in: text)
+
+        XCTAssertEqual(spans.count, 1)
+        guard let span = spans.first else { return }
+        // span.text must carry the DOCUMENT's surface form, not the needle's
+        // casing, so tokenize/restore stays byte-identical.
+        XCTAssertEqual(Array(span.text.utf16), Array("Acme Corp".utf16))
+        XCTAssertEqual(slice(text, span), "Acme Corp")
+    }
+
+    /// A document that mixes casings of the same name must have EVERY occurrence
+    /// located in one pass, each span stamped with its own surface form.
+    func testMixedCasingOccurrencesEachStampedWithOwnSurface() {
+        let text = "Acme Corp signed. Later ACME CORP countersigned."
+        let spans = EntityLocator.spans(forValue: "acme corp", type: .company, in: text)
+
+        XCTAssertEqual(spans.count, 2)
+        XCTAssertEqual(spans.map { $0.text }, ["Acme Corp", "ACME CORP"])
+        for span in spans {
+            XCTAssertEqual(slice(text, span), span.text)
+        }
+    }
+
+    /// Case-insensitive matches must still round-trip byte-identically through
+    /// tokenize + restore, because each span carries its matched surface bytes.
+    func testCaseInsensitiveMatchRoundTripsByteIdentical() {
+        let text = "Acme Corp signed. Later ACME CORP countersigned."
+        let spans = EntityLocator.spans(forValue: "ACME CORP", type: .company, in: text)
+        XCTAssertEqual(spans.count, 2)
+
+        let tok = Tokenizer.tokenize(
+            text: text,
+            spans: spans,
+            sourceFile: "test.txt",
+            createdAtISO8601: "2026-01-01T00:00:00Z"
+        )
+        // The tokenized text must not contain either casing of the value.
+        XCTAssertFalse(tok.tokenizedText.lowercased().contains("acme corp"))
+
+        let restored = Restorer.restore(text: tok.tokenizedText, mapping: tok.mapping)
+        XCTAssertEqual(
+            Array(restored.text.utf16),
+            Array(text.utf16),
+            "restore must be byte-identical regardless of needle casing"
+        )
+    }
 }

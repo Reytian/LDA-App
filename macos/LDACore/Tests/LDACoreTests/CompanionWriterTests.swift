@@ -175,6 +175,20 @@ final class CompanionWriterTests: XCTestCase {
         )
     }
 
+    /// A carriage return must never reach w:t content: Word renders it as a
+    /// stray break and rewrites it on save, so the companion would not
+    /// round-trip. CRLF and bare CR both split paragraphs exactly like LF.
+    func testWriteDocxNormalizesCarriageReturns() throws {
+        let url = tempDir.appendingPathComponent("crlf.docx")
+        try CompanionWriter.writeDocx("alpha\r\nbeta\rgamma", to: url)
+
+        let document = try extractEntryText(from: url, entryPath: "word/document.xml")
+        XCTAssertFalse(document.contains("\r"), "raw CR leaked into w:t content")
+
+        let imported = try DocxImporter().importDocument(url)
+        XCTAssertEqual(imported.text, "alpha\nbeta\ngamma")
+    }
+
     func testWriteDocxRelsPointsAtDocument() throws {
         let url = tempDir.appendingPathComponent("rels.docx")
         try CompanionWriter.writeDocx("body", to: url)

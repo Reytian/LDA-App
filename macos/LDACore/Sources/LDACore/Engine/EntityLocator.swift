@@ -33,9 +33,14 @@ public enum EntityLocator {
     /// Find every occurrence of value in text and emit a Span for each.
     ///
     /// The search trims surrounding whitespace from value, then scans text for
-    /// every non-overlapping exact substring occurrence, advancing past each
-    /// match so occurrences never overlap. All offsets are UTF-16 code-unit
-    /// offsets (NSRange-compatible), computed with NSString.
+    /// every non-overlapping substring occurrence, advancing past each match so
+    /// occurrences never overlap. Matching is case-insensitive: the model may
+    /// report "ACME CORP" for a document that spells "Acme Corp", and a casing
+    /// mismatch must not make the occurrence invisible (that would leak the
+    /// value through anonymization). Each span carries the document's actual
+    /// surface bytes, so round-trip restore stays byte-identical. All offsets
+    /// are UTF-16 code-unit offsets (NSRange-compatible), computed with
+    /// NSString.
     ///
     /// - Parameters:
     ///   - value: the surface value the model reported.
@@ -60,20 +65,27 @@ public enum EntityLocator {
         let haystack = text as NSString
         let length = haystack.length
         let needleLength = (needle as NSString).length
-        guard needleLength > 0, needleLength <= length else {
+        guard needleLength > 0, length > 0 else {
             return []
         }
 
         var result: [Span] = []
         var searchStart = 0
 
-        while searchStart <= length - needleLength {
+        // Note: case folding and canonical equivalence both allow a match whose
+        // code-unit length differs from the needle's, so the loop bounds must
+        // not assume needleLength; it only bounds on the remaining haystack.
+        while searchStart < length {
             let searchRange = NSRange(
                 location: searchStart,
                 length: length - searchStart
             )
-            let found = haystack.range(of: needle, options: [], range: searchRange)
-            guard found.location != NSNotFound else {
+            let found = haystack.range(
+                of: needle,
+                options: [.caseInsensitive],
+                range: searchRange
+            )
+            guard found.location != NSNotFound, found.length > 0 else {
                 break
             }
 
@@ -81,12 +93,12 @@ public enum EntityLocator {
             let end = found.location + found.length
 
             // Capture the ACTUAL matched substring, not the needle. NSString.range
-            // does canonical (NFC/NFD-insensitive) matching, so an NFC needle can
-            // match an NFD occurrence and `found.length` is the haystack's length,
-            // not the needle's. Stamping `text: needle` would make span.text
-            // disagree with the [start, end) bytes and silently change the
-            // document's normalization form on restore. Using the matched slice
-            // keeps span.text byte-identical to the source range.
+            // does canonical (NFC/NFD-insensitive) and case-insensitive matching,
+            // so the matched slice can differ from the needle in both bytes and
+            // length. Stamping `text: needle` would make span.text disagree with
+            // the [start, end) bytes and silently change the document's casing or
+            // normalization form on restore. Using the matched slice keeps
+            // span.text byte-identical to the source range.
             let matched = haystack.substring(with: found)
             result.append(
                 Span(

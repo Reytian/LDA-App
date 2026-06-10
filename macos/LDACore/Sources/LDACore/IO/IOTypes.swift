@@ -55,16 +55,29 @@ public struct ImportedDocument: Sendable {
     public var text: String
     /// The detected source format.
     public var format: DocumentFormat
-    /// True when a PDF had no usable text layer and OCR was used.
+    /// True when a PDF had no usable text layer at all and OCR was used for
+    /// the entire document.
     public var isScanned: Bool
     /// Number of pages (1 for plain text and single-page surfaces).
     public var pageCount: Int
+    /// Zero-based indexes of PDF pages that carry no usable text layer. For a
+    /// fully scanned PDF this is every page; for a hybrid PDF (born-digital
+    /// pages plus scanned exhibit or signature pages) it is the subset that
+    /// needs OCR. Empty for non-PDF formats and fully born-digital PDFs.
+    public var scannedPageIndexes: [Int]
 
-    public init(text: String, format: DocumentFormat, isScanned: Bool, pageCount: Int) {
+    public init(
+        text: String,
+        format: DocumentFormat,
+        isScanned: Bool,
+        pageCount: Int,
+        scannedPageIndexes: [Int] = []
+    ) {
         self.text = text
         self.format = format
         self.isScanned = isScanned
         self.pageCount = pageCount
+        self.scannedPageIndexes = scannedPageIndexes
     }
 }
 

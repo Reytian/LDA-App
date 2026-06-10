@@ -37,6 +37,11 @@ public struct AnonymizeResult: Sendable {
     /// How many image-origin regions were redacted (signatures, stamps). 0 unless
     /// the input was a PDF with an image-PII channel pass.
     public var imageRedactionCount: Int
+    /// How many embedded media files (word/media/...) were copied verbatim into
+    /// a redacted DOCX without being scanned for PII. Wet-ink signature scans
+    /// and stamps live there; a non-zero count must be surfaced to the user as
+    /// a warning. Always 0 for non-DOCX input.
+    public var embeddedMediaCount: Int
 
     public init(
         redactedFileURL: URL,
@@ -44,7 +49,8 @@ public struct AnonymizeResult: Sendable {
         visualPdfURL: URL?,
         entityCount: Int,
         entities: [Span],
-        imageRedactionCount: Int = 0
+        imageRedactionCount: Int = 0,
+        embeddedMediaCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
@@ -52,6 +58,7 @@ public struct AnonymizeResult: Sendable {
         self.entityCount = entityCount
         self.entities = entities
         self.imageRedactionCount = imageRedactionCount
+        self.embeddedMediaCount = embeddedMediaCount
     }
 }
 
@@ -82,6 +89,10 @@ public enum LDAServiceError: Error, Equatable {
     /// NOT guaranteed PII-free and must not be presented as cleanly anonymized
     /// (LJE-001). `incompleteSegmentCount` is how many segments were affected.
     case incompleteExtraction(incompleteSegmentCount: Int)
+    /// restore was asked to write its output over the edited input file. The
+    /// rewrite clears the destination before reading, so honoring this would
+    /// destroy the user's redacted file; it must fail fast instead.
+    case outputEqualsInput
 }
 
 // MARK: - Facade
@@ -139,7 +150,14 @@ public enum LDAService {
         // document is never written out as cleanly anonymized on a partial scan.
         let imported = try importDocument(input, extension: ext)
         let detector = makeDetector(modelPath: llmModelPath)
-        let spans = try detector.detectText(imported.text)
+        let detected = try detector.detectText(imported.text)
+        // DOCX replacement happens run by run inside paragraphs, and the
+        // paragraph newline exists in no run, so a span crossing it cannot
+        // round-trip. Split such spans into per-paragraph parts (each gets its
+        // own token and restores within its own run structure).
+        let spans = ext == "docx"
+            ? SpanSplitter.splitAtLineBreaks(detected, in: imported.text)
+            : detected
         var tokenized = Tokenizer.tokenize(
             text: imported.text,
             spans: spans,
@@ -150,10 +168,14 @@ public enum LDAService {
         let redactedFileURL: URL
         var visualPdfURL: URL?
         var imageRedactionCount = 0
+        var embeddedMediaCount = 0
 
         switch ext {
         case "docx":
             redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.docx")
+            // Embedded media (word/media/) copies through unscanned; report the
+            // count so the caller can warn about signature images and stamps.
+            embeddedMediaCount = DocxParts.embeddedMediaPaths(in: input).count
             let replacements = buildReplacements(
                 spans: spans,
                 mapping: tokenized.mapping
@@ -184,15 +206,31 @@ public enum LDAService {
             // Pairs come from text-layer entries only; image-origin regions are boxed
             // separately by the image-PII channel below, not via text search.
             let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
-            var boxes: [RedactionBox] = imported.isScanned
-                ? PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
-                : PdfImporter.redactionBoxes(in: input, surfaceTexts: pairs)
+            var boxes: [RedactionBox]
+            if imported.isScanned {
+                boxes = PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
+            } else {
+                boxes = PdfImporter.redactionBoxes(in: input, surfaceTexts: pairs)
+                // Hybrid PDFs: the scanned pages have no text layer for the
+                // selection search, so their PII is boxed via page-scoped OCR.
+                if !imported.scannedPageIndexes.isEmpty {
+                    boxes += PdfOCRImporter.ocrBoxes(
+                        in: input,
+                        matching: pairs,
+                        pages: imported.scannedPageIndexes
+                    )
+                }
+            }
 
             // Image-PII channel: a non-scanned PDF can still embed raster images
             // (signatures, stamps) the text layer cannot see. OCR those regions,
             // conservatively box them, and record classified PII in the mapping.
+            // Fully scanned pages are excluded: their whole text already entered
+            // the document text via per-page OCR and is boxed above.
             if !imported.isScanned {
+                let scannedSet = Set(imported.scannedPageIndexes)
                 let imagePages = PdfImageInventory.pagesWithImages(input)
+                    .filter { !scannedSet.contains($0) }
                 if !imagePages.isEmpty {
                     let observations = PdfOCRImporter().imageOriginObservations(in: input, pages: imagePages)
                     let resolved = ImageRedactionResolver.resolve(
@@ -233,7 +271,8 @@ public enum LDAService {
             visualPdfURL: visualPdfURL,
             entityCount: spans.count,
             entities: spans,
-            imageRedactionCount: imageRedactionCount
+            imageRedactionCount: imageRedactionCount,
+            embeddedMediaCount: embeddedMediaCount
         )
     }
 
@@ -246,6 +285,12 @@ public enum LDAService {
         protection: MappingProtection,
         output: URL
     ) throws -> RestoreReport {
+        // Writing the output over the edited input would delete the input
+        // before it is read (the writers clear the destination first), losing
+        // the user's redacted file. Refuse up front, before any IO.
+        guard editedRedacted.standardizedFileURL.path != output.standardizedFileURL.path else {
+            throw LDAServiceError.outputEqualsInput
+        }
         let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
         let ext = editedRedacted.pathExtension.lowercased()
 
@@ -362,9 +407,12 @@ public enum LDAService {
         return Detector(extractor: extractor)
     }
 
-    /// Import a document by file extension. PDF with no usable text layer falls
-    /// back to Vision OCR. Unknown extensions are treated as plain text so the
-    /// text importer's own unreadable error surfaces for genuinely bad inputs.
+    /// Import a document by file extension. A PDF with no usable text layer at
+    /// all falls back to whole-document Vision OCR; a hybrid PDF keeps its
+    /// text layer and splices page-scoped OCR text into the scanned pages, so
+    /// a scanned exhibit inside a digital contract still reaches detection.
+    /// Unknown extensions are treated as plain text so the text importer's own
+    /// unreadable error surfaces for genuinely bad inputs.
     private static func importDocument(
         _ url: URL,
         extension ext: String
@@ -373,9 +421,24 @@ public enum LDAService {
         case "docx":
             return try DocxImporter().importDocument(url)
         case "pdf":
-            let imported = try PdfImporter().importDocument(url)
-            guard imported.isScanned else { return imported }
-            return try PdfOCRImporter().importDocument(url)
+            var imported = try PdfImporter().importDocument(url)
+            if imported.isScanned {
+                return try PdfOCRImporter().importDocument(url)
+            }
+            guard !imported.scannedPageIndexes.isEmpty else { return imported }
+
+            // Hybrid: re-read the per-page layers and replace the empty slots
+            // with OCR text, preserving page order and the page separator.
+            var layers = try PdfImporter.pageTextLayers(in: url)
+            let ocrTexts = try PdfOCRImporter.pageTexts(
+                in: url,
+                pages: imported.scannedPageIndexes
+            )
+            for (pageIndex, ocrText) in ocrTexts {
+                layers.texts[pageIndex] = ocrText
+            }
+            imported.text = layers.texts.joined(separator: "\n\n")
+            return imported
         default:
             return try TextDocumentIO().importDocument(url)
         }
