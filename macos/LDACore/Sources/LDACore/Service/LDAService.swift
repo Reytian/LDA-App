@@ -93,6 +93,13 @@ public enum LDAServiceError: Error, Equatable {
     /// rewrite clears the destination before reading, so honoring this would
     /// destroy the user's redacted file; it must fail fast instead.
     case outputEqualsInput
+    /// extractProfile was called but none of the provided source URLs could be
+    /// imported as readable text. At least one readable source is required.
+    case noReadableSources
+    /// applyFill detected that the target document has changed since the plan
+    /// was produced: a confirmed blank's offsets no longer match the current
+    /// text. The user must re-plan before applying.
+    case staleTarget
 }
 
 // MARK: - Facade
