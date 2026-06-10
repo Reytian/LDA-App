@@ -299,4 +299,42 @@ final class FillPlannerTests: XCTestCase {
         XCTAssertEqual(planned[12].proposedFieldID, profileField.id)
         XCTAssertEqual(planned[12].proposedValue, profileField.value)
     }
+
+    // MARK: - Empty adapted-value guard
+
+    func testModelEmptyAdaptedValueFallsBackToCanonical() {
+        // When the model returns value "" the empty-string guard must fall back
+        // to the profile field's canonical value; the model must not silently
+        // erase the blank by supplying an empty string.
+        let dateField = field(.incorporationDate, "10 June 2026")
+        let fake = FakeCompleter(["[{\"blank\": 1, \"field\": 1, \"value\": \"\"}]"])
+        let planned = FillPlanner.plan(
+            blanks: [blank("", context: "this ___ day of June")],
+            profile: profile([dateField]),
+            completer: fake
+        )
+        XCTAssertEqual(planned[0].status, .proposed)
+        XCTAssertEqual(planned[0].proposedFieldID, dateField.id)
+        XCTAssertEqual(planned[0].proposedValue, dateField.value,
+                       "empty adapted value must fall back to canonical field value")
+    }
+
+    // MARK: - Synonym table stability: bare "company" label
+
+    func testBareCompanyLabelProposesCompanyNameNotCompanyNameLocal() {
+        // "company" normalizes to "company" which is a synonym for .companyName
+        // (not .companyNameLocal). When the profile holds BOTH keys this test
+        // pins the current synonym-table intent so a future table edit cannot
+        // silently redirect the bare label to the wrong key.
+        let nameField  = field(.companyName,      "Acme Holdings Limited")
+        let localField = field(.companyNameLocal, "盈科控股有限公司")
+        let planned = FillPlanner.plan(
+            blanks: [blank("company")],
+            profile: profile([nameField, localField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed)
+        XCTAssertEqual(planned[0].proposedFieldID, nameField.id,
+                       "bare 'company' label must propose .companyName, not .companyNameLocal")
+    }
 }

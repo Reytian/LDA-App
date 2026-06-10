@@ -90,11 +90,18 @@ public enum FillPlanner {
         return result
     }
 
+    // MARK: - Normalized synonym table (cached)
+
+    /// Cached normalized lookup table built once at startup.
+    /// Using a static let ensures buildNormalizedTable() runs exactly once
+    /// regardless of how many plan() calls are made.
+    private static let normalizedTable: [String: ProfileFieldKey] = buildNormalizedTable()
+
     // MARK: - Stage 1: synonym pass
 
     private static func synonymPass(blanks: [Blank], profile: CompanyProfile) -> [Blank] {
-        // Build the normalized synonym lookup table once per call.
-        let table = buildNormalizedTable()
+        // Use the cached normalized table.
+        let table = normalizedTable
 
         return blanks.map { blank in
             // Idempotence: skip non-.unmatched blanks.
@@ -196,7 +203,14 @@ public enum FillPlanner {
                 }
 
                 let matchedField = profile.fields[fieldIndex - 1]
-                let proposedValue = row.value ?? matchedField.value
+                // Prefer the model's adapted value, but only when it is
+                // non-empty: an empty or whitespace-only adapted value means
+                // the model produced no usable text, so fall back to the
+                // canonical field value rather than silently erasing it.
+                let adapted = row.value ?? ""
+                let proposedValue = adapted.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? matchedField.value
+                    : adapted
 
                 result[globalIndex] = Blank(
                     id: result[globalIndex].id,
