@@ -96,7 +96,8 @@ final class ProfileTypesTests: XCTestCase {
         XCTAssertEqual(profile.conflictedKeys, [])
     }
 
-    func testBlankAndFillReportCodableRoundTrip() throws {
+    func testBlankCodableRoundTrip() throws {
+        // textSpan variant
         let blank = Blank(
             location: .textSpan(start: 10, end: 14),
             label: "Company Name",
@@ -109,6 +110,21 @@ final class ProfileTypesTests: XCTestCase {
         let back = try JSONDecoder().decode(Blank.self, from: data)
         XCTAssertEqual(back, blank)
 
+        // acroFormField variant
+        let blank2 = Blank(
+            location: .acroFormField(name: "CompanyName"),
+            label: "CompanyName",
+            context: "",
+            proposedFieldID: nil,
+            proposedValue: nil,
+            status: .proposed
+        )
+        let data2 = try JSONEncoder().encode(blank2)
+        let back2 = try JSONDecoder().decode(Blank.self, from: data2)
+        XCTAssertEqual(back2, blank2)
+    }
+
+    func testFillReportCodableRoundTrip() throws {
         let report = FillReport(
             outputURL: URL(fileURLWithPath: "/tmp/out.docx"),
             filledCount: 3,
@@ -117,5 +133,24 @@ final class ProfileTypesTests: XCTestCase {
         let rdata = try JSONEncoder().encode(report)
         let rback = try JSONDecoder().decode(FillReport.self, from: rdata)
         XCTAssertEqual(rback, report)
+    }
+
+    func testFillPlanCodableRoundTrip() throws {
+        let blank = Blank(
+            location: .textSpan(start: 0, end: 4),
+            label: "Party",
+            context: "[Party] agrees",
+            proposedFieldID: nil,
+            proposedValue: nil,
+            status: .proposed
+        )
+        let plan = FillPlan(
+            targetFormat: .docx,
+            blanks: [blank],
+            manualWidgetNames: ["Agree"]
+        )
+        let data = try JSONEncoder().encode(plan)
+        let back = try JSONDecoder().decode(FillPlan.self, from: data)
+        XCTAssertEqual(back, plan)
     }
 }

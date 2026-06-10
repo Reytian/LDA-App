@@ -59,6 +59,7 @@ public enum ProfileFieldKey: Hashable, Sendable {
         .shareholderShares
     ]
 
+    /// Used by init(rawKey:) for decoding only. Not used for encoding.
     private static let canonicalRaw: [String: ProfileFieldKey] = [
         "companyName": .companyName,
         "companyNameLocal": .companyNameLocal,
@@ -81,12 +82,28 @@ public enum ProfileFieldKey: Hashable, Sendable {
 
     /// The stable wire string. Canonical keys use their name; custom keys are
     /// prefixed so they can never collide with a future canonical key.
+    /// Exhaustive switch gives compile-time completeness: adding a new canonical
+    /// case without updating this switch is a build error.
     public var rawKey: String {
         switch self {
+        case .companyName: return "companyName"
+        case .companyNameLocal: return "companyNameLocal"
+        case .formerName: return "formerName"
+        case .entityKind: return "entityKind"
+        case .jurisdiction: return "jurisdiction"
+        case .companyNumber: return "companyNumber"
+        case .incorporationDate: return "incorporationDate"
+        case .registeredOffice: return "registeredOffice"
+        case .authorizedCapital: return "authorizedCapital"
+        case .issuedCapital: return "issuedCapital"
+        case .parValue: return "parValue"
+        case .shareClass: return "shareClass"
+        case .directorName: return "directorName"
+        case .shareholderName: return "shareholderName"
+        case .shareholderShares: return "shareholderShares"
+        case .companySecretary: return "companySecretary"
+        case .registeredAgent: return "registeredAgent"
         case .custom(let name): return "custom:\(name)"
-        default:
-            // Safe: every non-custom case is in canonicalRaw by construction.
-            return ProfileFieldKey.canonicalRaw.first { $0.value == self }!.key
         }
     }
 
@@ -152,6 +169,8 @@ public struct ProfileField: Identifiable, Equatable, Sendable, Codable {
     public var sourceDocument: String
     public var sourceSnippet: String
     public var snippetVerified: Bool
+    /// LLM extraction confidence in [0, 1]. The memberwise init clamps any
+    /// out-of-range value supplied by the caller.
     public var confidence: Double
     public var userEdited: Bool
 
@@ -171,7 +190,7 @@ public struct ProfileField: Identifiable, Equatable, Sendable, Codable {
         self.sourceDocument = sourceDocument
         self.sourceSnippet = sourceSnippet
         self.snippetVerified = snippetVerified
-        self.confidence = confidence
+        self.confidence = min(1, max(0, confidence))
         self.userEdited = userEdited
     }
 
@@ -193,6 +212,7 @@ public struct ProfileField: Identifiable, Equatable, Sendable, Codable {
 /// when any extraction segment was truncated, so fields may be missing.
 public struct CompanyProfile: Equatable, Sendable, Codable {
     public var label: String
+    /// Field order is significant for Equatable comparisons.
     public var fields: [ProfileField]
     public var sourceDocuments: [String]
     public var createdAtISO8601: String
@@ -310,8 +330,13 @@ public struct SkippedBlank: Equatable, Sendable, Codable {
     }
 }
 
-/// The value-free outcome of an apply run. Deliberately contains no filled
-/// values so the report sidecar leaks no PII.
+/// The value-free outcome of an apply run. Value-free means no filled values
+/// appear anywhere in this struct: filledCount is a count, skipped entries
+/// describe location and reason but never the proposed fill value. This
+/// guarantee is intentional so that the report can be displayed and printed
+/// without risk of leaking PII from the profile. LDA never persists the
+/// report to disk. outputURL is the user-chosen local output path; the user
+/// already knows it and it is recorded here only for display in the review UI.
 public struct FillReport: Equatable, Sendable, Codable {
     public var outputURL: URL
     public var filledCount: Int
