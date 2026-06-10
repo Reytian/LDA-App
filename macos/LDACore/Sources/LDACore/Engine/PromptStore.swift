@@ -47,6 +47,8 @@ public enum PromptKind: String, Codable, Sendable, CaseIterable {
     case pass1
     case pass2
     case extraction
+    case profile
+    case blankMatch
 }
 
 // MARK: - PromptSnapshot
@@ -161,6 +163,62 @@ public final class PromptStore {
     information and return strict JSON. Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS.
     """
 
+    /// Default system prompt for the profile-extraction pass. Extracts company
+    /// facts from incorporation documents and returns a raw JSON array of fact
+    /// objects. English by design (the "Fill from Profile" feature targets
+    /// English-language incorporation documents as the primary input).
+    public static let defaultProfileSystem: String = """
+    You extract company facts from incorporation documents (certificates of \
+    incorporation, articles of association, business licenses). The document may \
+    be in English or Chinese; extract facts regardless of language.
+
+    Return RAW JSON ONLY, no code fences, no commentary: an array of objects, \
+    each {"key": string, "value": string, "snippet": string, "confidence": number}.
+
+    Allowed keys: companyName, companyNameLocal, formerName, entityKind, \
+    jurisdiction, companyNumber, incorporationDate, registeredOffice, \
+    authorizedCapital, issuedCapital, parValue, shareClass, directorName, \
+    shareholderName, shareholderShares, companySecretary, registeredAgent. \
+    If you find an important fact that fits none of these, use a short lowercase \
+    key of your own.
+
+    Rules:
+    - "value" is the exact fact as written in the document. Do not translate, \
+    reformat, or abbreviate it.
+    - "snippet" is the EXACT sentence or line from the document containing the \
+    value, copied verbatim.
+    - "confidence" is between 0 and 1.
+    - One object per fact. Repeat keys for lists (several directors, several \
+    shareholders).
+    - shareholderShares values must name the shareholder, for example \
+    "Jane Roe: 9,000 ordinary shares".
+    - If the chunk contains no extractable fact, return [].
+    """
+
+    /// Default system prompt for the blank-match pass. Matches blanks in a legal
+    /// draft to fields from a company profile and returns a raw JSON array.
+    /// English by design (the "Fill from Profile" feature targets English-language
+    /// draft agreements).
+    public static let defaultBlankMatchSystem: String = """
+    You match blanks in a legal draft to fields from a company profile. You are \
+    given a numbered field catalog (key and value) and a numbered list of blanks, \
+    each with a label and the surrounding text.
+
+    Return RAW JSON ONLY, no code fences: an array of objects, each \
+    {"blank": number, "field": number or null, "value": string or null}.
+
+    Rules:
+    - "blank" is the blank's number from the list.
+    - "field" is the catalog number of the matching field, or null when no \
+    catalog field fits. Never guess: if the context calls for a fact the catalog \
+    does not contain (for example the counterparty's name), answer null.
+    - "value" is OPTIONAL: provide it only when the blank needs a reformatted \
+    form of the field value (for example the day, month, or year part of a date, \
+    or a spelled-out form the context requires). When the canonical value fits \
+    as written, leave "value" null.
+    - Answer every blank exactly once.
+    """
+
     // MARK: Validation anchors
 
     /// Substrings that mark the JSON-output contract in a body. Presence of any
@@ -198,6 +256,14 @@ public final class PromptStore {
     /// defaultExtractionSystem; edit freely. reset(.extraction) restores it.
     public var currentExtractionSystem: String
 
+    /// The current profile-extraction system prompt. Defaults to
+    /// defaultProfileSystem; edit freely. reset(.profile) restores it.
+    public var currentProfileSystem: String
+
+    /// The current blank-match system prompt. Defaults to
+    /// defaultBlankMatchSystem; edit freely. reset(.blankMatch) restores it.
+    public var currentBlankMatchSystem: String
+
     // MARK: Init
 
     /// Creates a store seeded with the ported defaults.
@@ -205,15 +271,19 @@ public final class PromptStore {
         self.currentPass1 = PromptStore.defaultPass1
         self.currentPass2 = PromptStore.defaultPass2
         self.currentExtractionSystem = PromptStore.defaultExtractionSystem
+        self.currentProfileSystem = PromptStore.defaultProfileSystem
+        self.currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
     }
 
     /// Creates a store seeded from a previously persisted snapshot. The
-    /// extraction system prompt is not carried in PromptSnapshot, so it is
-    /// seeded to its default here.
+    /// extraction, profile, and blankMatch system prompts are not carried in
+    /// PromptSnapshot, so they are seeded to their defaults here.
     public init(snapshot: PromptSnapshot) {
         self.currentPass1 = snapshot.pass1
         self.currentPass2 = snapshot.pass2
         self.currentExtractionSystem = PromptStore.defaultExtractionSystem
+        self.currentProfileSystem = PromptStore.defaultProfileSystem
+        self.currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
     }
 
     // MARK: Reset
@@ -227,6 +297,10 @@ public final class PromptStore {
             currentPass2 = PromptStore.defaultPass2
         case .extraction:
             currentExtractionSystem = PromptStore.defaultExtractionSystem
+        case .profile:
+            currentProfileSystem = PromptStore.defaultProfileSystem
+        case .blankMatch:
+            currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
         }
     }
 
@@ -235,6 +309,8 @@ public final class PromptStore {
         reset(.pass1)
         reset(.pass2)
         reset(.extraction)
+        reset(.profile)
+        reset(.blankMatch)
     }
 
     // MARK: Extraction prompt builder
@@ -250,6 +326,19 @@ public final class PromptStore {
         return "Anonymize. Return ONLY JSON with key entities "
             + "(array of {value,type}).\n\nTEXT:\n"
             + chunk
+    }
+
+    // MARK: Profile and BlankMatch prompt builders
+
+    /// Builds the profile-extraction USER turn for one document chunk.
+    public func profileUser(documentName: String, chunk: String) -> String {
+        "Document: \(documentName)\n\nText:\n\(chunk)"
+    }
+
+    /// Builds the blank-match USER turn for one draft, given a numbered field
+    /// catalog and a numbered list of blanks.
+    public func blankMatchUser(catalog: String, blanks: String) -> String {
+        "Field catalog:\n\(catalog)\n\nBlanks:\n\(blanks)"
     }
 
     // MARK: Snapshot

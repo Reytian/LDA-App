@@ -230,4 +230,81 @@ final class PromptStoreTests: XCTestCase {
         XCTAssertEqual(store.currentPass1, PromptStore.defaultPass1)
         XCTAssertEqual(store.currentPass2, PromptStore.defaultPass2)
     }
+
+    // MARK: Profile prompt
+
+    func testProfilePromptDefaultsCarryJSONContractAndKeys() {
+        let store = PromptStore()
+        XCTAssertTrue(store.currentProfileSystem.contains("JSON"))
+        for key in ["companyName", "companyNumber", "incorporationDate", "registeredOffice"] {
+            XCTAssertTrue(
+                store.currentProfileSystem.contains(key),
+                "missing \(key)"
+            )
+        }
+        let user = store.profileUser(documentName: "cert.pdf", chunk: "TEXT HERE")
+        XCTAssertTrue(user.contains("TEXT HERE"))
+        XCTAssertTrue(user.contains("cert.pdf"))
+    }
+
+    // MARK: BlankMatch prompt
+
+    func testBlankMatchPromptCarriesCatalogAndBlanks() {
+        let store = PromptStore()
+        XCTAssertTrue(store.currentBlankMatchSystem.contains("JSON"))
+        let user = store.blankMatchUser(
+            catalog: "1. companyName: Acme Holdings Limited",
+            blanks: "B1 label: \"\" context: \"this ___ day\""
+        )
+        XCTAssertTrue(user.contains("Acme Holdings Limited"))
+        XCTAssertTrue(user.contains("this ___ day"))
+    }
+
+    // MARK: Reset for new kinds
+
+    func testResetRestoresProfileAndBlankMatchDefaults() {
+        let store = PromptStore()
+        store.currentProfileSystem = "edited"
+        store.currentBlankMatchSystem = "edited"
+        store.reset(.profile)
+        store.reset(.blankMatch)
+        XCTAssertEqual(store.currentProfileSystem, PromptStore.defaultProfileSystem)
+        XCTAssertEqual(store.currentBlankMatchSystem, PromptStore.defaultBlankMatchSystem)
+    }
+
+    func testResetAllRestoresProfileAndBlankMatchDefaults() {
+        let store = PromptStore()
+        store.currentProfileSystem = "edited profile"
+        store.currentBlankMatchSystem = "edited blankMatch"
+
+        store.resetAll()
+
+        XCTAssertEqual(store.currentProfileSystem, PromptStore.defaultProfileSystem)
+        XCTAssertEqual(store.currentBlankMatchSystem, PromptStore.defaultBlankMatchSystem)
+    }
+
+    // MARK: Snapshot round-trip for new kinds
+    //
+    // Extraction is NOT stored in PromptSnapshot (the snapshot carries only pass1
+    // and pass2, and init(snapshot:) seeds extraction to its default). Profile and
+    // blankMatch follow the same pattern: they are NOT in PromptSnapshot. The tests
+    // below verify that a legacy snapshot (no profile/blankMatch fields) decodes
+    // successfully and that the store is seeded to its defaults in that case.
+
+    func testLegacySnapshotDecodesWithoutProfileOrBlankMatchFields() throws {
+        // A snapshot written before profile/blankMatch existed has only pass1/pass2.
+        let legacyJSON = """
+        {"pass1":"legacy-p1","pass2":"legacy-p2"}
+        """.data(using: .utf8)!
+
+        let snap = try JSONDecoder().decode(PromptSnapshot.self, from: legacyJSON)
+        let store = PromptStore(snapshot: snap)
+
+        // The legacy bodies are restored from the snapshot.
+        XCTAssertEqual(store.currentPass1, "legacy-p1")
+        XCTAssertEqual(store.currentPass2, "legacy-p2")
+        // The new prompts fall back to their defaults.
+        XCTAssertEqual(store.currentProfileSystem, PromptStore.defaultProfileSystem)
+        XCTAssertEqual(store.currentBlankMatchSystem, PromptStore.defaultBlankMatchSystem)
+    }
 }
