@@ -84,6 +84,12 @@ public final class FillModel: ObservableObject {
     /// AcroForm widget names that require manual input (checkboxes, radio, choice).
     @Published public var manualWidgetNames: [String] = []
 
+    /// The full text of the fill target as imported by DocxImporter. Non-nil
+    /// only for DOCX targets where the import succeeded; nil for PDF targets
+    /// and when import fails. Used by BlankDocumentPane to render the full
+    /// document text with blank spans highlighted (display-only, best-effort).
+    @Published public private(set) var targetText: String?
+
     /// Determinate progress of the extraction pass, 0...1.
     @Published public var progress: Double = 0
 
@@ -326,9 +332,13 @@ public final class FillModel: ObservableObject {
         progress = 0
         stage = .planning
         targetURL = target
+        // Clear any previously published targetText so a stale document is never
+        // displayed while a new plan is in flight.
+        targetText = nil
 
         let seam = Self.planFillForTesting
         let path = modelPath
+        let isDocx = target.pathExtension.lowercased() == "docx"
 
         do {
             let plan = try await Task.detached(priority: .userInitiated) {
@@ -349,7 +359,22 @@ public final class FillModel: ObservableObject {
             selectedBlankID = plan.blanks.first?.id
             stage = .reviewing
 
+            // Import the document text for display in BlankDocumentPane. This is a
+            // display-only, best-effort step: a failure here does not affect the
+            // fill plan already computed above. Only attempted for DOCX targets
+            // (PDF rendering is not yet supported in BlankDocumentPane V1).
+            // The seam path also attempts a real import when the file exists on
+            // disk so that seam-driven tests with fake URLs remain green (the
+            // import will simply throw and leave targetText nil).
+            if isDocx {
+                let importedText: String? = await Task.detached(priority: .userInitiated) {
+                    (try? DocxImporter().importDocument(target))?.text
+                }.value
+                targetText = importedText
+            }
+
         } catch {
+            targetText = nil
             stage = .failed(Self.describe(error))
         }
     }

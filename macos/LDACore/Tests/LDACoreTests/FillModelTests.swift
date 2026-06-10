@@ -643,6 +643,93 @@ final class FillModelTests: XCTestCase {
             "second accept must re-signal nil -> id so .onChange observers re-fire")
     }
 
+    // MARK: - targetText: real facade path publishes document text
+
+    /// planFill via the real DocxImporter (no seam) populates targetText with
+    /// the fixture document content. modelPath nil keeps the planner deterministic.
+    func testPlanFillDocxRealFacadePublishesTargetText() async throws {
+        // Build a minimal fixture DOCX on disk and run planFill without a seam
+        // so the real DocxImporter path executes.
+        let docxURL = try writeFixtureDocx("Acme Corp enters this agreement.")
+
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+
+        // Use the real planFill path (seam is nil).
+        await model.planFill(target: docxURL)
+
+        // The plan may reach .reviewing or .failed depending on whether
+        // LDAFillService finds blanks; what matters here is that targetText
+        // was populated with the fixture text (best-effort display import).
+        let text = try XCTUnwrap(model.targetText,
+            "targetText must be non-nil for a real docx target after planFill")
+        XCTAssertTrue(text.contains("Acme Corp"),
+            "targetText must contain the fixture document text; got: \(text)")
+    }
+
+    /// A seam-driven planFill with a nonexistent target URL must leave
+    /// targetText nil without failing (display import tolerates missing files).
+    func testPlanFillSeamWithNonexistentURLLeavesTargetTextNil() async throws {
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+
+        let fakePlan = FillPlan(targetFormat: .docx, blanks: [], manualWidgetNames: [])
+        FillModel.planFillForTesting = { _, _ in fakePlan }
+
+        // A URL that does not exist on disk; DocxImporter will throw, leaving
+        // targetText nil. The .docx extension triggers the import attempt.
+        let fakeURL = URL(fileURLWithPath: "/tmp/nonexistent-\(UUID().uuidString).docx")
+        await model.planFill(target: fakeURL)
+
+        XCTAssertEqual(model.stage, .reviewing, "stage must reach .reviewing via seam")
+        XCTAssertNil(model.targetText,
+            "targetText must be nil when the target file does not exist on disk")
+    }
+
+    // MARK: - Fixture builder for targetText tests
+    //
+    // Deliberately self-contained: does not share helpers with DocxFillTests.
+    // See DocxFillTests.writeFixtureDocx for the original reference pattern.
+
+    private static let fixtureContentTypesXML = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+    </Types>
+    """
+
+    private static let fixtureRelsXML = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+    </Relationships>
+    """
+
+    private func writeFixtureDocx(_ bodyText: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lda-fillmodel-\(UUID().uuidString).docx")
+        let encoded = bodyText
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body><w:p><w:r><w:t xml:space="preserve">\(encoded)</w:t></w:r></w:p></w:body>
+        </w:document>
+        """
+        let parts: [(String, Data)] = [
+            ("[Content_Types].xml", Data(Self.fixtureContentTypesXML.utf8)),
+            ("_rels/.rels", Data(Self.fixtureRelsXML.utf8)),
+            ("word/document.xml", Data(documentXML.utf8))
+        ]
+        try DocxZip.writeArchive(parts: parts, to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
     // MARK: - M1/d: importingSources -> extracting on first progress callback
 
     func testExtractProfileStageFlipsToExtractingOnFirstProgress() async throws {

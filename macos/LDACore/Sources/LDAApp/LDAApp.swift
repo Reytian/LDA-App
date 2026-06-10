@@ -5,8 +5,15 @@
 //  (AppShell + ReviewModel) and the Fill shell (FillShell + FillModel). Both
 //  child models are owned by RootShell and kept alive for the window's lifetime.
 //
-//  The "Review" menu commands remain wired to the shared ReviewModel so the
-//  keyboard review loop works in Anonymize mode.
+//  Keyboard shortcut design (mode-aware commands, option b):
+//  Cmd+J / Cmd+Shift+J are shared shortcuts for the navigation loop. A single
+//  CommandMenu("Review / Fill") entry reads the current AppModeStore.activeMode
+//  and dispatches to ReviewModel (Anonymize) or FillModel (Fill). This preserves
+//  muscle memory and matches the entity-loop parity the Fill spec requires.
+//  Cmd+Return toggles the selected item in whichever mode is active.
+//
+//  AppModeStore is created here and passed into RootShell so the toolbar picker
+//  and the command dispatchers share the same mode state.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -16,26 +23,18 @@ import LDAUI
 
 @main
 struct LDAApp: App {
-    // RootShell owns both ReviewModel and FillModel internally as @StateObject,
-    // so we only need a separate ReviewModel here for the menu commands. We use
-    // the same default model path for consistency; RootShell passes it to both
-    // of its own models.
-    //
-    // NOTE: The ReviewModel used by the menu commands is the SAME instance that
-    // RootShell creates internally because RootShell.init is called once and its
-    // @StateObject ReviewModel is the canonical instance. To keep the menu
-    // commands wired to the right model without re-architecture, we pass a
-    // shared ReviewModel into RootShell and hoist it here.
-    //
-    // For this iteration we use the simpler approach: hoist both models here
-    // and pass them into RootShell so menu commands can reference reviewModel.
+    // Both child models and the mode store are hoisted here so the CommandMenu
+    // closures can capture and dispatch to the right model at call time.
 
-    /// The single review model for the Anonymize window. Hoisted here so the
-    /// "Review" menu commands can reference it.
+    /// The single review model for the Anonymize window.
     @StateObject private var reviewModel = ReviewModel(modelPath: LDAApp.defaultModelPath())
 
-    /// The fill model for the Fill window. Hoisted here for symmetry.
+    /// The fill model for the Fill window.
     @StateObject private var fillModel = FillModel(modelPath: LDAApp.defaultModelPath())
+
+    /// The shared mode store. Owned here; passed into RootShell and read by
+    /// the CommandMenu entries to route Cmd+J / Cmd+Shift+J / Cmd+Return.
+    @StateObject private var modeStore = AppModeStore()
 
     /// The persisted custom vocabulary, shared by the window and Settings.
     @StateObject private var patternStore = CustomPatternStore()
@@ -52,7 +51,7 @@ struct LDAApp: App {
 
     var body: some Scene {
         WindowGroup("LDA") {
-            RootShell(reviewModel: reviewModel, fillModel: fillModel)
+            RootShell(reviewModel: reviewModel, fillModel: fillModel, modeStore: modeStore)
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .onAppear {
@@ -77,27 +76,55 @@ struct LDAApp: App {
                 .keyboardShortcut("r", modifiers: .command)
             }
 
-            // The keyboard review loop for the Anonymize mode.
-            CommandMenu("Review") {
-                Button("Next Entity") {
-                    reviewModel.selectNextGroup()
+            // Mode-aware navigation loop. Cmd+J / Cmd+Shift+J advance or retreat
+            // through entities (Anonymize mode) or blanks (Fill mode). Cmd+Return
+            // toggles the selected item in the active mode. The menu title and
+            // item labels update when the mode switches so the menu bar tells the
+            // truth about what the shortcut does.
+            CommandMenu(modeStore.activeMode == .anonymize ? "Review" : "Fill") {
+                Button(modeStore.activeMode == .anonymize ? "Next Entity" : "Next Blank") {
+                    if modeStore.activeMode == .anonymize {
+                        reviewModel.selectNextGroup()
+                    } else {
+                        fillModel.selectNextBlank()
+                    }
                 }
                 .keyboardShortcut("j", modifiers: .command)
-                .disabled(reviewModel.entities.isEmpty)
+                .disabled(
+                    modeStore.activeMode == .anonymize
+                        ? reviewModel.entities.isEmpty
+                        : fillModel.blanks.isEmpty
+                )
 
-                Button("Previous Entity") {
-                    reviewModel.selectPreviousGroup()
+                Button(modeStore.activeMode == .anonymize ? "Previous Entity" : "Previous Blank") {
+                    if modeStore.activeMode == .anonymize {
+                        reviewModel.selectPreviousGroup()
+                    } else {
+                        fillModel.selectPreviousBlank()
+                    }
                 }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(reviewModel.entities.isEmpty)
+                .disabled(
+                    modeStore.activeMode == .anonymize
+                        ? reviewModel.entities.isEmpty
+                        : fillModel.blanks.isEmpty
+                )
 
                 Divider()
 
-                Button("Toggle Redaction") {
-                    reviewModel.toggleSelectedGroup()
+                Button(modeStore.activeMode == .anonymize ? "Toggle Redaction" : "Accept Blank") {
+                    if modeStore.activeMode == .anonymize {
+                        reviewModel.toggleSelectedGroup()
+                    } else if let id = fillModel.selectedBlankID {
+                        fillModel.acceptBlank(id: id)
+                    }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(reviewModel.selectedGroupID == nil)
+                .disabled(
+                    modeStore.activeMode == .anonymize
+                        ? reviewModel.selectedGroupID == nil
+                        : fillModel.selectedBlankID == nil
+                )
             }
         }
 

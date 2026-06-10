@@ -428,8 +428,13 @@ struct FillReviewBody: View {
 
 /// The blank review list. Each row shows the blank label (or context preview),
 /// the proposed value, and a status icon. The selected blank is emphasized.
-/// Keyboard bindings mirror the entity review loop in EntitySidebar / AppShell
-/// (Cmd+J next, Cmd+Shift+J previous, Space/Return toggle accept, Delete reject).
+///
+/// Keyboard navigation (mode-aware commands, option b):
+/// Cmd+J / Cmd+Shift+J advance or retreat through blanks. These shortcuts are
+/// shared with the Anonymize review loop; LDAApp dispatches them to FillModel
+/// when Fill mode is active. Space and Return accept the selected blank; Delete
+/// rejects it. These local .onKeyPress bindings fire only when the sidebar list
+/// has focus and do not conflict with the global CommandMenu shortcuts.
 struct BlankSidebar: View {
     @ObservedObject var model: FillModel
     @Binding var pickerOpenForBlankID: UUID?
@@ -744,29 +749,58 @@ struct FieldPickerPopover: View {
 
 // MARK: - BlankDocumentPane
 
-/// The document detail view for the fill review stage. For DOCX targets: shows
-/// the imported target text with blank spans highlighted (inkAccent tint) and
-/// the selected blank emphasized (stronger fill). For PDF targets (V1): shows a
-/// placeholder instructing the user to review blanks in the sidebar.
+/// The document detail view for the fill review stage.
+///
+/// DOCX path: when FillModel.targetText is non-nil, renders the full imported
+/// document text as a serif column (matching DocumentPane's visual styling)
+/// with every blank's textSpan highlighted by status tint and the selected
+/// blank emphasized with a stronger fill. UTF-16 offsets from BlankLocation
+/// are converted to String indices via the same pattern used in DocumentPane.
+/// Falls back to a context-list view when targetText is nil (import failed or
+/// not yet available).
+///
+/// PDF path: shows a placeholder instructing the user to work in the sidebar
+/// (full PDF rendering is a future feature).
+///
+/// Tint constants mirror DocumentPane.Style:
+///   proposed / unmatched blanks: inkAccent at 0.10 opacity (candidate tint)
+///   confirmed blanks: inkAccent at 0.20 opacity (sealed fill)
+///   rejected blanks: no highlight
+///   SELECTED blank: inkAccent at 0.30 opacity (emphasis over the status tint)
 struct BlankDocumentPane: View {
     @ObservedObject var model: FillModel
+
+    // MARK: Cached attributed string
+
+    /// The styled full-text AttributedString, recomputed when the target text,
+    /// the blank list, or the selection changes.
+    @State private var styledFull = AttributedString("")
+
+    // MARK: Body
 
     var body: some View {
         Group {
             if let url = model.targetURL, url.pathExtension.lowercased() == "pdf" {
                 pdfV1Placeholder
+            } else if model.targetText != nil {
+                fullTextDocxView
             } else {
-                docxView
+                fallbackContextList
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Rebuild the styled string whenever text, blanks, or selection change.
+        .onChange(of: model.targetText) { _, _ in rebuildStyledFull() }
+        .onChange(of: model.blanks) { _, _ in rebuildStyledFull() }
+        .onChange(of: model.selectedBlankID) { _, _ in rebuildStyledFull() }
+        .onAppear { rebuildStyledFull() }
     }
 
-    // MARK: - DOCX view
+    // MARK: - Full-text DOCX view
 
-    private var docxView: some View {
+    private var fullTextDocxView: some View {
         ScrollView(.vertical) {
-            Text(styledDocument)
+            Text(styledFull)
                 .font(.system(.body, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
                 .textSelection(.enabled)
@@ -780,16 +814,80 @@ struct BlankDocumentPane: View {
         .background(CounselTheme.paper)
     }
 
-    /// Build an AttributedString from the target text with blank spans
-    /// highlighted. The selected blank gets a stronger accent fill.
-    private var styledDocument: AttributedString {
+    /// Build the AttributedString from targetText with blank textSpan
+    /// highlights applied back-to-front (so UTF-16 index math stays valid).
+    /// Only .textSpan locations are rendered; .acroFormField blanks have no
+    /// text position and are skipped in this view.
+    private func rebuildStyledFull() {
+        guard let text = model.targetText else {
+            styledFull = AttributedString("")
+            return
+        }
+
+        var attributed = AttributedString(text)
+        let utf16 = text.utf16
+        let total = utf16.count
+
+        // Collect textSpan blanks, apply back-to-front to preserve offset validity.
+        let textSpanBlanks = model.blanks.compactMap { blank -> (Blank, Int, Int)? in
+            guard case .textSpan(let start, let end) = blank.location else { return nil }
+            return (blank, start, end)
+        }.sorted { $0.1 > $1.1 }  // descending by start offset
+
+        for (blank, start, end) in textSpanBlanks {
+            guard start >= 0, end <= total, start < end else { continue }
+            guard
+                let startIdx = utf16.index(utf16.startIndex, offsetBy: start, limitedBy: utf16.endIndex),
+                let endIdx   = utf16.index(utf16.startIndex, offsetBy: end,   limitedBy: utf16.endIndex),
+                let lower = startIdx.samePosition(in: text),
+                let upper = endIdx.samePosition(in: text),
+                let range = Range<AttributedString.Index>(lower..<upper, in: attributed)
+            else { continue }
+
+            let isSelected = blank.id == model.selectedBlankID
+            let bg: Color
+            switch blank.status {
+            case .confirmed:
+                bg = CounselTheme.inkAccent.opacity(isSelected ? 0.35 : 0.20)
+            case .proposed, .unmatched:
+                bg = CounselTheme.inkAccent.opacity(isSelected ? 0.30 : 0.10)
+            case .rejected:
+                // No highlight for rejected blanks; keep the selection emphasis
+                // to indicate which blank is focused even when rejected.
+                bg = isSelected ? CounselTheme.inkAccent.opacity(0.12) : .clear
+            }
+            attributed[range].backgroundColor = bg
+        }
+
+        styledFull = attributed
+    }
+
+    // MARK: - Fallback context-list (targetText nil)
+
+    /// Shown when targetText is nil: PDF targets, import failures, or during
+    /// the brief window between planFill completing and the display import
+    /// finishing. Renders each blank's context snippet so the user can still
+    /// orient themselves in the document without the full text.
+    private var fallbackContextList: some View {
+        ScrollView(.vertical) {
+            Text(contextListAttributed)
+                .font(.system(.body, design: .serif))
+                .foregroundStyle(CounselTheme.textPrimary)
+                .textSelection(.enabled)
+                .lineSpacing(6)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: 680, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 48)
+                .padding(.vertical, 56)
+        }
+        .background(CounselTheme.paper)
+    }
+
+    private var contextListAttributed: AttributedString {
         guard let url = model.targetURL else {
             return AttributedString("No target document loaded.")
         }
-        // We do not have access to the raw target text through FillModel,
-        // so we build a representative view from the blank contexts.
-        // When FillModel exposes targetText in a future iteration this can
-        // render the full document. For now show a structured summary.
         let blanksDesc = model.blanks.isEmpty
             ? "No blanks detected in this document."
             : model.blanks.map { blank in
@@ -797,7 +895,6 @@ struct BlankDocumentPane: View {
                 return "\(label): \(blank.context)"
             }.joined(separator: "\n\n")
         var base = AttributedString("\(url.lastPathComponent)\n\n\(blanksDesc)")
-        // Highlight the selected blank's context in the text if found.
         if let selected = model.blanks.first(where: { $0.id == model.selectedBlankID }) {
             if let range = base.range(of: selected.context) {
                 base[range].backgroundColor = CounselTheme.inkAccent.opacity(0.18)
