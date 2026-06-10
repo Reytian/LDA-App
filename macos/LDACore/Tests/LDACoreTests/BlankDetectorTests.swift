@@ -36,6 +36,11 @@ final class BlankDetectorTests: XCTestCase {
         let blanks = BlankDetector.detect(in: "this ___ day of ____, 20__")
         XCTAssertEqual(blanks.count, 3)
         XCTAssertEqual(blanks.map(\.label), ["", "", ""])
+        // Pin the first blank's raw offsets: the surface text must be "___".
+        guard case .textSpan(let start, let end) = blanks[0].location else {
+            return XCTFail("expected textSpan for first blank")
+        }
+        XCTAssertEqual(("this ___ day of ____, 20__" as NSString).substring(with: NSRange(location: start, length: end - start)), "___")
     }
 
     func testSingleUnderscoreIgnored() {
@@ -91,5 +96,26 @@ final class BlankDetectorTests: XCTestCase {
             if case .textSpan(let start, _) = $0.location { return start } else { return nil }
         }
         XCTAssertEqual(starts, starts.sorted())
+    }
+
+    /// Regression guard: 1000 bare underscore blanks plus 50 bracketed labels
+    /// (to exercise the suppression path) must resolve in under 1 second.
+    /// Without the two-phase O(n log n) algorithm this was ~30 s on 33k candidates.
+    func testDenseBlankDocumentCompletesQuickly() {
+        // Build a string with 50 delimited labels followed by 1000 bare blanks.
+        let delimitedPart = (0 ..< 50).map { "[Label\($0)] " }.joined()
+        let barePart = (0 ..< 1000).map { _ in "__ " }.joined()
+        let text = delimitedPart + barePart
+
+        let start = DispatchTime.now()
+        let blanks = BlankDetector.detect(in: text)
+        let end = DispatchTime.now()
+
+        // 50 delimited + 1000 bare (none of the bare fall inside a delimited span).
+        XCTAssertEqual(blanks.count, 1050)
+
+        let elapsedNs = end.uptimeNanoseconds - start.uptimeNanoseconds
+        let elapsedSeconds = Double(elapsedNs) / 1_000_000_000
+        XCTAssertLessThan(elapsedSeconds, 1.0, "detect() took \(elapsedSeconds)s; expected < 1s")
     }
 }
