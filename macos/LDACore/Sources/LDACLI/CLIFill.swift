@@ -255,16 +255,9 @@ extension LDACLI {
             guard blank.status == .proposed,
                   let v = blank.proposedValue,
                   !v.isEmpty else { return blank }
-            return Blank(
-                id: blank.id,
-                location: blank.location,
-                label: blank.label,
-                context: blank.context,
-                proposedFieldID: blank.proposedFieldID,
-                proposedValue: blank.proposedValue,
-                status: .confirmed,
-                candidateFieldIDs: blank.candidateFieldIDs
-            )
+            var promoted = blank
+            promoted.status = .confirmed
+            return promoted
         }
         return try LDAService.applyFill(
             plan: plan,

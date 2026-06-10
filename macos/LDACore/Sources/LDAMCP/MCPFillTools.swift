@@ -110,12 +110,7 @@ extension MCPServer {
             profileBaseName: profileURL.deletingPathExtension().lastPathComponent
         )
 
-        let profile: CompanyProfile
-        do {
-            profile = try ProfileStore.load(from: profileURL, protection: protection)
-        } catch {
-            throw error
-        }
+        let profile = try ProfileStore.load(from: profileURL, protection: protection)
 
         let modelPath = (arguments["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 
@@ -180,16 +175,9 @@ extension MCPServer {
             guard blank.status == .proposed,
                   let v = blank.proposedValue,
                   !v.isEmpty else { return blank }
-            return Blank(
-                id: blank.id,
-                location: blank.location,
-                label: blank.label,
-                context: blank.context,
-                proposedFieldID: blank.proposedFieldID,
-                proposedValue: blank.proposedValue,
-                status: .confirmed,
-                candidateFieldIDs: blank.candidateFieldIDs
-            )
+            var promoted = blank
+            promoted.status = .confirmed
+            return promoted
         }
 
         let report = try LDAService.applyFill(
