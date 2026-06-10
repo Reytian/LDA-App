@@ -137,8 +137,10 @@ final class ProfileExtractorTests: XCTestCase {
     }
 
     func testDedupeKeepsHigherConfidence() throws {
-        // Same key, same normalized value: the second row has higher confidence.
-        // The kept entry should carry the second row's confidence and provenance.
+        // Same key, same normalized value: the second row has higher confidence
+        // AND snippetVerified. The kept entry should carry the second row's
+        // confidence, provenance, and snippetVerified; but the id must equal the
+        // FIRST field's id so downstream references stay stable (M1, M2).
         let text1 = "Acme Holdings Limited"
         let text2 = "ACME HOLDINGS  LIMITED"
         let fake = FakeCompleter([
@@ -153,6 +155,129 @@ final class ProfileExtractorTests: XCTestCase {
         XCTAssertEqual(kept.count, 1)
         XCTAssertGreaterThan(kept[0].confidence, 0.9)
         XCTAssertEqual(kept[0].sourceDocument, "articles.pdf")
+    }
+
+    func testMergeFieldStableIdAndVerifiedFirstTieBreak() throws {
+        // Direct test of mergeField's two behavioral contracts using known UUIDs.
+        // mergeField is internal so @testable import exposes it.
+        let extractor = ProfileExtractor(completer: FakeCompleter([]))
+
+        let firstId  = UUID()
+        let secondId = UUID()
+
+        // Build two fields with the same key and same normalizedValue.
+        let lowerConf = ProfileField(
+            id: firstId,
+            key: .companyName,
+            value: "Acme Holdings Limited",
+            sourceDocument: "cert.pdf",
+            sourceSnippet: "Acme Holdings Limited",
+            snippetVerified: true,
+            confidence: 0.7,
+            userEdited: false
+        )
+        let higherConf = ProfileField(
+            id: secondId,
+            key: .companyName,
+            value: "acme holdings limited",  // same after normalizing
+            sourceDocument: "articles.pdf",
+            sourceSnippet: "acme holdings limited",
+            snippetVerified: true,
+            confidence: 0.9,
+            userEdited: false
+        )
+
+        // M1: higher-confidence winner must keep the first-seen (lowerConf) id.
+        var fields: [ProfileField] = [lowerConf]
+        extractor.mergeField(higherConf, into: &fields)
+        XCTAssertEqual(fields.count, 1)
+        XCTAssertEqual(fields[0].id, firstId,
+            "winner must adopt the first-seen field's id so Blank.proposedFieldID does not dangle")
+        XCTAssertEqual(fields[0].sourceDocument, "articles.pdf",
+            "winner's provenance replaces the kept entry's provenance")
+        XCTAssertEqual(fields[0].confidence, 0.9, accuracy: 0.001)
+
+        // M2: verified beats unverified even at lower raw confidence.
+        let unverifiedHigh = ProfileField(
+            id: UUID(),
+            key: .jurisdiction,
+            value: "British Virgin Islands",
+            sourceDocument: "cert.pdf",
+            sourceSnippet: "not in any source",
+            snippetVerified: false,
+            confidence: 0.4,   // capped but still higher than verifiedLow
+            userEdited: false
+        )
+        let verifiedLow = ProfileField(
+            id: UUID(),
+            key: .jurisdiction,
+            value: "British Virgin Islands",
+            sourceDocument: "articles.pdf",
+            sourceSnippet: "incorporated in the British Virgin Islands",
+            snippetVerified: true,
+            confidence: 0.35,
+            userEdited: false
+        )
+        var jFields: [ProfileField] = [unverifiedHigh]
+        extractor.mergeField(verifiedLow, into: &jFields)
+        XCTAssertEqual(jFields.count, 1)
+        XCTAssertTrue(jFields[0].snippetVerified,
+            "verified row at 0.35 must beat unverified row at 0.4")
+        XCTAssertEqual(jFields[0].sourceDocument, "articles.pdf")
+    }
+
+    func testDedupeVerifiedBeatsUnverified() throws {
+        // Verified 0.35 must win over unverified 0.4 (M2: verified-first tie-break).
+        // Row 1: unverified (snippet not in text), confidence 0.4 (will be capped to 0.4).
+        // Row 2: verified (snippet found case-insensitively), raw confidence 0.35.
+        let text1 = "irrelevant text for first doc"
+        let text2 = "Acme Holdings Limited is the registered name."
+        let fake = FakeCompleter([
+            "[\(row("companyName", "Acme Holdings Limited", snippet: "not in any document", confidence: 0.4))]",
+            "[\(row("companyName", "Acme Holdings Limited", snippet: "Acme Holdings Limited is the registered name", confidence: 0.35))]"
+        ])
+        let result = try ProfileExtractor(completer: fake).extract(sources: [
+            ("cert.pdf", text1),
+            ("articles.pdf", text2)
+        ])
+        let kept = result.fields.filter { $0.key == .companyName }
+        XCTAssertEqual(kept.count, 1, "same normalized value should collapse to one entry")
+        XCTAssertTrue(kept[0].snippetVerified, "verified row must win even at lower raw confidence")
+        XCTAssertEqual(kept[0].sourceDocument, "articles.pdf",
+            "winner's provenance should come from the verified row")
+    }
+
+    func testSplitSalvagesGoodHalf() throws {
+        // One-chunk document. FakeCompleter queue: first attempt garbage, retry
+        // garbage, then both split halves attempted. Third response is valid JSON
+        // whose snippet appears in the original source; fourth is garbage.
+        // The valid half should survive with snippetVerified true; the bad half
+        // should increment incompleteSegmentCount to exactly 1.
+        let docText = "Acme Holdings Limited is incorporated in the British Virgin Islands."
+        let validJSON = "[\(row("companyName", "Acme Holdings Limited", snippet: "Acme Holdings Limited is incorporated", confidence: 0.9))]"
+        let fake = FakeCompleter(["garbage", "garbage", validJSON, "garbage"])
+        let result = try ProfileExtractor(completer: fake).extract(sources: [("cert.pdf", docText)])
+        XCTAssertEqual(result.incompleteSegmentCount, 1,
+            "one split half failed so incompleteSegmentCount must be 1")
+        let companyFields = result.fields.filter { $0.key == .companyName }
+        XCTAssertEqual(companyFields.count, 1, "salvaged half should yield one companyName field")
+        XCTAssertTrue(companyFields[0].snippetVerified,
+            "snippet from the good half must be located in the whole source text")
+    }
+
+    func testGroundingIsCaseInsensitive() throws {
+        // Source has mixed case; snippet is all-caps. snippetVerified must be
+        // true and confidence must NOT be capped.
+        let text = "Acme Holdings Limited is the company name."
+        let fake = FakeCompleter([
+            "[\(row("companyName", "Acme Holdings Limited", snippet: "ACME HOLDINGS LIMITED", confidence: 0.88))]"
+        ])
+        let result = try ProfileExtractor(completer: fake).extract(sources: [("cert.pdf", text)])
+        XCTAssertEqual(result.fields.count, 1)
+        XCTAssertTrue(result.fields[0].snippetVerified,
+            "case-insensitive match must verify the snippet")
+        XCTAssertGreaterThan(result.fields[0].confidence, ProfileExtractor.ungroundedConfidenceCap,
+            "verified snippet must not have confidence capped")
     }
 
     func testProgressCallback() throws {

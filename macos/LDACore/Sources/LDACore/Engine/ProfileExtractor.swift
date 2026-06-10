@@ -46,6 +46,14 @@ public struct ProfileExtractionResult: Sendable {
     public let fields: [ProfileField]
     /// How many segments were still unparseable after retry and splitting.
     public let incompleteSegmentCount: Int
+
+    /// Memberwise initializer. Mirrors ExtractionResult so LDAUI (and test
+    /// fakes/previews) can construct values directly without going through the
+    /// full extraction pipeline.
+    public init(fields: [ProfileField], incompleteSegmentCount: Int) {
+        self.fields = fields
+        self.incompleteSegmentCount = incompleteSegmentCount
+    }
 }
 
 // MARK: - ProfileExtractor
@@ -253,20 +261,50 @@ public final class ProfileExtractor {
     /// Merge a new ProfileField into the accumulator using first-seen order.
     ///
     /// Rule: when an existing field has the same key AND the same normalizedValue
-    /// as the new field, collapse to one entry, keeping whichever has higher
-    /// confidence (replacing the stored entry if the new one wins). Otherwise
-    /// append (different value for the same key is a legitimate conflict and both
-    /// are kept).
-    private func mergeField(_ newField: ProfileField, into fields: inout [ProfileField]) {
+    /// as the new field, collapse to one entry. The winner is selected by:
+    ///   1. Prefer snippetVerified == true over unverified. A verified row at 0.35
+    ///      beats an unverified row capped at 0.4 because the snippet grounds the
+    ///      claim in the source text, which is stronger provenance than a bare
+    ///      confidence number. This is a deliberate, documented deviation from the
+    ///      plan's bare "higher confidence" rule.
+    ///   2. If both have the same verified status, prefer higher confidence.
+    ///
+    /// When replacing: the WINNER adopts the LOSER's id so that any downstream
+    /// reference held by incremental-merge callers (e.g. Blank.proposedFieldID)
+    /// continues to resolve to the same field and does not dangle.
+    ///
+    /// Otherwise append (different value for the same key is a legitimate conflict
+    /// and both are kept).
+    /// Exposed as internal for direct unit testing of stable-id and verified-first
+    /// tie-break behavior without requiring a full LLM pipeline.
+    func mergeField(_ newField: ProfileField, into fields: inout [ProfileField]) {
         for index in fields.indices {
             let existing = fields[index]
             guard existing.key == newField.key,
                   existing.normalizedValue == newField.normalizedValue else {
                 continue
             }
-            // Same key and same normalized value: keep the higher-confidence one.
-            if newField.confidence > existing.confidence {
-                fields[index] = newField
+            // Same key and same normalized value: pick the better-provenance row.
+            // verified > unverified; within the same verified status, higher confidence wins.
+            let newWins: Bool
+            if newField.snippetVerified != existing.snippetVerified {
+                newWins = newField.snippetVerified
+            } else {
+                newWins = newField.confidence > existing.confidence
+            }
+            if newWins {
+                // Adopt the existing field's id so no external reference dangles.
+                let replacement = ProfileField(
+                    id: existing.id,
+                    key: newField.key,
+                    value: newField.value,
+                    sourceDocument: newField.sourceDocument,
+                    sourceSnippet: newField.sourceSnippet,
+                    snippetVerified: newField.snippetVerified,
+                    confidence: newField.confidence,
+                    userEdited: newField.userEdited
+                )
+                fields[index] = replacement
             }
             return
         }
@@ -277,22 +315,30 @@ public final class ProfileExtractor {
     // MARK: - UTF-16 midpoint split
 
     /// Split a string into two halves at its UTF-16 midpoint, clamping the cut
-    /// to a grapheme cluster boundary. Returns the original as a one-element
-    /// array when it is too short to split.
+    /// AT OR BEFORE the midpoint to a grapheme cluster boundary. Uses the same
+    /// NSString.rangeOfComposedCharacterSequence(at:).location idiom as Chunker
+    /// to avoid the last-character fallback, which degenerates the first half
+    /// to nearly the whole input when the midpoint lands in the middle of a
+    /// multi-unit sequence. Returns the original as a one-element array when
+    /// the string is one UTF-16 unit long or is a single grapheme cluster.
     private func splitAtUTF16Midpoint(_ text: String) -> [String] {
-        let utf16 = text.utf16
-        guard utf16.count > 1 else { return [text] }
+        let ns = text as NSString
+        let total = ns.length
+        guard total > 1 else { return [text] }
 
-        let midUTF16 = utf16.count / 2
-        let midIndex = utf16.index(utf16.startIndex, offsetBy: midUTF16)
+        let midUTF16 = total / 2
 
-        // Advance to the nearest valid String.Index (grapheme boundary).
-        guard let validIndex = midIndex.samePosition(in: text) ?? text.index(before: text.endIndex).samePosition(in: text) else {
-            return [text]
-        }
+        // Clamp to the grapheme boundary AT OR BEFORE the midpoint: the
+        // composed-sequence range that contains midUTF16 always starts at or
+        // before midUTF16, so .location is the correct cut.
+        let cutUTF16 = ns.rangeOfComposedCharacterSequence(at: midUTF16).location
 
-        let first = String(text[text.startIndex..<validIndex])
-        let second = String(text[validIndex...])
+        // If the clamp pushed the cut all the way to the start the string is a
+        // single grapheme cluster that cannot be split further.
+        guard cutUTF16 > 0 && cutUTF16 < total else { return [text] }
+
+        let first  = ns.substring(with: NSRange(location: 0,        length: cutUTF16))
+        let second = ns.substring(with: NSRange(location: cutUTF16, length: total - cutUTF16))
 
         if first.isEmpty || second.isEmpty { return [text] }
         return [first, second]
