@@ -20,8 +20,30 @@ final class EncryptedContainerTests: XCTestCase {
         containerDescription: "Test container"
     )
 
+    // MARK: - Hermetic working directory
+
+    private var workDir: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EncryptedContainerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: workDir,
+            withIntermediateDirectories: true
+        )
+    }
+
+    override func tearDownWithError() throws {
+        if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
+            try? FileManager.default.removeItem(at: workDir)
+        }
+        workDir = nil
+        try super.tearDownWithError()
+    }
+
     private func tempURL(_ ext: String) -> URL {
-        FileManager.default.temporaryDirectory
+        workDir
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(ext)
     }
@@ -37,7 +59,14 @@ final class EncryptedContainerTests: XCTestCase {
     func testWrongPassphraseFails() throws {
         let url = tempURL("bin")
         try container.save(Data("x".utf8), to: url, protection: .passphrase("right one"))
-        XCTAssertThrowsError(try container.load(from: url, protection: .passphrase("wrong one")))
+        XCTAssertThrowsError(
+            try container.load(from: url, protection: .passphrase("wrong one"))
+        ) { error in
+            guard case DocumentIOError.decryptionFailed = error else {
+                XCTFail("Expected decryptionFailed for wrong passphrase, got \(error)")
+                return
+            }
+        }
     }
 
     func testTamperedContainerFails() throws {
@@ -46,7 +75,14 @@ final class EncryptedContainerTests: XCTestCase {
         var bytes = try Data(contentsOf: url)
         bytes[bytes.count - 1] ^= 0xFF
         try bytes.write(to: url)
-        XCTAssertThrowsError(try container.load(from: url, protection: .passphrase("p p p p")))
+        XCTAssertThrowsError(
+            try container.load(from: url, protection: .passphrase("p p p p"))
+        ) { error in
+            guard case DocumentIOError.decryptionFailed = error else {
+                XCTFail("Expected decryptionFailed for tampered container, got \(error)")
+                return
+            }
+        }
     }
 
     func testWrongMagicRejected() throws {
@@ -57,7 +93,14 @@ final class EncryptedContainerTests: XCTestCase {
             keychainService: "ai.openclaw.lda.testkey",
             containerDescription: "Other container"
         )
-        XCTAssertThrowsError(try other.load(from: url, protection: .passphrase("p p p p")))
+        XCTAssertThrowsError(
+            try other.load(from: url, protection: .passphrase("p p p p"))
+        ) { error in
+            guard case DocumentIOError.corrupt = error else {
+                XCTFail("Expected corrupt for wrong magic, got \(error)")
+                return
+            }
+        }
     }
 
     /// The refactor must not change MappingStore's on-disk format. A container

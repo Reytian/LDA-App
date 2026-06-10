@@ -53,6 +53,11 @@ public struct EncryptedContainer {
     // MARK: Container constants
 
     /// Container format version. Bump only on an incompatible layout change.
+    ///
+    /// This versions the SHARED container layout (magic, version, tag, salt length, salt,
+    /// sealed box), not any individual store's payload schema. A payload schema change
+    /// (e.g., adding a field to MappingEntry) must NOT bump this constant; bump the
+    /// store's own schema version instead.
     public static let containerVersion: UInt8 = 1
 
     /// Protection tag written into the container so load knows how the key was
@@ -74,6 +79,7 @@ public struct EncryptedContainer {
     // MARK: Initializer
 
     public init(magic: [UInt8], keychainService: String, containerDescription: String) {
+        precondition(!magic.isEmpty, "magic must be non-empty")
         self.magic = magic
         self.keychainService = keychainService
         self.containerDescription = containerDescription
@@ -302,6 +308,19 @@ public struct EncryptedContainer {
     // The salt and the sealed box carry no plaintext payload value. The combined
     // sealed box prefixes the 12-byte nonce, then ciphertext, then the 16-byte
     // authentication tag.
+    //
+    // Security note: the header fields (magic, version, tag, salt length, salt) are NOT
+    // bound into GCM authentication; no AAD is supplied to AES.GCM.seal. The header is
+    // therefore malleable by an attacker with write access to the file. This is an
+    // accepted tradeoff: every confusion path that could result from header manipulation
+    // (wrong magic, unknown version, bad tag, mismatched tag vs. caller protection mode,
+    // truncated salt) still fails closed with a DocumentIOError before any key is used,
+    // and a modified ciphertext or authentication tag causes AES-GCM to throw
+    // decryptionFailed. No plaintext is ever returned from a tampered container.
+    //
+    // RULE: each store kind MUST use a distinct magic byte sequence AND a distinct
+    // keychainService string. Sharing either across store kinds would allow a container
+    // of one kind to be silently opened as another kind, defeating store-level isolation.
 
     private func makeContainer(
         tag: ProtectionTag,
