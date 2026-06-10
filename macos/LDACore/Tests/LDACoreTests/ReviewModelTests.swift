@@ -534,4 +534,123 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertEqual(result.embeddedMediaCount, 1)
     }
 
+    // MARK: - Keyboard review loop (groups, selection, toggling)
+
+    /// Build a model whose entities cover two types with a repeated value, set
+    /// directly so the tests need no detection pass.
+    private func makeGroupedModel() -> ReviewModel {
+        let model = ReviewModel(modelPath: nil)
+        let text = "Acme Corp and John Smith met Acme Corp at jane@x.example."
+        model.documentText = text
+        func span(_ surface: String, _ type: EntityType, occurrence: Int = 0) -> Span {
+            let ns = text as NSString
+            var search = NSRange(location: 0, length: ns.length)
+            var found = NSRange(location: NSNotFound, length: 0)
+            for _ in 0...occurrence {
+                found = ns.range(of: surface, options: [], range: search)
+                precondition(found.location != NSNotFound)
+                search = NSRange(
+                    location: found.location + found.length,
+                    length: ns.length - found.location - found.length
+                )
+            }
+            return Span(
+                start: found.location, end: found.location + found.length,
+                type: type, text: surface, source: .llm, confidence: 0.9, priority: 30
+            )
+        }
+        model.entities = [
+            ReviewEntity(span: span("Acme Corp", .company, occurrence: 0), accepted: true),
+            ReviewEntity(span: span("Acme Corp", .company, occurrence: 1), accepted: true),
+            ReviewEntity(span: span("John Smith", .person), accepted: true),
+            ReviewEntity(span: span("jane@x.example", .email), accepted: true)
+        ]
+        return model
+    }
+
+    func testGroupsFollowTypeOrderThenFirstAppearance() {
+        let model = makeGroupedModel()
+        let groups = model.entityGroups
+
+        // PERSON before COMPANY before EMAIL per the sidebar's type order, and
+        // the two Acme occurrences collapse into one group of two.
+        XCTAssertEqual(groups.map { $0.value }, ["John Smith", "Acme Corp", "jane@x.example"])
+        XCTAssertEqual(groups[1].occurrences, 2)
+    }
+
+    func testSelectNextAndPreviousGroupWrap() {
+        let model = makeGroupedModel()
+        XCTAssertNil(model.selectedGroupID)
+
+        model.selectNextGroup()
+        XCTAssertEqual(model.selectedGroupID, model.entityGroups[0].id, "first selection lands on the first group")
+        model.selectNextGroup()
+        model.selectNextGroup()
+        XCTAssertEqual(model.selectedGroupID, model.entityGroups[2].id)
+        model.selectNextGroup()
+        XCTAssertEqual(model.selectedGroupID, model.entityGroups[0].id, "next wraps to the first group")
+
+        model.selectPreviousGroup()
+        XCTAssertEqual(model.selectedGroupID, model.entityGroups[2].id, "previous wraps to the last group")
+    }
+
+    func testToggleSelectedGroupFlipsEveryOccurrence() {
+        let model = makeGroupedModel()
+        model.selectNextGroup()
+        model.selectNextGroup()  // the Acme Corp group (2 occurrences)
+        let acmeIDs = model.entityGroups[1].ids
+
+        model.toggleSelectedGroup()
+        for entity in model.entities where acmeIDs.contains(entity.id) {
+            XCTAssertFalse(entity.accepted, "toggle must reject every occurrence")
+        }
+        // Unrelated entities stay untouched.
+        XCTAssertTrue(model.entities.first { $0.span.type == .person }!.accepted)
+
+        model.toggleSelectedGroup()
+        for entity in model.entities where acmeIDs.contains(entity.id) {
+            XCTAssertTrue(entity.accepted, "toggle back must accept every occurrence")
+        }
+    }
+
+    func testToggleMixedGroupRejectsFirst() {
+        // A group with mixed accept states reads as accepted (anyAccepted), so
+        // the first toggle must move the whole group to rejected.
+        let model = makeGroupedModel()
+        let acme = model.entityGroups[1]
+        let oneID = acme.ids.first!
+        model.setAccepted(oneID, false)
+
+        model.selectedGroupID = acme.id
+        model.toggleSelectedGroup()
+        for entity in model.entities where acme.ids.contains(entity.id) {
+            XCTAssertFalse(entity.accepted)
+        }
+    }
+
+    func testSetAcceptedByTypeAppliesToAllGroupsOfThatType() {
+        let model = makeGroupedModel()
+        model.setAccepted(type: .company, false)
+
+        for entity in model.entities {
+            if entity.span.type == .company {
+                XCTAssertFalse(entity.accepted)
+            } else {
+                XCTAssertTrue(entity.accepted, "other types must stay untouched")
+            }
+        }
+    }
+
+    func testOpeningADocumentClearsGroupSelection() async throws {
+        let model = makeGroupedModel()
+        model.selectNextGroup()
+        XCTAssertNotNil(model.selectedGroupID)
+
+        let url = workDir.appendingPathComponent("clear.txt")
+        try Data("Fresh text.".utf8).write(to: url)
+        await model.open(url)
+
+        XCTAssertNil(model.selectedGroupID, "selection must not survive into a new document")
+    }
+
 }

@@ -26,24 +26,24 @@ public struct EntitySidebar: View {
     /// Opens the Settings scene reliably (does not rely on menu wiring).
     @Environment(\.openSettings) private var openSettings
 
-    /// The currently selected group row. Selection is purely a UI affordance; it
-    /// uses the ink accent and does not change accept state.
-    @State private var selection: String?
-
     public init(model: ReviewModel) {
         self.model = model
     }
 
     public var body: some View {
-        List(selection: $selection) {
-            ForEach(Self.orderedTypes, id: \.self) { type in
-                let groups = groups(of: type)
+        // Selection lives on the model so the Review menu commands (next,
+        // previous, toggle) and the list always agree. Arrow keys navigate
+        // natively once the list has focus; Space and Return flip the selected
+        // group without touching the mouse.
+        List(selection: $model.selectedGroupID) {
+            ForEach(ReviewModel.groupTypeOrder, id: \.self) { type in
+                let groups = model.groups(of: type)
                 if !groups.isEmpty {
                     Section {
                         ForEach(groups) { group in
                             EntityGroupRow(
                                 group: group,
-                                isSelected: selection == group.id,
+                                isSelected: model.selectedGroupID == group.id,
                                 onSetAccepted: { accepted in
                                     model.setAccepted(ids: group.ids, accepted)
                                 }
@@ -53,7 +53,13 @@ public struct EntitySidebar: View {
                         }
                     } header: {
                         // The header count is distinct values, not raw occurrences.
-                        SectionHeader(type: type, count: groups.count)
+                        SectionHeader(
+                            type: type,
+                            count: groups.count,
+                            onSetAllAccepted: { accepted in
+                                model.setAccepted(type: type, accepted)
+                            }
+                        )
                     }
                 }
             }
@@ -62,6 +68,16 @@ public struct EntitySidebar: View {
         .tint(CounselTheme.inkAccent)
         .scrollContentBackground(.hidden)
         .background(CounselTheme.appSurface)
+        .onKeyPress(.space) {
+            guard model.selectedGroupID != nil else { return .ignored }
+            model.toggleSelectedGroup()
+            return .handled
+        }
+        .onKeyPress(.return) {
+            guard model.selectedGroupID != nil else { return .ignored }
+            model.toggleSelectedGroup()
+            return .handled
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             sidebarFooter
         }
@@ -96,78 +112,23 @@ public struct EntitySidebar: View {
     }
 
 
-    // MARK: - Grouping
-
-    /// A stable type ordering for sections so the sidebar layout never reshuffles
-    /// between detections.
-    private static let orderedTypes: [EntityType] = [
-        .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc, .amount, .date, .unknown
-    ]
-
-    /// Group the entities of a type by their value (case and whitespace
-    /// insensitive), so every occurrence of "Investors" collapses into one row
-    /// with an occurrence count and a single accept control. Group order follows
-    /// first appearance.
-    private func groups(of type: EntityType) -> [EntityGroup] {
-        var order: [String] = []
-        var byKey: [String: EntityGroup] = [:]
-
-        for entity in model.entities where entity.span.type == type {
-            let key = entity.span.text
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            if var existing = byKey[key] {
-                existing.ids.insert(entity.id)
-                existing.occurrences += 1
-                existing.anyAccepted = existing.anyAccepted || entity.accepted
-                if existing.token == nil, entity.accepted { existing.token = entity.token }
-                byKey[key] = existing
-            } else {
-                order.append(key)
-                byKey[key] = EntityGroup(
-                    id: "\(type.rawValue)|\(key)",
-                    value: entity.span.text,
-                    type: type,
-                    source: entity.span.source,
-                    ids: [entity.id],
-                    occurrences: 1,
-                    anyAccepted: entity.accepted,
-                    token: entity.accepted ? entity.token : nil
-                )
-            }
-        }
-        return order.compactMap { byKey[$0] }
-    }
+    // MARK: - Selection chrome
 
     /// The ink-tinted selection background, or clear for unselected rows.
-    private func rowBackground(for id: EntityGroup.ID) -> Color {
-        selection == id ? CounselTheme.inkAccent.opacity(0.10) : Color.clear
+    private func rowBackground(for id: ReviewGroup.ID) -> Color {
+        model.selectedGroupID == id ? CounselTheme.inkAccent.opacity(0.10) : Color.clear
     }
-}
-
-// MARK: - EntityGroup
-
-/// All occurrences of one value within a type, collapsed into a single
-/// reviewable row.
-private struct EntityGroup: Identifiable {
-    let id: String
-    let value: String
-    let type: EntityType
-    let source: DetectionSource
-    var ids: Set<ReviewEntity.ID>
-    var occurrences: Int
-    var anyAccepted: Bool
-    var token: String?
 }
 
 // MARK: - SectionHeader
 
 /// A type section header: the type name in chrome type with a monospaced-digit
-/// count so the numbers align cleanly down the sidebar.
+/// count, plus a quiet menu to redact or keep every value of the type at once
+/// (also available as a context menu on the header).
 private struct SectionHeader: View {
     let type: EntityType
     let count: Int
+    let onSetAllAccepted: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -181,8 +142,28 @@ private struct SectionHeader: View {
             Text("\(count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
+
+            Menu {
+                bulkActions
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Redact or keep every \(type.rawValue) value at once")
+            .accessibilityLabel(Text("Bulk actions for \(type.rawValue)"))
         }
         .textCase(nil)
+        .contextMenu { bulkActions }
+    }
+
+    @ViewBuilder
+    private var bulkActions: some View {
+        Button("Redact All \(type.rawValue)") { onSetAllAccepted(true) }
+        Button("Keep All \(type.rawValue) Visible") { onSetAllAccepted(false) }
     }
 }
 
@@ -193,7 +174,7 @@ private struct SectionHeader: View {
 /// toggle that applies to every occurrence. Rejected rows read dimmed; the
 /// assigned token, when present, renders as a sealed mono chip.
 private struct EntityGroupRow: View {
-    let group: EntityGroup
+    let group: ReviewGroup
     let isSelected: Bool
     let onSetAccepted: (Bool) -> Void
 
@@ -230,6 +211,10 @@ private struct EntityGroupRow: View {
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
                 .accessibilityLabel(Text("Redact \(group.type.rawValue) \(group.value)"))
+                .accessibilityHint(Text(
+                    "Toggles whether every occurrence of this value is replaced "
+                        + "in the exported document or remains visible."
+                ))
         }
         .padding(.vertical, 3)
         .opacity(accepted ? 1.0 : 0.55)

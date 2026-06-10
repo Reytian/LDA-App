@@ -57,6 +57,31 @@ struct LDAApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
             }
+
+            // The keyboard review loop: walk entity groups and flip them
+            // without touching the mouse. Selection is shared with the sidebar
+            // list, so the menu shortcuts and the list always agree.
+            CommandMenu("Review") {
+                Button("Next Entity") {
+                    model.selectNextGroup()
+                }
+                .keyboardShortcut("j", modifiers: .command)
+                .disabled(model.entities.isEmpty)
+
+                Button("Previous Entity") {
+                    model.selectPreviousGroup()
+                }
+                .keyboardShortcut("j", modifiers: [.command, .shift])
+                .disabled(model.entities.isEmpty)
+
+                Divider()
+
+                Button("Toggle Redaction") {
+                    model.toggleSelectedGroup()
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(model.selectedGroupID == nil)
+            }
         }
 
         Settings {

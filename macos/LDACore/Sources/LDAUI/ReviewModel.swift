@@ -56,6 +56,24 @@ public enum ReviewStatus: Equatable {
     case failed(String)
 }
 
+// MARK: - ReviewGroup
+
+/// All occurrences of one value within a type, collapsed into a single
+/// reviewable unit. The sidebar renders one row per group, and the keyboard
+/// review loop (next/previous/toggle) walks groups in display order.
+public struct ReviewGroup: Identifiable, Equatable {
+    public let id: String
+    public let value: String
+    public let type: EntityType
+    public let source: DetectionSource
+    public var ids: Set<ReviewEntity.ID>
+    public var occurrences: Int
+    /// True when at least one occurrence is accepted; the group's toggle state.
+    public var anyAccepted: Bool
+    /// The sealed token once assigned to an accepted occurrence, if any.
+    public var token: String?
+}
+
 // MARK: - ExportResult
 
 /// The outcome of an export: where the redacted edit surface and the encrypted
@@ -131,6 +149,11 @@ public final class ReviewModel: ObservableObject {
     /// A user-facing explanation when the AI pass was expected but failed or
     /// could not fully scan the document. nil when AI ran cleanly or was off.
     @Published public var aiWarning: String?
+
+    /// The selected group row in the sidebar. Selection is shared between the
+    /// sidebar list and the keyboard review commands (next/previous/toggle) so
+    /// the menu shortcuts and the list always agree.
+    @Published public var selectedGroupID: String?
 
     /// Bumped when the Export menu command fires, so the window can present the
     /// export flow (which owns the panels and passphrase sheet).
@@ -208,6 +231,7 @@ public final class ReviewModel: ObservableObject {
         status = .importing
         sourceURL = url
         entities = []
+        selectedGroupID = nil
         progress = 0
         etaText = nil
         aiWarning = nil
@@ -357,6 +381,98 @@ public final class ReviewModel: ObservableObject {
         for index in entities.indices where ids.contains(entities[index].id) {
             entities[index].accepted = accepted
         }
+    }
+
+    /// Set the accepted flag for EVERY entity of a type, so a section header
+    /// can dispatch a whole category ("keep all dates visible") in one action.
+    public func setAccepted(type: EntityType, _ accepted: Bool) {
+        for index in entities.indices where entities[index].span.type == type {
+            entities[index].accepted = accepted
+        }
+    }
+
+    // MARK: - Groups and the keyboard review loop
+
+    /// The fixed type ordering for sidebar sections and keyboard navigation,
+    /// so the walk order always matches what the sidebar shows.
+    public static let groupTypeOrder: [EntityType] = [
+        .person, .company, .address, .email, .phone,
+        .bankAccount, .nationalID, .uscc, .amount, .date, .unknown
+    ]
+
+    /// Every review group in display order: sections follow groupTypeOrder and
+    /// groups within a section follow first appearance in the document.
+    public var entityGroups: [ReviewGroup] {
+        ReviewModel.groupTypeOrder.flatMap { groups(of: $0) }
+    }
+
+    /// The groups of one type, in first-appearance order. Grouping is by value,
+    /// case and whitespace insensitive, so every occurrence of "Investors"
+    /// collapses into one row with a single accept control.
+    public func groups(of type: EntityType) -> [ReviewGroup] {
+        var order: [String] = []
+        var byKey: [String: ReviewGroup] = [:]
+
+        for entity in entities where entity.span.type == type {
+            let key = entity.span.text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if var existing = byKey[key] {
+                existing.ids.insert(entity.id)
+                existing.occurrences += 1
+                existing.anyAccepted = existing.anyAccepted || entity.accepted
+                if existing.token == nil, entity.accepted { existing.token = entity.token }
+                byKey[key] = existing
+            } else {
+                order.append(key)
+                byKey[key] = ReviewGroup(
+                    id: "\(type.rawValue)|\(key)",
+                    value: entity.span.text,
+                    type: type,
+                    source: entity.span.source,
+                    ids: [entity.id],
+                    occurrences: 1,
+                    anyAccepted: entity.accepted,
+                    token: entity.accepted ? entity.token : nil
+                )
+            }
+        }
+        return order.compactMap { byKey[$0] }
+    }
+
+    /// Move the selection to the next group in display order, wrapping at the
+    /// end. With no selection, selects the first group.
+    public func selectNextGroup() {
+        let groups = entityGroups
+        guard !groups.isEmpty else { return }
+        guard let current = selectedGroupID,
+              let index = groups.firstIndex(where: { $0.id == current }) else {
+            selectedGroupID = groups[0].id
+            return
+        }
+        selectedGroupID = groups[(index + 1) % groups.count].id
+    }
+
+    /// Move the selection to the previous group, wrapping at the start. With no
+    /// selection, selects the last group.
+    public func selectPreviousGroup() {
+        let groups = entityGroups
+        guard !groups.isEmpty else { return }
+        guard let current = selectedGroupID,
+              let index = groups.firstIndex(where: { $0.id == current }) else {
+            selectedGroupID = groups[groups.count - 1].id
+            return
+        }
+        selectedGroupID = groups[(index + groups.count - 1) % groups.count].id
+    }
+
+    /// Flip the accept state of the selected group: a group that reads as
+    /// accepted (any occurrence accepted) becomes fully rejected, otherwise
+    /// fully accepted. Every occurrence moves together.
+    public func toggleSelectedGroup() {
+        guard let id = selectedGroupID,
+              let group = entityGroups.first(where: { $0.id == id }) else { return }
+        setAccepted(ids: group.ids, !group.anyAccepted)
     }
 
     // MARK: - Export
