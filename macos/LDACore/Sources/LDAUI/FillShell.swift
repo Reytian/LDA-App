@@ -210,7 +210,7 @@ public struct FillShell: View {
 
             // Let the user go back to the profile builder from any fill-review stage
             Button {
-                model.stage = .profileReady
+                model.backToProfile()
                 applyMessage = nil
             } label: {
                 Label("Back to Profile", systemImage: "arrow.backward")
@@ -466,9 +466,10 @@ public struct FillShell: View {
         panel.prompt = "Open"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         applyMessage = nil
-        let needsScope = url.startAccessingSecurityScopedResource()
+        // Security scope is now owned by FillModel (startTargetScope / stopTargetScope).
+        // The scope must survive from planFill through applyFill; managing it here
+        // inside a single Task would release it before applyFill runs.
         Task {
-            defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
             await model.planFill(target: url)
         }
     }

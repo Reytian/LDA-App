@@ -730,6 +730,105 @@ final class FillModelTests: XCTestCase {
         return url
     }
 
+    // MARK: - Security-scope lifecycle bookkeeping
+
+    // The real security-scoped resource machinery (startAccessingSecurityScopedResource /
+    // stopAccessingSecurityScopedResource) is a sandbox API and behaves as a no-op
+    // outside the sandboxed .app: startAccessing returns false, so targetScopeActive
+    // stays false throughout the test run. What we can observe from outside the
+    // sandbox is the MODEL-LEVEL bookkeeping: scopedTargetURL is set during
+    // planFill and cleared after applyFill (or after a failure).
+    //
+    // These tests assert that the model's internal scope-tracking variables are
+    // updated at the correct lifecycle points. This pins the implementation
+    // contract so a regression (e.g. scope never released, or released too early)
+    // will be caught even without a real sandbox.
+    //
+    // Note: targetScopeActive is always false in tests (no sandbox), so we only
+    // assert on scopedTargetURL (which is always updated regardless of the
+    // startAccessing return value).
+
+    func testPlanFillSetsScopedTargetURL() async throws {
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+
+        let fakePlan = FillPlan(targetFormat: .pdf, blanks: [], manualWidgetNames: [])
+        FillModel.planFillForTesting = { _, _ in fakePlan }
+
+        let target = URL(fileURLWithPath: "/tmp/scope-test-plan.pdf")
+        await model.planFill(target: target)
+
+        // After a successful planFill the model must hold the scoped URL so
+        // applyFill can still access the file (scope survives planFill).
+        XCTAssertEqual(model.scopedTargetURL, target,
+            "scopedTargetURL must be set to the target after planFill succeeds")
+    }
+
+    func testApplyFillClearsScopedTargetURL() async throws {
+        let model = FillModel(modelPath: nil)
+        let profile = makeProfile()
+        model.loadProfile(profile)
+        let target = URL(fileURLWithPath: "/tmp/scope-test-apply.pdf")
+        model.targetURL = target
+        model.blanks = [makeProposedBlank(fieldID: profile.fields[0].id, value: "v")]
+        model.stage = .reviewing
+
+        // Simulate: scope was opened by planFill.
+        // We set the URL directly to mirror the state planFill would leave behind.
+        model.scopedTargetURL = target
+
+        let fakeReport = FillReport(
+            outputURL: URL(fileURLWithPath: "/tmp/out/scope-test-apply (filled).pdf"),
+            filledCount: 1,
+            skipped: []
+        )
+        FillModel.applyFillForTesting = { _, _, _ in fakeReport }
+
+        await model.applyFill(outputDir: URL(fileURLWithPath: "/tmp/out"))
+
+        XCTAssertEqual(model.stage, .done(fakeReport))
+        XCTAssertNil(model.scopedTargetURL,
+            "scopedTargetURL must be cleared after applyFill completes")
+    }
+
+    func testPlanFillFailureClearsScopedTargetURL() async throws {
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+
+        struct FakePlanError: Error {}
+        FillModel.planFillForTesting = { _, _ in throw FakePlanError() }
+
+        let target = URL(fileURLWithPath: "/tmp/scope-test-fail.pdf")
+        await model.planFill(target: target)
+
+        guard case .failed = model.stage else {
+            XCTFail("stage must be .failed after planFill error")
+            return
+        }
+        XCTAssertNil(model.scopedTargetURL,
+            "scopedTargetURL must be cleared when planFill fails (nothing left to apply)")
+    }
+
+    func testOpeningNewTargetReplacesScopedTargetURL() async throws {
+        // Two successive planFill calls: the second must replace the first's scope,
+        // not accumulate a second one.
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+
+        let fakePlan = FillPlan(targetFormat: .pdf, blanks: [], manualWidgetNames: [])
+        FillModel.planFillForTesting = { _, _ in fakePlan }
+
+        let first  = URL(fileURLWithPath: "/tmp/scope-first.pdf")
+        let second = URL(fileURLWithPath: "/tmp/scope-second.pdf")
+
+        await model.planFill(target: first)
+        XCTAssertEqual(model.scopedTargetURL, first)
+
+        await model.planFill(target: second)
+        XCTAssertEqual(model.scopedTargetURL, second,
+            "scope must track the most recent target; old scope replaced by new one")
+    }
+
     // MARK: - M1/d: importingSources -> extracting on first progress callback
 
     func testExtractProfileStageFlipsToExtractingOnFirstProgress() async throws {

@@ -105,6 +105,63 @@ public final class FillModel: ObservableObject {
     /// Optional absolute path to the GGUF model. Passed to LDAService.extractProfile.
     public var modelPath: String?
 
+    // MARK: - Security-scope ownership
+
+    /// The target URL for which a security-scoped resource access is currently
+    /// held. Non-nil only between planFill starting and applyFill completing (or
+    /// planFill failing).
+    ///
+    /// Ownership rules:
+    ///   - startAccessingSecurityScopedResource is called by planFill before the
+    ///     detached Task begins reading the target.
+    ///   - stopAccessingSecurityScopedResource is called by stopTargetScope().
+    ///   - stopTargetScope() is called from applyFill on success or failure, from
+    ///     planFill on failure, and when a NEW target is opened (so the old scope
+    ///     is released before the new one is started).
+    ///   - deinit calls stopTargetScope() as a safety net (the model is long-lived
+    ///     but if it ever goes away while a scope is open, the sandbox reference
+    ///     must be released).
+    ///
+    /// In the dev binary (unsandboxed) startAccessingSecurityScopedResource is a
+    /// no-op that returns false, so this whole mechanism is dormant until the
+    /// packaged .app runs under the sandbox.
+    ///
+    /// Internal (not private) so FillModelTests can assert scope bookkeeping
+    /// without depending on the actual sandbox API.
+    internal var scopedTargetURL: URL?
+
+    /// True when scopedTargetURL was opened with startAccessingSecurityScopedResource
+    /// and the scope has not yet been stopped.
+    internal var targetScopeActive: Bool = false
+
+    /// Start the security scope for a new target URL. Releases any previously
+    /// held scope first so there is never more than one open scope at a time.
+    private func startTargetScope(_ url: URL) {
+        stopTargetScope()
+        let active = url.startAccessingSecurityScopedResource()
+        scopedTargetURL = url
+        targetScopeActive = active
+    }
+
+    /// Stop the currently held security scope, if any. Safe to call repeatedly.
+    private func stopTargetScope() {
+        if targetScopeActive, let url = scopedTargetURL {
+            url.stopAccessingSecurityScopedResource()
+        }
+        scopedTargetURL = nil
+        targetScopeActive = false
+    }
+
+    deinit {
+        // Safety net: release the scope if the model is torn down while a fill
+        // session is still open (should not normally happen, but avoids a leak).
+        // Cannot be @MainActor-isolated, so we read the stored value directly;
+        // the model is @MainActor so all writes happen before deinit.
+        if targetScopeActive, let url = scopedTargetURL {
+            url.stopAccessingSecurityScopedResource()
+        }
+    }
+
     // MARK: - Test seams
 
     /// Replaces LDAService.extractProfile in tests. Receives (sources, label,
@@ -238,6 +295,18 @@ public final class FillModel: ObservableObject {
         blanks[blankIdx].status = .proposed
     }
 
+    /// Navigate back to the profile builder from any fill-review stage.
+    ///
+    /// Sets stage to .profileReady and clears pickerRequestID. Any open security
+    /// scope for the current target is NOT released here because the user may
+    /// return to fill-review by opening the same target again; if they open a new
+    /// target, startTargetScope will release the old scope before starting the new
+    /// one.
+    public func backToProfile() {
+        pickerRequestID = nil
+        stage = .profileReady
+    }
+
     /// Move selection to the next blank, wrapping at the end.
     /// With no current selection, selects the first blank.
     public func selectNextBlank() {
@@ -336,6 +405,13 @@ public final class FillModel: ObservableObject {
         // displayed while a new plan is in flight.
         targetText = nil
 
+        // Sandbox: start the security scope for the new target. Any previously
+        // held scope for an older target is released first by startTargetScope.
+        // The scope must remain open through applyFill so the engine can read
+        // the file in a second detached Task (closing it here would cause EPERM
+        // when applyFill runs inside the sandboxed .app).
+        startTargetScope(target)
+
         let seam = Self.planFillForTesting
         let path = modelPath
         let isDocx = target.pathExtension.lowercased() == "docx"
@@ -373,8 +449,12 @@ public final class FillModel: ObservableObject {
                 targetText = importedText
             }
 
+            // Do NOT stop the scope here: applyFill still needs to read the target.
+
         } catch {
             targetText = nil
+            // Planning failed: release the scope; there is nothing to apply.
+            stopTargetScope()
             stage = .failed(Self.describe(error))
         }
     }
@@ -419,9 +499,15 @@ public final class FillModel: ObservableObject {
                 }
             }.value
 
+            // Apply succeeded: the engine no longer needs access to the source
+            // file, so we can release the security scope.
+            stopTargetScope()
             stage = .done(report)
 
         } catch {
+            // Apply failed: release the scope so subsequent attempts can re-open
+            // it cleanly via a new Open Target flow.
+            stopTargetScope()
             stage = .failed(Self.describe(error))
         }
     }

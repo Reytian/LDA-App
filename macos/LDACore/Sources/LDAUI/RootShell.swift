@@ -77,15 +77,19 @@ public struct RootShell: View {
 
     public var body: some View {
         ZStack {
-            // Anonymize layer
+            // Anonymize layer.
+            // .disabled(true) on the inactive layer resigns any first responder
+            // inside it, preventing keyboard events from bleeding through to the
+            // hidden subtree. .allowsHitTesting would block pointer input but
+            // leave text fields able to receive keyboard events.
             AppShell(model: reviewModel)
                 .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
-                .allowsHitTesting(modeStore.activeMode == .anonymize)
+                .disabled(modeStore.activeMode != .anonymize)
 
-            // Fill layer
+            // Fill layer.
             FillShell(model: fillModel)
                 .opacity(modeStore.activeMode == .fill ? 1 : 0)
-                .allowsHitTesting(modeStore.activeMode == .fill)
+                .disabled(modeStore.activeMode != .fill)
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
