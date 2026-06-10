@@ -98,8 +98,11 @@ public enum LDAServiceError: Error, Equatable {
     case noReadableSources
     /// applyFill detected that the target document has changed since the plan
     /// was produced: a confirmed blank's offsets no longer match the current
-    /// text. The user must re-plan before applying.
-    case staleTarget
+    /// text, or a confirmed PDF field no longer exists. The user must re-plan
+    /// before applying. `detail` gives a brief description of the first
+    /// mismatch (e.g. "offset 10-25" for DOCX or a comma-separated list of
+    /// missing field names for PDF).
+    case staleTarget(detail: String)
 }
 
 // MARK: - Facade
@@ -420,7 +423,10 @@ public enum LDAService {
     /// a scanned exhibit inside a digital contract still reaches detection.
     /// Unknown extensions are treated as plain text so the text importer's own
     /// unreadable error surfaces for genuinely bad inputs.
-    private static func importDocument(
+    ///
+    /// Internal (not private) so that LDAFillService.swift can call it directly
+    /// for profile source import, avoiding duplicate logic.
+    internal static func importDocument(
         _ url: URL,
         extension ext: String
     ) throws -> ImportedDocument {

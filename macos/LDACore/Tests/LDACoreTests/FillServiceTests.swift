@@ -554,108 +554,6 @@ final class FillServiceTests: XCTestCase {
         XCTAssertNotNil(unknownSkip, "unmatched blank must be skipped with 'no matching field'")
     }
 
-    // Test: output would overwrite input -> outputEqualsInput error.
-    //
-    // The output filename is "<stem> (filled).<ext>", so for the output path to
-    // equal the input path the target itself must be the computed output file.
-    // The guard is exercised by creating a symlink that makes the target URL and
-    // the computed output URL resolve to the same inode: workDir/link -> "doc.docx"
-    // where the link is itself named "doc (filled).docx" and outputDir points to
-    // the same directory through a symlink alias so that
-    // outputDir/"doc (filled) (filled).docx" standardizes to target.path.
-    //
-    // Because constructing a real symlink collision is fragile across OS versions,
-    // we use a more direct route: create outputDir as a symlink that points to
-    // workDir, and then name the target such that the computed output path
-    // standardizes to the target path. The computed output path is:
-    //   outputDir / (stem + " (filled)." + ext)
-    // which equals the target when:
-    //   target.path == outputDir.standardized / (target.stem + " (filled)." + target.ext)
-    // That requires target.lastPathComponent == target.stem + " (filled)." + target.ext,
-    // which is a self-referential condition impossible through pure filename
-    // construction. Therefore this test uses a symlink loop:
-    //   target = workDir/foo.docx
-    //   symlinkDir = workDir/alias (symlink -> workDir)
-    //   outputDir = symlinkDir (a non-standardized alias of workDir)
-    //   computed output path = symlinkDir/foo (filled).docx (non-standardized)
-    //   standardized = workDir/foo (filled).docx != workDir/foo.docx  -> no collision
-    //
-    // Since true outputEqualsInput is geometrically impossible under the current
-    // "<stem> (filled).<ext>" naming (appending " (filled)" always produces a new
-    // name), this test instead verifies the guard compiles and the error type
-    // exists, using the PDF path (AcroFormFiller maps its outputEqualsInput to
-    // LDAServiceError.outputEqualsInput) with a direct same-path scenario.
-    func testApplyFillOutputEqualsInputThrowsViaPdfPath() throws {
-        // Build a form PDF.
-        let pdfURL = try makeFormPDF()
-        let profile = makeProfile(companyName: "Acme")
-        let outputDir = workDir.appendingPathComponent("out-eq", isDirectory: true)
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        // Plan and confirm.
-        var plan = try LDAService.planFill(target: pdfURL, profile: profile, modelPath: nil)
-        plan.blanks = plan.blanks.map { blank in
-            guard blank.status == .proposed, blank.proposedValue != nil else { return blank }
-            return Blank(id: blank.id, location: blank.location, label: blank.label,
-                         context: blank.context, proposedFieldID: blank.proposedFieldID,
-                         proposedValue: blank.proposedValue, status: .confirmed)
-        }
-
-        // Write a first fill to get the "(filled)" output filename.
-        let firstReport = try LDAService.applyFill(
-            plan: plan, target: pdfURL, profile: profile, outputDir: outputDir
-        )
-
-        // The firstReport.outputURL is now outputDir/"<stem> (filled).pdf".
-        // Use that file as the new target, keeping the SAME outputDir.
-        // Stem of the filled file ends in " (filled)" so the new output would be
-        // "<stem> (filled) (filled).pdf", which is a new file. Not a collision.
-        //
-        // To actually hit the guard we use AcroFormFiller directly: call applyFill
-        // where the target IS the file that would be produced (we move firstReport's
-        // output into position and point applyFill at it with outputDir = its parent
-        // so output = firstReport.outputURL, which is now the target).
-        // Rename firstReport output so target.stem + " (filled).pdf" == target path.
-        // For that: we need target named "foo.pdf" and outputDir such that
-        // outputDir/"foo (filled).pdf" == target.path.
-        // Create a symlink: outputDir/"link (filled).pdf" -> firstReport.outputURL.
-        // Then applyFill(target: outputDir/"link.pdf", outputDir: outputDir) would
-        // produce outputDir/"link (filled).pdf", which is a different real file.
-        //
-        // The outputEqualsInput guard is fundamentally untriggerable from the
-        // caller side under the current naming scheme; it exists as a safety net.
-        // We verify it is reachable by directly invoking the helper that maps
-        // AcroFormFiller.FillError.outputEqualsInput. We do that by writing a plan
-        // whose target.path == firstReport.outputURL.path (i.e. replan against the
-        // filled file) and use outputDir = firstReport.outputURL.deletingLastPathComponent()
-        // -- but the output would be a "(filled) (filled).pdf", not a collision.
-        //
-        // Verdict: the guard is proven reachable via the AcroFormFiller path by a
-        // direct call below.
-        let filledPDF = firstReport.outputURL
-        let filledStem = filledPDF.deletingPathExtension().lastPathComponent
-        // The computed output for filledPDF as target would be:
-        //   filledStem + " (filled).pdf"  (i.e. "foo (filled) (filled).pdf")
-        // This is always a different path, so we assert NO error is thrown on
-        // a re-fill (demonstrating the guard only fires on a true collision).
-        var plan2 = try LDAService.planFill(target: filledPDF, profile: profile, modelPath: nil)
-        plan2.blanks = plan2.blanks.map { blank in
-            guard blank.status == .proposed, blank.proposedValue != nil else { return blank }
-            return Blank(id: blank.id, location: blank.location, label: blank.label,
-                         context: blank.context, proposedFieldID: blank.proposedFieldID,
-                         proposedValue: blank.proposedValue, status: .confirmed)
-        }
-        // A second fill must succeed without collision.
-        XCTAssertNoThrow(
-            try LDAService.applyFill(
-                plan: plan2, target: filledPDF, profile: profile, outputDir: outputDir
-            ),
-            "re-filling a (filled) file with outputDir == same dir must succeed; output gets double suffix"
-        )
-        // Verify the stem is correct.
-        XCTAssertFalse(filledStem.isEmpty)
-    }
-
     // Test: stale DOCX target. Plan the original docx, then rewrite the docx with
     // different text so the offsets are stale; applyFill must throw staleTarget.
     func testApplyFillStaleDocxTargetThrowsStaleTarget() throws {
@@ -698,9 +596,157 @@ final class FillServiceTests: XCTestCase {
                 outputDir: outputDir
             )
         ) { error in
+            // staleTarget now carries an associated detail string.
             guard case LDAServiceError.staleTarget = error else {
                 return XCTFail("expected staleTarget, got \(error)")
             }
         }
+    }
+
+    // MARK: - New tests (review punch list)
+
+    // Test (I1): extractProfile throws when model load fails instead of returning
+    // a silently empty profile. The test seam is nil; modelPath is a nonexistent
+    // path so LLMEngine construction fails and the error is propagated.
+    func testExtractProfileModelLoadFailureThrows() throws {
+        // Arrange: a readable source so noReadableSources does not fire first.
+        let sourceURL = workDir.appendingPathComponent("source.txt")
+        try Data("The company name is Sunrise Corp.".utf8).write(to: sourceURL)
+
+        // No seam: production path where LLMEngine must be constructed.
+        LDAService.makeCompleterForTesting = nil
+
+        // Act + Assert: with a nonexistent GGUF path the engine throws; that
+        // error must propagate out of extractProfile rather than being swallowed.
+        XCTAssertThrowsError(
+            try LDAService.extractProfile(
+                sources: [sourceURL],
+                label: "Test",
+                modelPath: "/nonexistent/model.gguf",
+                createdAtISO8601: Self.createdAt
+            )
+        ) { error in
+            // We do not pin the exact error type because LLMEngine's throw type
+            // is internal; we only assert that SOMETHING was thrown (no silent
+            // empty profile).
+            _ = error
+        }
+    }
+
+    // Test (I2b): duplicate confirmed blanks at the same textSpan location yield
+    // exactly one fill and one SkippedBlank with reason "duplicate location".
+    // The second occurrence must NOT crash DocxRedactor with an NSRangeException.
+    //
+    // A plan with two confirmed blanks pointing to the same offsets can arise
+    // when a UI sends a duplicated plan entry. We construct it directly by
+    // taking the first detected blank and inserting a second entry with the
+    // same location but a fresh id.
+    func testApplyFillDuplicateConfirmedBlankYieldsOneFillOneSkip() throws {
+        let docxURL = try writeFixtureDocx([
+            .init(runs: ["This agreement is with [Company Name] here."])
+        ])
+        let profile = makeProfile(companyName: "Meridian Partners LLC")
+        let outputDir = workDir.appendingPathComponent("out-dedup", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        // Plan: one "[Company Name]" blank will be detected and proposed.
+        var plan = try LDAService.planFill(
+            target: docxURL,
+            profile: profile,
+            modelPath: nil
+        )
+
+        // Confirm the proposed blank.
+        plan.blanks = plan.blanks.map { blank in
+            guard blank.status == .proposed, blank.proposedValue != nil else { return blank }
+            return Blank(
+                id: blank.id,
+                location: blank.location,
+                label: blank.label,
+                context: blank.context,
+                proposedFieldID: blank.proposedFieldID,
+                proposedValue: blank.proposedValue,
+                status: .confirmed
+            )
+        }
+
+        guard let firstConfirmed = plan.blanks.first(where: { $0.status == .confirmed }) else {
+            XCTFail("expected at least one confirmed blank after planning")
+            return
+        }
+
+        // Inject a duplicate: same location, same value, new id, also confirmed.
+        let duplicate = Blank(
+            location: firstConfirmed.location,
+            label: firstConfirmed.label,
+            context: firstConfirmed.context,
+            proposedFieldID: firstConfirmed.proposedFieldID,
+            proposedValue: firstConfirmed.proposedValue,
+            status: .confirmed
+        )
+        plan.blanks.append(duplicate)
+
+        // Act: must NOT crash.
+        let report = try LDAService.applyFill(
+            plan: plan,
+            target: docxURL,
+            profile: profile,
+            outputDir: outputDir
+        )
+
+        // Assert: exactly one fill (first wins) and exactly one skip with
+        // "duplicate location" reason.
+        XCTAssertEqual(report.filledCount, 1, "only the first of the duplicate confirmed blanks is filled")
+        let dupSkip = report.skipped.first { $0.reason == "duplicate location" }
+        XCTAssertNotNil(dupSkip, "second occurrence must be skipped with reason 'duplicate location'")
+    }
+
+    // Test (M10): a completed re-fill (re-applying to the already-filled output)
+    // succeeds without a collision: the new output gets a double suffix and a
+    // pre-existing output file from a prior run is removed rather than causing
+    // a FileManager conflict.
+    //
+    // Renamed from testApplyFillOutputEqualsInputThrowsViaPdfPath to
+    // testApplyFillNoCollisionOnReFill to describe what this test actually asserts.
+    func testApplyFillNoCollisionOnReFill() throws {
+        // Build a form PDF.
+        let pdfURL = try makeFormPDF()
+        let profile = makeProfile(companyName: "Acme")
+        let outputDir = workDir.appendingPathComponent("out-eq", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        // Plan and confirm.
+        var plan = try LDAService.planFill(target: pdfURL, profile: profile, modelPath: nil)
+        plan.blanks = plan.blanks.map { blank in
+            guard blank.status == .proposed, blank.proposedValue != nil else { return blank }
+            return Blank(id: blank.id, location: blank.location, label: blank.label,
+                         context: blank.context, proposedFieldID: blank.proposedFieldID,
+                         proposedValue: blank.proposedValue, status: .confirmed)
+        }
+
+        // Write a first fill to get the "(filled)" output filename.
+        let firstReport = try LDAService.applyFill(
+            plan: plan, target: pdfURL, profile: profile, outputDir: outputDir
+        )
+
+        let filledPDF = firstReport.outputURL
+        let filledStem = filledPDF.deletingPathExtension().lastPathComponent
+
+        // Re-plan against the already-filled file.
+        var plan2 = try LDAService.planFill(target: filledPDF, profile: profile, modelPath: nil)
+        plan2.blanks = plan2.blanks.map { blank in
+            guard blank.status == .proposed, blank.proposedValue != nil else { return blank }
+            return Blank(id: blank.id, location: blank.location, label: blank.label,
+                         context: blank.context, proposedFieldID: blank.proposedFieldID,
+                         proposedValue: blank.proposedValue, status: .confirmed)
+        }
+        // A second fill must succeed: output gets a double "(filled) (filled)" suffix.
+        XCTAssertNoThrow(
+            try LDAService.applyFill(
+                plan: plan2, target: filledPDF, profile: profile, outputDir: outputDir
+            ),
+            "re-filling a (filled) file with outputDir == same dir must succeed"
+        )
+        XCTAssertFalse(filledStem.isEmpty)
     }
 }

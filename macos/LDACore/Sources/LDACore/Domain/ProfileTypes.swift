@@ -247,7 +247,7 @@ public struct CompanyProfile: Equatable, Sendable, Codable {
 // MARK: - Blank
 
 /// Where a blank lives in the fill target.
-public enum BlankLocation: Equatable, Sendable, Codable {
+public enum BlankLocation: Hashable, Equatable, Sendable, Codable {
     /// UTF-16 offsets into the imported target text (NSRange semantics).
     case textSpan(start: Int, end: Int)
     /// The AcroForm field name of a text widget.

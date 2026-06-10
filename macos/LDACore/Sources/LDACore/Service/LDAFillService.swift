@@ -52,17 +52,24 @@ extension LDAService {
     // MARK: - extractProfile
 
     /// Build a CompanyProfile from source documents using the on-device model.
-    /// modelPath is REQUIRED (profile extraction is a model feature by nature).
+    /// modelPath is REQUIRED: profile extraction is a model feature by design.
+    /// When the test seam (makeCompleterForTesting) is set, modelPath is still
+    /// required in the call signature but the seam factory is used instead of
+    /// loading an engine, so tests need not supply a real GGUF path.
+    ///
+    /// Throws the underlying LLMEngine construction error when no seam is set
+    /// and the engine cannot be loaded. A silent empty profile is worse than an
+    /// honest error: callers must know that extraction did not run.
     ///
     /// A failing source (unreadable or yielding no text) is collected in
-    /// failedSources; the readable ones still contribute. Throws only when ZERO
-    /// sources produce readable text (LDAServiceError.noReadableSources).
+    /// failedSources; the readable ones still contribute. Throws
+    /// LDAServiceError.noReadableSources when ZERO sources produce readable text.
     ///
     /// - Parameters:
     ///   - sources: the source document URLs to import and extract from.
     ///   - label: a short human label for the resulting CompanyProfile.
-    ///   - modelPath: absolute path to the GGUF model. Ignored when
-    ///     makeCompleterForTesting is set (test seam).
+    ///   - modelPath: absolute path to the GGUF model. REQUIRED. Ignored only
+    ///     when makeCompleterForTesting is set (test seam).
     ///   - createdAtISO8601: caller-supplied creation timestamp (purity rule).
     ///   - onProgress: optional callback (segmentsDone, segmentsTotal). Forwarded
     ///     to ProfileExtractor.extract unchanged.
@@ -81,10 +88,12 @@ extension LDAService {
         for url in sources {
             let ext = url.pathExtension.lowercased()
             do {
-                let imported = try importDocumentForFill(url, extension: ext)
+                let imported = try importDocument(url, extension: ext)
                 let text = imported.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if text.isEmpty {
-                    failedSources.append((name: url.lastPathComponent, reason: "OCR yielded no text"))
+                    // Fires for any empty import (no text layer, blank file, etc.),
+                    // not only OCR results.
+                    failedSources.append((name: url.lastPathComponent, reason: "no text content found"))
                 } else {
                     readable.append((name: url.lastPathComponent, text: imported.text))
                 }
@@ -98,25 +107,15 @@ extension LDAService {
         }
 
         // Build the completer: test seam first, then real LLMEngine.
+        // When the seam is absent, construction errors are surfaced to the caller
+        // rather than silently producing an empty profile.
         let completer: TextCompleter
         if let factory = makeCompleterForTesting {
             completer = factory()
         } else {
-            guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else {
-                // Model load failure: treat like an engine with no completions.
-                // ProfileExtractor will produce empty fields; incomplete = true.
-                let extractor = ProfileExtractor(completer: DeadCompleter())
-                let result = try extractor.extract(sources: readable, onProgress: onProgress)
-                let profile = CompanyProfile(
-                    label: label,
-                    fields: result.fields,
-                    sourceDocuments: readable.map { $0.name },
-                    createdAtISO8601: createdAtISO8601,
-                    incomplete: result.incompleteSegmentCount > 0
-                )
-                return ExtractProfileResult(profile: profile, failedSources: failedSources)
-            }
-            completer = engine
+            // LLMEngine(config:) throws on load failure. Propagate to caller
+            // rather than swallowing the error.
+            completer = try LLMEngine(config: .init(modelPath: modelPath))
         }
 
         let extractor = ProfileExtractor(completer: completer)
@@ -144,6 +143,14 @@ extension LDAService {
     /// fill target because fill targets must be structured documents.
     ///
     /// PDF with no widgets returns an empty-blanks plan (NOT an error).
+    ///
+    /// Two-pass strategy for model matching:
+    /// Pass 1 (synonym, no model): FillPlanner.plan with nil completer.
+    /// Pass 2 (model): only when at least one blank remains .unmatched AND
+    /// modelPath is non-nil. FillPlanner.idempotence leaves .proposed/.confirmed/
+    /// .rejected blanks untouched, so pass 2 safely re-plans the full blank list.
+    /// The engine is constructed lazily, after pass 1, so clean documents that
+    /// need no model do not pay the load cost.
     public static func planFill(
         target: URL,
         profile: CompanyProfile,
@@ -152,44 +159,88 @@ extension LDAService {
         let ext = target.pathExtension.lowercased()
 
         // Guard: only docx and pdf are supported fill targets.
+        // Handle extensionless targets gracefully (ext is "" when no extension).
         guard ext == "docx" || ext == "pdf" else {
+            let gotSuffix = ext.isEmpty ? "" : " got .\(ext)"
             throw DocumentIOError.unsupportedFormat(
-                "Fill targets must be .docx or .pdf; got .\(ext). " +
+                "Fill targets must be .docx or .pdf;\(gotSuffix). " +
                 "Plain text is a valid profile source but not a fill target."
             )
         }
-
-        // Build an optional completer for the model fallback pass.
-        let completer: TextCompleter? = {
-            guard let modelPath else { return nil }
-            if let factory = makeCompleterForTesting { return factory() }
-            guard FileManager.default.fileExists(atPath: modelPath) else { return nil }
-            return try? LLMEngine(config: .init(modelPath: modelPath))
-        }()
 
         switch ext {
         case "docx":
             let imported = try DocxImporter().importDocument(target)
             let blanks = BlankDetector.detect(in: imported.text)
-            let planned = FillPlanner.plan(blanks: blanks, profile: profile, completer: completer)
+
+            // Pass 1: synonym matching (no model).
+            var planned = FillPlanner.plan(blanks: blanks, profile: profile, completer: nil)
+
+            // Pass 2: model fallback only when unmatched blanks remain and a
+            // model path was supplied. Lazy construction: skip the 2.7 GB load
+            // when the synonym pass resolved everything.
+            if planned.contains(where: { $0.status == .unmatched }),
+               let modelPath {
+                let completer: TextCompleter?
+                if let factory = makeCompleterForTesting {
+                    completer = factory()
+                } else {
+                    completer = try? LLMEngine(config: .init(modelPath: modelPath))
+                }
+                if let completer {
+                    planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
+                }
+            }
+
             return FillPlan(targetFormat: .docx, blanks: planned, manualWidgetNames: [])
 
         case "pdf":
             let inventory = try AcroFormFiller.enumerate(at: target)
             // A PDF with no widgets is a valid (empty) plan, not an error.
-            // Empty context is a deliberate V1 choice: nearby page text is not
-            // cheaply available from the AcroForm enumeration path.
+            // label = field name only; context = tooltip text when present.
+            // Putting the tooltip into context (not the label) keeps the label
+            // clean for synonym matching: e.g. a field named "Company Name"
+            // with tooltip "Enter your company name" normalizes correctly when
+            // the label is the raw name alone.
             let blanks: [Blank] = inventory.textFieldNames.map { name in
-                Blank(
+                // AcroFormFiller.fieldLabels stores "name tooltip" when a tooltip
+                // exists, or just "name" when it does not. Extract the tooltip
+                // remainder by stripping the leading name prefix.
+                let combined = inventory.fieldLabels[name] ?? name
+                let tooltipContext: String
+                if combined.hasPrefix(name), combined.count > name.count {
+                    tooltipContext = String(combined.dropFirst(name.count)).trimmingCharacters(in: .whitespaces)
+                } else {
+                    tooltipContext = ""
+                }
+                return Blank(
                     location: .acroFormField(name: name),
-                    label: inventory.fieldLabels[name] ?? name,
-                    context: "", // V1: context intentionally omitted for acroFormField blanks.
+                    label: name,
+                    context: tooltipContext,
                     proposedFieldID: nil,
                     proposedValue: nil,
                     status: .unmatched
                 )
             }
-            let planned = FillPlanner.plan(blanks: blanks, profile: profile, completer: completer)
+
+            // Pass 1: synonym matching (no model).
+            var planned = FillPlanner.plan(blanks: blanks, profile: profile, completer: nil)
+
+            // Pass 2: model fallback only when unmatched blanks remain and a
+            // model path was supplied.
+            if planned.contains(where: { $0.status == .unmatched }),
+               let modelPath {
+                let completer: TextCompleter?
+                if let factory = makeCompleterForTesting {
+                    completer = factory()
+                } else {
+                    completer = try? LLMEngine(config: .init(modelPath: modelPath))
+                }
+                if let completer {
+                    planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
+                }
+            }
+
             return FillPlan(
                 targetFormat: .pdf,
                 blanks: planned,
@@ -197,8 +248,8 @@ extension LDAService {
             )
 
         default:
-            // This branch is unreachable because we guard above, but Swift
-            // requires exhaustive switches.
+            // Unreachable: the guard at the top of the function handles all
+            // non-docx/non-pdf extensions.
             throw DocumentIOError.unsupportedFormat("Unreachable: ext=\(ext)")
         }
     }
@@ -213,12 +264,18 @@ extension LDAService {
     /// Throws LDAServiceError.outputEqualsInput when the output path equals the
     /// target path (prevents accidental overwrite).
     ///
+    /// Cross-check: plan.targetFormat must match target's actual file extension;
+    /// a mismatch throws DocumentIOError.unsupportedFormat with a clear message.
+    ///
     /// DOCX: re-imports target and verifies each confirmed textSpan blank is still
     /// present at the recorded offsets; throws LDAServiceError.staleTarget on mismatch.
     ///
     /// PDF: maps confirmed acroFormField blanks to a values dictionary and calls
     /// AcroFormFiller.fill; maps AcroFormFiller.FillError.staleTarget to
     /// LDAServiceError.staleTarget.
+    ///
+    /// - Note: The `profile` parameter is reserved for cross-checking proposedFieldID
+    ///   integrity in a future pass. It is not consumed in V1.
     public static func applyFill(
         plan: FillPlan,
         target: URL,
@@ -226,6 +283,28 @@ extension LDAService {
         outputDir: URL
     ) throws -> FillReport {
         let ext = target.pathExtension.lowercased()
+
+        // Cross-check: plan.targetFormat must match the target's actual extension.
+        let expectedExt: String
+        switch plan.targetFormat {
+        case .docx: expectedExt = "docx"
+        case .pdf:  expectedExt = "pdf"
+        case .plainText: expectedExt = "txt"
+        }
+        guard ext == expectedExt else {
+            throw DocumentIOError.unsupportedFormat(
+                "Plan was produced for .\(expectedExt) but target has extension " +
+                (ext.isEmpty ? "(none)" : ".\(ext)") + "."
+            )
+        }
+
+        // Guard: only docx and pdf are writable fill targets.
+        guard ext == "docx" || ext == "pdf" else {
+            throw DocumentIOError.unsupportedFormat(
+                "Apply fill: unsupported format " + (ext.isEmpty ? "(no extension)" : ".\(ext)")
+            )
+        }
+
         let stem = target.deletingPathExtension().lastPathComponent
         let outputName = "\(stem) (filled).\(ext)"
 
@@ -242,14 +321,27 @@ extension LDAService {
         }
 
         // Partition blanks into confirmed-with-value vs skipped.
+        // Dedupe confirmed blanks by location BEFORE building fills:
+        // first occurrence wins; subsequent occurrences become SkippedBlanks
+        // with reason "duplicate location". A duplicate today would cause
+        // NSRangeException out of DocxRedactor (DOCX) or silent last-wins (PDF).
         var skipped: [SkippedBlank] = []
         var confirmedBlanks: [Blank] = []
+        var seenLocations: Set<BlankLocation> = []
 
         for blank in plan.blanks {
             switch blank.status {
             case .confirmed:
                 if let value = blank.proposedValue, !value.isEmpty {
-                    confirmedBlanks.append(blank)
+                    if seenLocations.insert(blank.location).inserted {
+                        confirmedBlanks.append(blank)
+                    } else {
+                        skipped.append(SkippedBlank(
+                            label: blank.label,
+                            locationDescription: locationDesc(blank.location),
+                            reason: "duplicate location"
+                        ))
+                    }
                 } else {
                     skipped.append(SkippedBlank(
                         label: blank.label,
@@ -323,7 +415,10 @@ extension LDAService {
         outputURL: URL
     ) throws -> Int {
         guard !confirmedBlanks.isEmpty else {
-            // Nothing to fill: copy the original.
+            // Nothing to fill: remove any pre-existing output, then copy.
+            // Matches the overwrite behavior of the fill paths so a re-run
+            // with zero confirmed blanks does not throw on a stale output file.
+            try? FileManager.default.removeItem(at: outputURL)
             try FileManager.default.copyItem(at: target, to: outputURL)
             return 0
         }
@@ -349,7 +444,7 @@ extension LDAService {
             let stillDetected = currentLocations.contains(blank.location)
 
             guard withinBounds && stillDetected else {
-                throw LDAServiceError.staleTarget
+                throw LDAServiceError.staleTarget(detail: "offset \(start)-\(end)")
             }
 
             let span = Span(
@@ -365,6 +460,7 @@ extension LDAService {
         }
 
         guard !fills.isEmpty else {
+            try? FileManager.default.removeItem(at: outputURL)
             try FileManager.default.copyItem(at: target, to: outputURL)
             return 0
         }
@@ -381,6 +477,7 @@ extension LDAService {
         outputURL: URL
     ) throws -> Int {
         // Build field-name to value dictionary from confirmed acroFormField blanks.
+        // Deduplicated upstream in applyFill (first-wins); no further dedupe needed.
         var values: [String: String] = [:]
         for blank in confirmedBlanks {
             guard case .acroFormField(let name) = blank.location,
@@ -389,14 +486,15 @@ extension LDAService {
         }
 
         guard !values.isEmpty else {
+            try? FileManager.default.removeItem(at: outputURL)
             try FileManager.default.copyItem(at: target, to: outputURL)
             return 0
         }
 
         do {
             try AcroFormFiller.fill(original: target, values: values, to: outputURL)
-        } catch AcroFormFiller.FillError.staleTarget {
-            throw LDAServiceError.staleTarget
+        } catch AcroFormFiller.FillError.staleTarget(let missing) {
+            throw LDAServiceError.staleTarget(detail: missing.joined(separator: ", "))
         } catch AcroFormFiller.FillError.outputEqualsInput {
             throw LDAServiceError.outputEqualsInput
         } catch AcroFormFiller.FillError.unreadable {
@@ -417,51 +515,5 @@ extension LDAService {
         case .textSpan(let start, let end):
             return "offset \(start)-\(end)"
         }
-    }
-
-    // MARK: - Private: import for fill operations
-
-    /// Import a document for fill operations. Only docx, pdf, and text-like
-    /// formats are attempted. Unlike the anonymize import, this is used for
-    /// profile source documents (which can be any readable text, including .txt)
-    /// as well as for fill target import (where the extension guard fires first).
-    private static func importDocumentForFill(
-        _ url: URL,
-        extension ext: String
-    ) throws -> ImportedDocument {
-        switch ext {
-        case "docx":
-            return try DocxImporter().importDocument(url)
-        case "pdf":
-            var imported = try PdfImporter().importDocument(url)
-            if imported.isScanned {
-                return try PdfOCRImporter().importDocument(url)
-            }
-            guard !imported.scannedPageIndexes.isEmpty else { return imported }
-            var layers = try PdfImporter.pageTextLayers(in: url)
-            let ocrTexts = try PdfOCRImporter.pageTexts(
-                in: url,
-                pages: imported.scannedPageIndexes
-            )
-            for (pageIndex, ocrText) in ocrTexts {
-                layers.texts[pageIndex] = ocrText
-            }
-            imported.text = layers.texts.joined(separator: "\n\n")
-            return imported
-        default:
-            // Plain text and any other text-shaped format: delegate to TextDocumentIO.
-            return try TextDocumentIO().importDocument(url)
-        }
-    }
-}
-
-// MARK: - DeadCompleter (internal)
-
-/// A TextCompleter that always returns an empty JSON array. Used as a fallback
-/// when an LLMEngine cannot be loaded so ProfileExtractor produces an empty
-/// (incomplete) result rather than throwing.
-private struct DeadCompleter: TextCompleter {
-    func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
-        return "[]"
     }
 }

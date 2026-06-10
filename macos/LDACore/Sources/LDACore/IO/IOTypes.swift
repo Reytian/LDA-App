@@ -133,7 +133,7 @@ public struct ImageTextObservation: Sendable, Equatable {
 // MARK: - Errors
 
 /// Errors raised by the DocumentIO and Security layers.
-public enum DocumentIOError: Error, Sendable {
+public enum DocumentIOError: Error, LocalizedError, Sendable {
     /// The file could not be read at all. Associated value is a detail string.
     case unreadable(String)
     /// The format is recognized but not supported. Associated value is a detail.
@@ -146,6 +146,23 @@ public enum DocumentIOError: Error, Sendable {
     case decryptionFailed
     /// A Keychain operation failed; carries the OSStatus from Security.framework.
     case keychainError(OSStatus)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unreadable(let detail):
+            return "Could not read the document: \(detail)"
+        case .unsupportedFormat(let detail):
+            return "Unsupported format: \(detail)"
+        case .corrupt(let detail):
+            return "The document is corrupt: \(detail)"
+        case .ocrUnavailable:
+            return "OCR is required but unavailable on this system."
+        case .decryptionFailed:
+            return "Could not decrypt the document (wrong passphrase or tampered file)."
+        case .keychainError(let status):
+            return "Keychain operation failed with status \(status)."
+        }
+    }
 }
 
 // MARK: - Importer protocol
