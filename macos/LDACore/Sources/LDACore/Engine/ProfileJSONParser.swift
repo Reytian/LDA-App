@@ -98,10 +98,28 @@ public enum ProfileJSONParser {
         var rows: [BlankMatchRow] = []
         for element in array {
             guard
-                let object = element as? [String: Any],
-                let blank = (object["blank"] as? NSNumber)?.intValue
+                let object = element as? [String: Any]
             else { continue }
-            let field = (object["field"] as? NSNumber)?.intValue
+
+            // Guard against JSON booleans (true/false bridge to NSNumber 1/0 in
+            // Swift JSON decoding and would silently collide with catalog indexes).
+            // NSNumber.objCType == "c" identifies a JSON boolean; "q"/"i"/etc. are
+            // genuine integers. "is Bool" alone is unreliable because NSNumber(1)
+            // also satisfies it. A boolean "blank" drops the entire row; a boolean
+            // "field" is treated as null (row kept, field nil).
+            guard
+                let blankNum = object["blank"] as? NSNumber,
+                blankNum.objCType.pointee != CChar(99)   // 99 == 'c' == ObjC bool encoding
+            else { continue }
+            let blank = blankNum.intValue
+
+            let field: Int?
+            if let fieldNum = object["field"] as? NSNumber, fieldNum.objCType.pointee != CChar(99) {
+                field = fieldNum.intValue
+            } else {
+                // Boolean field (or null / absent) is treated as null.
+                field = nil
+            }
             // "value" may be a JSON null (decoded as NSNull) or absent; both yield nil.
             let value: String?
             if let v = object["value"] as? String {
@@ -137,6 +155,7 @@ public enum ProfileJSONParser {
         if !trimmed.isEmpty {
             candidates.append(trimmed)
         }
+        // Scan the untrimmed text so the balanced region is found including its delimiters.
         if let balanced = largestBalancedArrayRegion(in: modelOutput) {
             if !candidates.contains(balanced) {
                 candidates.append(balanced)

@@ -186,4 +186,27 @@ final class ProfileJSONParserTests: XCTestCase {
     func testBlankMatchDetailedReturnsNilOnGarbage() {
         XCTAssertNil(ProfileJSONParser.parseBlankMatchRowsDetailed("this is not json"))
     }
+
+    func testBlankAsBooleanDropsRow() {
+        // JSON true/false bridges to NSNumber 1/0; a boolean "blank" must drop
+        // the entire row rather than silently treating it as a catalog index.
+        let output = """
+        [{"blank": true, "field": 1, "value": "foo"}, {"blank": 2, "field": 1, "value": "bar"}]
+        """
+        let rows = ProfileJSONParser.parseBlankMatchRows(output)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].blank, 2)
+    }
+
+    func testFieldAsBooleanYieldsNilField() {
+        // A boolean "field" is treated as null: the row is kept but field is nil.
+        let output = """
+        [{"blank": 3, "field": true, "value": "baz"}]
+        """
+        let rows = ProfileJSONParser.parseBlankMatchRows(output)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].blank, 3)
+        XCTAssertNil(rows[0].field)
+        XCTAssertEqual(rows[0].value, "baz")
+    }
 }
