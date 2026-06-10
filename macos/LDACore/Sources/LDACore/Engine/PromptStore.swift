@@ -24,11 +24,15 @@
 //    code fences. Both default bodies state this explicitly. The host is
 //    expected to keep enforcing JSON parsing regardless of edits, and validate()
 //    warns when an edited body drops the instruction.
-//  - The thinking-off directive: the production Ollama backend runs gemma4-v4
-//    with think:false at the transport layer, NOT inside the prompt body. The
-//    host owns that switch and keeps it fixed; editing the prompt body here can
-//    never turn thinking back on. This is documented so a future editor does not
-//    assume the body controls it.
+//  - The thinking-off directive: the bundled Qwen3.5 v2 model is a reasoning
+//    model that defaults to thinking. The host (LLMEngine) disables it when it
+//    renders the ChatML generation prompt, by ending that prompt with a
+//    pre-closed "<think>\n\n</think>\n\n" block so the unsloth chat template
+//    skips reasoning (see LLMEngine.buildChatMLPrompt). That switch lives at the
+//    engine layer, NOT inside this editable prompt body. The host owns it and
+//    keeps it fixed; editing the prompt body here can never turn thinking back
+//    on. This is documented so a future editor does not assume the body
+//    controls it.
 //
 //  House rules: all comments and added English strings are English. No em-dash
 //  and no en-dash-as-separator anywhere.
@@ -271,7 +275,7 @@ public final class PromptStore {
     ///   Pass-2 additionally needs both of its placeholders.
     ///
     /// The host keeps the JSON contract and thinking-off directive fixed at the
-    /// transport layer regardless of these warnings; validate() only flags an
+    /// engine layer regardless of these warnings; validate() only flags an
     /// editable body that has drifted away from the expected anchors.
     public static func validate(_ body: String) -> [String] {
         var warnings: [String] = []
