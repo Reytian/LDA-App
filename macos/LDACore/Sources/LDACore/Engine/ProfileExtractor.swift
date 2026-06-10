@@ -25,8 +25,8 @@
 //  when collapsing, the entry with the higher confidence is kept.
 //
 //  Progress contract: called once with (0, total) before any model call; then
-//  after each model call (retries and split sub-calls each count). This mirrors
-//  LLMExtractor's per-segment onProgress pattern.
+//  once per original chunk after scanChunk returns. Retries and split sub-calls
+//  are internal work and do not fire onProgress. Mirrors LLMExtractor exactly.
 //
 //  Completer errors (thrown by complete(prompt:maxTokens:stop:)) propagate to
 //  the caller; parse-nil is NOT an error, it is the retry/split path.
@@ -79,9 +79,10 @@ public final class ProfileExtractor {
     ///   - sources: the source documents as (name, plain text) pairs. The
     ///     name is recorded in ProfileField.sourceDocument.
     ///   - onProgress: optional callback invoked as (segmentsDone,
-    ///     segmentsTotal). Called once with (0, total) up front, then after
-    ///     each individual model call (retries and split sub-calls each
-    ///     increment segmentsDone).
+    ///     segmentsTotal). Called once with (0, total) before any model call;
+    ///     then once after each original chunk completes (retries and split
+    ///     sub-calls are internal work and do not fire the callback). Mirrors
+    ///     LLMExtractor exactly.
     /// - Returns: merged fields and an incomplete-segment count.
     /// - Throws: any error thrown by the completer.
     public func extract(
@@ -109,27 +110,26 @@ public final class ProfileExtractor {
         }
 
         let total = work.count
-        var segmentsDone = 0
         onProgress?(0, total)
 
         // 2. Process each chunk, accumulating raw parsed rows.
         //    Completer errors propagate immediately.
+        //    onProgress fires exactly once per original chunk after scanChunk
+        //    returns, mirroring LLMExtractor's outer-loop pattern.
         var rawRows: [(row: ProfileRow, documentName: String, sourceText: String)] = []
         var incompleteSegmentCount = 0
 
-        for item in work {
+        for (index, item) in work.enumerated() {
             let outcome = try scanChunk(
                 item.chunkText,
                 documentName: item.documentName,
-                sourceText: item.sourceText,
-                segmentsDone: &segmentsDone,
-                total: total,
-                onProgress: onProgress
+                sourceText: item.sourceText
             )
             rawRows.append(contentsOf: outcome.rows.map { ($0, item.documentName, item.sourceText) })
             if outcome.incomplete {
                 incompleteSegmentCount += 1
             }
+            onProgress?(index + 1, total)
         }
 
         // 3. Ground each row, build ProfileFields, and merge.
@@ -172,21 +172,17 @@ public final class ProfileExtractor {
     ///
     /// Strategy: complete at defaultMaxTokens; if the parse returns nil, retry
     /// once at doubled maxTokens; if still nil, split the chunk at its UTF-16
-    /// midpoint and process each half once; any half still failing increments
-    /// incomplete.
+    /// midpoint and process each half once; any half still failing marks the
+    /// chunk incomplete. Progress is NOT reported here; the caller fires
+    /// onProgress once after this method returns.
     private func scanChunk(
         _ chunkText: String,
         documentName: String,
-        sourceText: String,
-        segmentsDone: inout Int,
-        total: Int,
-        onProgress: ((Int, Int) -> Void)?
+        sourceText: String
     ) throws -> ChunkOutcome {
 
         // First attempt at the default cap.
         let firstCompletion = try completeChunk(chunkText, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens)
-        segmentsDone += 1
-        onProgress?(segmentsDone, total)
 
         if let firstRows = ProfileJSONParser.parseProfileRowsDetailed(firstCompletion) {
             return ChunkOutcome(rows: firstRows, incomplete: false)
@@ -194,8 +190,6 @@ public final class ProfileExtractor {
 
         // Retry once with doubled maxTokens.
         let retryCompletion = try completeChunk(chunkText, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens * 2)
-        segmentsDone += 1
-        onProgress?(segmentsDone, total)
 
         if let retryRows = ProfileJSONParser.parseProfileRowsDetailed(retryCompletion) {
             return ChunkOutcome(rows: retryRows, incomplete: false)
@@ -213,8 +207,6 @@ public final class ProfileExtractor {
 
         for half in halves {
             let halfCompletion = try completeChunk(half, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens)
-            segmentsDone += 1
-            onProgress?(segmentsDone, total)
 
             if let halfRows = ProfileJSONParser.parseProfileRowsDetailed(halfCompletion) {
                 allRows.append(contentsOf: halfRows)

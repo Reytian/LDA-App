@@ -178,4 +178,24 @@ final class ProfileExtractorTests: XCTestCase {
         let extractor = ProfileExtractor(completer: throwing)
         XCTAssertThrowsError(try extractor.extract(sources: [("cert.pdf", "some text")]))
     }
+
+    func testProgressNeverExceedsTotalOnRetryAndSplit() throws {
+        // One short source yields 1 chunk. The FakeCompleter returns 4 consecutive
+        // garbage responses, exercising the full first-attempt + retry + both
+        // split-halves path. onProgress must never fire with done > total, the
+        // first pair must be (0,1), and the last pair must be (1,1).
+        let fake = FakeCompleter(["garbage", "garbage", "garbage", "garbage"])
+        var calls: [(Int, Int)] = []
+        _ = try ProfileExtractor(completer: fake).extract(sources: [("cert.pdf", "short doc")]) { done, total in
+            calls.append((done, total))
+        }
+        XCTAssertFalse(calls.isEmpty, "expected at least one progress call")
+        for (done, total) in calls {
+            XCTAssertLessThanOrEqual(done, total, "progress overflowed: done=\(done) total=\(total)")
+        }
+        XCTAssertEqual(calls.first?.0, 0, "first done should be 0")
+        XCTAssertEqual(calls.first?.1, 1, "first total should be 1")
+        XCTAssertEqual(calls.last?.0, 1, "last done should be 1")
+        XCTAssertEqual(calls.last?.1, 1, "last total should be 1")
+    }
 }
