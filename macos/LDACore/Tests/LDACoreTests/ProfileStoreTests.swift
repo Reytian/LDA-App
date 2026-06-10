@@ -100,6 +100,10 @@ final class ProfileStoreTests: XCTestCase {
             raw.range(of: Data("Acme Holdings".utf8)) != nil,
             "PII found in raw file bytes"
         )
+        XCTAssertNil(
+            String(data: raw, encoding: .utf8)?.range(of: "Acme Holdings"),
+            "PII found via string decode of file"
+        )
     }
 
     func testMappingContainerRejectedByProfileStore() throws {
