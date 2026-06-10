@@ -25,12 +25,12 @@ import Foundation
 /// CompanyProfile payload.
 public enum ProfileStore {
 
-    // MARK: Public constants
+    // MARK: - Public constants
 
     /// The default file extension for saved profiles.
     public static let fileExtension = "ldaprofile"
 
-    // MARK: Shared container instance
+    // MARK: - Shared container instance
 
     private static let container = EncryptedContainer(
         magic: Array("LDAPROF".utf8),
@@ -38,7 +38,7 @@ public enum ProfileStore {
         containerDescription: "Profile file"
     )
 
-    // MARK: Public API
+    // MARK: - Public API
 
     /// Encrypts and writes the CompanyProfile to url under the given protection.
     ///
@@ -49,15 +49,7 @@ public enum ProfileStore {
         to url: URL,
         protection: MappingProtection
     ) throws {
-        let encoder = JSONEncoder()
-        // Sorted keys keep the output deterministic; does not affect security.
-        encoder.outputFormatting = [.sortedKeys]
-        let plaintext: Data
-        do {
-            plaintext = try encoder.encode(profile)
-        } catch {
-            throw DocumentIOError.corrupt("Failed to encode profile: \(error)")
-        }
+        let plaintext = try encodeProfile(profile)
         try container.save(plaintext, to: url, protection: protection)
     }
 
@@ -72,18 +64,35 @@ public enum ProfileStore {
         protection: MappingProtection
     ) throws -> CompanyProfile {
         let plaintext = try container.load(from: url, protection: protection)
-        do {
-            return try JSONDecoder().decode(CompanyProfile.self, from: plaintext)
-        } catch {
-            // Decryption succeeded but the payload is not a valid CompanyProfile;
-            // treat as a corrupt container rather than a decryption failure.
-            throw DocumentIOError.corrupt("Decrypted payload is not a valid CompanyProfile: \(error)")
-        }
+        return try decodeProfile(plaintext)
     }
 
     /// Removes the stored Keychain key for an account. Best-effort cleanup
     /// helper for tests and key rotation; a missing item is treated as success.
     public static func deleteKeychainKey(account: String) throws {
         try container.deleteKeychainKey(account: account)
+    }
+
+    // MARK: - Encoding
+
+    private static func encodeProfile(_ profile: CompanyProfile) throws -> Data {
+        let encoder = JSONEncoder()
+        // Sorted keys keep the output deterministic; does not affect security.
+        encoder.outputFormatting = [.sortedKeys]
+        do {
+            return try encoder.encode(profile)
+        } catch {
+            throw DocumentIOError.corrupt("Failed to encode profile: \(error)")
+        }
+    }
+
+    private static func decodeProfile(_ data: Data) throws -> CompanyProfile {
+        do {
+            return try JSONDecoder().decode(CompanyProfile.self, from: data)
+        } catch {
+            // Decryption succeeded but the payload is not a valid CompanyProfile;
+            // treat as a corrupt container rather than a decryption failure.
+            throw DocumentIOError.corrupt("Decrypted payload is not a valid CompanyProfile: \(error)")
+        }
     }
 }

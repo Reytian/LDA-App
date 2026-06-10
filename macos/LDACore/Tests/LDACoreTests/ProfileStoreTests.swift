@@ -38,7 +38,7 @@ final class ProfileStoreTests: XCTestCase {
     private func tempURL() -> URL {
         workDir
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("ldaprofile")
+            .appendingPathExtension(ProfileStore.fileExtension)
     }
 
     // MARK: - Sample fixture
@@ -120,6 +120,47 @@ final class ProfileStoreTests: XCTestCase {
         ) { error in
             guard case DocumentIOError.corrupt = error else {
                 XCTFail("Expected corrupt for mismatched magic (mapping vs profile), got \(error)")
+                return
+            }
+        }
+    }
+
+    func testTamperedByteCausesDecryptionFailed() throws {
+        // Arrange
+        let url = tempURL()
+        let passphrase = "tamper-test-passphrase"
+        try ProfileStore.save(sampleProfile(), to: url, protection: .passphrase(passphrase))
+
+        var bytes = try Data(contentsOf: url)
+        // Flip a bit deep inside the ciphertext region (well past the header and
+        // salt) so AES-GCM authentication fails on load.
+        let tamperIndex = bytes.count - 4
+        XCTAssertGreaterThan(tamperIndex, 0)
+        bytes[tamperIndex] ^= 0xFF
+        try bytes.write(to: url)
+
+        // Act + Assert
+        XCTAssertThrowsError(
+            try ProfileStore.load(from: url, protection: .passphrase(passphrase))
+        ) { error in
+            guard case DocumentIOError.decryptionFailed = error else {
+                XCTFail("Expected decryptionFailed for tampered file, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testLoadingTruncatedContainerThrowsCorrupt() throws {
+        // A file that is not a valid container should not be reported as a
+        // decryption failure; it is structurally corrupt.
+        let url = tempURL()
+        try Data("not a real container".utf8).write(to: url)
+
+        XCTAssertThrowsError(
+            try ProfileStore.load(from: url, protection: .passphrase("whatever"))
+        ) { error in
+            guard case DocumentIOError.corrupt = error else {
+                XCTFail("Expected corrupt for a non-container file, got \(error)")
                 return
             }
         }
