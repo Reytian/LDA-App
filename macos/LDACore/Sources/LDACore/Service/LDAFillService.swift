@@ -161,9 +161,9 @@ extension LDAService {
         // Guard: only docx and pdf are supported fill targets.
         // Handle extensionless targets gracefully (ext is "" when no extension).
         guard ext == "docx" || ext == "pdf" else {
-            let gotSuffix = ext.isEmpty ? "" : " got .\(ext)"
+            let gotSuffix = ext.isEmpty ? "" : " (got .\(ext))"
             throw DocumentIOError.unsupportedFormat(
-                "Fill targets must be .docx or .pdf;\(gotSuffix). " +
+                "Fill targets must be .docx or .pdf\(gotSuffix). " +
                 "Plain text is a valid profile source but not a fill target."
             )
         }

@@ -120,6 +120,18 @@ Open `http://localhost:8501` in your browser.
 └── .gitignore
 ```
 
+## macOS App: Fill from Profile
+
+The native macOS version of LDA (in `macos/LDACore`) adds a fill-from-profile
+feature that extracts structured company facts from source documents (certificates,
+articles, registry printouts) and uses them to auto-fill blanks in draft agreements
+and AcroForm PDFs, all on-device with no network access. Profiles are saved as
+AES-GCM encrypted `.ldaprofile` files; no plaintext profile data is written to
+disk. The feature supports `.docx` (text-span blanks) and `.pdf` (AcroForm text
+widgets) as fill targets, and uses a review-first posture so you inspect proposed
+fills before they are applied. Full CLI usage and V1 limits are documented in
+[macos/LDACore/README.md](macos/LDACore/README.md).
+
 ## Roadmap: Fully Local Operation
 
 This PoC validates the two-pass scanning and three-step restoration approach using a cloud API. The production roadmap is:

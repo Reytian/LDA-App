@@ -33,6 +33,56 @@ because the deterministic engine runs `NSRegularExpression` over the text as
 The full design specification lives at
 `docs/superpowers/specs/2026-06-06-lda-app-design.md` in the repo root.
 
+## Fill from profile
+
+Fill from profile lets you build a structured company profile from source
+documents (articles of incorporation, certificates, company registry printouts)
+and then use that profile to auto-fill blanks in draft agreements or form PDFs,
+without retyping facts by hand.
+
+### CLI commands
+
+**Build and save a profile from source documents:**
+
+```
+lda extract-profile --label "Meridian" --out meridian.ldaprofile \
+    --model /path/to/lda-v2-Q4_K_M.gguf certificate.pdf articles.docx
+```
+
+**Preview the fill plan without writing anything:**
+
+```
+lda fill --profile meridian.ldaprofile --input agreement.docx --plan
+```
+
+**Apply the fill and write the filled document:**
+
+```
+lda fill --profile meridian.ldaprofile --input agreement.docx \
+    --apply --output-dir ./filled/
+```
+
+### Format and posture
+
+Profiles are saved as `.ldaprofile` files: AES-GCM encrypted, versioned
+containers. The format is the same as the mapping files used by anonymize
+and restore; no plaintext profile data is ever written to disk.
+
+The fill pipeline is review-first by design. `--plan` prints the proposed
+fills to stdout so you can inspect them before committing. `--apply`
+re-plans from the current profile state and promotes all proposed blanks
+with a value to confirmed, then writes the output; a warning is printed
+when the target has changed since you ran `--plan`.
+
+### V1 limits
+
+- Supported fill targets: `.docx` (text-span blanks) and `.pdf` (AcroForm
+  text widgets only). Flat PDFs with no form fields are accepted and produce
+  an empty plan rather than an error.
+- Checkbox, radio, and choice widgets are listed as manual items in the
+  report; they are not auto-filled.
+- One profile per run. Multi-party fills require separate runs.
+
 ## House rules
 
 All code comments, docstrings, and strings are in English. No em-dash and no
