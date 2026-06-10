@@ -102,14 +102,16 @@ public final class FillModel: ObservableObject {
     // MARK: - Test seams
 
     /// Replaces LDAService.extractProfile in tests. Receives (sources, label,
-    /// createdAtISO8601) and returns an ExtractProfileResult or throws. Nil in
-    /// production. Mirrors the ReviewModel / LDAFillService static-var seam pattern.
-    nonisolated(unsafe) internal static var extractProfileForTesting: (([URL], String, String) throws -> ExtractProfileResult)?
+    /// createdAtISO8601, onProgress) and returns an ExtractProfileResult or throws.
+    /// The onProgress closure mirrors the production signature so fakes can fire
+    /// progress callbacks to drive the importingSources -> extracting transition.
+    /// Nil in production. Mirrors the ReviewModel / LDAFillService static-var seam pattern.
+    nonisolated(unsafe) internal static var extractProfileForTesting: (([URL], String, String, (Int, Int) -> Void) throws -> ExtractProfileResult)?
 
-    /// Replaces LDAService.planFill in tests. Receives the target URL and
-    /// returns a FillPlan or throws. Profile is captured from the model at call
-    /// time. Nil in production.
-    nonisolated(unsafe) internal static var planFillForTesting: ((URL) throws -> FillPlan)?
+    /// Replaces LDAService.planFill in tests. Receives (target, profile) and
+    /// returns a FillPlan or throws. The live profile is passed at the call site
+    /// so tests can assert the hand-off. Nil in production.
+    nonisolated(unsafe) internal static var planFillForTesting: ((URL, CompanyProfile) throws -> FillPlan)?
 
     /// Replaces LDAService.applyFill in tests. Receives (plan, target, outputDir)
     /// and returns a FillReport or throws. Nil in production.
@@ -185,9 +187,18 @@ public final class FillModel: ObservableObject {
         if blank.proposedValue != nil {
             blanks[idx].status = .confirmed
         } else {
-            // Signal the UI to open the picker for this blank.
+            // M2: nil-then-reassign so SwiftUI .onChange observers re-fire even
+            // when the same blank is accepted twice in a row (SwiftUI skips
+            // .onChange if the new value equals the old value).
+            pickerRequestID = nil
             pickerRequestID = id
         }
+    }
+
+    /// Clear the pending picker request. Call after the picker is dismissed or
+    /// after the user selects a field so the request does not linger.
+    public func clearPickerRequest() {
+        pickerRequestID = nil
     }
 
     /// Accept all blanks that are .proposed and have a non-nil proposedValue.
@@ -202,6 +213,8 @@ public final class FillModel: ObservableObject {
 
     /// Move a blank to .rejected regardless of its current status.
     public func rejectBlank(id: UUID) {
+        // M2: A pending picker request for this blank is no longer relevant once rejected.
+        pickerRequestID = nil
         guard let idx = blanks.firstIndex(where: { $0.id == id }) else { return }
         blanks[idx].status = .rejected
     }
@@ -210,6 +223,8 @@ public final class FillModel: ObservableObject {
     /// proposedValue (from the field's current value), and status .proposed.
     /// No-op when the blank id or field id is not found.
     public func repointBlank(id: UUID, fieldID: UUID) {
+        // M2: The picker has been satisfied; clear the pending request.
+        pickerRequestID = nil
         guard let blankIdx = blanks.firstIndex(where: { $0.id == id }) else { return }
         guard let field = profile?.fields.first(where: { $0.id == fieldID }) else { return }
         blanks[blankIdx].proposedFieldID = fieldID
@@ -251,6 +266,10 @@ public final class FillModel: ObservableObject {
     ///
     /// createdAtISO8601 is supplied by the caller; the model never reads the clock.
     public func extractProfile(sources: [URL], label: String, createdAtISO8601: String) async {
+        // Stage starts at .importingSources (documents are being staged before the
+        // LLM begins). The facade emits onProgress(0, total) when extraction actually
+        // begins (after all imports succeed); we flip to .extracting on that first
+        // callback so the stage honestly reflects what the engine is doing.
         stage = .importingSources
         progress = 0
         sourceWarnings = []
@@ -261,17 +280,20 @@ public final class FillModel: ObservableObject {
         let progressCallback: @Sendable (Int, Int) -> Void = { [weak self] done, total in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Flip to .extracting on the first progress event (done == 0 and
+                // total > 0 is the "extraction started" signal from the facade).
+                if case .importingSources = self.stage { self.stage = .extracting }
                 if total > 0 { self.progress = Double(done) / Double(total) }
             }
         }
 
-        // Transition to extracting before launching off-main work.
-        stage = .extracting
+        // Do NOT set .extracting here; let the first onProgress callback do it
+        // so the stage reflects real engine state rather than a premature guess.
 
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 if let seam {
-                    return try seam(sources, label, createdAtISO8601)
+                    return try seam(sources, label, createdAtISO8601, progressCallback)
                 } else {
                     return try LDAService.extractProfile(
                         sources: sources,
@@ -300,6 +322,8 @@ public final class FillModel: ObservableObject {
     /// selectedBlankID is set to the first blank after planning succeeds.
     public func planFill(target: URL) async {
         guard let profile else { return }
+        // I3: Reset progress at the start of each new planning pass.
+        progress = 0
         stage = .planning
         targetURL = target
 
@@ -309,7 +333,8 @@ public final class FillModel: ObservableObject {
         do {
             let plan = try await Task.detached(priority: .userInitiated) {
                 if let seam {
-                    return try seam(target)
+                    // I1: Pass the live profile so tests can assert the hand-off.
+                    return try seam(target, profile)
                 } else {
                     return try LDAService.planFill(
                         target: target,
@@ -338,7 +363,13 @@ public final class FillModel: ObservableObject {
     ///
     /// Stage transitions: .applying -> .done(FillReport) or .failed.
     public func applyFill(outputDir: URL) async {
+        // I2: Only proceed from the reviewing stage. This prevents re-entry from
+        // .done overwriting a completed report, and guards against calls from any
+        // other stage where a FillPlan has not yet been constructed.
+        guard case .reviewing = stage else { return }
         guard let profile, let targetURL else { return }
+        // I3: Reset progress at the start of each apply pass.
+        progress = 0
         stage = .applying
 
         let plan = FillPlan(

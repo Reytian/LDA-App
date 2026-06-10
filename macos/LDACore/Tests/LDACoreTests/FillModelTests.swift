@@ -16,6 +16,7 @@
 //
 
 import XCTest
+import Combine
 @testable import LDACore
 @testable import LDAUI
 
@@ -414,7 +415,7 @@ final class FillModelTests: XCTestCase {
             failedSources: [("bad.txt", "unreadable")]
         )
 
-        FillModel.extractProfileForTesting = { _, _, _ in fakeResult }
+        FillModel.extractProfileForTesting = { _, _, _, _ in fakeResult }
 
         await model.extractProfile(
             sources: [URL(fileURLWithPath: "/tmp/source.txt")],
@@ -436,7 +437,7 @@ final class FillModelTests: XCTestCase {
         struct FakeError: Error {
             let msg: String
         }
-        FillModel.extractProfileForTesting = { _, _, _ in
+        FillModel.extractProfileForTesting = { _, _, _, _ in
             throw FakeError(msg: "engine blew up")
         }
 
@@ -469,7 +470,7 @@ final class FillModelTests: XCTestCase {
             manualWidgetNames: ["Signature"]
         )
 
-        FillModel.planFillForTesting = { _ in fakePlan }
+        FillModel.planFillForTesting = { _, _ in fakePlan }
 
         let target = URL(fileURLWithPath: "/tmp/form.pdf")
         await model.planFill(target: target)
@@ -543,5 +544,150 @@ final class FillModelTests: XCTestCase {
             XCTFail("stage must be .failed after apply error")
             return
         }
+    }
+
+    // MARK: - I1: planFill seam receives the live profile
+
+    func testPlanFillSeamReceivesLoadedProfile() async throws {
+        let model = FillModel(modelPath: nil)
+        let profile = makeProfile(companyName: "SeamCheck Corp")
+        model.loadProfile(profile)
+
+        var receivedProfile: CompanyProfile?
+        let fakePlan = FillPlan(
+            targetFormat: .pdf,
+            blanks: [],
+            manualWidgetNames: []
+        )
+        FillModel.planFillForTesting = { _, handedProfile in
+            receivedProfile = handedProfile
+            return fakePlan
+        }
+
+        await model.planFill(target: URL(fileURLWithPath: "/tmp/form.pdf"))
+
+        let handed = try XCTUnwrap(receivedProfile, "seam must receive the live profile")
+        XCTAssertEqual(handed.label, profile.label)
+        XCTAssertEqual(handed.fields.count, profile.fields.count)
+        XCTAssertEqual(handed.fields[0].value, "SeamCheck Corp",
+                       "seam must receive the profile loaded into the model")
+    }
+
+    // MARK: - I2: applyFill from .done is a no-op (report not overwritten)
+
+    func testApplyFillFromDoneIsNoOp() async throws {
+        let model = FillModel(modelPath: nil)
+        let profile = makeProfile()
+        model.loadProfile(profile)
+        model.targetURL = URL(fileURLWithPath: "/tmp/form.pdf")
+        model.blanks = [makeProposedBlank(fieldID: profile.fields[0].id, value: "v")]
+
+        // Put the model in .done with the original report.
+        let originalReport = FillReport(
+            outputURL: URL(fileURLWithPath: "/tmp/out/form (filled).pdf"),
+            filledCount: 3,
+            skipped: []
+        )
+        model.stage = .done(originalReport)
+
+        // Wire a seam that would return a different report if called.
+        var seamCallCount = 0
+        FillModel.applyFillForTesting = { _, _, _ in
+            seamCallCount += 1
+            return FillReport(
+                outputURL: URL(fileURLWithPath: "/tmp/out/overwrite.pdf"),
+                filledCount: 0,
+                skipped: []
+            )
+        }
+
+        await model.applyFill(outputDir: URL(fileURLWithPath: "/tmp/out"))
+
+        // The seam must never have been called.
+        XCTAssertEqual(seamCallCount, 0, "applyFill from .done must not invoke the facade")
+        // The stage must remain .done with the original report unchanged.
+        guard case .done(let report) = model.stage else {
+            XCTFail("stage must remain .done; got \(model.stage)")
+            return
+        }
+        XCTAssertEqual(report.filledCount, 3, "original report must not be overwritten")
+    }
+
+    // MARK: - M2: re-accepting the same nil-proposal blank re-signals pickerRequestID
+
+    func testReacceptSameAmbiguousBlankResignals() throws {
+        let model = FillModel(modelPath: nil)
+        model.loadProfile(makeProfile())
+        let blank = makeAmbiguousBlank()
+        model.blanks = [blank]
+
+        // Collect all published values of pickerRequestID via Combine.
+        var publishedIDs: [UUID?] = []
+        let cancellable = model.$pickerRequestID.sink { publishedIDs.append($0) }
+        defer { cancellable.cancel() }
+
+        // First acceptance: nil -> id.
+        model.acceptBlank(id: blank.id)
+        // Second acceptance of the same blank: must nil -> id again.
+        model.acceptBlank(id: blank.id)
+
+        // Expected sequence: initial nil (from sink subscription) + nil + id (first
+        // accept) + nil + id (second accept) = 5 events.
+        // We assert the minimum: the sequence ends with ...nil, id so the second
+        // accept fired a fresh transition.
+        XCTAssertGreaterThanOrEqual(publishedIDs.count, 4,
+            "must see at least initial + nil + id + nil + id across two acceptances")
+        // Last two published values must be nil then the blank id.
+        let last = publishedIDs.suffix(2)
+        XCTAssertEqual(Array(last), [nil, blank.id],
+            "second accept must re-signal nil -> id so .onChange observers re-fire")
+    }
+
+    // MARK: - M1/d: importingSources -> extracting on first progress callback
+
+    func testExtractProfileStageFlipsToExtractingOnFirstProgress() async throws {
+        let model = FillModel(modelPath: nil)
+        let profile = makeProfile()
+        let fakeResult = ExtractProfileResult(profile: profile, failedSources: [])
+
+        // Stage sequence captured from main-actor context (seam runs on detached thread).
+        // We capture stages from the published property using Combine.
+        var stageSequence: [FillStage] = []
+        var cancellable: AnyCancellable?
+
+        // Wire the seam to fire the first progress callback, which should flip
+        // the stage from .importingSources to .extracting.
+        FillModel.extractProfileForTesting = { _, _, _, onProgress in
+            // Fire the "extraction started" signal: done=0, total=5.
+            onProgress(0, 5)
+            return fakeResult
+        }
+
+        cancellable = model.$stage.sink { stageSequence.append($0) }
+        defer { cancellable?.cancel() }
+
+        await model.extractProfile(
+            sources: [URL(fileURLWithPath: "/tmp/source.txt")],
+            label: "Test Co",
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        cancellable?.cancel()
+
+        // Must pass through importingSources before extracting.
+        XCTAssertTrue(stageSequence.contains(.importingSources),
+            "stage must pass through .importingSources at the start")
+        XCTAssertTrue(stageSequence.contains(.extracting),
+            "stage must flip to .extracting after the first progress callback")
+
+        // importingSources must come before extracting in the sequence.
+        let importingIdx = stageSequence.firstIndex(of: .importingSources)
+        let extractingIdx = stageSequence.firstIndex(of: .extracting)
+        if let i = importingIdx, let e = extractingIdx {
+            XCTAssertLessThan(i, e, ".importingSources must precede .extracting")
+        }
+
+        // Final stage must be .profileReady.
+        XCTAssertEqual(model.stage, .profileReady)
     }
 }
