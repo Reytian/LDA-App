@@ -603,6 +603,52 @@ final class FillServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - Item 3: planFill with explicit bad modelPath throws (loud failure)
+
+    // Test: when modelPath is non-nil, all synonym-matched blanks are .proposed,
+    // but an unmatched blank remains, planFill must throw if the engine cannot
+    // be loaded -- rather than silently falling back to synonym-only results.
+    //
+    // Strategy: build a PDF form with a field whose name does NOT match any
+    // synonym entry ("CustomFieldXYZ"), so Pass 1 leaves it .unmatched. Then
+    // call planFill with modelPath "/nonexistent.gguf". The engine load must
+    // throw (no seam is wired), and that error must propagate out.
+    func testPlanFillWithExplicitBadModelPathThrows() throws {
+        // Build a form PDF with a field that the synonym table cannot match.
+        let page = PDFPage()
+        page.setBounds(Self.pageBounds, for: .mediaBox)
+        page.addAnnotation(makeWidget(
+            name: "CustomFieldXYZ",
+            fieldType: "Tx",
+            rect: CGRect(x: 50, y: 700, width: 300, height: 20)
+        ))
+        let document = PDFDocument()
+        document.insert(page, at: 0)
+        let pdfURL = workDir.appendingPathComponent("unmatched-\(UUID().uuidString).pdf")
+        guard document.write(to: pdfURL) else {
+            XCTFail("could not write fixture PDF")
+            return
+        }
+
+        let profile = makeProfile(companyName: "Acme Holdings Limited")
+
+        // No seam: LLMEngine construction will fail because the path is bogus.
+        LDAService.makeCompleterForTesting = nil
+
+        XCTAssertThrowsError(
+            try LDAService.planFill(
+                target: pdfURL,
+                profile: profile,
+                modelPath: "/nonexistent/model.gguf"
+            )
+        ) { error in
+            // We do not pin the exact error type (LLMEngine's throw type is
+            // internal). What matters is that something was thrown and the call
+            // did NOT silently succeed with only synonym-matched results.
+            _ = error
+        }
+    }
+
     // MARK: - New tests (review punch list)
 
     // Test (I1): extractProfile throws when model load fails instead of returning

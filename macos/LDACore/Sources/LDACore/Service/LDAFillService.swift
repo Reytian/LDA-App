@@ -179,17 +179,19 @@ extension LDAService {
             // Pass 2: model fallback only when unmatched blanks remain and a
             // model path was supplied. Lazy construction: skip the 2.7 GB load
             // when the synonym pass resolved everything.
+            // When modelPath is explicitly supplied and the engine fails to load,
+            // the error is thrown to the caller: a bad path should be loud, not a
+            // silent synonym-only fallback. Omitting modelPath (nil) means
+            // deterministic-only and does not reach this branch.
             if planned.contains(where: { $0.status == .unmatched }),
                let modelPath {
-                let completer: TextCompleter?
+                let completer: TextCompleter
                 if let factory = makeCompleterForTesting {
                     completer = factory()
                 } else {
-                    completer = try? LLMEngine(config: .init(modelPath: modelPath))
+                    completer = try LLMEngine(config: .init(modelPath: modelPath))
                 }
-                if let completer {
-                    planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
-                }
+                planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
             }
 
             return FillPlan(targetFormat: .docx, blanks: planned, manualWidgetNames: [])
@@ -227,18 +229,18 @@ extension LDAService {
             var planned = FillPlanner.plan(blanks: blanks, profile: profile, completer: nil)
 
             // Pass 2: model fallback only when unmatched blanks remain and a
-            // model path was supplied.
+            // model path was supplied. When modelPath is explicitly supplied and
+            // the engine fails to load, the error is thrown to the caller: a bad
+            // path should be loud, not a silent synonym-only fallback.
             if planned.contains(where: { $0.status == .unmatched }),
                let modelPath {
-                let completer: TextCompleter?
+                let completer: TextCompleter
                 if let factory = makeCompleterForTesting {
                     completer = factory()
                 } else {
-                    completer = try? LLMEngine(config: .init(modelPath: modelPath))
+                    completer = try LLMEngine(config: .init(modelPath: modelPath))
                 }
-                if let completer {
-                    planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
-                }
+                planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
             }
 
             return FillPlan(

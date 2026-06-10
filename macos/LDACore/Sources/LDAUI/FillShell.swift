@@ -136,7 +136,7 @@ public struct FillShell: View {
             .help("Add source documents to extract profile fields from (PDF, Word, or plain text)")
         }
 
-        // Automatic group: Extract, Save Profile, Load Profile
+        // Automatic group: Extract, Save Profile, Load Profile, Open Target
         ToolbarItemGroup(placement: .automatic) {
             Button {
                 let created = ISO8601DateFormatter().string(from: Date())
@@ -173,6 +173,15 @@ public struct FillShell: View {
             }
             .labelStyle(.titleAndIcon)
             .help("Load a previously saved .ldaprofile file")
+
+            Button {
+                presentOpenTarget()
+            } label: {
+                Label("Open Target", systemImage: "doc.text")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(!canOpenTarget)
+            .help("Open the Word or PDF document to fill (requires a loaded profile)")
         }
     }
 
@@ -422,7 +431,9 @@ public struct FillShell: View {
     private var extractDisabledReason: String {
         if sourcePaths.isEmpty { return "Add at least one source document first" }
         if model.modelPath == nil || (model.modelPath ?? "").isEmpty {
-            return "A GGUF model path is required for extraction. Configure it in Settings."
+            return "Requires the bundled on-device model (lda-v2-Q4_K_M.gguf). "
+                + "In development builds, place the model at "
+                + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf."
         }
         return "Extract profile fields from the source documents"
     }
@@ -430,6 +441,11 @@ public struct FillShell: View {
     private var canSaveProfile: Bool {
         guard let profile = model.profile else { return false }
         return profile.conflictedKeys.isEmpty
+    }
+
+    private var canOpenTarget: Bool {
+        model.profile != nil
+            && !(model.stage == .importingSources || model.stage == .extracting)
     }
 
     private var extractingLabel: String {
