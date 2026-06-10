@@ -180,10 +180,18 @@ final class EntityJSONParserTests: XCTestCase {
         XCTAssertEqual(EntityJSONParser.parse(""), [])
     }
 
-    func testMalformedUnbalancedJSONReturnsEmpty() {
+    func testTruncatedJSONSalvagesCompleteLeadingEntities() {
+        // A completion cut off mid-array (the model hit its token cap) is NOT
+        // genuine emptiness: one complete entity object was already emitted before
+        // the cut. The salvage path (LJE-001) must recover it rather than discard
+        // the whole payload. (This previously asserted [], which encoded the
+        // silent-leak bug; it is updated intentionally now that parse salvages.)
         let output = #"{"entities":[{"value":"Jane","type":"PERSON"}"#
 
-        XCTAssertEqual(EntityJSONParser.parse(output), [])
+        XCTAssertEqual(
+            EntityJSONParser.parse(output),
+            [ExtractedEntity(value: "Jane", type: .person)]
+        )
     }
 
     func testEmptyEntitiesArrayReturnsEmpty() {
@@ -255,5 +263,135 @@ final class EntityJSONParserTests: XCTestCase {
             ExtractedEntity(value: "March 14, 2024", type: .date),
             ExtractedEntity(value: "$25,000.00", type: .amount)
         ])
+    }
+
+    // MARK: LJE-002: largest balanced region, not the first
+
+    func testStrayBalancedBraceBeforeRealObjectStillRecoversEntities() {
+        // A chatty reasoning model prefixes its JSON with prose that itself
+        // contains a small balanced brace pair and a small balanced bracket pair.
+        // The first balanced {..} is the prose noise; the real entities object is
+        // larger and comes later. The parser must reach the real payload.
+        let output = """
+        Here is a list [item one, item two] and a note {ignore this}.
+        {"entities":[{"value":"Jane Roe","type":"PERSON"},\
+        {"value":"Acme Corp","type":"COMPANY"}],"redacted_text":"x"}
+        """
+
+        let entities = EntityJSONParser.parse(output)
+
+        XCTAssertEqual(entities, [
+            ExtractedEntity(value: "Jane Roe", type: .person),
+            ExtractedEntity(value: "Acme Corp", type: .company)
+        ])
+    }
+
+    func testRealisticReasoningProseWithStrayPunctuationRecoversEntities() {
+        let output = """
+        The parties [Buyer, Seller, Guarantor] are identified below; terms \
+        {as set out in Schedule A} apply.
+        {"entities":[{"value":"Jane Roe","type":"PERSON"},\
+        {"value":"Acme Corp","type":"COMPANY"}],"redacted_text":"x"}
+        """
+
+        let entities = EntityJSONParser.parse(output)
+
+        XCTAssertEqual(entities, [
+            ExtractedEntity(value: "Jane Roe", type: .person),
+            ExtractedEntity(value: "Acme Corp", type: .company)
+        ])
+    }
+
+    // MARK: LJE-003: decode the raw output before stripping code fences
+
+    func testBacktickInsideStringValueDoesNotMangleValidJSON() {
+        // A valid JSON object whose redacted_text value literally contains a "```"
+        // sequence. stripCodeFences must NOT treat that inner backtick run as an
+        // opening fence; the raw valid JSON must decode first.
+        let output = """
+        {"entities":[{"value":"Jane Roe","type":"PERSON"}],\
+        "redacted_text":"see ```code``` block {PERSON_1}"}
+        """
+
+        let entities = EntityJSONParser.parse(output)
+
+        XCTAssertEqual(entities, [
+            ExtractedEntity(value: "Jane Roe", type: .person)
+        ])
+    }
+
+    // MARK: LJE-001: parseDetailed distinguishes truncation from emptiness
+
+    func testParseDetailedSalvagesLeadingEntitiesAndSignalsTruncation() {
+        // Five complete entity objects, then a sixth cut off at the token cap.
+        // The salvage path must recover all five AND report truncation.
+        let output = """
+        {"entities":[\
+        {"value":"Jane Roe","type":"PERSON"},\
+        {"value":"Acme Corporation","type":"COMPANY"},\
+        {"value":"450 Park Avenue","type":"ADDRESS"},\
+        {"value":"John Smith","type":"PERSON"},\
+        {"value":"Globex LLC","type":"COMPANY"},\
+        {"value":"Maria Ch
+        """
+
+        let result = EntityJSONParser.parseDetailed(output)
+
+        XCTAssertEqual(result.entities, [
+            ExtractedEntity(value: "Jane Roe", type: .person),
+            ExtractedEntity(value: "Acme Corporation", type: .company),
+            ExtractedEntity(value: "450 Park Avenue", type: .address),
+            ExtractedEntity(value: "John Smith", type: .person),
+            ExtractedEntity(value: "Globex LLC", type: .company)
+        ])
+        XCTAssertTrue(result.truncated, "a cut-off completion must signal truncation")
+    }
+
+    func testParseDetailedOnCompleteJSONIsNotTruncated() {
+        let output = """
+        {"entities":[{"value":"Jane Roe","type":"PERSON"},\
+        {"value":"Acme Corp","type":"COMPANY"}],"redacted_text":"x"}
+        """
+
+        let result = EntityJSONParser.parseDetailed(output)
+
+        XCTAssertEqual(result.entities, [
+            ExtractedEntity(value: "Jane Roe", type: .person),
+            ExtractedEntity(value: "Acme Corp", type: .company)
+        ])
+        XCTAssertFalse(result.truncated, "well-formed JSON must not be flagged as truncated")
+    }
+
+    func testParseDetailedSignalsTruncationWhenArrayNeverCloses() {
+        // The completion ended right after a complete object but before the
+        // closing "]" (and "}"). The object is recovered, and because the array
+        // never closed this must still be flagged truncated so the extractor
+        // retries rather than treating it as a fully-scanned result.
+        let output = #"{"entities":[{"value":"Jane Roe","type":"PERSON"}"#
+
+        let result = EntityJSONParser.parseDetailed(output)
+
+        XCTAssertEqual(result.entities, [ExtractedEntity(value: "Jane Roe", type: .person)])
+        XCTAssertTrue(result.truncated, "an array that never closed must be flagged truncated")
+    }
+
+    func testParseDetailedOnGenuinelyEmptyIsNotTruncated() {
+        // The model genuinely found no PII: empty entities, well-formed. This must
+        // stay empty AND not be flagged as truncated, so a clean document is not
+        // mislabeled incomplete.
+        let result = EntityJSONParser.parseDetailed(#"{"entities":[],"redacted_text":"x"}"#)
+
+        XCTAssertEqual(result.entities, [])
+        XCTAssertFalse(result.truncated, "genuine emptiness is not truncation")
+    }
+
+    func testParseDetailedOnGarbageIsNotTruncated() {
+        // Non-JSON prose with no entities array is genuine failure-to-find, not a
+        // mid-array cut. It must not falsely claim truncation (no leading entities
+        // exist to lose).
+        let result = EntityJSONParser.parseDetailed("this is not json at all")
+
+        XCTAssertEqual(result.entities, [])
+        XCTAssertFalse(result.truncated)
     }
 }

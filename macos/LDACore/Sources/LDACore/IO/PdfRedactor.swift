@@ -2,14 +2,23 @@
 //  PdfRedactor.swift
 //  LDACore
 //
-//  Paints RedactionBox regions opaque to produce a visual-review PDF. The PDF is
-//  never the edit surface; restore happens on the generated companion. This
-//  output exists only so a human can eyeball where PII was detected.
+//  Produces a SAFE redacted-review PDF by destroying, not merely covering, the
+//  PII under each RedactionBox. The PDF is never the edit surface; restore
+//  happens on the generated companion. This output exists so a human can eyeball
+//  where PII was detected and is also safe to share.
 //
-//  Rendering strategy on macOS (no UIGraphics): each source page is drawn into a
-//  fresh CGContext-backed PDF page, then opaque filled rectangles are drawn over
-//  each box that belongs to that page. The underlying glyphs are fully covered by
-//  the opaque fill, so the original text cannot be read from the box region.
+//  Rendering strategy on macOS (no UIGraphics): each source page is rasterized
+//  into an offscreen bitmap, the page content AND the opaque redaction boxes
+//  (plus token labels) are drawn into that bitmap, and the output page content is
+//  ONLY the resulting flattened image. The source page content stream is never
+//  drawn into the output PDF, so the original text glyphs and any embedded image
+//  XObjects (signatures, stamps) are gone. The covered regions therefore cannot
+//  be recovered via PDFKit .string, findString, pdftotext, copy/paste, or by
+//  pulling the source Image XObject back out.
+//
+//  Trade-off: the redacted pages are image-only (no selectable text). For a
+//  privacy tool that is the intended, safe behavior: content removal beats
+//  preserving a selectable text layer that would leak the PII.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -31,6 +40,10 @@ private let labelFontSize: CGFloat = 7.0
 
 /// Inset applied to the label so it sits just inside the box edge.
 private let labelInset: CGFloat = 1.5
+
+/// Render scale (DPI factor) used to rasterize each page. 200 dpi over the 72
+/// pt/in PDF user space keeps redacted pages legible without bloating the file.
+private let renderScale: CGFloat = 200.0 / 72.0
 
 /// Renders a redacted copy of a PDF with opaque boxes painted over the supplied
 /// regions.
@@ -73,21 +86,84 @@ public enum PdfRedactor {
             var mediaBox = page.bounds(for: .mediaBox)
             context.beginPage(mediaBox: &mediaBox)
 
-            // Draw the original page content. PDFPage.draw(with: .mediaBox)
-            // normalizes content into mediaBox-relative coordinates, which is the
-            // same coordinate space PDFSelection.bounds(for:) reports box rects in.
-            context.saveGState()
-            page.draw(with: .mediaBox, to: context)
-            context.restoreGState()
-
-            for box in boxesByPage[index] ?? [] {
-                drawOpaqueBox(box, in: context)
+            // Flatten the page content and the redaction boxes into a single
+            // raster, then emit ONLY that raster as the page content. Because the
+            // source page is never drawn into the output PDF, the original glyphs
+            // and embedded image XObjects do not survive under the boxes.
+            if let flattened = renderFlattenedPage(
+                page,
+                mediaBox: mediaBox,
+                boxes: boxesByPage[index] ?? []
+            ) {
+                context.draw(flattened, in: mediaBox)
+            } else {
+                // Rasterization failed (for example a degenerate media box). Fall
+                // back to painting only the opaque boxes onto a blank page so no
+                // source content is ever copied through. This never leaks PII; in
+                // the worst case the page is blank where the raster would be.
+                context.saveGState()
+                context.setFillColor(CGColor(gray: 1.0, alpha: 1.0))
+                context.fill(mediaBox)
+                context.restoreGState()
+                for box in boxesByPage[index] ?? [] {
+                    drawOpaqueBox(box, in: context)
+                }
             }
 
             context.endPage()
         }
 
         context.closePDF()
+    }
+
+    /// Rasterizes one page into a bitmap, paints the page content and the opaque
+    /// redaction boxes (with token labels) into that bitmap, and returns the
+    /// flattened CGImage in page user-space coordinates.
+    ///
+    /// Painting happens in the same coordinate space PDFSelection.bounds(for:)
+    /// reports, so a box rect lands exactly over the glyphs it covers. The page
+    /// content goes into pixels only; it never reaches the output PDF, so the
+    /// covered text and image XObjects cannot be extracted from the result.
+    private static func renderFlattenedPage(
+        _ page: PDFPage,
+        mediaBox: CGRect,
+        boxes: [RedactionBox]
+    ) -> CGImage? {
+        let pixelWidth = Int((mediaBox.width * renderScale).rounded())
+        let pixelHeight = Int((mediaBox.height * renderScale).rounded())
+        guard pixelWidth > 0, pixelHeight > 0 else { return nil }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let bitmap = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        // White background so transparent PDFs flatten cleanly.
+        bitmap.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        bitmap.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+
+        // Map page user space into the bitmap: scale to render DPI and shift so
+        // the media box origin maps to the bitmap origin.
+        bitmap.scaleBy(x: renderScale, y: renderScale)
+        bitmap.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
+
+        // Draw the page content into the bitmap (pixels only).
+        bitmap.saveGState()
+        page.draw(with: .mediaBox, to: bitmap)
+        bitmap.restoreGState()
+
+        // Paint the opaque boxes and labels ON the same bitmap, over the content.
+        for box in boxes {
+            drawOpaqueBox(box, in: bitmap)
+        }
+
+        return bitmap.makeImage()
     }
 
     /// Draws one opaque box plus a small token label inside it.

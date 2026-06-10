@@ -152,27 +152,35 @@ public struct DeterministicEngine: Sendable {
     // MARK: - PHONE
 
     /// Phone numbers across three common shapes:
-    ///   1. International with explicit country code: +CC followed by 4 to 14
-    ///      digits, optionally grouped by spaces or dashes.
+    ///   1. International with explicit country code: +CC followed by 2 to 5 groups
+    ///      of digits, grouped by spaces, dots, or dashes, with an optional
+    ///      parenthesized area code. The +CC is kept as part of the match.
     ///   2. Chinese mainland mobile: 1 followed by 3-9 then 9 more digits, with a
     ///      digit boundary so it does not bite into a longer run.
     ///   3. Common US or international grouped forms, for example
-    ///      (212) 555-0147 or 212-555-0147.
+    ///      (212) 555-0147, 212-555-0147, 212.555.0147, or (212)555-0147. The
+    ///      separators include the dot, and a parenthesized area code may have no
+    ///      separator before the next group, while a bare area code still requires
+    ///      a separator so section/version/date/ratio strings are not matched.
     ///
     /// Each shape is matched separately and all matches are returned. Overlaps
-    /// between shapes are tolerated; SpanMerger collapses them.
+    /// between shapes are tolerated; SpanMerger collapses them and keeps the longer
+    /// span (so the +CC form wins over its inner grouped match).
     private func detectPhone(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
 
-        // International with a leading plus and country code.
-        let intl = #"\+\d{1,3}[\s\-]?(?:\d[\s\-]?){4,14}\d"#
+        // International: keep the full +CC; allow the dot as a group separator and
+        // an optional parenthesized area code.
+        let intl = #"\+\d{1,3}[\s.\-]?(?:\(?\d{2,4}\)?[\s.\-]?){2,5}\d{2,4}"#
 
         // Chinese mainland mobile, not embedded in a longer digit run.
         let cnMobile = #"(?<!\d)1[3-9]\d{9}(?!\d)"#
 
-        // US or international grouped form: optional area code in parentheses or
-        // bare, then 3-4 split by space or dash, not embedded in a longer run.
-        let grouped = #"(?<![\d+])\(?\d{3}\)?[\s\-]\d{3,4}[\s\-]\d{4}(?!\d)"#
+        // US or international grouped form, two alternatives. A parenthesized area
+        // code may have NO following separator; a bare area code keeps a required
+        // separator. The dot is now an allowed separator. Neither alternative may
+        // be embedded in a longer digit run.
+        let grouped = #"(?<![\d+])\(\d{3}\)[\s.\-]?\d{3,4}[\s.\-]\d{4}(?!\d)|(?<![\d+])\d{3}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)"#
 
         for pattern in [intl, cnMobile, grouped] {
             enumerate(pattern, in: ns, range: range) { match in

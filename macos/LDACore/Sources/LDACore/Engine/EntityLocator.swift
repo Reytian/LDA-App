@@ -79,12 +79,21 @@ public enum EntityLocator {
 
             let start = found.location
             let end = found.location + found.length
+
+            // Capture the ACTUAL matched substring, not the needle. NSString.range
+            // does canonical (NFC/NFD-insensitive) matching, so an NFC needle can
+            // match an NFD occurrence and `found.length` is the haystack's length,
+            // not the needle's. Stamping `text: needle` would make span.text
+            // disagree with the [start, end) bytes and silently change the
+            // document's normalization form on restore. Using the matched slice
+            // keeps span.text byte-identical to the source range.
+            let matched = haystack.substring(with: found)
             result.append(
                 Span(
                     start: start,
                     end: end,
                     type: type,
-                    text: needle,
+                    text: matched,
                     source: source,
                     confidence: confidence,
                     priority: llmPriority

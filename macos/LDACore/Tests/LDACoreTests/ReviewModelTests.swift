@@ -198,6 +198,64 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertNil(rejectedAfter.token, "a rejected entity must not be assigned a token")
     }
 
+    // MARK: - DOCX export scrubs non-body parts
+
+    // Seeded PII for the multi-part DOCX fixture, restricted to types the
+    // DeterministicEngine recognizes so the LLM is never required here.
+    private static let bodyEmail = "body.party@example.com"
+    private static let headerEmail = "header.party@example.com"
+    private static let footerPhone = "+1 212 555 0188"
+    private static let creatorName = "Confidential Author"
+    private static let mailtoTarget = "mailto:header.party@example.com"
+
+    /// The UI export path for a .docx must scrub PII from EVERY part of the
+    /// package (headers, footers, docProps author metadata, external mailto
+    /// hyperlink targets), not only the body, mirroring LDAService.anonymize.
+    /// The body must still round-trip (token present, surface gone).
+    func testDocxExportRedactsNonBodyParts() async throws {
+        let model = ReviewModel(modelPath: nil)
+        let inputURL = try writeFixtureDocxWithNonBodyPII()
+        await model.open(inputURL)
+        await model.anonymize()
+        XCTAssertEqual(model.status, .ready)
+
+        // The body email is detected over documentText and accepted by default.
+        XCTAssertTrue(
+            model.entities.contains { $0.span.text == Self.bodyEmail },
+            "fixture body must yield the body email entity"
+        )
+
+        let outputDir = workDir.appendingPathComponent("docx-out", isDirectory: true)
+        let result = try model.export(
+            to: outputDir,
+            passphrase: "pw",
+            createdAtISO8601: Self.createdAt
+        )
+
+        // The edit surface is a .docx.
+        XCTAssertEqual(result.redactedURL.pathExtension.lowercased(), "docx")
+        let redacted = result.redactedURL
+
+        // Body PII gone and tokenized (the existing guarantee).
+        let body = try DocxImporter().importDocument(redacted).text
+        XCTAssertFalse(body.contains(Self.bodyEmail), "body email surface must be redacted")
+        XCTAssertTrue(body.contains("{"), "body email should be tokenized")
+
+        // Header and footer PII gone (the gap this test guards).
+        let header = try readDocxPart("word/header1.xml", from: redacted)
+        XCTAssertFalse(header.contains(Self.headerEmail), "header email must be redacted")
+        let footer = try readDocxPart("word/footer1.xml", from: redacted)
+        XCTAssertFalse(footer.contains(Self.footerPhone), "footer phone must be redacted")
+
+        // docProps author metadata scrubbed.
+        let core = try readDocxPart("docProps/core.xml", from: redacted)
+        XCTAssertFalse(core.contains(Self.creatorName), "creator metadata must be scrubbed")
+
+        // External mailto hyperlink target neutralized in the .rels.
+        let rels = try readDocxPart("word/_rels/document.xml.rels", from: redacted)
+        XCTAssertFalse(rels.contains(Self.mailtoTarget), "external mailto target must be neutralized")
+    }
+
     // MARK: - Restore round-trip (in-app de-anonymize)
 
     func testRestoreRoundTripsAnExportedDocument() async throws {
@@ -226,5 +284,92 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertEqual(restored, original, "restore must reproduce the original text")
         XCTAssertTrue(report.orphanTokens.isEmpty)
         XCTAssertGreaterThan(report.restoredCount, 0)
+    }
+
+    // MARK: - DOCX fixture authoring
+
+    /// Read one part of a .docx package as a UTF-8 string for assertions.
+    private func readDocxPart(_ path: String, from docx: URL) throws -> String {
+        let data = try DocxZip.readEntry(path, from: docx)
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// Build a multi-part .docx in code: a body paragraph plus a header, footer,
+    /// docProps author metadata, and an external mailto hyperlink target, each
+    /// carrying deterministic-detectable PII. Mirrors the fixture style used by
+    /// DocxNonBodyPartsTests so no binary fixtures are committed.
+    private func writeFixtureDocxWithNonBodyPII() throws -> URL {
+        let url = workDir.appendingPathComponent("engagement.docx")
+
+        let contentTypes = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+        <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+        <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>
+        <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+        </Types>
+        """
+
+        let packageRels = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+        </Relationships>
+        """
+
+        let documentRels = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+        <Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>
+        <Relationship Id="rId12" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="\(Self.mailtoTarget)" TargetMode="External"/>
+        </Relationships>
+        """
+
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>
+        <w:p><w:r><w:t xml:space="preserve">Contact the client at \(Self.bodyEmail) for the file.</w:t></w:r></w:p>
+        </w:body>
+        </w:document>
+        """
+
+        let headerXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:r><w:t xml:space="preserve">Confidential memo for \(Self.headerEmail)</w:t></w:r></w:p>
+        </w:hdr>
+        """
+
+        let footerXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:r><w:t xml:space="preserve">Call \(Self.footerPhone) with questions</w:t></w:r></w:p>
+        </w:ftr>
+        """
+
+        let coreXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:creator>\(Self.creatorName)</dc:creator>
+        <cp:lastModifiedBy>\(Self.creatorName)</cp:lastModifiedBy>
+        </cp:coreProperties>
+        """
+
+        try DocxZip.writeArchive(parts: [
+            ("[Content_Types].xml", Data(contentTypes.utf8)),
+            ("_rels/.rels", Data(packageRels.utf8)),
+            ("word/document.xml", Data(documentXML.utf8)),
+            ("word/_rels/document.xml.rels", Data(documentRels.utf8)),
+            ("word/header1.xml", Data(headerXML.utf8)),
+            ("word/footer1.xml", Data(footerXML.utf8)),
+            ("docProps/core.xml", Data(coreXML.utf8))
+        ], to: url)
+        return url
     }
 }

@@ -72,11 +72,32 @@ public struct RestoreReport: Sendable {
     }
 }
 
+// MARK: - Errors
+
+/// Errors the service surfaces to its callers (CLI, MCP, app UI).
+public enum LDAServiceError: Error, Equatable {
+    /// The on-device LLM could not fully scan the document: at least one segment's
+    /// completion was truncated at the generation token cap and could not be
+    /// recovered by a larger-cap retry or by splitting. The document is therefore
+    /// NOT guaranteed PII-free and must not be presented as cleanly anonymized
+    /// (LJE-001). `incompleteSegmentCount` is how many segments were affected.
+    case incompleteExtraction(incompleteSegmentCount: Int)
+}
+
 // MARK: - Facade
 
 /// The headless service facade. Stateless; every operation is a pure-ish
 /// composition over the engine, IO, and security layers.
 public enum LDAService {
+
+    // MARK: - Test seam
+
+    /// Test-only override for building the LLM extractor. Production leaves this
+    /// nil and loads an LLMEngine from the model path. Tests set it to inject a
+    /// fake TextCompleter so the truncation/incompleteness handling can be
+    /// exercised without the 2.7 GB GGUF model. The closure receives the resolved
+    /// model path and returns an extractor, or nil to fall back to deterministic.
+    internal static var makeExtractorForTesting: ((String) -> LLMExtractor?)?
     /// Import (by extension; PDF with no text layer falls back to Vision OCR),
     /// run deterministic detection, merge with an empty llm list, tokenize,
     /// write the redacted edit surface (DocxRedactor.redact for .docx,
@@ -111,12 +132,14 @@ public enum LDAService {
         )
 
         // Detect entities once, then tokenize. The tokenized text and the mapping
-        // drive both the edit surface and the mapping sidecar. The detect closure
-        // is declared at function scope so a later image-PII pass (Task 6) can
-        // reuse the already-loaded engine without loading the model a second time.
+        // drive both the edit surface and the mapping sidecar. The detector is
+        // declared at function scope so a later image-PII pass (Task 6) can reuse
+        // the already-loaded engine without loading the model a second time. The
+        // primary text pass throws if a segment could not be fully scanned, so the
+        // document is never written out as cleanly anonymized on a partial scan.
         let imported = try importDocument(input, extension: ext)
-        let detect = makeDetector(modelPath: llmModelPath)
-        let spans = detect(imported.text)
+        let detector = makeDetector(modelPath: llmModelPath)
+        let spans = try detector.detectText(imported.text)
         var tokenized = Tokenizer.tokenize(
             text: imported.text,
             spans: spans,
@@ -135,11 +158,22 @@ public enum LDAService {
                 spans: spans,
                 mapping: tokenized.mapping
             )
-            try DocxRedactor.redact(
+            // Redact the body AND every other text-bearing part (headers, footers,
+            // footnotes, endnotes, comments), scrub docProps author/title metadata,
+            // and neutralize external mailto:/tel: hyperlink targets. Surfaces found
+            // only in a non-body part mint new tokens that are folded into the
+            // mapping below so they persist in the sidecar and restore correctly.
+            // detectForImages is the non-throwing detector (deterministic plus
+            // best-effort LLM); the throwing primary pass already gated the body.
+            let nonBodyEntries = try DocxRedactor.redact(
                 original: input,
                 replacements: replacements,
-                to: redactedFileURL
+                to: redactedFileURL,
+                nonBody: (mapping: tokenized.mapping, detect: detector.detectForImages)
             )
+            for entry in nonBodyEntries {
+                tokenized.mapping.entries[entry.token] = entry
+            }
 
         case "pdf":
             // PDF is never edited in place: write a fresh tokenized companion as
@@ -164,7 +198,7 @@ public enum LDAService {
                     let resolved = ImageRedactionResolver.resolve(
                         mapping: tokenized.mapping,
                         observations: observations,
-                        detect: detect
+                        detect: detector.detectForImages
                     )
                     boxes += resolved.boxes
                     // Merge image-origin entries into the mapping before it is saved
@@ -261,21 +295,42 @@ public enum LDAService {
         llmModelPath: String? = nil
     ) throws -> [Span] {
         let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-        return makeDetector(modelPath: llmModelPath)(imported.text)
+        return try makeDetector(modelPath: llmModelPath).detectText(imported.text)
     }
 
     // MARK: - Private helpers
 
-    /// Build a detection closure that loads the LLM engine at most once and reuses
-    /// it for every call (main text pass and image-PII pass). When modelPath is nil
-    /// or the model fails to load, detection is deterministic-only and never throws.
-    private static func makeDetector(modelPath: String?) -> (String) -> [Span] {
-        let extractor: LLMExtractor? = {
-            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else { return nil }
-            guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else { return nil }
-            return LLMExtractor(completer: engine)
-        }()
-        return { text in
+    /// A detector that loads the LLM engine at most once and offers two entry
+    /// points over it: the primary text pass (which surfaces incomplete scans) and
+    /// the secondary image-PII pass (which stays non-throwing for the resolver).
+    private struct Detector {
+        let extractor: LLMExtractor?
+
+        /// Primary detection over the main document text. Throws
+        /// LDAServiceError.incompleteExtraction when the LLM could not fully scan
+        /// the document, so a partial scan is never written out as clean (LJE-001).
+        func detectText(_ text: String) throws -> [Span] {
+            let llm: [Span]
+            if let extractor {
+                let result = try extractor.extractDetailed(from: text)
+                guard result.fullyCovered else {
+                    throw LDAServiceError.incompleteExtraction(
+                        incompleteSegmentCount: result.incompleteSegmentCount
+                    )
+                }
+                llm = result.spans
+            } else {
+                llm = []
+            }
+            return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+        }
+
+        /// Secondary detection over short OCR'd image-origin text for the image-PII
+        /// channel. This re-uses the loaded engine but stays non-throwing: it is a
+        /// best-effort supplement to the boxed regions, and the salvage path keeps
+        /// any recovered entities. Truncation here does not gate the "clean" claim,
+        /// which is owned by the primary text pass above.
+        func detectForImages(_ text: String) -> [Span] {
             let llm: [Span]
             if let extractor {
                 llm = (try? extractor.extract(from: text)) ?? []
@@ -284,6 +339,27 @@ public enum LDAService {
             }
             return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
         }
+    }
+
+    /// Build a detector that loads the LLM engine at most once and reuses it for
+    /// every call (main text pass and image-PII pass). When modelPath is nil or
+    /// the model fails to load, detection is deterministic-only. The primary text
+    /// pass surfaces an incomplete scan; see Detector.
+    private static func makeDetector(modelPath: String?) -> Detector {
+        let extractor: LLMExtractor? = {
+            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else {
+                // No real model. In tests an extractor may still be injected via
+                // makeExtractorForTesting using the (bogus) path so the
+                // incompleteness handling can be exercised without a GGUF.
+                return makeExtractorForTesting?(modelPath ?? "")
+            }
+            if let factory = makeExtractorForTesting {
+                return factory(modelPath)
+            }
+            guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else { return nil }
+            return LLMExtractor(completer: engine)
+        }()
+        return Detector(extractor: extractor)
     }
 
     /// Import a document by file extension. PDF with no usable text layer falls

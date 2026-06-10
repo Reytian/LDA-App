@@ -133,6 +133,78 @@ final class DeterministicEngineTests: XCTestCase {
         assertOffsetsSliceBack(spans, in: text)
     }
 
+    // MARK: - PHONE (broadened separators, LDA-SDS-03)
+
+    /// Dotted separators (for example 212.555.1234) must be detected, not left in
+    /// cleartext.
+    func testDottedPhoneDetection() {
+        let text = "Call me at 212.555.0147."
+        let spans = engine.detect(text)
+
+        let phones = spans.filter { $0.type == .phone }
+        XCTAssertTrue(
+            phones.contains { $0.text == "212.555.0147" },
+            "Expected the dotted phone; got \(phones.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A parenthesized area code with NO separator before the next group (for
+    /// example (212)555-0147) must be detected.
+    func testParenthesizedAreaCodeNoSeparatorPhoneDetection() {
+        let text = "Call me at (212)555-0147."
+        let spans = engine.detect(text)
+
+        let phones = spans.filter { $0.type == .phone }
+        XCTAssertTrue(
+            phones.contains { $0.text == "(212)555-0147" },
+            "Expected the parenthesized no-separator phone; got \(phones.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// An international number with a parenthesized area code must keep its +CC and
+    /// be captured whole as one of the matches.
+    func testInternationalParenthesizedPhoneKeepsCountryCode() {
+        let text = "Reach +1 (212) 555-0147 now."
+        let spans = engine.detect(text)
+
+        let phones = spans.filter { $0.type == .phone }
+        XCTAssertTrue(
+            phones.contains { $0.text == "+1 (212) 555-0147" },
+            "Expected the +CC parenthesized number whole; got \(phones.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A fully dotted international number, e.g. 1.212.555.0147, must produce a
+    /// phone match (the dotted body is captured).
+    func testDottedInternationalPhoneDetection() {
+        let text = "Dial 1.212.555.0147 to reach us."
+        let spans = engine.detect(text)
+
+        let phones = spans.filter { $0.type == .phone }
+        XCTAssertFalse(phones.isEmpty, "Expected a phone match for a dotted number")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Section, version, date, and ratio strings must NOT be detected as phones.
+    func testPhonePatternRejectsSectionVersionDateRatio() {
+        for text in [
+            "See section 5.1.2 of the agreement.",
+            "Released as Version 1.2.3 today.",
+            "Dated 2026-01-15 for the parties.",
+            "The ratio was 3.14 overall.",
+        ] {
+            let spans = engine.detect(text)
+            let phones = spans.filter { $0.type == .phone }
+            XCTAssertTrue(
+                phones.isEmpty,
+                "Expected no phone match in \"\(text)\"; got \(phones.map { $0.text })"
+            )
+        }
+    }
+
     // MARK: - NATIONAL_ID (身份证)
 
     func testValidNationalIDIsEmitted() {

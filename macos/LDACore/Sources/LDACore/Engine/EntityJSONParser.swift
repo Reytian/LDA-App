@@ -44,14 +44,48 @@ public enum EntityJSONParser {
     ///
     /// - Parameter modelOutput: the raw decoded text returned by the model.
     /// - Returns: the parsed entities, or an empty array on unparseable output.
+    ///
+    /// This is a thin wrapper over parseDetailed for callers that only need the
+    /// entities and do not distinguish a truncated completion from genuine
+    /// emptiness.
     public static func parse(_ modelOutput: String) -> [ExtractedEntity] {
+        return parseDetailed(modelOutput).entities
+    }
+
+    /// Parse the model's JSON output into entities, reporting whether the output
+    /// appears to have been truncated mid-array (the model hit its generation
+    /// token cap before closing the JSON).
+    ///
+    /// A truncated completion is NOT genuine emptiness: complete entity objects
+    /// emitted before the cut are salvaged and returned, and `truncated` is set
+    /// so the caller can retry or flag the segment as not fully scanned rather
+    /// than silently presenting zero spans as a clean result (LJE-001).
+    ///
+    /// - Parameter modelOutput: the raw decoded text returned by the model.
+    /// - Returns: the recovered entities plus a truncation flag. For well-formed
+    ///   JSON (including a genuinely empty entities array) `truncated` is false.
+    public static func parseDetailed(
+        _ modelOutput: String
+    ) -> (entities: [ExtractedEntity], truncated: Bool) {
+        // Try the RAW (trimmed) output and its balanced regions BEFORE stripping
+        // code fences, so a "```" sequence inside a JSON string value never
+        // mangles otherwise-valid JSON (LJE-003). Fence-stripping runs only as a
+        // fallback, for genuinely fenced output.
+        var candidates = candidateJSONRegions(in: modelOutput)
         let stripped = stripCodeFences(modelOutput)
+        if stripped != modelOutput {
+            for region in candidateJSONRegions(in: stripped)
+            where !candidates.contains(region) {
+                candidates.append(region)
+            }
+        }
 
         // Try every candidate balanced region, largest first, and return the
         // first that yields a usable decode. JSONSerialization is the primary
         // path; a brace-matching scan supplies the candidates when the raw
         // string is not itself valid JSON.
-        for candidate in candidateJSONRegions(in: stripped) {
+        var decodedSomeRegion = false
+        for candidate in candidates {
             guard let data = candidate.data(using: .utf8) else { continue }
             guard
                 let object = try? JSONSerialization.jsonObject(
@@ -60,13 +94,157 @@ public enum EntityJSONParser {
                 )
             else { continue }
 
+            // A fully decodable region is, by definition, not truncated.
+            decodedSomeRegion = true
             let entities = extractEntities(from: object)
             if !entities.isEmpty {
-                return entities
+                return (entities, false)
             }
         }
 
-        return []
+        // At least one region decoded cleanly but none carried entities: this is
+        // genuine emptiness (the model found no PII), not a cut-off completion.
+        if decodedSomeRegion {
+            return ([], false)
+        }
+
+        // No candidate region decoded. Either the output is genuine garbage with
+        // no entities, or it is a completion that was cut off mid-array. Salvage
+        // every complete {value,type} object before the cut and report truncation
+        // so the caller does not treat a partial scan as a clean one.
+        return salvageTruncatedEntities(from: stripped != modelOutput ? stripped : modelOutput)
+    }
+
+    // MARK: - Truncation salvage
+
+    /// Recover the complete entity objects emitted before a truncation point.
+    ///
+    /// Locates the entities array (after an "entities" key, or a leading bare
+    /// "["), walks it object by object with the same string-aware brace matcher
+    /// used elsewhere, collects each fully-balanced {...}, and stops at the first
+    /// object that does not close. Returns the recovered entities plus whether
+    /// the array tail was left unbalanced (the truncation signal). When no
+    /// entities array can be located at all, returns ([], false): that is genuine
+    /// non-JSON input, not a mid-array cut, so there is nothing to salvage and no
+    /// truncation to report.
+    private static func salvageTruncatedEntities(
+        from text: String
+    ) -> (entities: [ExtractedEntity], truncated: Bool) {
+        let scalars = Array(text)
+
+        guard let arrayStart = entitiesArrayStart(in: scalars) else {
+            return ([], false)
+        }
+
+        var entities: [ExtractedEntity] = []
+        var index = arrayStart
+        var arrayClosed = false
+
+        // Walk the array body, pulling out each balanced object in turn.
+        scan: while index < scalars.count {
+            // Advance to the next object opener, stopping if the array closes.
+            while index < scalars.count {
+                let ch = scalars[index]
+                if ch == "{" { break }
+                if ch == "]" {
+                    // The array closed cleanly; nothing was truncated past here.
+                    arrayClosed = true
+                    break scan
+                }
+                index += 1
+            }
+            guard index < scalars.count else { break }
+
+            // Match this object honoring string literals.
+            guard let objectEnd = balancedObjectEnd(in: scalars, from: index) else {
+                // The trailing object never closed: this is the truncation point.
+                break
+            }
+
+            let objectText = String(scalars[index...objectEnd])
+            if let data = objectText.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+                entities.append(contentsOf: extractEntities(from: [object]))
+            }
+            index = objectEnd + 1
+        }
+
+        // The array is truncated when it never reached its closing "]", whether
+        // the tail object was cut mid-way or the input simply ended right after a
+        // complete object but before the closing bracket. Either way the caller
+        // must not treat the recovered set as the full, fully-scanned result.
+        return (entities, !arrayClosed)
+    }
+
+    /// Find the scalar index just inside the entities array. Prefers the "["
+    /// following an "entities" key; falls back to a leading bare "[" for a
+    /// bare-array completion. Returns nil when no array can be located.
+    private static func entitiesArrayStart(in scalars: [Character]) -> Int? {
+        let key = Array("\"entities\"")
+        if let keyIndex = firstIndex(of: key, in: scalars) {
+            var index = keyIndex + key.count
+            while index < scalars.count {
+                if scalars[index] == "[" { return index + 1 }
+                index += 1
+            }
+        }
+
+        // Bare-array shape: the first "[" in the text opens the entity list.
+        if let bracket = scalars.firstIndex(of: "[") {
+            return bracket + 1
+        }
+        return nil
+    }
+
+    /// First index at which the needle scalar sequence occurs in haystack, or nil.
+    private static func firstIndex(of needle: [Character], in haystack: [Character]) -> Int? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        for start in 0...(haystack.count - needle.count) {
+            var matched = true
+            for offset in 0..<needle.count where haystack[start + offset] != needle[offset] {
+                matched = false
+                break
+            }
+            if matched { return start }
+        }
+        return nil
+    }
+
+    /// Given a "{" at `start`, return the index of its matching "}", honoring
+    /// string literals so braces inside quoted values do not throw off the depth
+    /// count. Returns nil when the object does not close (the truncation case).
+    private static func balancedObjectEnd(in scalars: [Character], from start: Int) -> Int? {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start
+
+        while index < scalars.count {
+            let ch = scalars[index]
+            if inString {
+                if escaped {
+                    escaped = false
+                } else if ch == "\\" {
+                    escaped = true
+                } else if ch == "\"" {
+                    inString = false
+                }
+                index += 1
+                continue
+            }
+
+            if ch == "\"" {
+                inString = true
+            } else if ch == "{" {
+                depth += 1
+            } else if ch == "}" {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index += 1
+        }
+
+        return nil
     }
 
     // MARK: - Code fence stripping
@@ -133,10 +311,14 @@ public enum EntityJSONParser {
         return regions.filter { seen.insert($0).inserted }
     }
 
-    /// Scan for the largest balanced region delimited by the given open and
-    /// close characters, honoring string literals so braces inside quoted values
-    /// do not throw off the depth count. Returns the substring from the first
-    /// opener to its matching closer, or nil when none balances.
+    /// Scan for the largest balanced top-level region delimited by the given open
+    /// and close characters, honoring string literals so braces inside quoted
+    /// values do not throw off the depth count. Returns the longest completed
+    /// top-level region, or nil when none balances.
+    ///
+    /// Returning the LARGEST region rather than the first (LJE-002) lets a real
+    /// entities object or array be reached even when stray balanced punctuation
+    /// in a reasoning model's prose precedes it.
     private static func largestBalancedRegion(
         in text: String,
         open: Character,
@@ -147,6 +329,7 @@ public enum EntityJSONParser {
         var depth = 0
         var inString = false
         var escaped = false
+        var best: String?
 
         for (index, ch) in scalars.enumerated() {
             if inString {
@@ -174,12 +357,18 @@ public enum EntityJSONParser {
                 guard depth > 0 else { continue }
                 depth -= 1
                 if depth == 0, let begin = startIndex {
-                    return String(scalars[begin...index])
+                    // Record this completed top-level region and keep scanning so
+                    // a later, larger region can win.
+                    let region = String(scalars[begin...index])
+                    if region.count > (best?.count ?? 0) {
+                        best = region
+                    }
+                    startIndex = nil
                 }
             }
         }
 
-        return nil
+        return best
     }
 
     // MARK: - Decoding

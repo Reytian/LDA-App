@@ -37,12 +37,26 @@ public struct TextChunk: Equatable, Sendable {
 
 // MARK: - Chunker
 
-/// Splits text into overlapping chunks. The overlap lets entities that straddle
-/// a chunk boundary still be captured whole in at least one chunk.
+/// Splits text into overlapping chunks. The overlap lets an entity that straddles
+/// a structural boundary stay whole in at least one chunk when the entity is no
+/// longer than the overlap. When a chunk end is forced to a hard grapheme cut
+/// (no paragraph, newline, or sentence boundary in range), a bridging chunk
+/// centered on the cut additionally keeps any single contiguous entity up to
+/// `bridgeHalfWidth` whole even when it is longer than the overlap.
 public enum Chunker {
-    /// The smallest overlap we ever apply. An entity straddling a boundary must be
-    /// shorter than this to be guaranteed whole in some chunk.
+    /// The smallest overlap we ever apply. An entity straddling a structural
+    /// boundary must be shorter than this to be guaranteed whole in some chunk.
     private static let minOverlapChars = 150
+
+    /// Half-width of a bridging chunk emitted when a chunk end is FORCED to a hard
+    /// grapheme cut (no paragraph, newline, or sentence boundary was available).
+    /// The bridging chunk is centered on the cut and spans roughly 2 x this many
+    /// UTF-16 code units, so any single contiguous entity up to this length that
+    /// straddles the hard cut is whole in the bridging window even when it is
+    /// longer than the overlap. Sized above the longest plausible single entity
+    /// (for example a one-line postal address) and kept well under the target so a
+    /// bridging chunk never exceeds the chunk-size budget.
+    private static let bridgeHalfWidth = 600
 
     /// Split text into overlapping chunks.
     ///
@@ -101,10 +115,42 @@ public enum Chunker {
             // back off to the nearest structural boundary at or before that point
             // so we do not split a paragraph, a sentence, or a grapheme.
             let hardEnd = cursor + target
-            let chunkEnd = boundaryEnd(in: ns, lowerBound: cursor, upperBound: hardEnd)
+            let boundary = boundaryEnd(in: ns, lowerBound: cursor, upperBound: hardEnd)
+            let chunkEnd = boundary.offset
 
             let body = ns.substring(with: NSRange(location: cursor, length: chunkEnd - cursor))
             chunks.append(TextChunk(text: body, startUTF16: cursor))
+
+            // When the chunk end was FORCED to a hard grapheme cut (no structural
+            // boundary existed in range), an entity longer than the overlap that
+            // straddles the cut is whole in neither this chunk nor the next, since
+            // the next chunk starts at (chunkEnd - overlap), which can land after
+            // the entity's start. Emit a bridging chunk centered on the cut so any
+            // such entity up to bridgeHalfWidth is whole in at least one window.
+            //
+            // The bridge is only needed when the overlap is smaller than the
+            // entity we want to protect (bridgeHalfWidth). When the overlap already
+            // meets or exceeds bridgeHalfWidth, the next chunk's head starts at or
+            // before such an entity and already contains it whole, so no bridge is
+            // required. Restricting emission to overlap < bridgeHalfWidth also keeps
+            // the bridge start strictly between this chunk's start and the next
+            // chunk's start, so chunk start offsets stay strictly increasing.
+            //
+            // Downstream dedups segments and located spans, so the extra
+            // overlapping window only adds safety, never duplicate output.
+            if boundary.isHardCut && overlap < bridgeHalfWidth {
+                let bridgeStart = graphemeAlignedStart(in: ns, near: max(0, chunkEnd - bridgeHalfWidth))
+                let bridgeEnd = graphemeAlignedStart(in: ns, near: min(total, chunkEnd + bridgeHalfWidth))
+                // Only emit when it adds a window that strictly starts after this
+                // chunk's start and actually spans the cut. graphemeAlignedStart
+                // keeps both ends on character boundaries so slicing is safe.
+                if bridgeStart > cursor && bridgeEnd > bridgeStart {
+                    let bridgeBody = ns.substring(
+                        with: NSRange(location: bridgeStart, length: bridgeEnd - bridgeStart)
+                    )
+                    chunks.append(TextChunk(text: bridgeBody, startUTF16: bridgeStart))
+                }
+            }
 
             // Advance, carrying the overlap tail of this chunk into the next so an
             // entity straddling the boundary is contained whole in at least one
@@ -119,16 +165,26 @@ public enum Chunker {
 
     // MARK: - Boundary selection
 
+    /// The result of selecting a chunk end: the chosen UTF-16 offset, and whether
+    /// it was forced to a hard grapheme cut because no structural boundary existed
+    /// in range. The caller uses `isHardCut` to decide whether a bridging chunk is
+    /// needed to keep entities that straddle the cut whole.
+    private struct Boundary {
+        let offset: Int
+        let isHardCut: Bool
+    }
+
     /// Picks the best UTF-16 end offset for a chunk that begins at `lowerBound`
     /// and may extend up to `upperBound`. Prefers, in order: a paragraph break
     /// (double newline), then a single newline, then a sentence terminator, then a
     /// grapheme-aligned hard cut at `upperBound`. The returned offset is strictly
-    /// greater than `lowerBound` so the loop always advances.
+    /// greater than `lowerBound` so the loop always advances. `isHardCut` is true
+    /// only for the final fallback, where no structural boundary was found.
     private static func boundaryEnd(
         in ns: NSString,
         lowerBound: Int,
         upperBound: Int
-    ) -> Int {
+    ) -> Boundary {
         let cap = min(upperBound, ns.length)
 
         // Do not accept a boundary in the first half of the window; a chunk that
@@ -138,20 +194,20 @@ public enum Chunker {
 
         // 1. Paragraph break: a double newline is the strongest structural signal.
         if let end = lastParagraphBreak(in: ns, from: searchFloor, to: cap, double: true) {
-            return end
+            return Boundary(offset: end, isHardCut: false)
         }
         // 2. A single newline.
         if let end = lastParagraphBreak(in: ns, from: searchFloor, to: cap, double: false) {
-            return end
+            return Boundary(offset: end, isHardCut: false)
         }
         // 3. A sentence terminator: ASCII '.', '?', '!' followed by whitespace, or
         //    a CJK full-width terminator which stands alone.
         if let end = lastSentenceBreak(in: ns, from: searchFloor, to: cap) {
-            return end
+            return Boundary(offset: end, isHardCut: false)
         }
         // 4. No structural boundary in range: cut at the cap, aligned to a grapheme
-        //    boundary so we never split a character.
-        return graphemeAlignedStart(in: ns, near: cap)
+        //    boundary so we never split a character. This is the hard-cut fallback.
+        return Boundary(offset: graphemeAlignedStart(in: ns, near: cap), isHardCut: true)
     }
 
     /// Scans backward from `to` to `from` for a newline run. When `double` is

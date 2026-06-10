@@ -354,6 +354,86 @@ final class TokenizerTests: XCTestCase {
 
     // MARK: - Same surface, different spans across the document
 
+    // MARK: - Source-literal token collisions (roundtrip-01 / LDA-SDS-01 / offset-unicode-2)
+
+    /// A literal token-shaped string already present in the source must not be
+    /// reproduced by a minted token, otherwise Restorer would overwrite the user's
+    /// literal with the entity value (roundtrip-01). The minted token must skip the
+    /// reserved literal, and the round-trip must reproduce the original exactly.
+    func testMintedTokenSkipsLiteralPersonTokenInSource() {
+        let text = "John Smith signed. Field {PERSON_1} remained."
+        // Only "John Smith" is a detected PERSON; "{PERSON_1}" is a leftover merge
+        // field, NOT a detected entity.
+        let spans = [span(in: text, surface: "John Smith", type: .person)]
+
+        let result = Tokenizer.tokenize(
+            text: text, spans: spans,
+            sourceFile: sourceFile, createdAtISO8601: timestamp
+        )
+
+        // The real person must mint {PERSON_2}, leaving the literal {PERSON_1}
+        // alone so the two are distinguishable.
+        XCTAssertNotNil(result.mapping.entries["{PERSON_2}"])
+        XCTAssertNil(result.mapping.entries["{PERSON_1}"])
+        XCTAssertEqual(
+            result.tokenizedText,
+            "{PERSON_2} signed. Field {PERSON_1} remained."
+        )
+
+        // Round-trip must reproduce the original literal verbatim, with no orphan
+        // confusion and an accurate restored count.
+        let restored = Restorer.restore(text: result.tokenizedText, mapping: result.mapping)
+        XCTAssertEqual(restored.text, text)
+        XCTAssertEqual(restored.restoredCount, 1)
+        // The literal {PERSON_1} is unmapped, so it surfaces as an orphan (it was
+        // never a minted token), and the real entity's token is fully restored.
+        XCTAssertEqual(restored.orphanTokens, ["{PERSON_1}"])
+    }
+
+    /// LDA-SDS-01: a deterministic AMOUNT collides with a literal {AMOUNT_1} in a
+    /// template contract. The minted token must skip the literal so the round-trip
+    /// is lossless rather than silently corrupting the placeholder.
+    func testMintedAmountTokenSkipsLiteralAmountTokenInSource() {
+        let text = "Purchase price: $5,000,000. Escrow holdback equals {AMOUNT_1} of the price."
+        let spans = [span(in: text, surface: "$5,000,000", type: .amount)]
+
+        let result = Tokenizer.tokenize(
+            text: text, spans: spans,
+            sourceFile: sourceFile, createdAtISO8601: timestamp
+        )
+
+        XCTAssertNotNil(result.mapping.entries["{AMOUNT_2}"])
+        XCTAssertNil(result.mapping.entries["{AMOUNT_1}"])
+        XCTAssertEqual(
+            result.tokenizedText,
+            "Purchase price: {AMOUNT_2}. Escrow holdback equals {AMOUNT_1} of the price."
+        )
+
+        let restored = Restorer.restore(text: result.tokenizedText, mapping: result.mapping)
+        XCTAssertEqual(restored.text, text)
+    }
+
+    /// offset-unicode-2: the literal placeholder and the minted token would be the
+    /// same string if minting did not skip; verify both occurrences are preserved
+    /// distinctly and the round-trip is exact.
+    func testLiteralTokenBeforeRealEntityRoundTripsLosslessly() {
+        let text = "Contact {PERSON_1} or John Smith for details."
+        let spans = [span(in: text, surface: "John Smith", type: .person)]
+
+        let result = Tokenizer.tokenize(
+            text: text, spans: spans,
+            sourceFile: sourceFile, createdAtISO8601: timestamp
+        )
+
+        // The minted token must not be {PERSON_1} (that literal is already present).
+        XCTAssertEqual(
+            result.tokenizedText,
+            "Contact {PERSON_1} or {PERSON_2} for details."
+        )
+        let restored = Restorer.restore(text: result.tokenizedText, mapping: result.mapping)
+        XCTAssertEqual(restored.text, text)
+    }
+
     func testSameSurfaceMultipleSpansReuseTokenAndNumberingIsStable() {
         let text = "Acme Corp, Beta Inc, Acme Corp, Beta Inc."
         let nsText = text as NSString

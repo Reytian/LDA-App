@@ -221,6 +221,131 @@ final class LLMExtractorTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.text == "Mary Stone" && $0.type == .person })
     }
 
+    // MARK: - Truncation handling (LJE-001)
+
+    /// A completer that truncates (returns a cut-off JSON array) until the caller
+    /// asks for at least `succeedAtOrAbove` tokens, at which point it returns a
+    /// complete JSON object. Records every maxTokens it was asked for so a test
+    /// can assert that a larger-cap retry actually happened.
+    private final class TruncatingCompleter: TextCompleter {
+        let truncatedOutput: String
+        let fullOutput: String
+        let succeedAtOrAbove: Int
+        private(set) var requestedMaxTokens: [Int?] = []
+
+        init(truncatedOutput: String, fullOutput: String, succeedAtOrAbove: Int) {
+            self.truncatedOutput = truncatedOutput
+            self.fullOutput = fullOutput
+            self.succeedAtOrAbove = succeedAtOrAbove
+        }
+
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            requestedMaxTokens.append(maxTokens)
+            if let maxTokens, maxTokens >= succeedAtOrAbove {
+                return fullOutput
+            }
+            return truncatedOutput
+        }
+    }
+
+    /// A completer that ALWAYS truncates, regardless of the requested cap, so the
+    /// extractor cannot fully scan the segment no matter how it retries or splits.
+    private struct AlwaysTruncatingCompleter: TextCompleter {
+        let truncatedOutput: String
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return truncatedOutput
+        }
+    }
+
+    func testRetriesWithLargerCapWhenSegmentTruncates() throws {
+        // The first attempt (default cap) returns a cut-off array carrying one
+        // complete entity. A retry with a larger cap returns the full object with
+        // both entities. The extractor must surface BOTH, proving it retried.
+        let text = "The seller is Acme Corp and the signer is Robert King."
+        let truncated = #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},{"value":"Robert Ki"#
+        let full = """
+        {"entities":[{"value":"Acme Corp","type":"COMPANY"},\
+        {"value":"Robert King","type":"PERSON"}],"redacted_text":""}
+        """
+        let completer = TruncatingCompleter(
+            truncatedOutput: truncated,
+            fullOutput: full,
+            succeedAtOrAbove: 2048
+        )
+        let extractor = LLMExtractor(completer: completer)
+
+        let spans = try extractor.extract(from: text)
+
+        XCTAssertTrue(spans.contains { $0.text == "Acme Corp" && $0.type == .company })
+        XCTAssertTrue(
+            spans.contains { $0.text == "Robert King" && $0.type == .person },
+            "the larger-cap retry must recover the entity that was cut off on the first attempt"
+        )
+        XCTAssertGreaterThanOrEqual(
+            completer.requestedMaxTokens.count, 2,
+            "a truncated segment must be retried at least once"
+        )
+        let maxRequested = completer.requestedMaxTokens.compactMap { $0 }.max() ?? 0
+        XCTAssertGreaterThan(
+            maxRequested, 1024,
+            "the retry must request a larger token cap than the first attempt"
+        )
+    }
+
+    func testReportsIncompleteWhenSegmentStillTruncatesAfterRetry() throws {
+        // The completer always truncates. extractDetailed must still salvage the
+        // leading complete entity AND report the segment as incomplete, so the
+        // caller does not present a fully-scanned result.
+        let text = "The seller is Acme Corp and the signer is Robert King."
+        let truncated = #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},{"value":"Robert Ki"#
+        let completer = AlwaysTruncatingCompleter(truncatedOutput: truncated)
+        let extractor = LLMExtractor(completer: completer)
+
+        let result = try extractor.extractDetailed(from: text)
+
+        XCTAssertTrue(
+            result.spans.contains { $0.text == "Acme Corp" && $0.type == .company },
+            "the complete leading entity must still be salvaged"
+        )
+        XCTAssertFalse(
+            result.fullyCovered,
+            "a segment that never stops truncating must be reported as not fully scanned"
+        )
+        XCTAssertGreaterThanOrEqual(result.incompleteSegmentCount, 1)
+    }
+
+    func testCleanRunReportsFullCoverage() throws {
+        // A normal, well-formed completion must report full coverage and zero
+        // incomplete segments, so the legitimate path is unaffected.
+        let text = "This Engagement Letter is between Acme Corp and John Smith."
+        let json = """
+        {"entities":[{"value":"John Smith","type":"PERSON"},\
+        {"value":"Acme Corp","type":"COMPANY"}],"redacted_text":""}
+        """
+        let extractor = LLMExtractor(completer: MockCompleter(defaultOutput: json))
+
+        let result = try extractor.extractDetailed(from: text)
+
+        XCTAssertTrue(result.fullyCovered)
+        XCTAssertEqual(result.incompleteSegmentCount, 0)
+        XCTAssertEqual(result.spans.count, 2)
+    }
+
+    func testGenuinelyEmptyExtractionIsFullyCovered() throws {
+        // The model genuinely found no PII (well-formed empty array). This must be
+        // full coverage with no spans, NOT flagged incomplete.
+        let text = "This clause contains no sensitive information whatsoever."
+        let extractor = LLMExtractor(
+            completer: MockCompleter(defaultOutput: #"{"entities":[],"redacted_text":""}"#)
+        )
+
+        let result = try extractor.extractDetailed(from: text)
+
+        XCTAssertTrue(result.fullyCovered, "genuine emptiness is full coverage, not truncation")
+        XCTAssertEqual(result.incompleteSegmentCount, 0)
+        XCTAssertTrue(result.spans.isEmpty)
+    }
+
     // MARK: - Duplicate reports collapse to one span set
 
     func testDedupsRepeatedEntityReports() throws {

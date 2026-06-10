@@ -184,6 +184,103 @@ final class LDAServiceLLMTests: XCTestCase {
         )
     }
 
+    // MARK: - Incomplete extraction is surfaced, not swallowed (LJE-001)
+
+    /// A completer that always returns a cut-off JSON array, so no segment can be
+    /// fully scanned regardless of token cap. Used through the test-only extractor
+    /// seam to drive LDAService's incompleteness handling without a real model.
+    private struct AlwaysTruncatingCompleter: TextCompleter {
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},{"value":"Robert Ki"#
+        }
+    }
+
+    override func tearDown() {
+        // Always clear the test seam so one test never leaks into another.
+        LDAService.makeExtractorForTesting = nil
+        super.tearDown()
+    }
+
+    private func writeFuzzyFixture() throws -> URL {
+        let text = "The seller is Acme Corp and the signer is Robert King."
+        let inputURL = workDir.appendingPathComponent("fuzzy.txt")
+        try Data(text.utf8).write(to: inputURL)
+        return inputURL
+    }
+
+    func testAnonymizeThrowsWhenASegmentCannotBeFullyScanned() throws {
+        // Arrange: inject an extractor whose completer never stops truncating.
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: AlwaysTruncatingCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+        let outputDir = workDir.appendingPathComponent("out-truncate", isDirectory: true)
+        let protection = MappingProtection.passphrase("a passphrase")
+
+        // Act + Assert: the facade must NOT silently present a clean document; it
+        // must surface that a segment was not fully scanned.
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: inputURL,
+                outputDir: outputDir,
+                protection: protection,
+                createdAtISO8601: Self.createdAt,
+                llmModelPath: Self.bogusModelPath
+            )
+        ) { error in
+            guard case LDAServiceError.incompleteExtraction = error else {
+                XCTFail("expected LDAServiceError.incompleteExtraction, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testDetectThrowsWhenASegmentCannotBeFullyScanned() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: AlwaysTruncatingCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+
+        XCTAssertThrowsError(
+            try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        ) { error in
+            guard case LDAServiceError.incompleteExtraction = error else {
+                XCTFail("expected LDAServiceError.incompleteExtraction, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testGenuinelyEmptyLLMExtractionDoesNotThrow() throws {
+        // The model found no fuzzy PII (well-formed empty array). This is a clean
+        // document, NOT an incomplete scan, so anonymize must succeed and still
+        // tokenize the deterministic EMAIL.
+        struct EmptyCompleter: TextCompleter {
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                return #"{"entities":[],"redacted_text":""}"#
+            }
+        }
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: EmptyCompleter())
+        }
+        let inputURL = try writeEmailFixture()
+        let outputDir = workDir.appendingPathComponent("out-empty", isDirectory: true)
+        let protection = MappingProtection.passphrase("a passphrase")
+
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: protection,
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: Self.bogusModelPath
+        )
+
+        XCTAssertTrue(
+            result.entities.contains { $0.type == .email },
+            "a genuinely clean LLM result must not block deterministic EMAIL tokenization"
+        )
+    }
+
     // MARK: - Gated integration: real model surfaces fuzzy entities
 
     func testDetectWithRealModelSurfacesPersonAndCompany() throws {

@@ -440,4 +440,71 @@ final class RestorerTests: XCTestCase {
         XCTAssertEqual(result.restoredCount, 3)
         XCTAssertTrue(result.orphanTokens.isEmpty)
     }
+
+    // MARK: - Order-independent cascade (roundtrip-02 / LDA-SDS-02)
+
+    /// A value that literally contains another entry's token must not cascade.
+    /// The old per-entry replacingOccurrences loop iterated the unordered
+    /// Dictionary.values, so restoring the value-that-embeds-a-token before the
+    /// inner token corrupted the output nondeterministically. A single
+    /// left-to-right pass over the placeholder grammar must always produce the
+    /// same correct result, because substituted values are never re-scanned.
+    func testValueContainingAnotherTokenDoesNotCascade() {
+        let entry1 = MappingEntry(
+            token: "{COMPANY_1}", value: "Globex", type: .company,
+            surfaceText: "Globex", aliases: []
+        )
+        let entry2 = MappingEntry(
+            token: "{COMPANY_2}", value: "{COMPANY_1} Holdings", type: .company,
+            surfaceText: "{COMPANY_1} Holdings", aliases: []
+        )
+        let mapping = Mapping(
+            entries: ["{COMPANY_1}": entry1, "{COMPANY_2}": entry2],
+            createdAtISO8601: "2026-01-01T00:00:00Z",
+            sourceFile: "test.txt"
+        )
+
+        let tokenized = "{COMPANY_1} acquired {COMPANY_2}."
+
+        // Restore many times: with the unordered dictionary loop this corrupts on
+        // a fraction of runs. The single-pass restore must be deterministic.
+        for _ in 0..<200 {
+            let result = Restorer.restore(text: tokenized, mapping: mapping)
+            XCTAssertEqual(result.text, "Globex acquired {COMPANY_1} Holdings.")
+            // Two tokens are present in the input; each is substituted once. The
+            // {COMPANY_1} that appears inside the restored value of {COMPANY_2}
+            // must NOT be counted, because it is emitted text, not an input token.
+            XCTAssertEqual(result.restoredCount, 2)
+            XCTAssertTrue(result.orphanTokens.isEmpty)
+        }
+    }
+
+    /// Two entries whose values cross-reference each other's tokens must restore
+    /// deterministically with no re-scan of inserted value text.
+    func testCrossReferencingValuesRestoreDeterministically() {
+        let entry1 = MappingEntry(
+            token: "{T_1}", value: "A-{T_2}-A", type: .unknown,
+            surfaceText: "A-{T_2}-A", aliases: []
+        )
+        let entry2 = MappingEntry(
+            token: "{T_2}", value: "B-{T_1}-B", type: .unknown,
+            surfaceText: "B-{T_1}-B", aliases: []
+        )
+        let mapping = Mapping(
+            entries: ["{T_1}": entry1, "{T_2}": entry2],
+            createdAtISO8601: "2026-01-01T00:00:00Z",
+            sourceFile: "test.txt"
+        )
+
+        let tokenized = "start {T_1} end"
+
+        for _ in 0..<200 {
+            let result = Restorer.restore(text: tokenized, mapping: mapping)
+            // {T_1} is the only token in the input; it is replaced once with its
+            // literal value. The {T_2} inside that value is emitted text and is
+            // never re-scanned, so the output is stable across all runs.
+            XCTAssertEqual(result.text, "start A-{T_2}-A end")
+            XCTAssertEqual(result.restoredCount, 1)
+        }
+    }
 }

@@ -87,6 +87,14 @@ public enum Tokenizer {
             }
         }
 
+        // Pre-scan the ORIGINAL text for token-shaped literals already present
+        // (for example a template fill-in field "{AMOUNT_1}" or a leftover merge
+        // field). A minted token must never reproduce one of these literals: the
+        // copied-through literal and the minted token would be byte-identical, so
+        // Restorer's substitution would overwrite the user's literal with the
+        // entity value and the round-trip would silently corrupt the document.
+        let reservedLiterals = sourceTokenLiterals(in: text)
+
         // Step 3: mint tokens. One token per DISTINCT surface text, with a
         // per-type counter starting at 1. The first span that registers a given
         // surface text wins its token; later spans with the identical surface
@@ -105,10 +113,19 @@ public enum Tokenizer {
             }
 
             let typeToken = TokenGrammar.sanitizeType(span.type.rawValue)
-            let nextCount = (typeCounters[typeToken] ?? 0) + 1
+
+            // Advance the per-type counter, skipping any value that would collide
+            // with a token-shaped literal already in the source. This keeps minted
+            // tokens in a numbering range disjoint from any literal {TYPE_N}, so
+            // the tokenized edit surface is unambiguous and restore stays lossless.
+            var nextCount = (typeCounters[typeToken] ?? 0) + 1
+            var token = "{\(typeToken)_\(nextCount)}"
+            while reservedLiterals.contains(token) {
+                nextCount += 1
+                token = "{\(typeToken)_\(nextCount)}"
+            }
             typeCounters[typeToken] = nextCount
 
-            let token = "{\(typeToken)_\(nextCount)}"
             textToToken[surfaceText] = token
 
             entries[token] = MappingEntry(
@@ -154,6 +171,31 @@ public enum Tokenizer {
         )
 
         return TokenizeResult(tokenizedText: tokenizedText, mapping: mapping)
+    }
+
+    /// Scan `text` for every token-shaped literal already present, using the
+    /// shared `TokenGrammar.placeholderPattern` so emit and restore never drift.
+    ///
+    /// Returns the set of distinct matched strings (for example "{PERSON_1}").
+    /// This stays a pure function: it only reads the in-memory text and never
+    /// touches the clock or the file system. NSRegularExpression runs over the
+    /// text as an NSString, matching the UTF-16 offset convention used elsewhere.
+    private static func sourceTokenLiterals(in text: String) -> Set<String> {
+        guard let regex = try? NSRegularExpression(
+            pattern: TokenGrammar.placeholderPattern
+        ) else {
+            return []
+        }
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        var literals = Set<String>()
+        regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
+            guard let match = match else {
+                return
+            }
+            literals.insert(nsText.substring(with: match.range))
+        }
+        return literals
     }
 
     /// Extract the substring of `text` between two UTF-16 code-unit offsets.

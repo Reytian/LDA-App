@@ -29,11 +29,22 @@ public enum DocxRedactor {
     /// Apply replacements to the runs of original's document.xml and write a new
     /// .docx to out. Spans that cross multiple runs put the token in the first
     /// overlapped run and delete the covered text from the others.
+    ///
+    /// The body is always redacted. When `nonBody` is supplied (a detector plus
+    /// the body mapping), every other text-bearing part (headers, footers,
+    /// footnotes, endnotes, comments) is also redacted, the docProps author/title
+    /// metadata is scrubbed, and external mailto:/tel: hyperlink Targets are
+    /// neutralized, all in the same single rewrite. Any token minted for a surface
+    /// found only in a non-body part is returned so the caller can fold it into the
+    /// mapping sidecar (and therefore restore it). When `nonBody` is nil the
+    /// behavior is exactly the body-only legacy path.
+    @discardableResult
     public static func redact(
         original: URL,
         replacements: [Replacement],
-        to out: URL
-    ) throws {
+        to out: URL,
+        nonBody: (mapping: Mapping, detect: (String) -> [Span])? = nil
+    ) throws -> [MappingEntry] {
         let data = try DocxZip.readEntry(docxMainPartPath, from: original)
         var layout = try DocxDocumentXML.parse(data)
 
@@ -42,23 +53,40 @@ public enum DocxRedactor {
         // Planning against original offsets keeps multi-run spans and multiple
         // distinct spans inside the same run correct, because no edit observes a
         // length already changed by another edit.
-        let edits = try planEdits(replacements, runs: layout.runs, segments: layout.segments)
+        let edits = try planRunEdits(replacements, runs: layout.runs, segments: layout.segments)
 
         for (segmentIndex, segmentEdits) in edits {
-            try applyEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
+            try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
         }
 
-        let newXML = DocxDocumentXML.serialize(layout)
+        var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
+        var newEntries: [MappingEntry] = []
+
+        if let nonBody {
+            let result = DocxParts.redactNonBodyParts(
+                url: original,
+                mapping: nonBody.mapping,
+                detect: nonBody.detect
+            )
+            // The body part is never produced by DocxParts, so this merge never
+            // clobbers the body rewrite computed above.
+            for (path, bytes) in result.replacements {
+                rewriteParts[path] = bytes
+            }
+            newEntries = result.newEntries
+        }
+
         try DocxZip.rewrite(
             source: original,
-            replacing: [docxMainPartPath: newXML],
+            replacing: rewriteParts,
             to: out
         )
+        return newEntries
     }
 
     /// A single run-local edit: replace the run-local UTF-16 range
     /// [localStart, localEnd) with insertText.
-    private struct RunEdit {
+    struct RunEdit {
         var localStart: Int
         var localEnd: Int
         var insertText: String
@@ -67,7 +95,10 @@ public enum DocxRedactor {
     /// Turn replacements into a map of segment index to the list of run-local
     /// edits for that segment. The FIRST overlapped run of each replacement gets
     /// the token; every other overlapped run has its covered text deleted.
-    private static func planEdits(
+    ///
+    /// Exposed at internal access so DocxParts can reuse the exact same run-edit
+    /// planning for non-body parts, keeping cross-run behavior identical.
+    static func planRunEdits(
         _ replacements: [Replacement],
         runs: [DocxRun],
         segments: [DocxSegment]
@@ -112,7 +143,9 @@ public enum DocxRedactor {
 
     /// Apply a list of run-local edits to a single run-text segment. Edits are
     /// applied from the highest localStart down so earlier offsets stay valid.
-    private static func applyEdits(
+    ///
+    /// Exposed at internal access so DocxParts can reuse it for non-body parts.
+    static func applyRunEdits(
         _ edits: [RunEdit],
         atSegment segmentIndex: Int,
         in layout: inout DocxLayout
@@ -136,6 +169,11 @@ public enum DocxRedactor {
     /// Replace every token in a redacted .docx with its value and write to out.
     /// Each token lives entirely within one run, so a per-run find/replace using
     /// the token grammar is correct and safe.
+    ///
+    /// Tokens are restored in the body AND in every other text-bearing part
+    /// (headers, footers, footnotes, endnotes, comments), so a value redacted in a
+    /// header round-trips back. The docProps metadata scrub and external-link
+    /// neutralization done at redact time are destructive and are not reversed.
     public static func restore(
         redactedDocx: URL,
         tokenToValue: [String: String],
@@ -156,10 +194,16 @@ public enum DocxRedactor {
             }
         }
 
-        let newXML = DocxDocumentXML.serialize(layout)
+        var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
+        // Restore tokens in the non-body text parts too.
+        let nonBody = DocxParts.restoreNonBodyParts(url: redactedDocx, tokenToValue: tokenToValue)
+        for (path, bytes) in nonBody {
+            rewriteParts[path] = bytes
+        }
+
         try DocxZip.rewrite(
             source: redactedDocx,
-            replacing: [docxMainPartPath: newXML],
+            replacing: rewriteParts,
             to: out
         )
     }

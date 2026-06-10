@@ -146,6 +146,86 @@ final class ChunkerTests: XCTestCase {
         XCTAssertTrue(intact, "The boundary-straddling name was split across every chunk")
     }
 
+    // MARK: - Entity longer than the overlap straddling a hard cut (CHUNK-001)
+
+    /// An entity longer than overlapChars that straddles a position where the
+    /// chunk end fell to a hard grapheme cut (no paragraph, newline, or sentence
+    /// boundary available) must still be whole in at least one chunk. The original
+    /// code tore it: the first chunk ended at the cut mid-entity, and the next
+    /// chunk started at (cut - overlap), which lands AFTER the entity's start when
+    /// the entity is longer than the overlap, so the entity was whole in no chunk.
+    func testEntityLongerThanOverlapStraddlingHardCutStaysWhole() {
+        let target = 2000
+        let overlap = 350
+
+        // A single contiguous "address" of 441 UTF-16 units: one token longer than
+        // the overlap, with internal spaces but no sentence terminator or newline,
+        // so no structural boundary exists and the chunk end is a hard grapheme
+        // cut. Place it so it straddles the 2000 cut: it must start before 2000 by
+        // more than the overlap so (2000 - overlap) lands inside it.
+        let addressWord = "Street"
+        // Build the address out of space-separated words to exactly 441 units.
+        var address = ""
+        while (address as NSString).length < 441 {
+            address += addressWord + " "
+        }
+        address = (address as NSString).substring(to: 441)
+        XCTAssertEqual((address as NSString).length, 441)
+
+        // Filler uses only words and spaces: no '.', '?', '!', and no newline, so
+        // the chunker cannot find any structural boundary and must hard-cut.
+        let filler = "word "
+        // Start the address at offset 1596 so it spans [1596, 2037): it begins 404
+        // units before the 2000 cut (> overlap of 350) and ends 37 units after.
+        let prefixLen = 1596
+        var prefix = ""
+        while (prefix as NSString).length < prefixLen {
+            prefix += filler
+        }
+        prefix = (prefix as NSString).substring(to: prefixLen)
+        let suffix = String(repeating: filler, count: 600)
+        let doc = prefix + address + suffix
+
+        // Sanity: the address really straddles the hard cut at 2000.
+        let ns = doc as NSString
+        let addrStart = ns.range(of: address).location
+        XCTAssertNotEqual(addrStart, NSNotFound)
+        XCTAssertLessThan(addrStart, target)
+        XCTAssertGreaterThan(addrStart + 441, target)
+        XCTAssertGreaterThan(target - addrStart, overlap, "address must be longer than the overlap before the cut")
+
+        let chunks = Chunker.chunk(doc, targetChars: target, overlapChars: overlap)
+
+        let intact = chunks.contains { $0.text.contains(address) }
+        XCTAssertTrue(intact, "an entity longer than the overlap straddling a hard cut must be whole in some chunk")
+
+        // The bridging chunk must not break the global chunk invariants.
+        // Start offsets are strictly increasing.
+        for i in 0..<(chunks.count - 1) {
+            XCTAssertLessThan(
+                chunks[i].startUTF16, chunks[i + 1].startUTF16,
+                "chunk start offsets must stay strictly increasing"
+            )
+        }
+        // No gaps: each chunk starts at or before the previous chunk's end.
+        for i in 0..<(chunks.count - 1) {
+            let currentEnd = chunks[i].startUTF16 + utf16Length(chunks[i].text)
+            XCTAssertLessThanOrEqual(
+                chunks[i + 1].startUTF16, currentEnd,
+                "gap detected between chunk \(i) and \(i + 1)"
+            )
+        }
+        // Coverage: first chunk at 0, last chunk reaches the document end.
+        XCTAssertEqual(chunks.first?.startUTF16, 0)
+        let last = chunks.last!
+        XCTAssertEqual(last.startUTF16 + utf16Length(last.text), utf16Length(doc))
+        // Each chunk slices back to its head from the source.
+        for chunk in chunks {
+            let reconstructed = slice(doc, from: chunk.startUTF16, length: utf16Length(chunk.text))
+            XCTAssertEqual(reconstructed, chunk.text)
+        }
+    }
+
     // MARK: - CJK safety
 
     func testCJKTextChunksWithoutBreakingMidCharacter() {

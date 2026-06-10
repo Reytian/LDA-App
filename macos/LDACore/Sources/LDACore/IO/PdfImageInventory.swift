@@ -38,6 +38,11 @@ public enum PdfImageInventory {
         return pages
     }
 
+    /// Maximum Form-XObject nesting depth walked before giving up and reporting
+    /// the page as image-bearing. PDFs that nest this deep are pathological, so
+    /// being conservative (OCR the page) is the safe choice.
+    private static let maxFormDepth = 8
+
     private static func pageHasImage(_ pageDict: CGPDFDictionaryRef) -> Bool {
         var resources: CGPDFDictionaryRef?
         guard CGPDFDictionaryGetDictionary(pageDict, "Resources", &resources),
@@ -45,21 +50,59 @@ public enum PdfImageInventory {
         var xobjects: CGPDFDictionaryRef?
         guard CGPDFDictionaryGetDictionary(resources, "XObject", &xobjects),
               let xobjects else { return false }
+        return resourcesHaveImage(xobjects, depth: 0)
+    }
 
+    /// A collector for one CGPDFDictionaryApplyFunction pass. The C callback
+    /// cannot capture Swift context, so it records its findings here via an
+    /// opaque pointer.
+    ///
+    /// `found` is set when a direct Image XObject is seen. `forms` collects the
+    /// nested Resources/XObject dictionaries of every Form XObject so the Swift
+    /// recursion can descend into them after the apply completes. CGPDF pointers
+    /// stay valid while the document is alive, so deferring the recursion is safe.
+    private final class XObjectScan {
         var found = false
-        withUnsafeMutablePointer(to: &found) { foundPtr in
-            CGPDFDictionaryApplyFunction(xobjects, { (_, object, info) in
-                let foundPtr = info!.assumingMemoryBound(to: Bool.self)
-                if foundPtr.pointee { return }
-                var stream: CGPDFStreamRef?
-                guard CGPDFObjectGetValue(object, .stream, &stream), let stream,
-                      let streamDict = CGPDFStreamGetDictionary(stream) else { return }
-                var subtype: UnsafePointer<Int8>?
-                if CGPDFDictionaryGetName(streamDict, "Subtype", &subtype), let subtype {
-                    if String(cString: subtype) == "Image" { foundPtr.pointee = true }
+        var forms: [CGPDFDictionaryRef] = []
+    }
+
+    /// True when this XObject dictionary contains an Image XObject directly, or
+    /// inside any nested Form XObject (recursively, with a depth guard).
+    private static func resourcesHaveImage(_ xobjects: CGPDFDictionaryRef, depth: Int) -> Bool {
+        // Too deep to walk safely: be conservative and report image-bearing.
+        if depth > maxFormDepth { return true }
+
+        let scan = XObjectScan()
+        let info = Unmanaged.passUnretained(scan).toOpaque()
+        CGPDFDictionaryApplyFunction(xobjects, { (_, object, info) in
+            let scan = Unmanaged<XObjectScan>.fromOpaque(info!).takeUnretainedValue()
+            var stream: CGPDFStreamRef?
+            guard CGPDFObjectGetValue(object, .stream, &stream), let stream,
+                  let streamDict = CGPDFStreamGetDictionary(stream) else { return }
+            var subtype: UnsafePointer<Int8>?
+            guard CGPDFDictionaryGetName(streamDict, "Subtype", &subtype), let subtype else { return }
+            switch String(cString: subtype) {
+            case "Image":
+                scan.found = true
+            case "Form":
+                // Descend into this Form's own Resources/XObject dictionary.
+                var nestedResources: CGPDFDictionaryRef?
+                guard CGPDFDictionaryGetDictionary(streamDict, "Resources", &nestedResources),
+                      let nestedResources else { return }
+                var nestedXObjects: CGPDFDictionaryRef?
+                if CGPDFDictionaryGetDictionary(nestedResources, "XObject", &nestedXObjects),
+                   let nestedXObjects {
+                    scan.forms.append(nestedXObjects)
                 }
-            }, foundPtr)
+            default:
+                break
+            }
+        }, info)
+
+        if scan.found { return true }
+        for nested in scan.forms where resourcesHaveImage(nested, depth: depth + 1) {
+            return true
         }
-        return found
+        return false
     }
 }

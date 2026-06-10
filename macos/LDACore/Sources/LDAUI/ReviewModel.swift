@@ -326,6 +326,9 @@ public final class ReviewModel: ObservableObject {
         let acceptedSpans = entities.filter { $0.accepted }.map { $0.span }
         let text = documentText
         let source = sourceURL
+        // Read the custom vocabulary on the main actor so the non-body detector
+        // (built below) uses the same inputs the body detection used.
+        let custom = customPatternProvider()
 
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
@@ -336,7 +339,8 @@ public final class ReviewModel: ObservableObject {
             withIntermediateDirectories: true
         )
 
-        let tokenized = Tokenizer.tokenize(
+        // Declared var so non-body redaction can fold in new mapping entries below.
+        var tokenized = Tokenizer.tokenize(
             text: text,
             spans: acceptedSpans,
             sourceFile: sourceFile,
@@ -350,11 +354,24 @@ public final class ReviewModel: ObservableObject {
                 spans: acceptedSpans,
                 mapping: tokenized.mapping
             )
-            try DocxRedactor.redact(
+            // Redact the body AND every other text-bearing part (headers, footers,
+            // footnotes, endnotes, comments), scrub docProps author/title metadata,
+            // and neutralize external mailto:/tel: hyperlink targets, mirroring
+            // LDAService.anonymize. The non-body detector is the same deterministic
+            // plus best-effort LLM detection the body used, built from this model's
+            // own settings; it never re-runs the LLM over the body. Surfaces found
+            // only in a non-body part mint new tokens that are folded into the
+            // mapping below so they persist in the sidecar and restore correctly.
+            let detect = Self.nonBodyDetector(useLLM: useLLM, modelPath: modelPath, custom: custom)
+            let nonBodyEntries = try DocxRedactor.redact(
                 original: source,
                 replacements: replacements,
-                to: redactedURL
+                to: redactedURL,
+                nonBody: (mapping: tokenized.mapping, detect: detect)
             )
+            for entry in nonBodyEntries {
+                tokenized.mapping.entries[entry.token] = entry
+            }
         } else {
             redactedURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
@@ -475,6 +492,27 @@ public final class ReviewModel: ObservableObject {
     }
 
     // MARK: - Export helpers
+
+    /// A non-throwing detector over arbitrary part text for the DOCX non-body
+    /// pass, built from this model's own settings. It is deterministic plus
+    /// custom vocabulary, merged with best-effort LLM spans (any LLM failure
+    /// degrades to empty), mirroring LDAService's detectForImages. It only ever
+    /// scans the small non-body parts (headers, footers, notes), never the body,
+    /// so it does not re-run the LLM over the document the user already reviewed.
+    private nonisolated static func nonBodyDetector(
+        useLLM: Bool,
+        modelPath: String?,
+        custom: [CustomPattern]
+    ) -> (String) -> [Span] {
+        return { text in
+            let deterministic = DeterministicEngine().detect(text)
+                + CustomPatternEngine.detect(text, patterns: custom)
+            return SpanMerger.merge(
+                deterministic: deterministic,
+                llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath)
+            )
+        }
+    }
 
     /// Map each accepted span to a Replacement by looking up its token via the
     /// tokenizer mapping (one token per distinct surface text).

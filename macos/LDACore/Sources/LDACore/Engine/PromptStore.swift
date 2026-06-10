@@ -240,12 +240,15 @@ public final class PromptStore {
     // MARK: Extraction prompt builder
 
     /// Build the v2 single-shot extraction USER text for one document chunk.
-    /// This is the exact user-turn format the bundled v2 model was trained on
-    /// (see the original infer.py). The model returns JSON with keys "entities"
-    /// (an array of {value, type}) and "redacted_text".
+    /// Based on the v2 user-turn format (see the original infer.py), but the
+    /// "redacted_text" key is intentionally dropped: the parser only consumes
+    /// "entities", while "redacted_text" echoes the whole chunk back and roughly
+    /// doubles the output size, which is the dominant cause of hitting the
+    /// generation token cap mid-array (LJE-001). Asking for entities only keeps
+    /// the output budget on the data we actually use.
     public func extractionUser(chunk: String) -> String {
-        return "Anonymize. Return ONLY JSON with keys entities "
-            + "(array of {value,type}) and redacted_text.\n\nTEXT:\n"
+        return "Anonymize. Return ONLY JSON with key entities "
+            + "(array of {value,type}).\n\nTEXT:\n"
             + chunk
     }
 

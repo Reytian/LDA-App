@@ -223,4 +223,70 @@ final class EntityLocatorTests: XCTestCase {
         XCTAssertEqual(spans.map { $0.start }, [0, 1, 2])
         XCTAssertEqual(spans.map { $0.end }, [1, 2, 3])
     }
+
+    // MARK: - NFC/NFD byte identity (offset-unicode-1)
+
+    /// NSString.range does canonical (normalization-insensitive) matching: an NFC
+    /// needle matches an NFD occurrence and the returned NSRange carries the
+    /// HAYSTACK length, not the needle length. The emitted span's text must be the
+    /// actual matched substring (the source's NFD bytes), not the needle, so the
+    /// [start, end) UTF-16 bytes agree with span.text byte-for-byte. Byte-level
+    /// (utf16) assertions are required here, because String== is canonical and
+    /// would mask the divergence.
+    func testSpanTextIsMatchedSubstringNotNeedleForNFDSource() {
+        // Source 'é' is decomposed: base 'e' (U+0065) + combining acute (U+0301).
+        let text = "Owner Rene\u{0301} Martin, attorney."
+        // The model reports the value in precomposed NFC form.
+        let needle = "Ren\u{00E9}"
+
+        let spans = EntityLocator.spans(forValue: needle, type: .person, in: text)
+        XCTAssertEqual(spans.count, 1)
+        guard let span = spans.first else { return }
+
+        let ns = text as NSString
+        let matched = ns.substring(with: NSRange(location: span.start, length: span.end - span.start))
+
+        // span.text must equal the matched source slice at the byte (UTF-16) level.
+        XCTAssertEqual(
+            Array(span.text.utf16),
+            Array(matched.utf16),
+            "span.text must carry the matched source bytes, not the NFC needle"
+        )
+        // Concretely, the matched slice is the NFD form of "Rene" (5 UTF-16
+        // units: 'R','e','n','e' plus combining acute), not the NFC needle
+        // "Ren\u{00E9}" (4 UTF-16 units).
+        XCTAssertEqual(Array(span.text.utf16), Array("Rene\u{0301}".utf16))
+        XCTAssertEqual((span.text as NSString).length, 5)
+    }
+
+    /// End-to-end: tokenizing then restoring an NFD source with an NFC needle must
+    /// reproduce the original byte-for-byte (UTF-16 identical), not merely
+    /// canonically equal.
+    func testNFDSourceRoundTripsByteIdenticalThroughTokenizer() {
+        let text = "Owner Rene\u{0301} Martin, attorney."
+        let needle = "Ren\u{00E9}"
+
+        let spans = EntityLocator.spans(forValue: needle, type: .person, in: text)
+        let tok = Tokenizer.tokenize(
+            text: text,
+            spans: spans,
+            sourceFile: "test.txt",
+            createdAtISO8601: "2026-01-01T00:00:00Z"
+        )
+        let restored = Restorer.restore(text: tok.tokenizedText, mapping: tok.mapping)
+
+        XCTAssertEqual(
+            Array(restored.text.utf16),
+            Array(text.utf16),
+            "restore must be byte-identical (UTF-16), not just canonically equal"
+        )
+    }
+
+    /// The ASCII path must be unaffected by capturing the matched substring.
+    func testASCIIMatchedSubstringEqualsNeedle() {
+        let text = "Pay Alice now."
+        let spans = EntityLocator.spans(forValue: "Alice", type: .person, in: text)
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(Array(spans.first!.text.utf16), Array("Alice".utf16))
+    }
 }
