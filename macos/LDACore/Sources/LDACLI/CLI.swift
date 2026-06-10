@@ -177,7 +177,8 @@ public enum LDACLI {
     // MARK: Helper internals
 
     /// Throw CLIError.inputNotFound when the path does not exist on disk.
-    private static func requireExists(_ url: URL) throws {
+    /// Internal so CLIFill.swift can call it without duplication.
+    internal static func requireExists(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw CLIError.inputNotFound(url.path)
         }
@@ -185,7 +186,8 @@ public enum LDACLI {
 
     /// Choose a MappingProtection: an explicit passphrase, or a Keychain account
     /// derived from the supplied base name.
-    private static func protectionFor(
+    /// Internal so CLIFill.swift can call it without duplication.
+    internal static func protectionFor(
         passphrase: String?,
         derivedAccount: String
     ) -> MappingProtection {
@@ -211,13 +213,13 @@ enum CLIJSON {
 
 // MARK: - Command tree
 
-/// The root "lda" command. Holds the three subcommands and prints help by
-/// default when invoked with no subcommand.
+/// The root "lda" command. Holds all subcommands and prints help by default
+/// when invoked with no subcommand.
 struct LDARoot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "lda",
         abstract: "Legal Document Anonymizer.",
-        subcommands: [Anonymize.self, Restore.self, Detect.self]
+        subcommands: [Anonymize.self, Restore.self, Detect.self, ExtractProfile.self, Fill.self]
     )
 }
 

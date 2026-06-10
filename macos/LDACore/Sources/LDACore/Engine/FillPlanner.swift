@@ -128,6 +128,9 @@ public enum FillPlanner {
                 )
             } else {
                 // Ambiguous: mark .proposed but leave pick to the UI.
+                // Populate candidateFieldIDs so the CLI can surface the
+                // candidate rawKeys without re-querying the profile.
+                let candidateIDs = matching.map { $0.id }
                 return Blank(
                     id: blank.id,
                     location: blank.location,
@@ -135,7 +138,8 @@ public enum FillPlanner {
                     context: blank.context,
                     proposedFieldID: nil,
                     proposedValue: nil,
-                    status: .proposed
+                    status: .proposed,
+                    candidateFieldIDs: candidateIDs
                 )
             }
         }

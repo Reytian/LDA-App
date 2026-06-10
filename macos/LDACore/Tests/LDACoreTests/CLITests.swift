@@ -235,4 +235,391 @@ final class CLITests: XCTestCase {
             }
         }
     }
+
+    // MARK: - extract-profile and fill CLI tests
+
+    // MARK: Fixtures and helpers
+
+    // Minimal DOCX writer used by fill CLI tests. Intentionally self-contained
+    // to avoid coupling to FillServiceTests fixture helpers.
+
+    private static let contentTypesXML = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+    <Default Extension="xml" ContentType="application/xml"/>
+    <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+    </Types>
+    """
+
+    private static let relsXML = """
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+    </Relationships>
+    """
+
+    /// Write a minimal DOCX containing the given raw text in a single paragraph.
+    private func writeDocxWithText(_ text: String, named name: String? = nil) throws -> URL {
+        let fileName = name ?? "clitest-\(UUID().uuidString).docx"
+        let url = tempDir.appendingPathComponent(fileName)
+        let escapedText = text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body><w:p><w:r><w:t xml:space="preserve">\(escapedText)</w:t></w:r></w:p></w:body>
+        </w:document>
+        """
+        let parts: [(String, Data)] = [
+            ("[Content_Types].xml", Data(Self.contentTypesXML.utf8)),
+            ("_rels/.rels", Data(Self.relsXML.utf8)),
+            ("word/document.xml", Data(documentXML.utf8))
+        ]
+        try DocxZip.writeArchive(parts: parts, to: url)
+        return url
+    }
+
+    /// Build a CompanyProfile saved as an encrypted .ldaprofile and return
+    /// the profile URL. Uses passphrase protection for test hermeticity.
+    private func writeProfileWithCompanyName(
+        _ companyName: String,
+        label: String = "TestCo",
+        named name: String? = nil
+    ) throws -> URL {
+        let field = ProfileField(
+            key: .companyName,
+            value: companyName,
+            sourceDocument: "test",
+            sourceSnippet: companyName,
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let profile = CompanyProfile(
+            label: label,
+            fields: [field],
+            sourceDocuments: ["test"],
+            createdAtISO8601: fixedTimestamp,
+            incomplete: false
+        )
+        let fileName = name ?? "test-\(UUID().uuidString).ldaprofile"
+        let url = tempDir.appendingPathComponent(fileName)
+        try ProfileStore.save(profile, to: url, protection: .passphrase(passphrase))
+        return url
+    }
+
+    /// Build a profile with two directorName fields (ambiguous synonym hit) saved
+    /// as an encrypted .ldaprofile and return the profile URL.
+    private func writeProfileWithTwoDirectors() throws -> URL {
+        let d1 = ProfileField(
+            key: .directorName,
+            value: "Alice Smith",
+            sourceDocument: "test",
+            sourceSnippet: "Director Alice Smith",
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let d2 = ProfileField(
+            key: .directorName,
+            value: "Bob Jones",
+            sourceDocument: "test",
+            sourceSnippet: "Director Bob Jones",
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let profile = CompanyProfile(
+            label: "TwoDirectors",
+            fields: [d1, d2],
+            sourceDocuments: ["test"],
+            createdAtISO8601: fixedTimestamp,
+            incomplete: false
+        )
+        let url = tempDir.appendingPathComponent("two-directors.ldaprofile")
+        try ProfileStore.save(profile, to: url, protection: .passphrase(passphrase))
+        return url
+    }
+
+    /// A fake completer that returns a canned extraction JSON row.
+    private final class FakeExtractCompleter: TextCompleter {
+        let row: String
+        init(companyName: String) {
+            self.row = """
+            [{"key":"companyName","value":"\(companyName)","snippet":"company is \(companyName)","confidence":0.95}]
+            """
+        }
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return row
+        }
+    }
+
+    // MARK: extract-profile: summary contains keys but no field values
+
+    func testExtractProfileSummaryContainsKeysButNoValues() throws {
+        let sourceURL = tempDir.appendingPathComponent("cert.txt")
+        let companyName = "PrivateCo Holdings Ltd"
+        try Data("The company name is \(companyName).".utf8).write(to: sourceURL)
+
+        let fake = FakeExtractCompleter(companyName: companyName)
+        LDAService.makeCompleterForTesting = { fake }
+        defer { LDAService.makeCompleterForTesting = nil }
+
+        let outURL = tempDir.appendingPathComponent("matter.ldaprofile")
+
+        let (summary, _) = try LDACLI.runExtractProfile(
+            sources: [sourceURL],
+            label: "TestCo",
+            out: outURL,
+            passphrase: passphrase,
+            llmModelPath: "fake-model.gguf",
+            timestamp: { self.fixedTimestamp }
+        )
+
+        let json = try CLIJSON.encode(summary)
+
+        // The summary must list the rawKey.
+        XCTAssertTrue(
+            summary.keys.contains("companyName"),
+            "summary.keys must include companyName"
+        )
+
+        // The JSON must not contain the company name value (no PII leak).
+        XCTAssertFalse(
+            json.contains(companyName),
+            "extract-profile summary JSON must not contain field values"
+        )
+
+        // The profile must exist on disk.
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: outURL.path),
+            "profile file must be written to disk"
+        )
+
+        // profilePath in summary must match outURL.
+        XCTAssertEqual(summary.profilePath, outURL.path)
+    }
+
+    // MARK: extract-profile: failedSources captured in summary
+
+    func testExtractProfileSummaryReportsFailedSources() throws {
+        let goodURL = tempDir.appendingPathComponent("cert.txt")
+        try Data("The company name is Acme Corp.".utf8).write(to: goodURL)
+        let badURL = tempDir.appendingPathComponent("ghost.txt")
+
+        let fake = FakeExtractCompleter(companyName: "Acme Corp")
+        LDAService.makeCompleterForTesting = { fake }
+        defer { LDAService.makeCompleterForTesting = nil }
+
+        let outURL = tempDir.appendingPathComponent("failed-sources.ldaprofile")
+
+        let (summary, _) = try LDACLI.runExtractProfile(
+            sources: [goodURL, badURL],
+            label: "Acme",
+            out: outURL,
+            passphrase: passphrase,
+            llmModelPath: "fake",
+            timestamp: { self.fixedTimestamp }
+        )
+
+        XCTAssertEqual(summary.failedSources.count, 1)
+        XCTAssertEqual(summary.failedSources[0].name, badURL.lastPathComponent)
+        XCTAssertFalse(summary.failedSources[0].reason.isEmpty)
+    }
+
+    // MARK: fill --plan: output contains proposed values; ambiguous blank carries candidates
+
+    func testFillPlanOutputContainsProposedValue() throws {
+        let profileURL = try writeProfileWithCompanyName("Acme Holdings Limited")
+        let docxURL = try writeDocxWithText("Registered name: [Company Name].")
+
+        let entries = try LDACLI.runFillPlan(
+            profile: profileURL,
+            passphrase: passphrase,
+            input: docxURL
+        )
+
+        // At least one proposed entry for the Company Name blank.
+        let proposed = entries.filter { $0.status == "proposed" }
+        XCTAssertFalse(proposed.isEmpty, "Expected at least one proposed blank")
+
+        let companyEntry = proposed.first { $0.proposedFieldKey == "companyName" }
+        XCTAssertNotNil(companyEntry, "Expected a proposed blank with key companyName")
+        XCTAssertEqual(companyEntry?.proposedValue, "Acme Holdings Limited")
+        XCTAssertNil(companyEntry?.candidates, "Unambiguous blank must not carry candidates")
+    }
+
+    func testFillPlanAmbiguousBlankCarriesCandidates() throws {
+        let profileURL = try writeProfileWithTwoDirectors()
+        // A blank labeled "Director" triggers the directorName synonym which has
+        // two fields: ambiguous hit.
+        let docxURL = try writeDocxWithText("Appointed director: [Director].")
+
+        let entries = try LDACLI.runFillPlan(
+            profile: profileURL,
+            passphrase: passphrase,
+            input: docxURL
+        )
+
+        let ambiguous = entries.first { $0.status == "proposed" && $0.proposedFieldKey == nil }
+        XCTAssertNotNil(ambiguous, "Expected an ambiguous proposed blank")
+
+        // candidates must be present and contain the directorName rawKey (both entries).
+        let candidates = ambiguous?.candidates
+        XCTAssertNotNil(candidates, "Ambiguous blank must carry candidates")
+        XCTAssertEqual(candidates?.count, 2, "Expected two candidate rawKeys (two directorName fields)")
+        XCTAssertTrue(
+            candidates?.allSatisfy { $0 == "directorName" } ?? false,
+            "All candidates for an ambiguous directorName hit must have rawKey directorName"
+        )
+    }
+
+    // MARK: fill --apply: writes filled file and prints value-free report
+
+    func testFillApplyWritesFilledDocxAndReturnsValueFreeReport() throws {
+        let companyName = "FillApply Corp"
+        let profileURL = try writeProfileWithCompanyName(companyName)
+        let docxURL = try writeDocxWithText("Company: [Company Name]. Jurisdiction: [Jurisdiction].")
+        let outDir = tempDir.appendingPathComponent("filled-out", isDirectory: true)
+
+        let report = try LDACLI.runFillApply(
+            profile: profileURL,
+            passphrase: passphrase,
+            input: docxURL,
+            outputDir: outDir
+        )
+
+        // The filled file must exist.
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: report.outputURL.path),
+            "Filled output file must exist"
+        )
+
+        // At least one blank was filled.
+        XCTAssertGreaterThan(report.filledCount, 0, "Expected at least one filled blank")
+
+        // The FillReport JSON must not contain the company name value.
+        let reportJSON = try CLIJSON.encode(FillReportJSON(report: report))
+        XCTAssertFalse(
+            reportJSON.contains(companyName),
+            "fill --apply report JSON must not contain filled values"
+        )
+    }
+
+    // MARK: fill mutual exclusion validation
+
+    func testFillMutualExclusionBothFlagsThrows() throws {
+        // Passing both --plan and --apply must throw a validation error.
+        XCTAssertThrowsError(
+            try Fill.parse(["--profile", "x.ldaprofile",
+                            "--input", "x.docx",
+                            "--plan",
+                            "--apply",
+                            "--output-dir", "out/"])
+        ) { error in
+            // ArgumentParser wraps validation errors; ensure the error is related
+            // to the mutual-exclusion check (not a missing-argument error).
+            let desc = String(describing: error)
+            XCTAssertTrue(
+                desc.lowercased().contains("mutually exclusive") ||
+                desc.lowercased().contains("exclusive"),
+                "Expected mutual-exclusion validation error, got: \(desc)"
+            )
+        }
+    }
+
+    func testFillNeitherFlagThrows() throws {
+        // Passing neither --plan nor --apply must throw.
+        XCTAssertThrowsError(
+            try Fill.parse(["--profile", "x.ldaprofile", "--input", "x.docx"])
+        ) { error in
+            let desc = String(describing: error)
+            XCTAssertFalse(desc.isEmpty, "Expected a non-empty validation error")
+        }
+    }
+
+    func testFillApplyWithoutOutputDirThrows() throws {
+        // --apply without --output-dir must throw a validation error.
+        XCTAssertThrowsError(
+            try Fill.parse(["--profile", "x.ldaprofile", "--input", "x.docx", "--apply"])
+        ) { error in
+            let desc = String(describing: error)
+            XCTAssertTrue(
+                desc.lowercased().contains("output-dir"),
+                "Expected output-dir validation error, got: \(desc)"
+            )
+        }
+    }
+
+    // MARK: ArgumentParser parsing
+
+    func testExtractProfileParsingAcceptsMultipleSources() throws {
+        let cmd = try ExtractProfile.parse([
+            "--label", "Acme",
+            "--out", "/tmp/matter.ldaprofile",
+            "--model", "/tmp/model.gguf",
+            "cert.pdf", "articles.pdf"
+        ])
+        XCTAssertEqual(cmd.label, "Acme")
+        XCTAssertEqual(cmd.out, "/tmp/matter.ldaprofile")
+        XCTAssertEqual(cmd.model, "/tmp/model.gguf")
+        XCTAssertEqual(cmd.sources, ["cert.pdf", "articles.pdf"])
+        XCTAssertNil(cmd.passphrase)
+    }
+
+    func testExtractProfileParsingWithPassphrase() throws {
+        let cmd = try ExtractProfile.parse([
+            "--label", "Acme",
+            "--out", "/tmp/matter.ldaprofile",
+            "--passphrase", "secret123",
+            "--model", "/tmp/model.gguf",
+            "cert.pdf"
+        ])
+        XCTAssertEqual(cmd.passphrase, "secret123")
+        XCTAssertEqual(cmd.sources, ["cert.pdf"])
+    }
+
+    func testExtractProfileNoSourcesThrowsValidation() throws {
+        XCTAssertThrowsError(
+            try ExtractProfile.parse([
+                "--label", "Acme",
+                "--out", "/tmp/matter.ldaprofile",
+                "--model", "/tmp/model.gguf"
+            ])
+        )
+    }
+
+    func testFillPlanParsingAcceptsOptionalModel() throws {
+        let cmd = try Fill.parse([
+            "--profile", "matter.ldaprofile",
+            "--input", "draft.docx",
+            "--plan"
+        ])
+        XCTAssertEqual(cmd.profile, "matter.ldaprofile")
+        XCTAssertEqual(cmd.input, "draft.docx")
+        XCTAssertTrue(cmd.plan)
+        XCTAssertFalse(cmd.apply)
+        XCTAssertNil(cmd.model)
+        XCTAssertNil(cmd.outputDir)
+    }
+
+    func testFillApplyParsingAcceptsAllOptions() throws {
+        let cmd = try Fill.parse([
+            "--profile", "matter.ldaprofile",
+            "--passphrase", "pw",
+            "--input", "draft.docx",
+            "--model", "/models/v2.gguf",
+            "--apply",
+            "--output-dir", "out/"
+        ])
+        XCTAssertEqual(cmd.profile, "matter.ldaprofile")
+        XCTAssertEqual(cmd.passphrase, "pw")
+        XCTAssertTrue(cmd.apply)
+        XCTAssertFalse(cmd.plan)
+        XCTAssertEqual(cmd.model, "/models/v2.gguf")
+        XCTAssertEqual(cmd.outputDir, "out/")
+    }
 }

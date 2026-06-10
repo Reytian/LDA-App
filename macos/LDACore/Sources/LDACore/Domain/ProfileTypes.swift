@@ -278,6 +278,11 @@ public struct Blank: Identifiable, Equatable, Sendable, Codable {
     /// beside the verbatim profile value.
     public var proposedValue: String?
     public var status: BlankStatus
+    /// Set by FillPlanner for ambiguous synonym hits: the IDs of every profile
+    /// field whose key matched. Nil for unambiguous matches and unmatched blanks.
+    /// Decoded with decodeIfPresent so profiles written before this field was
+    /// added still load (backward compatible).
+    public var candidateFieldIDs: [UUID]?
 
     public init(
         id: UUID = UUID(),
@@ -286,7 +291,8 @@ public struct Blank: Identifiable, Equatable, Sendable, Codable {
         context: String,
         proposedFieldID: UUID?,
         proposedValue: String?,
-        status: BlankStatus
+        status: BlankStatus,
+        candidateFieldIDs: [UUID]? = nil
     ) {
         self.id = id
         self.location = location
@@ -295,6 +301,39 @@ public struct Blank: Identifiable, Equatable, Sendable, Codable {
         self.proposedFieldID = proposedFieldID
         self.proposedValue = proposedValue
         self.status = status
+        self.candidateFieldIDs = candidateFieldIDs
+    }
+
+    // MARK: - Codable (manual to support backward-compatible decoding)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, location, label, context
+        case proposedFieldID, proposedValue, status
+        case candidateFieldIDs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        location = try c.decode(BlankLocation.self, forKey: .location)
+        label = try c.decode(String.self, forKey: .label)
+        context = try c.decode(String.self, forKey: .context)
+        proposedFieldID = try c.decodeIfPresent(UUID.self, forKey: .proposedFieldID)
+        proposedValue = try c.decodeIfPresent(String.self, forKey: .proposedValue)
+        status = try c.decode(BlankStatus.self, forKey: .status)
+        candidateFieldIDs = try c.decodeIfPresent([UUID].self, forKey: .candidateFieldIDs)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(location, forKey: .location)
+        try c.encode(label, forKey: .label)
+        try c.encode(context, forKey: .context)
+        try c.encodeIfPresent(proposedFieldID, forKey: .proposedFieldID)
+        try c.encodeIfPresent(proposedValue, forKey: .proposedValue)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(candidateFieldIDs, forKey: .candidateFieldIDs)
     }
 }
 
