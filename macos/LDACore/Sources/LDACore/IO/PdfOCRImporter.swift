@@ -162,6 +162,56 @@ public struct PdfOCRImporter: DocumentImporter {
         return boxes
     }
 
+    // MARK: - Image-origin observations (hybrid text + image PDFs)
+
+    /// Default vertical inset (fraction of rect height) trimmed off the top and
+    /// bottom before the text-layer lookup, so the lookup does not bleed into the
+    /// line above or below. Width is barely trimmed so the full line text is read.
+    private static let dedupVerticalInset: CGFloat = 0.30
+    private static let dedupHorizontalInset: CGFloat = 0.05
+
+    /// OCR the given pages and return only the observations the text layer does NOT
+    /// already cover, in PDF page coordinates. Used by the image-PII channel for
+    /// PDFs that have a text layer but also embed raster images (signatures, stamps).
+    ///
+    /// Text-layer coverage is decided per observation: inset the observation rect
+    /// vertically, read PDFPage.selection(for:)?.string at that rect, and treat the
+    /// observation as text-layer (skip) when that selection is non-empty AND shares
+    /// a significant word with the OCR text. Otherwise it is image-origin and kept.
+    public func imageOriginObservations(in url: URL, pages: [Int]) -> [ImageTextObservation] {
+        guard !pages.isEmpty, let document = PDFDocument(url: url) else { return [] }
+        var result: [ImageTextObservation] = []
+
+        for pageIndex in pages {
+            guard pageIndex >= 0, pageIndex < document.pageCount,
+                  let page = document.page(at: pageIndex),
+                  let image = try? Self.render(page: page),
+                  let observations = try? Self.recognize(in: image) else { continue }
+
+            let mediaBox = page.bounds(for: .mediaBox)
+            for observation in observations {
+                guard let candidate = observation.topCandidates(1).first else { continue }
+                let text = candidate.string
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+
+                let rect = Self.pageRect(fromNormalized: observation.boundingBox, mediaBox: mediaBox)
+                if Self.textLayerCovers(text: text, rect: rect, page: page) { continue }
+                result.append(ImageTextObservation(pageIndex: pageIndex, rect: rect, text: text))
+            }
+        }
+        return result
+    }
+
+    /// True when the page's text layer already holds this observation's text.
+    private static func textLayerCovers(text: String, rect: CGRect, page: PDFPage) -> Bool {
+        let inset = rect.insetBy(dx: rect.width * dedupHorizontalInset,
+                                 dy: rect.height * dedupVerticalInset)
+        let lookup = inset.isNull || inset.isEmpty ? rect : inset
+        guard let selection = page.selection(for: lookup)?.string,
+              !TextMatching.normalize(selection).isEmpty else { return false }
+        return TextMatching.sharesSignificantWord(text, selection)
+    }
+
     // MARK: - Rendering
 
     /// Rasterizes a single PDF page into a CGImage at renderDPI.

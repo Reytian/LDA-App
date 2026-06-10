@@ -34,19 +34,24 @@ public struct AnonymizeResult: Sendable {
     public var entityCount: Int
     /// The accepted spans (post-merge) that were tokenized.
     public var entities: [Span]
+    /// How many image-origin regions were redacted (signatures, stamps). 0 unless
+    /// the input was a PDF with an image-PII channel pass.
+    public var imageRedactionCount: Int
 
     public init(
         redactedFileURL: URL,
         mappingFileURL: URL,
         visualPdfURL: URL?,
         entityCount: Int,
-        entities: [Span]
+        entities: [Span],
+        imageRedactionCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
         self.visualPdfURL = visualPdfURL
         self.entityCount = entityCount
         self.entities = entities
+        self.imageRedactionCount = imageRedactionCount
     }
 }
 
@@ -106,13 +111,13 @@ public enum LDAService {
         )
 
         // Detect entities once, then tokenize. The tokenized text and the mapping
-        // drive both the edit surface and the mapping sidecar.
+        // drive both the edit surface and the mapping sidecar. The detect closure
+        // is declared at function scope so a later image-PII pass (Task 6) can
+        // reuse the already-loaded engine without loading the model a second time.
         let imported = try importDocument(input, extension: ext)
-        let spans = SpanMerger.merge(
-            deterministic: DeterministicEngine().detect(imported.text),
-            llm: llmSpans(for: imported.text, modelPath: llmModelPath)
-        )
-        let tokenized = Tokenizer.tokenize(
+        let detect = makeDetector(modelPath: llmModelPath)
+        let spans = detect(imported.text)
+        var tokenized = Tokenizer.tokenize(
             text: imported.text,
             spans: spans,
             sourceFile: input.lastPathComponent,
@@ -121,6 +126,7 @@ public enum LDAService {
 
         let redactedFileURL: URL
         var visualPdfURL: URL?
+        var imageRedactionCount = 0
 
         switch ext {
         case "docx":
@@ -141,10 +147,34 @@ public enum LDAService {
             redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
 
+            // Pairs come from text-layer entries only; image-origin regions are boxed
+            // separately by the image-PII channel below, not via text search.
             let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
-            let boxes: [RedactionBox] = imported.isScanned
+            var boxes: [RedactionBox] = imported.isScanned
                 ? PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
                 : PdfImporter.redactionBoxes(in: input, surfaceTexts: pairs)
+
+            // Image-PII channel: a non-scanned PDF can still embed raster images
+            // (signatures, stamps) the text layer cannot see. OCR those regions,
+            // conservatively box them, and record classified PII in the mapping.
+            if !imported.isScanned {
+                let imagePages = PdfImageInventory.pagesWithImages(input)
+                if !imagePages.isEmpty {
+                    let observations = PdfOCRImporter().imageOriginObservations(in: input, pages: imagePages)
+                    let resolved = ImageRedactionResolver.resolve(
+                        mapping: tokenized.mapping,
+                        observations: observations,
+                        detect: detect
+                    )
+                    boxes += resolved.boxes
+                    // Merge image-origin entries into the mapping before it is saved
+                    // below. This mutation requires `tokenized` to be declared `var`.
+                    for entry in resolved.newEntries {
+                        tokenized.mapping.entries[entry.token] = entry
+                    }
+                    imageRedactionCount = resolved.imageRedactionCount
+                }
+            }
 
             let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
             try PdfRedactor.renderRedactedPDF(original: input, boxes: boxes, to: reviewURL)
@@ -168,7 +198,8 @@ public enum LDAService {
             mappingFileURL: mappingFileURL,
             visualPdfURL: visualPdfURL,
             entityCount: spans.count,
-            entities: spans
+            entities: spans,
+            imageRedactionCount: imageRedactionCount
         )
     }
 
@@ -230,33 +261,28 @@ public enum LDAService {
         llmModelPath: String? = nil
     ) throws -> [Span] {
         let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-        return SpanMerger.merge(
-            deterministic: DeterministicEngine().detect(imported.text),
-            llm: llmSpans(for: imported.text, modelPath: llmModelPath)
-        )
+        return makeDetector(modelPath: llmModelPath)(imported.text)
     }
 
     // MARK: - Private helpers
 
-    /// Produce the LLM span list for SpanMerger's llm input.
-    ///
-    /// When modelPath is nil the list is empty and behavior is identical to the
-    /// deterministic-only V1 path. When modelPath is non-nil and the file exists,
-    /// an LLMEngine is loaded from it and an LLMExtractor runs over the text. Any
-    /// failure (missing file, model load error, extraction error) falls back to an
-    /// empty list so anonymize and detect never fail because of the LLM seam; the
-    /// deterministic detections still flow through.
-    private static func llmSpans(for text: String, modelPath: String?) -> [Span] {
-        guard let modelPath else { return [] }
-        guard FileManager.default.fileExists(atPath: modelPath) else { return [] }
-        do {
-            let engine = try LLMEngine(config: .init(modelPath: modelPath))
-            let extractor = LLMExtractor(completer: engine)
-            return try extractor.extract(from: text)
-        } catch {
-            // Graceful fallback: a broken or missing model degrades to
-            // deterministic-only detection rather than failing the operation.
-            return []
+    /// Build a detection closure that loads the LLM engine at most once and reuses
+    /// it for every call (main text pass and image-PII pass). When modelPath is nil
+    /// or the model fails to load, detection is deterministic-only and never throws.
+    private static func makeDetector(modelPath: String?) -> (String) -> [Span] {
+        let extractor: LLMExtractor? = {
+            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else { return nil }
+            guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else { return nil }
+            return LLMExtractor(completer: engine)
+        }()
+        return { text in
+            let llm: [Span]
+            if let extractor {
+                llm = (try? extractor.extract(from: text)) ?? []
+            } else {
+                llm = []
+            }
+            return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
         }
     }
 

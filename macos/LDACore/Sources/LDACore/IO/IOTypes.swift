@@ -101,6 +101,22 @@ public struct RedactionBox: Sendable, Equatable {
     }
 }
 
+// MARK: - Image-origin observation
+
+/// A piece of text recovered by OCR from an embedded image region (not the text
+/// layer). rect is in PDF/CoreGraphics page coordinates; pageIndex is zero-based.
+public struct ImageTextObservation: Sendable, Equatable {
+    public var pageIndex: Int
+    public var rect: CGRect
+    public var text: String
+
+    public init(pageIndex: Int, rect: CGRect, text: String) {
+        self.pageIndex = pageIndex
+        self.rect = rect
+        self.text = text
+    }
+}
+
 // MARK: - Errors
 
 /// Errors raised by the DocumentIO and Security layers.
