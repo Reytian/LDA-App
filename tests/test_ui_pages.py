@@ -85,3 +85,34 @@ def test_write_env_overwrite_keeps_restricted_permissions(tmp_path, monkeypatch)
     mode = stat.S_IMODE(os.stat(path).st_mode)
     assert mode == 0o600
     assert "LLM_API_BASE=a2\n" in Path(path).read_text()
+
+
+# ---------------------------------------------------------------------------
+# Bug #7: ._write_env must NOT drop the backend-selecting keys the form does
+# not expose. Truncating the .env to three keys silently reverts an ollama /
+# local-LLM user to the openai backend on the next launch.
+# ---------------------------------------------------------------------------
+
+def test_write_env_preserves_backend_and_ollama_config(tmp_path, monkeypatch):
+    settings_page = _load_settings_module()
+    monkeypatch.setattr(settings_page, "PROJECT_ROOT", str(tmp_path))
+
+    # Simulate a currently-loaded local-LLM (ollama) configuration.
+    from core import llm_client
+    monkeypatch.setattr(llm_client, "LLM_BACKEND", "ollama")
+    monkeypatch.setattr(llm_client, "LLM_OLLAMA_BASE", "http://127.0.0.1:11434")
+    monkeypatch.setattr(llm_client, "LLM_TIMEOUT", 300)
+    monkeypatch.setattr(llm_client, "LLM_NUM_CTX", 32768)
+    monkeypatch.setattr(llm_client, "LLM_NUM_PREDICT", 4096)
+
+    path = settings_page._write_env("http://127.0.0.1:11434", "ollama", "gemma4-v4")
+    content = Path(path).read_text()
+
+    # Backend-selecting keys survive the save.
+    assert "LLM_BACKEND=ollama\n" in content
+    assert "LLM_OLLAMA_BASE=http://127.0.0.1:11434\n" in content
+    assert "LLM_TIMEOUT=300\n" in content
+    assert "LLM_NUM_CTX=32768\n" in content
+    assert "LLM_NUM_PREDICT=4096\n" in content
+    # Form-managed keys are still written.
+    assert "LLM_MODEL=gemma4-v4\n" in content

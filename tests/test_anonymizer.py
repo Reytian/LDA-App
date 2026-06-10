@@ -14,7 +14,10 @@ import pytest
 from core.anonymizer import (
     PLACEHOLDER_REGEX,
     _sanitize_type,
+    _split_into_segments,
+    count_effective_occurrences,
     execute_replacement,
+    safe_doc_type,
 )
 from core.deanonymizer import run_deanonymize
 
@@ -198,3 +201,155 @@ def test_run_second_pass_normalizes_bare_object(monkeypatch):
     result = anon.run_second_pass("some text", EMPTY_PASS1)
 
     assert [e["text"] for e in result] == ["Acme Corp"]
+
+
+# ============================================================
+# Bug #3: an empty-string Pass-1 alias must not hang execute_replacement
+# (text.find("") returns the same index forever -> unbounded candidate spans).
+# ============================================================
+def test_empty_pass1_alias_does_not_hang_and_roundtrips():
+    # Arrange: a realistic Pass-1 output with a stray empty-string alias.
+    text = "Acme Corporation signed. Acme is the Company."
+    entities = [
+        {"text": "Acme Corporation", "type": "company", "canonical": "Acme Corporation"},
+    ]
+    pass1 = {
+        "aliases": [
+            {"canonical": "Acme Corporation", "type": "company",
+             "aliases": ["Acme", "the Company", ""]},
+        ],
+        "entities": [],
+    }
+
+    # Act: must return promptly (the empty alias is dropped, never minted).
+    anonymized, mapping = execute_replacement(text, entities, pass1)
+
+    # Assert: no empty surface text was minted into a placeholder, and the
+    # round-trip is clean.
+    for info in mapping["mappings"].values():
+        assert info.get("surface_text", "").strip() != ""
+    restored, stats = run_deanonymize(anonymized, mapping)
+    assert restored == text
+    assert stats["remaining_placeholders"] == 0
+
+
+# ============================================================
+# Bug #9: a whitespace-only alias must not mint a placeholder that overwrites
+# real document spacing, garbling the anonymized output.
+# ============================================================
+def test_whitespace_only_alias_does_not_corrupt_document():
+    # Arrange: a whitespace-only alias "  " plus a document with double spaces.
+    text = "Acme Corp signed  the  deal  today."
+    entities = [
+        {"text": "Acme Corp", "type": "company", "canonical": "Acme Corp"},
+    ]
+    pass1 = {
+        "aliases": [
+            {"canonical": "Acme Corp", "type": "company", "aliases": ["  "]},
+        ],
+        "entities": [],
+    }
+
+    # Act
+    anonymized, mapping = execute_replacement(text, entities, pass1)
+
+    # Assert: no placeholder represents whitespace, and the document's real
+    # spacing/words are intact (only "Acme Corp" was replaced).
+    for info in mapping["mappings"].values():
+        assert info.get("surface_text", "").strip() != ""
+    assert anonymized.endswith(" signed  the  deal  today.")
+    restored, stats = run_deanonymize(anonymized, mapping)
+    assert restored == text
+
+
+# ============================================================
+# Bug #8: an oversize single paragraph must not be split INSIDE a dotted entity
+# (email / decimal amount / dotted ID), or Pass-2 never sees it whole -> leak.
+# ============================================================
+def test_oversize_paragraph_keeps_dotted_email_whole():
+    # Arrange: one paragraph (no newline) over the limit, with an email whose
+    # interior dots would tear under a naive split-at-every-period.
+    email = "john.smith@secret-law-firm.com"
+    para = ("Filler sentence here. " * 20) + f"Reach {email} today. " + ("More text. " * 20)
+    assert "\n" not in para
+
+    # Act: use a small max_chars so the boundary would fall mid-paragraph.
+    segments = _split_into_segments(para, max_chars=200)
+
+    # Assert: the email appears WHOLE in exactly one segment (never torn across
+    # two), so a Pass-2 detector can see and redact it.
+    assert any(email in seg for seg in segments), segments
+    for seg in segments:
+        # No segment ends or begins mid-email.
+        assert not seg.endswith("john."), seg
+
+
+def test_oversize_paragraph_split_preserves_inter_sentence_whitespace():
+    # Bug #14: the sentence-split path must not delete the space after a
+    # sentence ender, which would glue a company end to the next name
+    # ("Ltd. Carol" -> "Ltd.Carol") and corrupt the text Pass-2 scans.
+    para = ("This is filler text in the agreement. " * 300) + \
+        "Payment goes to Beta Holdings Ltd. Carol Danvers approves it."
+    assert len(para) > 10000 and "\n" not in para
+
+    # Act
+    segments = _split_into_segments(para, max_chars=10000)
+
+    # Assert: the boundary "Ltd. Carol" keeps its space (not glued) and no
+    # characters are lost relative to the original paragraph.
+    joined = "".join(segments)
+    assert "Ltd.Carol" not in joined
+    assert "Ltd. Carol Danvers" in joined
+
+
+# ============================================================
+# Bug #13: a model-supplied document_type must slugify to a safe, capped,
+# filename-friendly token (no party-name leak, no illegal chars).
+# ============================================================
+def test_safe_doc_type_slugifies_and_caps():
+    assert safe_doc_type("Share Purchase Agreement") == "SHARE_PURCHASE_AGREEMENT"
+    # Illegal filename characters are removed.
+    assert "/" not in safe_doc_type("Loan / Security Agreement")
+    assert "\n" not in safe_doc_type("Weird\nType")
+    # Empty / None fall back to a fixed generic stem.
+    assert safe_doc_type("") == "DOCUMENT"
+    assert safe_doc_type(None) == "DOCUMENT"
+    # Over-described types that embed party names are length-capped.
+    over = "Share Purchase Agreement between Acme Corp and John Smith"
+    assert len(safe_doc_type(over)) <= 40
+    # Always a clean uppercase slug.
+    assert re.fullmatch(r"[A-Z0-9_]+", safe_doc_type("Equity Transfer Agreement"))
+
+
+def test_safe_doc_type_preserves_non_ascii_word_chars():
+    # This tool processes Chinese contracts (its prompts are Chinese), so a
+    # Chinese document_type must not be flattened to the generic stem -- that
+    # would make every Chinese file download as ANONYMIZED_DOCUMENT.
+    slug = safe_doc_type("股权转让协议")
+    assert slug != "DOCUMENT"
+    assert "股权转让协议" in slug
+    # Dangerous characters are still stripped even when non-ASCII is present.
+    assert "/" not in safe_doc_type("协议 / Agreement")
+    assert "\n" not in safe_doc_type("协议\nAgreement")
+
+
+# ============================================================
+# Bug #15: the displayed occurrence count must reflect the replacements that
+# execute_replacement actually makes (non-overlapping, longest-match-wins),
+# not naive str.count substring frequency.
+# ============================================================
+def test_count_effective_occurrences_excludes_substring_of_longer_entity():
+    # Arrange: "Aaa" is also a substring of "Aaa Corp".
+    text = "Aaa works at Aaa Corp. Aaa Corp pays Aaa."
+    entities = [
+        {"text": "Aaa", "type": "person", "canonical": ""},
+        {"text": "Aaa Corp", "type": "company", "canonical": ""},
+    ]
+
+    # Act
+    counts = count_effective_occurrences(text, entities, EMPTY_PASS1)
+
+    # Assert: only the two STANDALONE "Aaa" are counted (the two inside
+    # "Aaa Corp" are consumed by the longer company match). str.count -> 4.
+    assert counts["Aaa"] == 2
+    assert counts["Aaa Corp"] == 2

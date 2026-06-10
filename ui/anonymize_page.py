@@ -14,7 +14,13 @@ import json
 from datetime import datetime
 import streamlit as st
 import pandas as pd
-from core.anonymizer import run_first_pass, run_second_pass, execute_replacement
+from core.anonymizer import (
+    run_first_pass,
+    run_second_pass,
+    execute_replacement,
+    count_effective_occurrences,
+    safe_doc_type,
+)
 from core.file_handler import (
     read_uploaded_file,
     get_uploaded_bytes,
@@ -183,11 +189,28 @@ def render():
     # Editable full entity list
     st.write("**All sensitive items:**")
 
+    # "Occurrences" must reflect the replacements that will ACTUALLY be made
+    # (non-overlapping, longest-match-wins), not naive substring frequency,
+    # which over-counts a short entity that is a substring of a longer one
+    # (e.g. "Aaa" inside "Aaa Corp") and misleads the coverage check (bug #15).
+    try:
+        effective_counts = count_effective_occurrences(
+            st.session_state.uploaded_text,
+            st.session_state.pass2_result,
+            st.session_state.pass1_result,
+        )
+    except Exception:
+        effective_counts = {}
+
     entity_list_data = []
     for entity in st.session_state.pass2_result:
-        count = st.session_state.uploaded_text.count(entity.get("text", ""))
+        entity_text = entity.get("text", "")
+        count = effective_counts.get(
+            entity_text,
+            st.session_state.uploaded_text.count(entity_text) if entity_text else 0,
+        )
         entity_list_data.append({
-            "Text": entity.get("text", ""),
+            "Text": entity_text,
             "Type": entity.get("type", ""),
             "Canonical Name": entity.get("canonical", ""),
             "Occurrences": count,
@@ -272,8 +295,12 @@ def render():
     ext = st.session_state.uploaded_ext
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # Slugify the model-supplied document_type into a safe, length-capped token
+    # so an over-described type ("... between Acme Corp and John Smith") or a
+    # type containing "/" or a newline cannot leak party names into the
+    # "generic" filename or produce an illegal Content-Disposition value (#13).
     doc_type = st.session_state.pass1_result.get("document_type", "Document")
-    doc_type_slug = doc_type.upper().replace(" ", "_")
+    doc_type_slug = safe_doc_type(doc_type)
     anon_filename = f"ANONYMIZED_{doc_type_slug}.{ext}"
 
     with col1:

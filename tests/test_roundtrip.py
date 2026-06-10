@@ -179,6 +179,25 @@ def test_remaining_count_nonzero_when_placeholder_truly_unmatched():
     assert stats["remaining_placeholders"] == 1
 
 
+def test_literal_placeholder_in_source_is_preserved_on_roundtrip():
+    # Bug #10: a literal "{COMPANY_1}"-shaped token already present in the source
+    # (e.g. a template merge field) must survive a clean anonymize->deanonymize
+    # even when a real entity mints the SAME placeholder string. The restorer
+    # must not (a) grab the leftmost identical token in Step A's window, nor
+    # (b) over-restore more occurrences of a placeholder than were emitted.
+    text = "Template field {COMPANY_1}. Acme is the party."
+    entities = [{"text": "Acme", "type": "company", "canonical": ""}]
+
+    anonymized, mapping = execute_replacement(text, entities, EMPTY_PASS1)
+    # The minted placeholder collides with the literal already in the source.
+    assert anonymized.count("{COMPANY_1}") == 2
+
+    restored, stats = run_deanonymize(anonymized, mapping)
+
+    # The literal token is preserved and the real entity is restored.
+    assert restored == text
+
+
 def test_type_sanitizing_to_digits_roundtrip_lossless():
     # Edge of bug #4: a type that sanitizes to a digit-bearing token
     # ("9to5" -> "X9TO5"). The emit side must produce {X9TO5_1} and the

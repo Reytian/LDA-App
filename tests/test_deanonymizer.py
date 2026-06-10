@@ -119,5 +119,39 @@ def test_run_deanonymize_reports_zero_remaining_after_full_restore():
     assert stats["remaining_placeholders"] == 0
 
 
+# ============================================================
+# Bug #4: Step C (canonical fallback) must restore the EXACT surface text that
+# was anonymized, not the canonical name, when both are recorded.
+# ============================================================
+def test_restore_by_canonical_prefers_surface_text_over_value():
+    # Arrange: the placeholder records both the exact surface ("Tesla") and the
+    # canonical ("Tesla, Inc.").
+    text = "Counsel for {COMPANY_2} appeared."
+    mappings = {"{COMPANY_2}": {"surface_text": "Tesla", "value": "Tesla, Inc."}}
+
+    # Act
+    restored, fallback_count = restore_by_canonical(text, mappings)
+
+    # Assert: the short surface form is restored, not the canonical full name.
+    assert fallback_count == 1
+    assert restored == "Counsel for Tesla appeared."
+
+
+def test_run_deanonymize_step_c_uses_surface_text():
+    # An empty replacement_log forces Step C. The placeholder must restore to
+    # the recorded surface_text ("Tesla"), not the canonical "Tesla, Inc.".
+    text = "Counsel for {COMPANY_2} appeared."
+    mapping = {
+        "replacement_log": [],
+        "mappings": {"{COMPANY_2}": {"surface_text": "Tesla", "value": "Tesla, Inc."}},
+    }
+
+    restored, stats = run_deanonymize(text, mapping)
+
+    assert restored == "Counsel for Tesla appeared."
+    assert stats["fallback_count"] == 1
+    assert stats["remaining_placeholders"] == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -12,14 +12,30 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 def _write_env(api_base: str, api_key: str, model: str) -> str:
     """Write the LLM config to .env with owner-only (0600) permissions.
 
-    Returns the path written. The file holds a secret (the API key), so it
-    is restricted to the owner via os.chmod after writing.
+    Preserves the backend-selecting keys the form does not expose
+    (LLM_BACKEND, LLM_OLLAMA_BASE, LLM_TIMEOUT, LLM_NUM_CTX, LLM_NUM_PREDICT),
+    sourcing them from the live llm_client config (which reflects the current
+    .env). Truncating the file to only the three form keys would silently revert
+    an ollama / local-LLM user to the openai backend on the next launch -- and,
+    if LLM_API_BASE then points at a reachable remote endpoint, ship plaintext
+    PII off-box, defeating the offline guarantee (bug #7).
+
+    Returns the path written. The file holds a secret (the API key), so it is
+    restricted to the owner via os.chmod after writing.
     """
     env_path = os.path.join(PROJECT_ROOT, ".env")
+    lines = [
+        f"LLM_BACKEND={llm_client.LLM_BACKEND}",
+        f"LLM_API_BASE={api_base}",
+        f"LLM_API_KEY={api_key}",
+        f"LLM_MODEL={model}",
+        f"LLM_OLLAMA_BASE={llm_client.LLM_OLLAMA_BASE}",
+        f"LLM_TIMEOUT={llm_client.LLM_TIMEOUT}",
+        f"LLM_NUM_CTX={llm_client.LLM_NUM_CTX}",
+        f"LLM_NUM_PREDICT={llm_client.LLM_NUM_PREDICT}",
+    ]
     with open(env_path, "w") as f:
-        f.write(f"LLM_API_BASE={api_base}\n")
-        f.write(f"LLM_API_KEY={api_key}\n")
-        f.write(f"LLM_MODEL={model}\n")
+        f.write("\n".join(lines) + "\n")
     os.chmod(env_path, 0o600)
     return env_path
 
