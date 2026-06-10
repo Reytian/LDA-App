@@ -186,6 +186,28 @@ final class DocxFillTests: XCTestCase {
         XCTAssertFalse(xmlString.contains("[BLANK]"))
     }
 
+    func testEmptyFillValueErasesBlank() throws {
+        // Filling a blank with "" should delete the blank text and leave the
+        // surrounding text intact. The blank token "[B]" must not survive.
+        let docx = try writeFixtureDocx([.init(runs: ["x [B] y"])])
+        let imported = try DocxImporter().importDocument(docx)
+        let span = blankSpan(in: imported.text, surface: "[B]")
+        let out = tempOutputURL()
+        try DocxFiller.fill(
+            original: docx,
+            fills: [DocxFill(span: span, value: "")],
+            to: out
+        )
+        let filled = try DocxImporter().importDocument(out)
+        XCTAssertFalse(filled.text.contains("[B]"), "blank token should be gone after empty fill")
+        XCTAssertTrue(filled.text.contains("x"), "text before blank should survive")
+        XCTAssertTrue(filled.text.contains("y"), "text after blank should survive")
+        // The two space characters that flanked "[B]" are preserved by the run
+        // layer, so the result contains "x  y" (two spaces) rather than "x y".
+        XCTAssertTrue(filled.text.contains("x  y") || filled.text.contains("x y"),
+                      "surrounding words should be adjacent after deletion; got: \(filled.text.debugDescription)")
+    }
+
     func testFillSpanCrossingTwoRuns() throws {
         // "[CO" lives in run 0 and "MPANY]" begins run 1, so the surface
         // "[COMPANY]" straddles the run boundary. The fill value lands in the

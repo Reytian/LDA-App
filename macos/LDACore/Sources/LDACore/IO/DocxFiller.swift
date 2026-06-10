@@ -44,6 +44,8 @@ public enum DocxFiller {
     /// Apply confirmed fills to `original` and write the result to `out`.
     /// The original file is never modified.
     ///
+    /// The output is a filled document, not a redacted edit surface; do not pass it to DocxRedactor.restore.
+    ///
     /// - Parameters:
     ///   - original: The source .docx whose blanks are to be filled.
     ///   - fills: One `DocxFill` per blank, each carrying a UTF-16 span into
@@ -52,7 +54,7 @@ public enum DocxFiller {
     ///   - out: Destination URL for the filled .docx.
     /// - Throws: `DocumentIOError` on read or write failure.
     public static func fill(original: URL, fills: [DocxFill], to out: URL) throws {
-        let replacements = fills.map { Replacement(span: $0.span, token: $0.value) }
+        let replacements = fills.map { Replacement(span: $0.span, token: $0.value) } // Replacement.token carries the fill value here (not a grammar token).
         try DocxRedactor.redact(original: original, replacements: replacements, to: out)
     }
 }
