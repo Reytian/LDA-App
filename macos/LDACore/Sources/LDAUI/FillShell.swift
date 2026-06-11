@@ -2,11 +2,13 @@
 //  FillShell.swift
 //  LDAUI
 //
-//  The Counsel Fill window shell. Hosts the two-stage fill workflow:
+//  The Counsel Fill window shell. Hosts the three-stage fill workflow:
+//
+//  Stage 0 (library): Browse the Client Portfolio Library; create, edit,
+//  import, export, and delete portfolios.
 //
 //  Stage 1 (profile builder): Add source documents, extract a client portfolio,
-//  review and edit fields, resolve conflicts, save/load the profile as an
-//  encrypted .ldaprofile.
+//  review and edit fields, resolve conflicts, save to the library.
 //
 //  Stage 2 (fill review): Open a fill target (docx or pdf), review blank-by-
 //  blank matches, accept, reject, or repoint each blank, then apply the fill.
@@ -24,7 +26,8 @@
 //  - The app is an SPM executable over the LDAUI library; all view code stays
 //    in LDAUI.
 //
-//  Subviews too large for this file live in FillShellViews.swift.
+//  Subviews too large for this file live in FillShellViews.swift and
+//  FillLibraryViews.swift.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -60,6 +63,31 @@ public struct FillShell: View {
     /// The URL chosen by the Load panel, held while the passphrase is collected.
     @State private var pendingLoadURL: URL?
 
+    // MARK: - Import sheet (library)
+
+    /// True while the import passphrase/protection sheet is presented.
+    @State private var isImportingProfile = false
+
+    /// The URL chosen by the import panel, held while protection is selected.
+    @State private var pendingImportURL: URL?
+
+    /// The summary currently being exported from the library list.
+    @State private var exportingSummary: PortfolioSummary?
+
+    /// True while the export passphrase sheet is presented.
+    @State private var isExportingWithPassphrase = false
+
+    /// The URL chosen by the export Save panel.
+    @State private var pendingExportURL: URL?
+
+    // MARK: - Editor extras
+
+    /// True while the Add Field sheet is presented in the editor.
+    @State private var isAddingField = false
+
+    /// True while the Back-to-Library confirmation dialog is showing.
+    @State private var isBackToLibraryConfirmation = false
+
     // MARK: - Source list
 
     /// Source document URLs added by the user (displayed in the profile builder).
@@ -86,7 +114,13 @@ public struct FillShell: View {
     public var body: some View {
         Group {
             switch model.stage {
-            case .idle, .library, .importingSources, .extracting, .profileReady:
+            case .library:
+                PortalLibraryBody(
+                    model: model,
+                    onExport: { summary in beginExportFromLibrary(summary) },
+                    onImport: { beginImportProfile() }
+                )
+            case .idle, .importingSources, .extracting, .profileReady:
                 profileBuilderView
             case .planning, .reviewing, .applying, .done, .failed:
                 fillReviewView
@@ -101,6 +135,36 @@ public struct FillShell: View {
         .sheet(isPresented: $isLoadingWithPassphrase) {
             loadProfilePassphraseSheet
         }
+        .sheet(isPresented: $isImportingProfile) {
+            importProfileSheet
+        }
+        .sheet(isPresented: $isExportingWithPassphrase) {
+            exportProfilePassphraseSheet
+        }
+        .sheet(isPresented: $isAddingField) {
+            AddFieldSheet(
+                model: model,
+                portfolioKind: model.profile?.kind ?? .company
+            )
+        }
+        .confirmationDialog(
+            "Leave editor?",
+            isPresented: $isBackToLibraryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Save and leave") {
+                Task {
+                    await model.saveToLibrary(modifiedAtISO8601: nowISO8601())
+                    model.backToLibrary()
+                }
+            }
+            Button("Discard changes", role: .destructive) {
+                model.backToLibrary()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You have unsaved changes to this portfolio.")
+        }
         // Observe pickerRequestID via onReceive so the nil-then-reassign (M2)
         // trick in FillModel.acceptBlank fires even when the id does not change.
         .onReceive(model.$pickerRequestID) { id in
@@ -110,6 +174,12 @@ public struct FillShell: View {
         .onChange(of: model.stage) { _, stage in
             announceStage(stage)
         }
+        // Boot from .idle into .library when the shell first appears.
+        .onAppear {
+            if model.stage == .idle {
+                Task { await model.refreshLibrary() }
+            }
+        }
     }
 
     // MARK: - Toolbar
@@ -117,7 +187,9 @@ public struct FillShell: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         switch model.stage {
-        case .idle, .library, .importingSources, .extracting, .profileReady:
+        case .library:
+            libraryToolbar
+        case .idle, .importingSources, .extracting, .profileReady:
             profileBuilderToolbar
         case .planning, .reviewing, .applying, .done, .failed:
             fillReviewToolbar
@@ -125,9 +197,26 @@ public struct FillShell: View {
     }
 
     @ToolbarContentBuilder
+    private var libraryToolbar: some ToolbarContent {
+        // Library toolbar is intentionally minimal; the heavy actions live in
+        // PortalLibraryBody's top bar (New Portfolio + Import). The toolbar just
+        // carries the mode switcher from RootShell (principal placement).
+        ToolbarItemGroup(placement: .automatic) {
+            EmptyView()
+        }
+    }
+
+    @ToolbarContentBuilder
     private var profileBuilderToolbar: some ToolbarContent {
-        // Navigation group: Add Sources
+        // Navigation group: Back to Library, Add Sources
         ToolbarItemGroup(placement: .navigation) {
+            Button {
+                requestBackToLibrary()
+            } label: {
+                Label("Back to Library", systemImage: "arrow.backward")
+            }
+            .help("Return to the portfolio library")
+
             Button {
                 presentAddSources()
             } label: {
@@ -136,16 +225,20 @@ public struct FillShell: View {
             .help("Add source documents to extract profile fields from (PDF, Word, or plain text)")
         }
 
-        // Automatic group: Extract, Save Profile, Load Profile, Open Target
+        // Automatic group: Extract, Save, Add Field, Open Target
         ToolbarItemGroup(placement: .automatic) {
             Button {
-                let created = ISO8601DateFormatter().string(from: Date())
-                let label = sourcePaths.first?.deletingPathExtension().lastPathComponent ?? "Profile"
+                let created = nowISO8601()
+                let label = model.profile?.label
+                    ?? sourcePaths.first?.deletingPathExtension().lastPathComponent
+                    ?? "Profile"
+                let kind = model.profile?.kind ?? .company
                 Task {
                     await model.extractProfile(
                         sources: sourcePaths,
                         label: label,
-                        createdAtISO8601: created
+                        createdAtISO8601: created,
+                        kind: kind
                     )
                 }
             } label: {
@@ -158,18 +251,36 @@ public struct FillShell: View {
             .help(extractDisabledReason)
 
             Button {
+                isAddingField = true
+            } label: {
+                Label("Add Field", systemImage: "plus.circle")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(model.profile == nil)
+            .help("Add a field manually to this portfolio")
+
+            Button {
+                Task { await model.saveToLibrary(modifiedAtISO8601: nowISO8601()) }
+            } label: {
+                Label("Save", systemImage: "checkmark.circle")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(!canSaveToLibrary)
+            .help("Save this portfolio to the library")
+
+            Button {
                 beginSaveProfile()
             } label: {
-                Label("Save Profile", systemImage: "tray.and.arrow.down")
+                Label("Export Profile", systemImage: "tray.and.arrow.up")
             }
             .labelStyle(.titleAndIcon)
             .disabled(!canSaveProfile)
-            .help("Save the current profile as an encrypted .ldaprofile file")
+            .help("Export the current profile as an encrypted .ldaprofile file")
 
             Button {
                 beginLoadProfile()
             } label: {
-                Label("Load Profile", systemImage: "tray.and.arrow.up")
+                Label("Load Profile", systemImage: "tray.and.arrow.down")
             }
             .labelStyle(.titleAndIcon)
             .help("Load a previously saved .ldaprofile file")
@@ -290,8 +401,8 @@ public struct FillShell: View {
             if let conflicted = model.profile?.conflictedKeys, !conflicted.isEmpty {
                 conflictBanner(keys: conflicted)
             }
-        } else if case .idle = model.stage {
-            // Empty state hint
+        } else if model.stage == .idle {
+            // Empty state hint (when not booted yet)
             bannerChrome {
                 Text("Add source documents, then click Extract to build a profile.")
                     .font(.callout)
@@ -443,6 +554,12 @@ public struct FillShell: View {
         return profile.conflictedKeys.isEmpty
     }
 
+    /// Save to library: requires a profile with no conflicts and a dirty flag set.
+    private var canSaveToLibrary: Bool {
+        guard let profile = model.profile else { return false }
+        return profile.conflictedKeys.isEmpty && model.profileDirty
+    }
+
     private var canOpenTarget: Bool {
         model.profile != nil
             && !(model.stage == .importingSources || model.stage == .extracting)
@@ -451,6 +568,174 @@ public struct FillShell: View {
     private var extractingLabel: String {
         let pct = Int((model.progress * 100).rounded())
         return "Extracting  \(pct)%"
+    }
+
+    // MARK: - Back to Library
+
+    /// Called from toolbar "Back to Library" in the editor stage.
+    /// If profileDirty, shows the Save/Discard confirmation dialog; otherwise
+    /// navigates immediately.
+    private func requestBackToLibrary() {
+        if model.profileDirty {
+            isBackToLibraryConfirmation = true
+        } else {
+            model.backToLibrary()
+        }
+    }
+
+    // MARK: - Library Import
+
+    private func beginImportProfile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [Self.profileType]
+        panel.message = "Choose a .ldaprofile file to import into the library."
+        panel.prompt = "Import"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pendingImportURL = url
+        passphraseInput = ""
+        isImportingProfile = true
+    }
+
+    private func confirmImportProfile() {
+        isImportingProfile = false
+        guard let url = pendingImportURL else {
+            pendingImportURL = nil
+            passphraseInput = ""
+            return
+        }
+        let isPassphrase = !passphraseInput.isEmpty
+        let capturedPassphrase = passphraseInput
+        pendingImportURL = nil
+        passphraseInput = ""
+        let protection: MappingProtection = isPassphrase
+            ? .passphrase(capturedPassphrase)
+            : .keychain(account: ProfileStore.standardAccount(for: url))
+        Task {
+            await model.importPortfolio(from: url, protection: protection)
+        }
+    }
+
+    private var importProfileSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Import portfolio")
+                .font(.headline)
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Text("If this file was saved with a passphrase, enter it. "
+                 + "Leave it blank if it uses the Keychain.")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SecureField("Passphrase (optional)", text: $passphraseInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 320)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    isImportingProfile = false
+                    pendingImportURL = nil
+                    passphraseInput = ""
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Import") {
+                    confirmImportProfile()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 380)
+        .background(CounselTheme.raised)
+    }
+
+    // MARK: - Library Export
+
+    private func beginExportFromLibrary(_ summary: PortfolioSummary) {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [Self.profileType]
+        savePanel.message = "Export \"\(summary.label)\" as an encrypted .ldaprofile file."
+        savePanel.nameFieldStringValue = summary.label + ".ldaprofile"
+        guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
+        exportingSummary = summary
+        pendingExportURL = url
+        passphraseInput = ""
+        isExportingWithPassphrase = true
+    }
+
+    private func confirmExportFromLibrary() {
+        isExportingWithPassphrase = false
+        guard let summary = exportingSummary, let url = pendingExportURL else {
+            exportingSummary = nil
+            pendingExportURL = nil
+            passphraseInput = ""
+            return
+        }
+        let protection: MappingProtection = passphraseInput.isEmpty
+            ? .keychain(account: ProfileStore.standardAccount(for: url))
+            : .passphrase(passphraseInput)
+        let capturedID = summary.id
+        exportingSummary = nil
+        pendingExportURL = nil
+        passphraseInput = ""
+        Task {
+            await model.exportPortfolio(id: capturedID, to: url, protection: protection)
+        }
+    }
+
+    private var exportProfilePassphraseSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Protect the export")
+                .font(.headline)
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Text("Enter an optional passphrase to encrypt the exported file. "
+                 + "Leave it blank to protect it with the system Keychain.")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let url = pendingExportURL, Self.isUnderICloud(url) {
+                Label(
+                    "This folder syncs to iCloud. The encrypted file will be uploaded with it.",
+                    systemImage: "icloud.and.arrow.up"
+                )
+                .font(.callout)
+                .foregroundStyle(CounselTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            SecureField("Passphrase (optional)", text: $passphraseInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 320)
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    isExportingWithPassphrase = false
+                    exportingSummary = nil
+                    pendingExportURL = nil
+                    passphraseInput = ""
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Export") {
+                    confirmExportFromLibrary()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 380)
+        .background(CounselTheme.raised)
     }
 
     // MARK: - Add Sources
