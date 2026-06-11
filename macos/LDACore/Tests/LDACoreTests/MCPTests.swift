@@ -464,9 +464,8 @@ final class MCPTests: XCTestCase {
 
     // MARK: - tools/list includes extract_profile and fill
 
-    // NOTE: this test is deliberately updated to 7 to include portfolio_list and
-    // portfolio_show (sanctioned descriptor-count update per Task 8 spec).
-    func testToolsListAdvertisesFiveToolsIncludingExtractProfileAndFill() throws {
+    // NOTE: tool count updated to 7 in Task 8 (added portfolio_list and portfolio_show).
+    func testToolsListAdvertisesSevenToolsIncludingPortfolioTools() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 20,
