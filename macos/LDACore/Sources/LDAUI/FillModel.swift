@@ -108,7 +108,8 @@ public final class FillModel: ObservableObject {
     /// only for DOCX targets where the import succeeded; nil for PDF targets
     /// and when import fails. Used by BlankDocumentPane to render the full
     /// document text with blank spans highlighted (display-only, best-effort).
-    @Published public private(set) var targetText: String?
+    // internal(set) for FillModelLibrary.swift
+    @Published public internal(set) var targetText: String?
 
     /// Determinate progress of the extraction pass, 0...1.
     @Published public var progress: Double = 0
@@ -144,7 +145,8 @@ public final class FillModel: ObservableObject {
     /// A non-nil value means the most recent exportPortfolio call failed. The stage
     /// is NOT changed by export failures; the user stays on the library list. Cleared
     /// at the start of each exportPortfolio call and in refreshLibrary.
-    @Published public private(set) var exportError: String?
+    // internal(set) for FillModelLibrary.swift
+    @Published public internal(set) var exportError: String?
 
     /// Source document URLs staged for the current extraction session. Cleared
     /// when createPortfolio runs so a new portfolio starts with no sources from a
@@ -258,7 +260,7 @@ public final class FillModel: ObservableObject {
         self.modelPath = modelPath
     }
 
-    // MARK: - Synchronous intents
+    // MARK: - Synchronous intents (non-library)
 
     /// Set the profile directly and mark dirty. Stage is NOT updated; use
     /// loadProfile when a clean profile-ready state is desired.
@@ -379,6 +381,8 @@ public final class FillModel: ObservableObject {
         stage = .profileReady
     }
 
+    // MARK: - Navigation intents (library boundary)
+
     /// Navigate back to the library stage from any stage.
     ///
     /// Clears pickerRequestID and any in-flight blank/target state, mirroring
@@ -390,297 +394,7 @@ public final class FillModel: ObservableObject {
         stage = .library
     }
 
-    // MARK: - Library intents
-
-    /// Resolve a typed field name string to a ProfileFieldKey. Uses canonical-first
-    /// resolution: if the raw string matches a known canonical key it returns that
-    /// canonical case; otherwise it returns .custom(typed).
-    ///
-    /// Exposed for UI preview and addField callers. Wraps ProfileFieldKey(rawKey:)
-    /// which handles the "custom:" prefix convention transparently.
-    public func resolveFieldName(_ typed: String) -> ProfileFieldKey {
-        ProfileFieldKey(rawKey: typed)
-    }
-
-    /// Append a field with manual-entry provenance to the current profile and mark
-    /// dirty. The key is stored as provided (canonical or custom). No-op when
-    /// profile is nil.
-    public func addField(key: ProfileFieldKey, value: String) {
-        guard profile != nil else { return }
-        let field = ProfileField(
-            id: UUID(),
-            key: key,
-            value: value,
-            sourceDocument: "manual entry",
-            sourceSnippet: "",
-            snippetVerified: false,
-            confidence: 1.0,
-            userEdited: true
-        )
-        profile!.fields.append(field)
-        profileDirty = true
-    }
-
-    /// Refresh the library: load the list off-main, publish summaries, set stage
-    /// to .library. On failure, stage becomes .failed. Builds libraryNotice from
-    /// lastListReconciled / lastIndexPersistFailed when set.
-    ///
-    /// Called by the shell on appear to boot from .idle into .library.
-    public func refreshLibrary() async {
-        libraryNotice = nil
-        exportError = nil
-
-        do {
-            let lib = try await resolveLibrary()
-            let fetched = try await Task.detached(priority: .userInitiated) {
-                try lib.list()
-            }.value
-
-            summaries = fetched
-
-            // Build the one-time notice from the flags set during list().
-            if lib.lastListReconciled || lib.lastIndexPersistFailed {
-                var parts: [String] = []
-                if lib.lastListReconciled {
-                    parts.append("The portfolio index was rebuilt; the list was rebuilt from the portfolio files.")
-                }
-                if lib.lastIndexPersistFailed {
-                    parts.append("Portfolio list changes may not persist; check Keychain access and disk space.")
-                }
-                libraryNotice = parts.joined(separator: " ")
-            }
-
-            stage = .library
-
-        } catch {
-            stage = .failed(Self.describe(error))
-        }
-    }
-
-    /// Create a new portfolio (from scratch or from extraction), set stage to
-    /// .profileReady, and mark dirty. currentPortfolioID is nil until the first
-    /// saveToLibrary call.
-    ///
-    /// fromScratch true: empty ClientPortfolio of the given kind/label.
-    /// fromScratch false: same empty portfolio with stage .profileReady; the shell
-    /// follows up with extractProfile which populates fields (extraction threads
-    /// the portfolio's kind from the profile automatically).
-    ///
-    /// createdAtISO8601 is supplied by the caller per the purity rule.
-    public func createPortfolio(
-        kind: PortfolioKind,
-        label: String,
-        fromScratch: Bool,
-        createdAtISO8601: String
-    ) async {
-        let emptyPortfolio = ClientPortfolio(
-            label: label,
-            fields: [],
-            sourceDocuments: [],
-            createdAtISO8601: createdAtISO8601,
-            incomplete: false,
-            kind: kind,
-            modifiedAtISO8601: createdAtISO8601
-        )
-        currentPortfolioID = nil
-        // Reset the source list so a new portfolio starts with no staged documents
-        // from a prior session.
-        sourcePaths = []
-        profile = emptyPortfolio
-        profileDirty = true
-        stage = .profileReady
-    }
-
-    /// Load a portfolio from the library for editing. Sets stage to .profileReady,
-    /// currentPortfolioID to id, and dirty to false. On failure, stage becomes
-    /// .failed.
-    public func openForEdit(id: UUID) async {
-        do {
-            let lib = try await resolveLibrary()
-            let loaded = try await Task.detached(priority: .userInitiated) {
-                try lib.load(id: id)
-            }.value
-
-            profile = loaded
-            currentPortfolioID = id
-            profileDirty = false
-            stage = .profileReady
-
-        } catch {
-            stage = .failed(Self.describe(error))
-        }
-    }
-
-    /// Identical to openForEdit. The shell drives the target-opening flow from
-    /// .profileReady after this call completes.
-    public func fillFrom(id: UUID) async {
-        await openForEdit(id: id)
-    }
-
-    /// Save the current profile to the library.
-    ///
-    /// Sets profile.modifiedAt from the caller-supplied timestamp (purity rule).
-    /// When currentPortfolioID is nil (first save of a new portfolio), creates a
-    /// new entry and captures the returned UUID. When currentPortfolioID is set,
-    /// updates the existing entry. Clears profileDirty. Refreshes summaries.
-    /// Stage remains .profileReady; the shell decides navigation.
-    ///
-    /// modifiedAtISO8601 is supplied by the caller per the purity rule.
-    public func saveToLibrary(modifiedAtISO8601: String) async {
-        guard var p = profile else { return }
-        p.modifiedAtISO8601 = modifiedAtISO8601
-        profile = p
-
-        do {
-            let lib = try await resolveLibrary()
-            let savedID: UUID
-
-            if let existingID = currentPortfolioID {
-                try await Task.detached(priority: .userInitiated) {
-                    try lib.save(p, id: existingID)
-                }.value
-                savedID = existingID
-            } else {
-                savedID = try await Task.detached(priority: .userInitiated) {
-                    try lib.create(p)
-                }.value
-            }
-
-            currentPortfolioID = savedID
-            profileDirty = false
-
-            // Refresh summaries so the shell's list stays current.
-            let refreshed = try await Task.detached(priority: .userInitiated) {
-                try lib.list()
-            }.value
-            summaries = refreshed
-
-        } catch {
-            stage = .failed(Self.describe(error))
-        }
-    }
-
-    /// Delete a portfolio from the library. When id matches currentPortfolioID,
-    /// clears currentPortfolioID and sets stage to .library. Refreshes summaries
-    /// regardless. On failure, stage becomes .failed.
-    public func deletePortfolio(id: UUID) async {
-        do {
-            let lib = try await resolveLibrary()
-            try await Task.detached(priority: .userInitiated) {
-                try lib.delete(id: id)
-            }.value
-
-            let refreshed = try await Task.detached(priority: .userInitiated) {
-                try lib.list()
-            }.value
-            summaries = refreshed
-
-            if id == currentPortfolioID {
-                currentPortfolioID = nil
-                stage = .library
-            }
-
-        } catch {
-            stage = .failed(Self.describe(error))
-        }
-    }
-
-    /// Export the portfolio at id to url with the given protection. On failure,
-    /// exportError is set and the stage is left unchanged so the user stays on the
-    /// library list. exportError is cleared at the start of this call and in
-    /// refreshLibrary (see file header for the export-error surfacing choice).
-    public func exportPortfolio(id: UUID, to url: URL, protection: MappingProtection) async {
-        exportError = nil
-
-        do {
-            let lib = try await resolveLibrary()
-            try await Task.detached(priority: .userInitiated) {
-                try lib.exportPortfolio(id: id, to: url, protection: protection)
-            }.value
-
-        } catch {
-            exportError = Self.describe(error)
-        }
-    }
-
-    /// Import a portfolio from url and store it in the library. Returns the new
-    /// UUID, or nil on failure (stage becomes .failed). Refreshes summaries.
-    @discardableResult
-    public func importPortfolio(from url: URL, protection: MappingProtection) async -> UUID? {
-        do {
-            let lib = try await resolveLibrary()
-            let newID = try await Task.detached(priority: .userInitiated) {
-                try lib.importPortfolio(from: url, protection: protection)
-            }.value
-
-            let refreshed = try await Task.detached(priority: .userInitiated) {
-                try lib.list()
-            }.value
-            summaries = refreshed
-
-            return newID
-
-        } catch {
-            stage = .failed(Self.describe(error))
-            return nil
-        }
-    }
-
-    /// Import a portfolio from url using the Keychain fallback chain and store it
-    /// in the library. Use this when the file was saved by the Keychain path (no
-    /// passphrase) and may carry any of the legacy account formats (pre-portal UI,
-    /// CLI, or MCP). Returns the new UUID, or nil on failure (stage becomes .failed).
-    /// Refreshes summaries.
-    @discardableResult
-    public func importPortfolioWithKeychainFallback(from url: URL) async -> UUID? {
-        do {
-            let lib = try await resolveLibrary()
-            let newID = try await Task.detached(priority: .userInitiated) {
-                try lib.importPortfolioWithKeychainFallback(from: url)
-            }.value
-
-            let refreshed = try await Task.detached(priority: .userInitiated) {
-                try lib.list()
-            }.value
-            summaries = refreshed
-
-            return newID
-
-        } catch {
-            stage = .failed(Self.describe(error))
-            return nil
-        }
-    }
-
-    // MARK: - Private library helpers
-
-    /// Returns the library to use for the current intent:
-    ///   1. Test seam (libraryForTesting): returned as-is; no caching.
-    ///   2. Cached instance (_library): returned immediately if already constructed.
-    ///   3. Production construction: built off the main thread, cached in _library,
-    ///      and returned. Uses libraryRootForTesting when set (test-only override
-    ///      that exercises the cached-instance path without touching Application
-    ///      Support); otherwise constructs the default Application Support root.
-    ///
-    /// Throws if the production default cannot be initialised (e.g. Application
-    /// Support is unavailable).
-    private func resolveLibrary() async throws -> PortfolioLibrary {
-        if let seam = Self.libraryForTesting {
-            return seam
-        }
-        if let cached = _library {
-            return cached
-        }
-        let root = Self.libraryRootForTesting
-        let constructed = try await Task.detached(priority: .userInitiated) {
-            if let root {
-                return try PortfolioLibrary(rootDirectory: root)
-            }
-            return try PortfolioLibrary()
-        }.value
-        _library = constructed
-        return constructed
-    }
+    // MARK: - Blank navigation
 
     /// Move selection to the next blank, wrapping at the end.
     /// With no current selection, selects the first blank.
@@ -905,7 +619,8 @@ public final class FillModel: ObservableObject {
     // MARK: - Error rendering
 
     /// A user-facing one-line description of an error.
-    private nonisolated static func describe(_ error: Error) -> String {
+    /// internal for FillModelLibrary.swift
+    internal nonisolated static func describe(_ error: Error) -> String {
         switch error {
         case let ioError as DocumentIOError:
             switch ioError {
