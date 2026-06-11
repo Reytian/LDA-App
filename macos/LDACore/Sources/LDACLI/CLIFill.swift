@@ -347,20 +347,30 @@ struct ExtractProfile: ParsableCommand {
 
 // MARK: - fill subcommand
 
-/// fill subcommand: load a profile and either plan or apply fills to a target.
+/// fill subcommand: load a profile (from a .ldaprofile file or from the
+/// portfolio library) and either plan or apply fills to a target.
 ///
-/// --plan and --apply are mutually exclusive; exactly one is required.
+/// Source selection: exactly one of --profile or --portfolio must be given.
+/// --passphrase is only valid with --profile; library portfolios are
+/// Keychain-only (combining --passphrase with --portfolio is a validation error).
+///
+/// Mode selection: exactly one of --plan or --apply must be given.
 /// --output-dir is required with --apply.
 struct Fill: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Fill blanks in a document from an encrypted profile."
     )
 
+    // MARK: Source selection (exactly one required)
+
     @Option(name: .long, help: "Path to the .ldaprofile to fill from.")
-    var profile: String
+    var profile: String?
+
+    @Option(name: .long, help: "Portfolio name or UUID from the portfolio library.")
+    var portfolio: String?
 
     // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
-    @Option(name: .long, help: "Passphrase protecting the profile. Optional.")
+    @Option(name: .long, help: "Passphrase protecting the .ldaprofile (only valid with --profile).")
     var passphrase: String?
 
     @Option(name: .long, help: "Path to the fill target (.docx or .pdf).")
@@ -379,6 +389,22 @@ struct Fill: ParsableCommand {
     var outputDir: String?
 
     func validate() throws {
+        // Exactly one source must be given.
+        let hasProfile = profile != nil && !profile!.isEmpty
+        let hasPortfolio = portfolio != nil && !portfolio!.isEmpty
+        guard hasProfile || hasPortfolio else {
+            throw ValidationError("Specify either --profile or --portfolio.")
+        }
+        if hasProfile && hasPortfolio {
+            throw ValidationError("--profile and --portfolio are mutually exclusive.")
+        }
+        // --passphrase is incompatible with --portfolio (library portfolios are Keychain-only).
+        if hasPortfolio, let pw = passphrase, !pw.isEmpty {
+            throw ValidationError(
+                "--passphrase cannot be used with --portfolio: library portfolios use the system Keychain."
+            )
+        }
+        // Exactly one mode must be given.
         guard plan || apply else {
             throw ValidationError("Specify either --plan or --apply.")
         }
@@ -392,31 +418,60 @@ struct Fill: ParsableCommand {
 
     func run() throws {
         do {
-            let profileURL = URL(fileURLWithPath: profile)
             let inputURL = URL(fileURLWithPath: input)
 
-            if plan {
-                let entries = try LDACLI.runFillPlan(
-                    profile: profileURL,
-                    passphrase: passphrase,
-                    input: inputURL,
-                    llmModelPath: model
-                )
-                print(try CLIJSON.encode(entries))
-            } else {
-                guard let outputDirString = outputDir, !outputDirString.isEmpty else {
-                    throw ValidationError("--output-dir is required with --apply.")
+            if let portfolioNameOrID = portfolio, !portfolioNameOrID.isEmpty {
+                // Portfolio library path (no passphrase; Keychain-only).
+                if plan {
+                    let entries = try LDACLI.runFillPlanFromPortfolio(
+                        nameOrID: portfolioNameOrID,
+                        input: inputURL,
+                        llmModelPath: model
+                    )
+                    print(try CLIJSON.encode(entries))
+                } else {
+                    guard let outputDirString = outputDir, !outputDirString.isEmpty else {
+                        throw ValidationError("--output-dir is required with --apply.")
+                    }
+                    fputs("Note: fill --apply re-plans from the current portfolio state. If you edited the portfolio after --plan, review the output carefully.\n", stderr)
+                    let outDir = URL(fileURLWithPath: outputDirString)
+                    let report = try LDACLI.runFillApplyFromPortfolio(
+                        nameOrID: portfolioNameOrID,
+                        input: inputURL,
+                        outputDir: outDir,
+                        llmModelPath: model
+                    )
+                    print(try CLIJSON.encode(FillReportJSON(report: report)))
                 }
-                fputs("Note: fill --apply re-plans from the current profile state. If you edited the profile after --plan, review the output carefully.\n", stderr)
-                let outDir = URL(fileURLWithPath: outputDirString)
-                let report = try LDACLI.runFillApply(
-                    profile: profileURL,
-                    passphrase: passphrase,
-                    input: inputURL,
-                    outputDir: outDir,
-                    llmModelPath: model
-                )
-                print(try CLIJSON.encode(FillReportJSON(report: report)))
+            } else {
+                // Direct .ldaprofile path.
+                guard let profilePath = profile, !profilePath.isEmpty else {
+                    throw ValidationError("Specify either --profile or --portfolio.")
+                }
+                let profileURL = URL(fileURLWithPath: profilePath)
+                if plan {
+                    let entries = try LDACLI.runFillPlan(
+                        profile: profileURL,
+                        passphrase: passphrase,
+                        input: inputURL,
+                        llmModelPath: model
+                    )
+                    print(try CLIJSON.encode(entries))
+                } else {
+                    guard let outputDirString = outputDir, !outputDirString.isEmpty else {
+                        throw ValidationError("--output-dir is required with --apply.")
+                    }
+                    fputs("Note: fill --apply re-plans from the current profile state. If you edited the profile after --plan, review the output carefully.\n", stderr)
+                    let outDir = URL(fileURLWithPath: outputDirString)
+                    let report = try LDACLI.runFillApply(
+                        profile: profileURL,
+                        passphrase: passphrase,
+                        input: inputURL,
+                        outputDir: outDir,
+                        llmModelPath: model
+                    )
+                    print(try CLIJSON.encode(FillReportJSON(report: report)))
+                }
             }
         } catch {
             throw CLIRuntimeError(error)

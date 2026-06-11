@@ -236,7 +236,14 @@ struct LDARoot: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "lda",
         abstract: "Legal Document Anonymizer.",
-        subcommands: [Anonymize.self, Restore.self, Detect.self, ExtractProfile.self, Fill.self]
+        subcommands: [
+            Anonymize.self,
+            Restore.self,
+            Detect.self,
+            ExtractProfile.self,
+            Fill.self,
+            Portfolio.self
+        ]
     )
 }
 
@@ -351,6 +358,8 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
         switch error {
         case let cliError as CLIError:
             return cliError.description
+        case let resolutionError as PortfolioResolutionError:
+            return resolutionError.description
         case DocumentIOError.unreadable(let detail):
             return "Could not read the document: \(detail)"
         case DocumentIOError.unsupportedFormat(let detail):
