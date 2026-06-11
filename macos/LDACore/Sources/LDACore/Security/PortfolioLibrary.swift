@@ -75,6 +75,65 @@ public struct PortfolioSummary: Equatable, Sendable, Codable {
     }
 }
 
+// MARK: - PortfolioResolutionError
+
+/// Errors from portfolio name/id resolution. Defined in LDACore so both the
+/// CLI edge (LDACLI) and the MCP edge (LDAMCP) can share the same resolution
+/// logic without either edge depending on the other.
+public enum PortfolioResolutionError: Error, CustomStringConvertible, Sendable {
+    /// No portfolio with the given name or UUID was found.
+    case notFound(String)
+    /// The label matched more than one portfolio; lists candidate labels.
+    case ambiguous(nameOrID: String, candidates: [String])
+
+    public var description: String {
+        switch self {
+        case .notFound(let nameOrID):
+            return "No portfolio found matching '\(nameOrID)'."
+        case .ambiguous(let nameOrID, let candidates):
+            let list = candidates.joined(separator: ", ")
+            return "Multiple portfolios match '\(nameOrID)': \(list). Use the portfolio UUID for an exact match."
+        }
+    }
+}
+
+// MARK: - Portfolio resolution helper
+
+extension PortfolioLibrary {
+    /// Resolve a name-or-id string to a (UUID, PortfolioSummary) pair.
+    ///
+    /// Resolution order:
+    ///   1. Exact UUID match (uuidString comparison).
+    ///   2. Case-insensitive full-label match. Unique succeeds; multiple throws
+    ///      PortfolioResolutionError.ambiguous; zero throws .notFound.
+    ///
+    /// This is a static helper so callers can resolve against a pre-fetched
+    /// summaries array without creating a second PortfolioLibrary instance.
+    public static func resolve(
+        nameOrID: String,
+        from summaries: [PortfolioSummary]
+    ) throws -> (UUID, PortfolioSummary) {
+        // 1. Exact UUID match.
+        if let uuid = UUID(uuidString: nameOrID),
+           let summary = summaries.first(where: { $0.id == uuid }) {
+            return (uuid, summary)
+        }
+
+        // 2. Case-insensitive label match.
+        let lower = nameOrID.lowercased()
+        let matches = summaries.filter { $0.label.lowercased() == lower }
+        switch matches.count {
+        case 0:
+            throw PortfolioResolutionError.notFound(nameOrID)
+        case 1:
+            return (matches[0].id, matches[0])
+        default:
+            let candidates = matches.map { $0.label }
+            throw PortfolioResolutionError.ambiguous(nameOrID: nameOrID, candidates: candidates)
+        }
+    }
+}
+
 // MARK: - PortfolioLibrary errors
 
 /// Errors specific to the PortfolioLibrary layer.

@@ -15,6 +15,7 @@
 //
 
 import XCTest
+import Security
 @testable import LDAMCP
 @testable import LDACore
 
@@ -463,6 +464,8 @@ final class MCPTests: XCTestCase {
 
     // MARK: - tools/list includes extract_profile and fill
 
+    // NOTE: this test is deliberately updated to 7 to include portfolio_list and
+    // portfolio_show (sanctioned descriptor-count update per Task 8 spec).
     func testToolsListAdvertisesFiveToolsIncludingExtractProfileAndFill() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
@@ -476,7 +479,10 @@ final class MCPTests: XCTestCase {
 
         XCTAssertTrue(names.contains("extract_profile"), "tools/list must include extract_profile")
         XCTAssertTrue(names.contains("fill"), "tools/list must include fill")
-        XCTAssertEqual(names.count, 5, "expected exactly 5 tools, got \(names.count): \(names)")
+        XCTAssertTrue(names.contains("portfolio_list"), "tools/list must include portfolio_list")
+        XCTAssertTrue(names.contains("portfolio_show"), "tools/list must include portfolio_show")
+        // Sanctioned update: was 5, now 7 (added portfolio_list and portfolio_show).
+        XCTAssertEqual(names.count, 7, "expected exactly 7 tools, got \(names.count): \(names)")
 
         // Confirm extract_profile schema required fields.
         let epTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "extract_profile" }))
@@ -485,12 +491,439 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(epRequired, ["sources", "label", "out", "model"],
                        "extract_profile required fields mismatch")
 
-        // Confirm fill schema required fields.
+        // Confirm fill schema required fields (profile is now optional; mode and input still required).
         let fillTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "fill" }))
         let fillSchema = try XCTUnwrap(fillTool["inputSchema"] as? [String: Any])
         let fillRequired = Set((fillSchema["required"] as? [String]) ?? [])
-        XCTAssertEqual(fillRequired, ["profile", "input", "mode"],
-                       "fill required fields mismatch")
+        XCTAssertEqual(fillRequired, ["input", "mode"],
+                       "fill required fields mismatch: profile/portfolio are mutually exclusive optionals")
+
+        // portfolio_list requires nothing (no params).
+        let plTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "portfolio_list" }))
+        let plSchema = try XCTUnwrap(plTool["inputSchema"] as? [String: Any])
+        let plRequired = (plSchema["required"] as? [String]) ?? []
+        XCTAssertTrue(plRequired.isEmpty, "portfolio_list requires no params, got \(plRequired)")
+
+        // portfolio_show requires portfolio.
+        let psTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "portfolio_show" }))
+        let psSchema = try XCTUnwrap(psTool["inputSchema"] as? [String: Any])
+        let psRequired = Set((psSchema["required"] as? [String]) ?? [])
+        XCTAssertEqual(psRequired, ["portfolio"], "portfolio_show required fields mismatch")
+    }
+
+    // MARK: - portfolio_list and portfolio_show
+
+    /// Keychain probe for portfolio library tests (PortfolioLibrary uses Keychain).
+    private func portfolioKeychainAvailable() -> Bool {
+        let probeService = "ai.openclaw.lda.libraryindexkey"
+        let probeAccount = "mcp-portfolio-probe-\(UUID().uuidString)"
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: probeService,
+            kSecAttrAccount as String: probeAccount,
+            kSecValueData as String: Data("x".utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status == errSecSuccess {
+            let del: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: probeService,
+                kSecAttrAccount as String: probeAccount
+            ]
+            SecItemDelete(del as CFDictionary)
+            return true
+        }
+        let tolerated: Set<OSStatus> = [
+            errSecMissingEntitlement, errSecNotAvailable,
+            errSecInteractionNotAllowed, errSecAuthFailed
+        ]
+        return !tolerated.contains(status)
+    }
+
+    /// Plant a single portfolio in a temp library and return the (libraryRoot, id, label).
+    private func plantPortfolio(
+        label: String,
+        kind: PortfolioKind = .company,
+        fieldCount: Int = 1
+    ) throws -> (root: URL, id: UUID, summary: PortfolioSummary) {
+        let root = workDir.appendingPathComponent("portfolios-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let field = ProfileField(
+            key: .companyName,
+            value: "TestValue",
+            sourceDocument: "test.txt",
+            sourceSnippet: "TestValue",
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let portfolio = ClientPortfolio(
+            label: label,
+            fields: Array(repeating: field, count: max(1, fieldCount)),
+            sourceDocuments: ["test.txt"],
+            createdAtISO8601: "2026-06-10T00:00:00Z",
+            incomplete: false
+        )
+        let library = try PortfolioLibrary(rootDirectory: root)
+        let id = try library.create(portfolio)
+        let summary = PortfolioSummary(
+            id: id,
+            label: label,
+            kind: kind,
+            createdAtISO8601: "2026-06-10T00:00:00Z",
+            modifiedAtISO8601: "2026-06-10T00:00:00Z",
+            fieldCount: fieldCount,
+            conflicted: false
+        )
+        return (root, id, summary)
+    }
+
+    func testPortfolioListReturnsSortedSummariesValueFree() throws {
+        guard portfolioKeychainAvailable() else {
+            throw XCTSkip("Keychain unavailable; skipping portfolio_list test")
+        }
+
+        let (root, _, _) = try plantPortfolio(label: "Bravo Corp")
+        // Add a second portfolio to the SAME root library.
+        let library = try PortfolioLibrary(rootDirectory: root)
+        let field = ProfileField(
+            key: .companyName,
+            value: "ShouldNotAppear",
+            sourceDocument: "test.txt",
+            sourceSnippet: "ShouldNotAppear",
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let alphaPortfolio = ClientPortfolio(
+            label: "Alpha Corp",
+            fields: [field],
+            sourceDocuments: ["test.txt"],
+            createdAtISO8601: "2026-06-10T00:00:00Z",
+            incomplete: false
+        )
+        _ = try library.create(alphaPortfolio)
+
+        // Inject the test root.
+        MCPServer.libraryRootForTesting = root
+        defer { MCPServer.libraryRootForTesting = nil }
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "tools/call",
+            "params": [
+                "name": "portfolio_list",
+                "arguments": [String: Any]()
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, false,
+                       "portfolio_list should not be an error: \(result)")
+
+        let summary = try toolSummary(from: response)
+        let portfolios = try XCTUnwrap(summary["portfolios"] as? [[String: Any]])
+
+        // Must have exactly 2 entries.
+        XCTAssertEqual(portfolios.count, 2, "expected 2 portfolios")
+
+        // Sorted by label: Alpha Corp before Bravo Corp.
+        let labels = portfolios.compactMap { $0["label"] as? String }
+        XCTAssertEqual(labels, ["Alpha Corp", "Bravo Corp"], "must be sorted by label")
+
+        // Value-free: the field value must not appear.
+        let summaryText = try toolText(from: response)
+        XCTAssertFalse(summaryText.contains("ShouldNotAppear"),
+                       "portfolio_list must not leak field values")
+
+        // Each entry must have the required metadata keys.
+        for entry in portfolios {
+            XCTAssertNotNil(entry["id"])
+            XCTAssertNotNil(entry["label"])
+            XCTAssertNotNil(entry["kind"])
+            XCTAssertNotNil(entry["fieldCount"])
+            XCTAssertNotNil(entry["conflicted"])
+        }
+    }
+
+    func testPortfolioShowByLabelReturnsRawKeysNoValues() throws {
+        guard portfolioKeychainAvailable() else {
+            throw XCTSkip("Keychain unavailable; skipping portfolio_show test")
+        }
+
+        let label = "ShowTestCo"
+        let (root, _, _) = try plantPortfolio(label: label)
+
+        MCPServer.libraryRootForTesting = root
+        defer { MCPServer.libraryRootForTesting = nil }
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": [
+                "name": "portfolio_show",
+                "arguments": ["portfolio": label]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, false,
+                       "portfolio_show should not be an error: \(result)")
+
+        let summary = try toolSummary(from: response)
+
+        // rawKeys must be present and non-empty.
+        let rawKeys = try XCTUnwrap(summary["rawKeys"] as? [String])
+        XCTAssertFalse(rawKeys.isEmpty, "rawKeys must be present")
+
+        // conflictedKeys must be present (even if empty).
+        XCTAssertNotNil(summary["conflictedKeys"])
+
+        // Value-free: the planted value must not appear.
+        let summaryText = try toolText(from: response)
+        XCTAssertFalse(summaryText.contains("TestValue"),
+                       "portfolio_show must not leak field values")
+    }
+
+    func testPortfolioShowByIDReturnsDetail() throws {
+        guard portfolioKeychainAvailable() else {
+            throw XCTSkip("Keychain unavailable; skipping portfolio_show by id test")
+        }
+
+        let label = "IDLookupCo"
+        let (root, id, _) = try plantPortfolio(label: label)
+
+        MCPServer.libraryRootForTesting = root
+        defer { MCPServer.libraryRootForTesting = nil }
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 102,
+            "method": "tools/call",
+            "params": [
+                "name": "portfolio_show",
+                "arguments": ["portfolio": id.uuidString]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, false,
+                       "portfolio_show by id should not be an error: \(result)")
+
+        let summary = try toolSummary(from: response)
+        XCTAssertEqual(summary["id"] as? String, id.uuidString)
+        XCTAssertEqual(summary["label"] as? String, label)
+    }
+
+    func testPortfolioShowAmbiguousLabelReturnsIsError() throws {
+        guard portfolioKeychainAvailable() else {
+            throw XCTSkip("Keychain unavailable; skipping ambiguous portfolio_show test")
+        }
+
+        // Create two portfolios with the SAME label (case-insensitive collision).
+        let root = workDir.appendingPathComponent("portfolios-ambiguous", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let library = try PortfolioLibrary(rootDirectory: root)
+        let field = ProfileField(
+            key: .companyName,
+            value: "AmbigValue",
+            sourceDocument: "test.txt",
+            sourceSnippet: "AmbigValue",
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        for _ in 0..<2 {
+            let p = ClientPortfolio(
+                label: "Ambiguous Corp",
+                fields: [field],
+                sourceDocuments: ["test.txt"],
+                createdAtISO8601: "2026-06-10T00:00:00Z",
+                incomplete: false
+            )
+            _ = try library.create(p)
+        }
+
+        MCPServer.libraryRootForTesting = root
+        defer { MCPServer.libraryRootForTesting = nil }
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 103,
+            "method": "tools/call",
+            "params": [
+                "name": "portfolio_show",
+                "arguments": ["portfolio": "ambiguous corp"]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true,
+                       "ambiguous portfolio_show must return isError")
+
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        // The error message must mention candidates or "multiple" or "ambiguous".
+        XCTAssertTrue(
+            text.lowercased().contains("multiple") || text.lowercased().contains("ambiguous")
+            || text.lowercased().contains("candidate"),
+            "error must mention ambiguity, got: \(text)"
+        )
+    }
+
+    // MARK: - fill with portfolio param
+
+    func testFillPlanWithPortfolioParamHappyPath() throws {
+        guard portfolioKeychainAvailable() else {
+            throw XCTSkip("Keychain unavailable; skipping fill portfolio param test")
+        }
+
+        let companyName = "PortfolioCo Ltd"
+        let field = ProfileField(
+            key: .companyName,
+            value: companyName,
+            sourceDocument: "test.txt",
+            sourceSnippet: companyName,
+            snippetVerified: true,
+            confidence: 1.0,
+            userEdited: false
+        )
+        let portfolio = ClientPortfolio(
+            label: "FillPortfolioCo",
+            fields: [field],
+            sourceDocuments: ["test.txt"],
+            createdAtISO8601: "2026-06-10T00:00:00Z",
+            incomplete: false
+        )
+        let root = workDir.appendingPathComponent("portfolios-fill", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let library = try PortfolioLibrary(rootDirectory: root)
+        _ = try library.create(portfolio)
+
+        MCPServer.libraryRootForTesting = root
+        defer { MCPServer.libraryRootForTesting = nil }
+
+        let docxURL = try writeFillDocx("Registered name: [Company Name].", named: "fill-portfolio-target.docx")
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 110,
+            "method": "tools/call",
+            "params": [
+                "name": "fill",
+                "arguments": [
+                    "portfolio": "FillPortfolioCo",
+                    "input": docxURL.path,
+                    "mode": "plan"
+                    // No "profile" or "passphrase" -- library path uses Keychain.
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, false,
+                       "fill with portfolio param should succeed: \(result)")
+
+        let summary = try toolSummary(from: response)
+        let entries = try XCTUnwrap(summary["entries"] as? [[String: Any]])
+        XCTAssertFalse(entries.isEmpty, "expected fill plan entries with portfolio param")
+    }
+
+    func testFillWithBothProfileAndPortfolioReturnsIsError() throws {
+        let profileURL = try writeProfile(companyName: "TestCo")
+        let docxURL = try writeFillDocx("Company: [Company Name].")
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 111,
+            "method": "tools/call",
+            "params": [
+                "name": "fill",
+                "arguments": [
+                    "profile": profileURL.path,
+                    "portfolio": "SomePortfolio",
+                    "input": docxURL.path,
+                    "mode": "plan",
+                    "passphrase": fillPassphrase
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true,
+                       "fill with both profile and portfolio must return isError")
+
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(
+            text.lowercased().contains("profile") || text.lowercased().contains("portfolio")
+            || text.lowercased().contains("exclusive"),
+            "error must mention the mutual exclusion, got: \(text)"
+        )
+    }
+
+    func testFillWithNeitherProfileNorPortfolioReturnsIsError() throws {
+        let docxURL = try writeFillDocx("Company: [Company Name].")
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 112,
+            "method": "tools/call",
+            "params": [
+                "name": "fill",
+                "arguments": [
+                    "input": docxURL.path,
+                    "mode": "plan"
+                    // Neither "profile" nor "portfolio" provided.
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true,
+                       "fill without profile or portfolio must return isError")
+
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(
+            text.lowercased().contains("profile") || text.lowercased().contains("portfolio"),
+            "error must mention profile or portfolio, got: \(text)"
+        )
+    }
+
+    func testFillWithPortfolioAndPassphraseReturnsIsError() throws {
+        let docxURL = try writeFillDocx("Company: [Company Name].")
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 113,
+            "method": "tools/call",
+            "params": [
+                "name": "fill",
+                "arguments": [
+                    "portfolio": "SomePortfolio",
+                    "input": docxURL.path,
+                    "mode": "plan",
+                    "passphrase": "should-not-be-allowed"
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true,
+                       "fill with portfolio + passphrase must return isError")
+
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(
+            text.lowercased().contains("passphrase") || text.lowercased().contains("keychain"),
+            "error must mention passphrase or keychain, got: \(text)"
+        )
     }
 
     // MARK: - extract_profile happy path

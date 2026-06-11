@@ -110,6 +110,11 @@ extension MCPServer {
     // MARK: - fill
 
     /// Dispatch to plan or apply depending on the "mode" argument.
+    ///
+    /// Exactly one of "profile" (path to .ldaprofile) or "portfolio" (library
+    /// entry by name or UUID) must be supplied; they are mutually exclusive.
+    /// "passphrase" is only valid with "profile"; using it with "portfolio" is
+    /// an error (the library always uses its Keychain key).
     func callFill(_ arguments: [String: Any]) throws -> [String: Any] {
         guard let mode = arguments["mode"] as? String else {
             throw MCPFillToolError.missingOrEmptyArgument("mode")
@@ -118,20 +123,45 @@ extension MCPServer {
             throw MCPFillToolError.invalidMode(mode)
         }
 
-        let profilePath = try requireStringArgument(arguments, key: "profile")
-        let inputPath = try requireStringArgument(arguments, key: "input")
-        let profileURL = URL(fileURLWithPath: profilePath)
-        let inputURL = URL(fileURLWithPath: inputPath)
-
+        let hasProfile = (arguments["profile"] as? String).map { !$0.isEmpty } ?? false
+        let portfolioName = (arguments["portfolio"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let hasPortfolio = portfolioName != nil
         let passphrase = arguments["passphrase"] as? String
-        let profile: ClientPortfolio
-        if let passphrase, !passphrase.isEmpty {
-            profile = try ProfileStore.load(from: profileURL, protection: .passphrase(passphrase))
-        } else {
-            profile = try ProfileStore.loadWithAccountFallback(from: profileURL)
+        let hasPassphrase = passphrase.map { !$0.isEmpty } ?? false
+
+        // Mutual exclusion: exactly one of profile or portfolio must be provided.
+        if hasProfile && hasPortfolio {
+            throw MCPPortfolioToolError.profileAndPortfolioMutuallyExclusive
+        }
+        if !hasProfile && !hasPortfolio {
+            throw MCPPortfolioToolError.neitherProfileNorPortfolio
+        }
+        // passphrase is only valid with profile.
+        if hasPortfolio && hasPassphrase {
+            throw MCPPortfolioToolError.passphraseWithPortfolio
         }
 
+        let inputPath = try requireStringArgument(arguments, key: "input")
+        let inputURL = URL(fileURLWithPath: inputPath)
         let modelPath = (arguments["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+        let profile: ClientPortfolio
+        if hasPortfolio, let nameOrID = portfolioName {
+            // Load from library via name or UUID.
+            let library = try PortfolioLibrary(rootDirectory: MCPServer.libraryRootForTesting)
+            let summaries = try library.list()
+            let (id, _) = try PortfolioLibrary.resolve(nameOrID: nameOrID, from: summaries)
+            profile = try library.load(id: id)
+        } else {
+            // Load from explicit profile file path.
+            let profilePath = try requireStringArgument(arguments, key: "profile")
+            let profileURL = URL(fileURLWithPath: profilePath)
+            if let passphrase, !passphrase.isEmpty {
+                profile = try ProfileStore.load(from: profileURL, protection: .passphrase(passphrase))
+            } else {
+                profile = try ProfileStore.loadWithAccountFallback(from: profileURL)
+            }
+        }
 
         if mode == "plan" {
             return try callFillPlan(

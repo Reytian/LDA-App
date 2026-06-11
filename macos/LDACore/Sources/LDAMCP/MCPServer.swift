@@ -157,6 +157,10 @@ public struct MCPServer {
                 summary = try callExtractProfile(arguments)
             case "fill":
                 summary = try callFill(arguments)
+            case "portfolio_list":
+                summary = try callPortfolioList(arguments)
+            case "portfolio_show":
+                summary = try callPortfolioShow(arguments)
             default:
                 return toolErrorResult(id: id, message: "Unknown tool: \(name)")
             }
@@ -312,13 +316,19 @@ public struct MCPServer {
     }
 
     /// A human-readable description for any error surfaced from LDAService or
-    /// the fill tool argument validators.
-    private func describe(_ error: Error) -> String {
+    /// the fill/portfolio tool argument validators.
+    func describe(_ error: Error) -> String {
         if let toolError = error as? MCPToolError {
             return toolError.message
         }
         if let fillToolError = error as? MCPFillToolError {
             return fillToolError.message
+        }
+        if let portfolioToolError = error as? MCPPortfolioToolError {
+            return portfolioToolError.message
+        }
+        if let resolutionError = error as? PortfolioResolutionError {
+            return describe(resolutionError)
         }
         if let serviceError = error as? LDAServiceError {
             return describe(serviceError)
@@ -457,7 +467,7 @@ public struct MCPServer {
 
     // MARK: - Tool descriptors
 
-    /// The five advertised tools with JSON-Schema input schemas. Declared once so
+    /// The seven advertised tools with JSON-Schema input schemas. Declared once so
     /// tools/list and the dispatcher cannot drift.
     static let toolDescriptors: [[String: Any]] = [
         [
@@ -522,11 +532,12 @@ public struct MCPServer {
         ],
         [
             "name": "fill",
-            "description": "Fill blanks in a document from an encrypted ClientPortfolio. mode=plan returns the fill plan (with proposed values) for review. mode=apply promotes proposed blanks and writes the filled document, returning a value-free report.",
+            "description": "Fill blanks in a document from a ClientPortfolio. Exactly one of profile (path to a .ldaprofile file) or portfolio (library entry by name or UUID) must be supplied; they are mutually exclusive. passphrase is only valid with profile; portfolio always uses the library Keychain key. mode=plan returns the fill plan for review. mode=apply writes the filled document and returns a value-free report.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
-                    "profile": ["type": "string", "description": "Path to the encrypted .ldaprofile."],
+                    "profile": ["type": "string", "description": "Path to an encrypted .ldaprofile file. Mutually exclusive with portfolio."],
+                    "portfolio": ["type": "string", "description": "Portfolio library entry by label or UUID. Mutually exclusive with profile. Cannot be combined with passphrase."],
                     "input": ["type": "string", "description": "Path to the fill target (.docx or .pdf)."],
                     "mode": [
                         "type": "string",
@@ -534,10 +545,30 @@ public struct MCPServer {
                         "description": "plan: return the fill plan for review. apply: promote proposed blanks and write the filled document."
                     ],
                     "model": ["type": "string", "description": "Optional path to the v2 GGUF model for unmatched blanks."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase protecting the profile."],
+                    "passphrase": ["type": "string", "description": "Optional passphrase protecting the profile. Only valid when using the profile parameter."],
                     "output_dir": ["type": "string", "description": "Directory to write the filled document. Required when mode is apply."]
                 ],
-                "required": ["profile", "input", "mode"]
+                "required": ["input", "mode"]
+            ]
+        ],
+        [
+            "name": "portfolio_list",
+            "description": "List all portfolios in the library. Returns a value-free sorted array of summaries (id, label, kind, dates, fieldCount, conflicted). No field values are included.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [String: Any](),
+                "required": [String]()
+            ]
+        ],
+        [
+            "name": "portfolio_show",
+            "description": "Show one portfolio's value-free detail: summary fields plus rawKeys and conflictedKeys. No field values are included. Identified by UUID or label (case-insensitive, must be unique).",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "portfolio": ["type": "string", "description": "Portfolio UUID or label (case-insensitive, must be unique)."]
+                ],
+                "required": ["portfolio"]
             ]
         ]
     ]
