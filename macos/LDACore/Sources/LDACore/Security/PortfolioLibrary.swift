@@ -395,6 +395,23 @@ public final class PortfolioLibrary {
         return try create(portfolio)
     }
 
+    /// Imports a portfolio from url using the ProfileStore keychain fallback chain,
+    /// then stores it in the library re-encrypted under the library key.
+    ///
+    /// Use this for Keychain-protected imports when the file may have been saved by
+    /// any prior UI edge (pre-portal UI stored the account as the file name WITH
+    /// extension; the portal UI uses the name WITHOUT extension; the CLI and MCP had
+    /// their own prefixes). ProfileStore.loadWithAccountFallback tries all four
+    /// account formats in priority order so legacy .ldaprofile files that fail a
+    /// simple standardAccount lookup are still importable.
+    ///
+    /// Passphrase-protected imports do not need the fallback and should continue
+    /// to call importPortfolio(from:protection:) directly.
+    public func importPortfolioWithKeychainFallback(from url: URL) throws -> UUID {
+        let portfolio = try ProfileStore.loadWithAccountFallback(from: url)
+        return try create(portfolio)
+    }
+
     // MARK: - Private helpers: file layout
 
     private func portfolioURL(for id: UUID) -> URL {

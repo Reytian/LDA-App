@@ -73,11 +73,19 @@ extension FillShell {
         let capturedPassphrase = passphraseInput
         pendingImportURL = nil
         passphraseInput = ""
-        let protection: MappingProtection = isPassphrase
-            ? .passphrase(capturedPassphrase)
-            : .keychain(account: ProfileStore.standardAccount(for: url))
-        Task {
-            await model.importPortfolio(from: url, protection: protection)
+        if isPassphrase {
+            // Passphrase-protected: decrypt with the supplied passphrase directly.
+            Task {
+                await model.importPortfolio(from: url, protection: .passphrase(capturedPassphrase))
+            }
+        } else {
+            // Keychain-protected: use the fallback chain so files saved by any prior
+            // edge (pre-portal UI stored account = filename WITH extension; portal UI
+            // uses WITHOUT extension; CLI and MCP had their own prefixes) can all be
+            // imported without requiring the user to know which account was used.
+            Task {
+                await model.importPortfolioWithKeychainFallback(from: url)
+            }
         }
     }
 
@@ -283,6 +291,11 @@ extension FillShell {
             } else {
                 profile = try ProfileStore.loadWithAccountFallback(from: url)
             }
+            // Clear currentPortfolioID before loading so Save will create a new
+            // library entry rather than overwriting whatever portfolio was previously
+            // open. An externally loaded file is not yet in the library; treating it
+            // as an update to the open portfolio would silently corrupt that entry.
+            model.currentPortfolioID = nil
             model.loadProfile(profile)
         } catch {
             showAlert(

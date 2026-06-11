@@ -525,7 +525,12 @@ final class FillModelTests: XCTestCase {
 
         XCTAssertEqual(model.stage, .profileReady)
         XCTAssertEqual(model.profile, profile)
-        XCTAssertFalse(model.profileDirty)
+        // After extraction, profileDirty must be true: the extracted-but-not-yet-saved
+        // portfolio is unsaved work. loadProfile clears dirty by design (it is the
+        // "load a clean saved copy" path), but extractProfile immediately re-sets dirty
+        // when fields were produced so Save-to-library is enabled and Back-to-Library
+        // shows a discard confirmation. Changed from false -> true (fix: portal save gating).
+        XCTAssertTrue(model.profileDirty, "extraction result is unsaved work: dirty must be true")
         // One failed source must surface as a warning.
         XCTAssertEqual(model.sourceWarnings.count, 1)
         XCTAssertTrue(model.sourceWarnings[0].contains("bad.txt"))
@@ -552,6 +557,118 @@ final class FillModelTests: XCTestCase {
             return
         }
         XCTAssertFalse(msg.isEmpty, "failure message must not be empty")
+    }
+
+    // MARK: - extractProfile: dirty after extraction with fields (fix 1a)
+
+    func testExtractProfileSuccessWithFieldsLeavesDirtyTrue() async throws {
+        // extractProfile must leave profileDirty true when the result contains fields,
+        // because the portfolio has not been saved to the library yet.
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let profile = makeProfile() // has 2 fields
+        XCTAssertFalse(profile.fields.isEmpty, "precondition: fixture profile has fields")
+        let fakeResult = ExtractProfileResult(profile: profile, failedSources: [])
+
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in fakeResult }
+
+        await model.extractProfile(
+            sources: [URL(fileURLWithPath: "/tmp/source.txt")],
+            label: "Test Co",
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        XCTAssertEqual(model.stage, .profileReady)
+        XCTAssertTrue(model.profileDirty,
+            "profileDirty must be true after extraction: extracted portfolio is unsaved work")
+    }
+
+    func testExtractProfileSuccessWithNoFieldsLeavesClean() async throws {
+        // extractProfile with an empty result profile should NOT mark dirty,
+        // since there is nothing new to save.
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let emptyProfile = ClientPortfolio(
+            label: "Empty Co",
+            fields: [],
+            sourceDocuments: [],
+            createdAtISO8601: "2026-06-11T00:00:00Z",
+            incomplete: false
+        )
+        let fakeResult = ExtractProfileResult(profile: emptyProfile, failedSources: [])
+
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in fakeResult }
+
+        await model.extractProfile(
+            sources: [URL(fileURLWithPath: "/tmp/source.txt")],
+            label: "Empty Co",
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        XCTAssertEqual(model.stage, .profileReady)
+        XCTAssertFalse(model.profileDirty,
+            "profileDirty must stay false when extraction produced no fields (nothing to save)")
+    }
+
+    func testBackToLibraryDialogGatedOnDirtyAfterExtraction() async throws {
+        // After successful extraction with fields, profileDirty is true.
+        // This is the condition that gates the "Back to Library" discard confirmation:
+        // FillShell.requestBackToLibrary checks profileDirty directly.
+        // This model-level test pins the contract so any regression that stops
+        // dirty being set after extraction will be caught here.
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let profile = makeProfile()
+        let fakeResult = ExtractProfileResult(profile: profile, failedSources: [])
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in fakeResult }
+
+        await model.extractProfile(
+            sources: [URL(fileURLWithPath: "/tmp/source.txt")],
+            label: "Test Co",
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        XCTAssertTrue(model.profileDirty,
+            "profileDirty must be true after extraction so the Back-to-Library discard dialog is shown")
+    }
+
+    // MARK: - saveToLibrary failure guard (fix 2)
+
+    func testSaveToLibraryFailureLeavesStageFailedAndDirtyTrue() async throws {
+        // When saveToLibrary fails (e.g. library root unreadable), stage becomes
+        // .failed and profileDirty remains true. The shell must NOT call backToLibrary
+        // in this case.
+        let lib = try makeLibrarySeam()
+        _ = try lib.create(makeCompanyPortfolio())
+
+        // Make the directory unreadable so the save throws.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o000)],
+            ofItemAtPath: workDir.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o755)],
+                ofItemAtPath: workDir.path
+            )
+        }
+
+        let model = FillModel(modelPath: nil)
+        // Set up an unsaved portfolio.
+        await model.createPortfolio(
+            kind: .company,
+            label: "Save Fail Co",
+            fromScratch: true,
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+        model.addField(key: .companyName, value: "Save Fail Holdings")
+        XCTAssertTrue(model.profileDirty, "precondition: dirty before save attempt")
+
+        await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T01:00:00Z")
+
+        guard case .failed = model.stage else {
+            XCTFail("stage must be .failed when saveToLibrary throws; got \(model.stage)")
+            return
+        }
+        XCTAssertTrue(model.profileDirty,
+            "profileDirty must remain true after a failed save (nav guard: shell must not call backToLibrary)")
     }
 
     // MARK: - planFill async
@@ -1325,6 +1442,57 @@ final class FillModelTests: XCTestCase {
 
         XCTAssertEqual(model.stage, .library, "backToLibrary must set stage to .library")
         XCTAssertNil(model.pickerRequestID, "backToLibrary must clear pickerRequestID")
+    }
+
+    // MARK: - External "Load Profile" clears currentPortfolioID (fix 4c)
+
+    /// When an external .ldaprofile file is loaded via confirmLoadProfile, the shell
+    /// clears model.currentPortfolioID so that a subsequent Save creates a NEW library
+    /// entry instead of overwriting whatever portfolio was open before the load.
+    ///
+    /// This test pins the model contract: after loadProfile is called while
+    /// currentPortfolioID is non-nil, the shell sets it to nil BEFORE calling
+    /// loadProfile so Save always creates a fresh entry for an externally loaded file.
+    ///
+    /// We test the model-level mechanic directly (setting currentPortfolioID = nil
+    /// then calling loadProfile) because the sheet logic lives in FillShellSheets
+    /// and the contract is that nil currentPortfolioID + non-nil profile means
+    /// saveToLibrary will always call create() rather than save().
+    func testExternalLoadClearsCurrentPortfolioIDSoSaveCreatesNewEntry() async throws {
+        let lib = try makeLibrarySeam()
+        let existing = makeCompanyPortfolio(label: "Open Portfolio")
+        let existingID = try lib.create(existing)
+
+        let model = FillModel(modelPath: nil)
+
+        // Simulate: the user has an existing portfolio open for editing.
+        await model.openForEdit(id: existingID)
+        XCTAssertEqual(model.currentPortfolioID, existingID,
+            "precondition: currentPortfolioID must be set after openForEdit")
+
+        // Simulate confirmLoadProfile: clear currentPortfolioID then call loadProfile.
+        // (The real sheet code does this to prevent overwriting the open portfolio.)
+        model.currentPortfolioID = nil
+        let externalProfile = makeCompanyPortfolio(label: "Externally Loaded Portfolio")
+        model.loadProfile(externalProfile)
+
+        XCTAssertNil(model.currentPortfolioID,
+            "currentPortfolioID must be nil after external load so Save creates a new entry")
+        XCTAssertEqual(model.profile?.label, "Externally Loaded Portfolio")
+
+        // Saving must create a NEW library entry, not overwrite the original.
+        model.addField(key: .jurisdiction, value: "Cayman")
+        await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T01:00:00Z")
+
+        let newID = try XCTUnwrap(model.currentPortfolioID,
+            "currentPortfolioID must be assigned after first save of external profile")
+        XCTAssertNotEqual(newID, existingID,
+            "Save after external load must create a new library entry, not overwrite the open portfolio")
+
+        // The original portfolio must be unmodified.
+        let originalReloaded = try lib.load(id: existingID)
+        XCTAssertEqual(originalReloaded.label, "Open Portfolio",
+            "The original portfolio must not be modified by saving the externally loaded profile")
     }
 
     // MARK: - Library: cached instance is stable across intents

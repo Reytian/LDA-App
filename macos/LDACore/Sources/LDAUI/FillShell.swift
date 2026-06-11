@@ -90,9 +90,10 @@ public struct FillShell: View {
     @State private var isBackToLibraryConfirmation = false
 
     // MARK: - Source list
-
-    /// Source document URLs added by the user (displayed in the profile builder).
-    @State private var sourcePaths: [URL] = []
+    //
+    // sourcePaths is owned by FillModel so that createPortfolio can reset it when
+    // a new portfolio session begins. FillShell reads and appends to model.sourcePaths
+    // directly; no local @State copy is maintained.
 
     // MARK: - Field picker popover
 
@@ -156,7 +157,13 @@ public struct FillShell: View {
             Button("Save and leave") {
                 Task {
                     await model.saveToLibrary(modifiedAtISO8601: nowISO8601())
-                    model.backToLibrary()
+                    // saveToLibrary clears profileDirty on success and sets stage
+                    // to .failed on error. Navigate only when the save succeeded:
+                    // if dirty is still true the save failed and we must stay in the
+                    // editor so the user can see the .failed banner and retry.
+                    if !model.profileDirty {
+                        model.backToLibrary()
+                    }
                 }
             }
             Button("Discard changes", role: .destructive) {
@@ -231,12 +238,12 @@ public struct FillShell: View {
             Button {
                 let created = nowISO8601()
                 let label = model.profile?.label
-                    ?? sourcePaths.first?.deletingPathExtension().lastPathComponent
+                    ?? model.sourcePaths.first?.deletingPathExtension().lastPathComponent
                     ?? "Profile"
                 let kind = model.profile?.kind ?? .company
                 Task {
                     await model.extractProfile(
-                        sources: sourcePaths,
+                        sources: model.sourcePaths,
                         label: label,
                         createdAtISO8601: created,
                         kind: kind
@@ -347,7 +354,7 @@ public struct FillShell: View {
             profileStatusBanner
             ProfileBuilderBody(
                 model: model,
-                sourcePaths: sourcePaths
+                sourcePaths: model.sourcePaths
             )
         }
     }
@@ -533,7 +540,7 @@ public struct FillShell: View {
     // MARK: - Computed guards
 
     private var canExtract: Bool {
-        !sourcePaths.isEmpty
+        !model.sourcePaths.isEmpty
             && model.modelPath.flatMap {
                 $0.isEmpty ? nil : $0
             } != nil
@@ -541,7 +548,7 @@ public struct FillShell: View {
     }
 
     private var extractDisabledReason: String {
-        if sourcePaths.isEmpty { return "Add at least one source document first" }
+        if model.sourcePaths.isEmpty { return "Add at least one source document first" }
         if model.modelPath == nil || (model.modelPath ?? "").isEmpty {
             return "Requires the bundled on-device model (lda-v2-Q4_K_M.gguf). "
                 + "In development builds, place the model at "
@@ -555,10 +562,14 @@ public struct FillShell: View {
         return profile.conflictedKeys.isEmpty
     }
 
-    /// Save to library: requires a profile with no conflicts and a dirty flag set.
+    /// Save to library: requires a profile with no conflicts, and either the dirty
+    /// flag is set OR the portfolio has never been saved to the library (nil id means
+    /// this is a new portfolio that exists only in memory and is always saveable when
+    /// conflict-free).
     private var canSaveToLibrary: Bool {
         guard let profile = model.profile else { return false }
-        return profile.conflictedKeys.isEmpty && model.profileDirty
+        guard profile.conflictedKeys.isEmpty else { return false }
+        return model.profileDirty || model.currentPortfolioID == nil
     }
 
     private var canOpenTarget: Bool {
@@ -625,9 +636,9 @@ public struct FillShell: View {
         panel.prompt = "Add"
         guard panel.runModal() == .OK else { return }
         let new = panel.urls.filter { url in
-            !sourcePaths.contains(url)
+            !model.sourcePaths.contains(url)
         }
-        sourcePaths.append(contentsOf: new)
+        model.sourcePaths.append(contentsOf: new)
     }
 
     // MARK: - Open fill target

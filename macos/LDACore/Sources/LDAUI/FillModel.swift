@@ -128,9 +128,10 @@ public final class FillModel: ObservableObject {
     /// Sorted by label (stable tiebreak by UUID). Empty before the first refresh.
     @Published public var summaries: [PortfolioSummary] = []
 
-    /// The UUID of the portfolio currently open for editing. Nil when a new
-    /// portfolio has been created but not yet saved (assigned by saveToLibrary
-    /// on first save). Nil when stage is .library.
+    /// The UUID of the portfolio currently open for editing. Nil when no portfolio
+    /// has been opened from the library (new portfolios start nil until first save;
+    /// portfolios loaded from an external file also start nil so Save creates a new
+    /// library entry rather than overwriting an unrelated open portfolio).
     @Published public var currentPortfolioID: UUID?
 
     /// A one-time advisory string built from lastListReconciled /
@@ -144,6 +145,12 @@ public final class FillModel: ObservableObject {
     /// is NOT changed by export failures; the user stays on the library list. Cleared
     /// at the start of each exportPortfolio call and in refreshLibrary.
     @Published public private(set) var exportError: String?
+
+    /// Source document URLs staged for the current extraction session. Cleared
+    /// when createPortfolio runs so a new portfolio starts with no sources from a
+    /// previous session. FillShell appends to this list when the user adds sources,
+    /// and reads it to drive the Extract button and source-list display.
+    @Published public var sourcePaths: [URL] = []
 
     /// Optional absolute path to the GGUF model. Passed to LDAService.extractProfile.
     public var modelPath: String?
@@ -476,6 +483,9 @@ public final class FillModel: ObservableObject {
             modifiedAtISO8601: createdAtISO8601
         )
         currentPortfolioID = nil
+        // Reset the source list so a new portfolio starts with no staged documents
+        // from a prior session.
+        sourcePaths = []
         profile = emptyPortfolio
         profileDirty = true
         stage = .profileReady
@@ -616,6 +626,32 @@ public final class FillModel: ObservableObject {
         }
     }
 
+    /// Import a portfolio from url using the Keychain fallback chain and store it
+    /// in the library. Use this when the file was saved by the Keychain path (no
+    /// passphrase) and may carry any of the legacy account formats (pre-portal UI,
+    /// CLI, or MCP). Returns the new UUID, or nil on failure (stage becomes .failed).
+    /// Refreshes summaries.
+    @discardableResult
+    public func importPortfolioWithKeychainFallback(from url: URL) async -> UUID? {
+        do {
+            let lib = try await resolveLibrary()
+            let newID = try await Task.detached(priority: .userInitiated) {
+                try lib.importPortfolioWithKeychainFallback(from: url)
+            }.value
+
+            let refreshed = try await Task.detached(priority: .userInitiated) {
+                try lib.list()
+            }.value
+            summaries = refreshed
+
+            return newID
+
+        } catch {
+            stage = .failed(Self.describe(error))
+            return nil
+        }
+    }
+
     // MARK: - Private library helpers
 
     /// Returns the library to use for the current intent:
@@ -730,6 +766,14 @@ public final class FillModel: ObservableObject {
             sourceWarnings = result.failedSources.map { "\($0.name): \($0.reason)" }
             progress = 1
             loadProfile(result.profile)
+            // An extracted-but-unsaved portfolio is unsaved work: mark dirty so
+            // "Save to library" is enabled and "Back to Library" shows the discard
+            // confirmation. loadProfile intentionally clears dirty (it is also used
+            // to load a clean saved copy); we restore dirty here whenever extraction
+            // produced any fields (an empty extraction adds nothing new to save).
+            if !result.profile.fields.isEmpty {
+                profileDirty = true
+            }
 
         } catch {
             stage = .failed(Self.describe(error))

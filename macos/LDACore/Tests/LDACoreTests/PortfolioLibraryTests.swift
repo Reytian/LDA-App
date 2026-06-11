@@ -670,6 +670,55 @@ final class PortfolioLibraryTests: XCTestCase {
         )
     }
 
+    // MARK: - importPortfolioWithKeychainFallback (fix 3)
+
+    /// Importing a .ldaprofile file that was saved under the LEGACY UI Keychain
+    /// account (filename WITH extension) must succeed via the fallback chain.
+    ///
+    /// The legacy UI stored account = url.lastPathComponent (e.g.
+    /// "Acme Matter.ldaprofile"), while the portal UI uses account =
+    /// url.deletingPathExtension().lastPathComponent (e.g. "Acme Matter").
+    /// importPortfolio(from:protection:.keychain(account:standardAccount)) would
+    /// fail for these files; importPortfolioWithKeychainFallback must succeed.
+    ///
+    /// Keychain-gated: skipped when the Keychain is unavailable (same mechanism
+    /// as the rest of this class).
+    func testImportPortfolioWithKeychainFallbackImportsLegacyUIFile() throws {
+        // Write a portfolio file encrypted under the legacy UI account
+        // (account == filename with extension, e.g. "legacy-test.ldaprofile").
+        let exportDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PortfolioLibraryTests-legacy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: exportDir) }
+
+        let fileURL = exportDir.appendingPathComponent("legacy-test.ldaprofile")
+        let legacyAccount = ProfileStore.legacyAccount(for: fileURL) // "legacy-test.ldaprofile"
+
+        // Seal the portfolio using the legacy UI account (account = filename WITH extension).
+        let portfolio = samplePortfolio(label: "Legacy UI Portfolio")
+        let plaintext = try ProfileStore.encodeProfile(portfolio)
+        let container = EncryptedContainer(
+            magic: Array("LDAPROF".utf8),
+            keychainService: "ai.openclaw.lda.profilekey",
+            containerDescription: "Profile file"
+        )
+        try container.save(plaintext, to: fileURL, protection: .keychain(account: legacyAccount))
+
+        // Now import via the fallback path. It must succeed even though
+        // standardAccount would produce "legacy-test" (without extension).
+        let lib = try makeLibrary()
+        let importedID = try lib.importPortfolioWithKeychainFallback(from: fileURL)
+
+        // Verify the portfolio joined the library.
+        let loaded = try lib.load(id: importedID)
+        XCTAssertEqual(loaded.label, "Legacy UI Portfolio",
+            "importPortfolioWithKeychainFallback must import a file saved under the legacy UI account")
+
+        let summaries = try lib.list()
+        XCTAssertEqual(summaries.count, 1)
+        XCTAssertEqual(summaries[0].id, importedID)
+    }
+
     // MARK: - lastListReconciled state
 
     func testLastListReconciledLifecycle() throws {
