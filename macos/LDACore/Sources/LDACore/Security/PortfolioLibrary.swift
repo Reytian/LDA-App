@@ -15,17 +15,23 @@
 //                        "index". Single file: <root>/index.ldapidx. Holds
 //                        [PortfolioSummary] in JSON.
 //
-//  Atomicity: EncryptedContainer.save already calls Data.write(to:options:[.atomic]),
-//  which on Apple platforms writes to a kernel-chosen temp file then renames it
-//  atomically. No additional temp-then-rename layer is needed at the library level;
-//  duplicating it would write two temp files for every save (the container's own
-//  temp, plus the library's) with no additional safety. The ".tmp residue" test
-//  verifies that no file with the explicit ".tmp" extension remains after a save;
-//  the kernel temp name used by Data.write is never ".tmp"-suffixed, so the test
-//  passes naturally.
+//  Atomicity: each write (portfolio file or index) goes through
+//  EncryptedContainer.save, which calls Data.write(to:options:[.atomic]). On
+//  Apple platforms that writes to a kernel-chosen temp file then renames it
+//  atomically. "Atomicity" here means per-write atomicity (the file is either
+//  the old version or the new version; no partial write is visible). It does NOT
+//  mean that a portfolio-file write and the subsequent index write are atomic as
+//  a unit. A crash between the two can leave the index with a stale summary for
+//  an entry whose file was successfully written; reconciliation detects and heals
+//  that drift on the next call to list(). See save() for details.
 //
 //  Purity: timestamps must be caller-supplied. PortfolioLibrary never reads the
 //  clock.
+//
+//  Concurrency contract: use one PortfolioLibrary instance from one actor or
+//  serial queue. Cross-process read-only listing (reading index bytes without
+//  calling list()) is tolerated; if another process modifies the directory
+//  concurrently, reconciliation on the next list() call will heal the drift.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -37,6 +43,10 @@ import Foundation
 
 /// A lightweight snapshot of a portfolio, held in the encrypted index.
 /// list() returns these without decrypting any individual portfolio file.
+///
+/// Note: placeholder summaries (surfaced for undecryptable orphan files) have
+/// empty strings for createdAtISO8601 and modifiedAtISO8601 and zero fieldCount.
+/// Callers should treat empty timestamp strings as "unknown".
 public struct PortfolioSummary: Equatable, Sendable, Codable {
     public var id: UUID
     public var label: String
@@ -92,6 +102,8 @@ public enum PortfolioLibraryError: Error, LocalizedError, Sendable {
 ///
 /// list() is efficient: it decrypts only the index, not the portfolio files.
 /// Individual portfolio data is decrypted only by load(id:).
+///
+/// Concurrency: one instance from one actor or serial queue. See file header.
 public final class PortfolioLibrary {
 
     // MARK: - Containers
@@ -131,6 +143,21 @@ public final class PortfolioLibrary {
     /// list() will set or clear it again.
     public private(set) var lastListReconciled: Bool = false
 
+    // MARK: - Index persist failure flag
+
+    /// True when the most recent attempt to write the index inside
+    /// readIndexOrRebuild (the swallowed try? writeIndex) threw. Cleared on the
+    /// next successful index write (save, delete, appendToIndex, or a successful
+    /// reconciliation rewrite).
+    ///
+    /// UI guidance: a persistently true value after repeated list() calls indicates
+    /// that the Keychain key for the index container is unavailable or that the
+    /// library directory has become unwritable. The in-memory summaries returned by
+    /// list() are still correct; only the on-disk index is stale, meaning every
+    /// future list() will re-reconcile. Surface a non-blocking advisory to the user
+    /// if this flag remains set across multiple sessions.
+    public private(set) var lastIndexPersistFailed: Bool = false
+
     // MARK: - Keychain accounts (fixed)
 
     private static let portfolioAccount = "library"
@@ -168,22 +195,30 @@ public final class PortfolioLibrary {
 
     // MARK: - Public API
 
-    /// Returns all portfolios sorted by label.
+    /// Returns all portfolios sorted by label (stable tiebreak by UUID string).
     ///
     /// Decrypts only the index. Individual portfolio files are NOT decrypted.
     /// If the index is missing or corrupt, or if drift between the index and
     /// the directory is detected, the index is rebuilt from the portfolio files
     /// and lastListReconciled is set to true. On a clean read lastListReconciled
     /// is false.
+    ///
+    /// Throws when the directory cannot be enumerated (an unreadable library is
+    /// an error, not an empty list).
     public func list() throws -> [PortfolioSummary] {
         let (summaries, reconciled) = try readIndexOrRebuild()
         lastListReconciled = reconciled
-        return summaries.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        return summaries.sorted {
+            let cmp = $0.label.localizedCaseInsensitiveCompare($1.label)
+            if cmp != .orderedSame { return cmp == .orderedAscending }
+            return $0.id.uuidString < $1.id.uuidString
+        }
     }
 
     /// Creates a new portfolio in the library and returns its UUID.
     ///
-    /// The summary is appended to the index after the portfolio file is written.
+    /// The portfolio file is written first. The index is updated (upsert by id)
+    /// only after the file write succeeds.
     public func create(_ portfolio: ClientPortfolio) throws -> UUID {
         let id = UUID()
         let summary = makeSummary(id: id, portfolio: portfolio)
@@ -193,6 +228,11 @@ public final class PortfolioLibrary {
     }
 
     /// Loads and returns the full portfolio for id.
+    ///
+    /// On a successful load, the index entry is healed if its summary is stale
+    /// (e.g. a crash between file write and index write left a mismatched label or
+    /// timestamp). This is the cheap heal path: the file is already decrypted, so
+    /// comparing and rewriting costs little.
     ///
     /// Throws DocumentIOError.unreadable when the file does not exist, or
     /// DocumentIOError.decryptionFailed / .corrupt for a tampered or
@@ -206,14 +246,29 @@ public final class PortfolioLibrary {
             from: url,
             protection: .keychain(account: Self.portfolioAccount)
         )
-        return try ProfileStore.decodeProfile(plaintext)
+        let portfolio = try ProfileStore.decodeProfile(plaintext)
+
+        // Cheap heal: if the index entry for this id does not match the file
+        // content (e.g. a crash between file write and index write left a stale
+        // summary), rewrite the index now. The file is already decrypted so this
+        // adds minimal overhead. The full reconcile path (readIndexOrRebuild) also
+        // heals this case on the next list(), but healing eagerly avoids surfacing
+        // stale data to callers between the crash and the next list().
+        healIndexEntry(id: id, portfolio: portfolio)
+
+        return portfolio
     }
 
-    /// Overwrites the portfolio for id and updates the index entry atomically.
+    /// Saves (upserts) the portfolio for id and updates the index.
     ///
-    /// The portfolio file is written first. The index is updated only after the
-    /// file write succeeds, so a crash between the two leaves a stale index entry
-    /// that list() will reconcile on next read.
+    /// Upsert semantics: if id already has an entry in the index it is replaced;
+    /// if not, a new entry is appended. This means save() is safe to call for
+    /// both updates and creates (e.g. after importPortfolio assigns a new UUID).
+    ///
+    /// The portfolio file is written first using per-write atomic I/O
+    /// (EncryptedContainer.save calls Data.write with .atomic). The index is
+    /// updated only after the file write succeeds. A crash between the two leaves
+    /// a stale index entry; the next successful load(id:) or list() heals it.
     public func save(_ portfolio: ClientPortfolio, id: UUID) throws {
         try writePortfolioFile(portfolio, id: id)
         let summary = makeSummary(id: id, portfolio: portfolio)
@@ -224,17 +279,38 @@ public final class PortfolioLibrary {
             summaries.append(summary)
         }
         try writeIndex(summaries)
+        lastIndexPersistFailed = false
     }
 
-    /// Deletes the portfolio file and removes the entry from the index.
-    /// A missing file or index entry is ignored (best-effort cleanup).
+    /// Deletes the portfolio file for id and removes the entry from the index.
+    ///
+    /// A missing file for the given id is ignored (the index entry is still
+    /// cleaned up). Any other file-removal failure (permission error, I/O error,
+    /// etc.) is propagated BEFORE the index is touched, so a failed delete never
+    /// orphans the file into the "dangling file, no index entry" state.
+    ///
+    /// The index entry is always removed when the file removal succeeds or the
+    /// file was already absent.
     public func delete(id: UUID) throws {
         let url = portfolioURL(for: id)
-        try? FileManager.default.removeItem(at: url)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            // Ignore "file not found" -- the index cleanup below still runs.
+            let isNotFound = (error as? CocoaError)?.code == .fileNoSuchFile
+                || (error as NSError).code == NSFileNoSuchFileError
+            if !isNotFound {
+                // Propagate real removal failures before touching the index.
+                // This prevents the file from being silently resurrected on the
+                // next reconciliation (file present, no index entry -> re-added).
+                throw error
+            }
+        }
 
         var summaries = loadRawIndex()
         summaries.removeAll { $0.id == id }
         try writeIndex(summaries)
+        lastIndexPersistFailed = false
     }
 
     /// Exports the portfolio at id to url, re-encrypting under the given protection.
@@ -301,7 +377,14 @@ public final class PortfolioLibrary {
     // MARK: - Private helpers: index I/O
 
     /// Loads the raw index entries, returning an empty array on any failure.
-    /// This is the non-reconciling path used by save/delete/appendToIndex.
+    ///
+    /// Missing file: returns []. The caller (save/delete/appendToIndex) will
+    /// write a fresh index.
+    ///
+    /// Read or decrypt failure: also returns []. This is intentional; the index
+    /// is a performance cache and reconciliation (readIndexOrRebuild) heals it on
+    /// the next list(). Throwing here would break save/delete for a caller who has
+    /// valid data in hand.
     private func loadRawIndex() -> [PortfolioSummary] {
         guard let plaintext = try? indexContainer.load(
             from: indexURL,
@@ -320,7 +403,7 @@ public final class PortfolioLibrary {
         } catch {
             throw DocumentIOError.corrupt("Failed to encode portfolio index: \(error)")
         }
-        // EncryptedContainer.save is already atomic (see atomicity note above).
+        // EncryptedContainer.save is already atomic (see atomicity note in file header).
         try indexContainer.save(
             plaintext,
             to: indexURL,
@@ -328,10 +411,48 @@ public final class PortfolioLibrary {
         )
     }
 
+    /// Upserts summary into the index (replaces an existing entry with the same id,
+    /// or appends if not found). Used by create().
     private func appendToIndex(_ summary: PortfolioSummary) throws {
         var summaries = loadRawIndex()
-        summaries.append(summary)
+        if let idx = summaries.firstIndex(where: { $0.id == summary.id }) {
+            // Upsert: replace the existing entry rather than duplicating it.
+            // This can happen if create() is called for an id that somehow already
+            // appears in the index (e.g. a prior create() crashed after the file
+            // write but before the index write, then the caller retried with the
+            // same UUID -- unlikely but safe to handle).
+            summaries[idx] = summary
+        } else {
+            summaries.append(summary)
+        }
         try writeIndex(summaries)
+        lastIndexPersistFailed = false
+    }
+
+    // MARK: - Private helpers: summary heal
+
+    /// Compares the current index entry for id against a freshly built summary
+    /// from the given portfolio and rewrites the index if they differ.
+    ///
+    /// Called by load(id:) after a successful decrypt. Because the file is already
+    /// in memory at that point, the comparison and optional rewrite cost little.
+    /// This heals the "stale summary" case that arises when a crash occurs between
+    /// a file write and the subsequent index write inside save().
+    private func healIndexEntry(id: UUID, portfolio: ClientPortfolio) {
+        let fresh = makeSummary(id: id, portfolio: portfolio)
+        var summaries = loadRawIndex()
+        guard let idx = summaries.firstIndex(where: { $0.id == id }) else {
+            // No index entry at all; reconciliation on the next list() will add it.
+            return
+        }
+        guard summaries[idx] != fresh else {
+            // Entry is already up to date.
+            return
+        }
+        summaries[idx] = fresh
+        if (try? writeIndex(summaries)) != nil {
+            lastIndexPersistFailed = false
+        }
     }
 
     // MARK: - Private helpers: reconciling list
@@ -353,10 +474,12 @@ public final class PortfolioLibrary {
     private func readIndexOrRebuild() throws -> (summaries: [PortfolioSummary], reconciled: Bool) {
         // Enumerate .ldaprofile files in the directory (non-recursive; ignore
         // .tmp files and non-.ldaprofile files such as index.ldapidx).
-        let directoryContents = (try? FileManager.default.contentsOfDirectory(
+        // Propagate enumeration failure: an unreadable library is an error, not
+        // an empty list.
+        let directoryContents = try FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: nil
-        )) ?? []
+        )
 
         let portfolioFiles: [URL] = directoryContents.filter { url in
             // Accept only UUID-named .ldaprofile files. Exclude .tmp files and
@@ -394,9 +517,11 @@ public final class PortfolioLibrary {
             indexMissingOrCorrupt = true
         }
 
-        // Build a lookup from UUID to existing summary.
+        // Build a lookup from UUID to existing summary. Use uniquingKeysWith to
+        // tolerate a corrupt index that contains duplicate ids (last writer wins).
         var indexByID: [UUID: PortfolioSummary] = Dictionary(
-            uniqueKeysWithValues: existingEntries.map { ($0.id, $0) }
+            existingEntries.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
         )
         let indexIDs = Set(indexByID.keys)
 
@@ -421,6 +546,7 @@ public final class PortfolioLibrary {
                     indexByID[id] = summary
                 } else {
                     // Rule 4: undecryptable orphan surfaces with a placeholder label.
+                    // load(id:) for this entry will throw; delete(id:) will clean it up.
                     let shortID = String(id.uuidString.prefix(8))
                     let placeholder = PortfolioSummary(
                         id: id,
@@ -439,8 +565,18 @@ public final class PortfolioLibrary {
         let finalSummaries = Array(indexByID.values)
 
         // Rewrite the index when drift was found so subsequent calls are clean.
+        // We swallow the write error here rather than propagating it, because:
+        //   (1) The read result is valid; throwing would fail the caller while
+        //       correct data is already in memory.
+        //   (2) lastListReconciled being true on repeated calls is the observable
+        //       signal of persistent drift -- the UI can act on lastIndexPersistFailed
+        //       to surface a non-blocking advisory.
         if reconciled {
-            try? writeIndex(finalSummaries)
+            if (try? writeIndex(finalSummaries)) != nil {
+                lastIndexPersistFailed = false
+            } else {
+                lastIndexPersistFailed = true
+            }
         }
 
         return (finalSummaries, reconciled)
@@ -463,15 +599,17 @@ public final class PortfolioLibrary {
     // MARK: - Private helpers: export guard
 
     /// Throws PortfolioLibraryError.exportDestinationInsideLibrary when the
-    /// destination is inside the library root directory.
+    /// destination is inside the library root directory. Uses
+    /// resolvingSymlinksInPath on both sides so that symlinks into the library
+    /// directory are also rejected.
     private func assertNotInsideLibrary(_ destination: URL) throws {
-        let rootStandard = root.standardizedFileURL.path
-        let destStandard = destination.standardizedFileURL.path
+        let rootResolved = root.resolvingSymlinksInPath().path
+        let destResolved = destination.resolvingSymlinksInPath().path
         // A path is "inside" the root if it starts with the root path followed
         // by the path separator (to avoid false positives from a sibling
         // directory whose name starts with the same prefix).
-        let rootWithSeparator = rootStandard.hasSuffix("/") ? rootStandard : rootStandard + "/"
-        if destStandard.hasPrefix(rootWithSeparator) {
+        let rootWithSeparator = rootResolved.hasSuffix("/") ? rootResolved : rootResolved + "/"
+        if destResolved.hasPrefix(rootWithSeparator) {
             throw PortfolioLibraryError.exportDestinationInsideLibrary
         }
     }

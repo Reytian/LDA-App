@@ -457,6 +457,193 @@ final class PortfolioLibraryTests: XCTestCase {
         let loaded = try lib.load(id: importedID)
         XCTAssertEqual(loaded.kind, .company, "Legacy JSON without 'kind' must default to .company")
         XCTAssertEqual(loaded.label, "Legacy Corp")
+        XCTAssertEqual(
+            loaded.modifiedAtISO8601, "2025-01-01T00:00:00Z",
+            "Legacy JSON without 'modifiedAtISO8601' must fall back to createdAtISO8601"
+        )
+
+        // The index summary must carry the same fallback value.
+        let summary = try XCTUnwrap(lib.list().first { $0.id == importedID })
+        XCTAssertEqual(summary.modifiedAtISO8601, "2025-01-01T00:00:00Z")
+    }
+
+    // MARK: - Undecryptable orphan: notice fires once, placeholder is persisted
+
+    func testUndecryptableOrphanNoticeFiresOnceAndPlaceholderPersists() throws {
+        let lib = try makeLibrary()
+
+        let garbageID = UUID()
+        let garbagePath = workDir.appendingPathComponent("\(garbageID.uuidString).ldaprofile")
+        try Data("garbage bytes, not a container".utf8).write(to: garbagePath)
+
+        // First list reconciles: the placeholder is added and written to the index.
+        let first = try lib.list()
+        XCTAssertTrue(lib.lastListReconciled, "First list over an orphan must reconcile")
+        XCTAssertEqual(first.count, 1)
+
+        // Second list must be clean: the placeholder now comes from the persisted
+        // index, no reconcile happens, and the one-time notice flag clears. If
+        // this reconciles again, the rewrite inside readIndexOrRebuild silently
+        // failed and every future list() would degrade to a full rebuild.
+        let second = try lib.list()
+        XCTAssertFalse(
+            lib.lastListReconciled,
+            "Placeholder must be persisted to the index; a repeat reconcile means the index rewrite silently failed"
+        )
+        XCTAssertEqual(second.count, 1)
+        XCTAssertEqual(second[0].id, garbageID)
+        let shortID = String(garbageID.uuidString.prefix(8))
+        XCTAssertTrue(second[0].label.contains(shortID), "Placeholder label must survive the round trip through the index")
+    }
+
+    // MARK: - Duplicate index IDs: list() survives and deduplicates (C1 regression)
+
+    func testDuplicateIndexIDsSurvive() throws {
+        let lib = try makeLibrary()
+
+        // Create one real portfolio so we have a valid encrypted index to build on.
+        let id = try lib.create(samplePortfolio(label: "Dedup Target"))
+
+        // Hand-craft an index that contains the same UUID twice. We write it
+        // directly through the index container (bypassing the library's upsert
+        // logic) to simulate a corrupt index that arrived from an external source.
+        let indexContainer = EncryptedContainer(
+            magic: Array("LDAPIDX".utf8),
+            keychainService: "ai.openclaw.lda.libraryindexkey",
+            containerDescription: "Portfolio index"
+        )
+        let duplicateSummary = PortfolioSummary(
+            id: id,
+            label: "Dedup Target",
+            kind: .company,
+            createdAtISO8601: "2026-06-11T00:00:00Z",
+            modifiedAtISO8601: "2026-06-11T00:00:00Z",
+            fieldCount: 1,
+            conflicted: false
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        // Write [summary, summary] -- same UUID twice.
+        let corruptPayload = try encoder.encode([duplicateSummary, duplicateSummary])
+        let indexFile = workDir.appendingPathComponent("index.ldapidx")
+        try indexContainer.save(
+            corruptPayload,
+            to: indexFile,
+            protection: .keychain(account: "index")
+        )
+
+        // list() must not crash and must return exactly one entry.
+        let summaries = try lib.list()
+        XCTAssertEqual(summaries.count, 1, "Duplicate index IDs must be deduplicated to one entry")
+        XCTAssertEqual(summaries[0].id, id)
+    }
+
+    // MARK: - Summary heal on load (I3)
+
+    func testLoadHealsStaleIndexEntry() throws {
+        let lib = try makeLibrary()
+        let portfolio = samplePortfolio(label: "Original Label")
+        let id = try lib.create(portfolio)
+
+        // Manually corrupt the index entry's label to simulate a stale index
+        // (as if a crash occurred between file write and index write in save()).
+        let indexContainer = EncryptedContainer(
+            magic: Array("LDAPIDX".utf8),
+            keychainService: "ai.openclaw.lda.libraryindexkey",
+            containerDescription: "Portfolio index"
+        )
+        let indexFile = workDir.appendingPathComponent("index.ldapidx")
+        // Read the real index.
+        let existingPlaintext = try indexContainer.load(
+            from: indexFile,
+            protection: .keychain(account: "index")
+        )
+        var summaries = try JSONDecoder().decode([PortfolioSummary].self, from: existingPlaintext)
+        XCTAssertEqual(summaries.count, 1)
+        summaries[0].label = "STALE WRONG LABEL"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let corruptedPayload = try encoder.encode(summaries)
+        try indexContainer.save(
+            corruptedPayload,
+            to: indexFile,
+            protection: .keychain(account: "index")
+        )
+
+        // Verify the stale label is actually in the index before healing.
+        let beforeHeal = try lib.list()
+        XCTAssertEqual(beforeHeal[0].label, "STALE WRONG LABEL", "Pre-condition: index must carry the stale label")
+
+        // load(id:) decrypts the file and heals the index.
+        _ = try lib.load(id: id)
+
+        // list() must now show the correct label.
+        let afterHeal = try lib.list()
+        XCTAssertEqual(afterHeal.count, 1)
+        XCTAssertEqual(afterHeal[0].label, "Original Label", "load(id:) must heal the stale index entry")
+    }
+
+    // MARK: - delete() propagates errors but tolerates missing file (I3/I4 delete)
+
+    func testDeleteNonexistentIDCleansIndexWithoutThrowing() throws {
+        let lib = try makeLibrary()
+        let id = try lib.create(samplePortfolio(label: "To Delete"))
+
+        // Confirm it's in the list.
+        XCTAssertEqual(try lib.list().count, 1)
+
+        // Remove the portfolio file directly, leaving the index entry intact.
+        let portfolioFile = workDir.appendingPathComponent("\(id.uuidString).ldaprofile")
+        try FileManager.default.removeItem(at: portfolioFile)
+
+        // delete(id:) on an already-absent file must not throw, and must still
+        // clean up the index entry.
+        XCTAssertNoThrow(try lib.delete(id: id))
+        XCTAssertEqual(try lib.list().count, 0, "Index entry must be removed even when the file was already gone")
+    }
+
+    // MARK: - list() propagates directory enumeration failure (I4)
+
+    func testListPropagatesEnumerationFailure() throws {
+        // Make the library root unreadable so contentsOfDirectory throws.
+        let lib = try makeLibrary()
+        _ = try lib.create(samplePortfolio())
+
+        // Remove read+execute permission on the root directory.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o000)],
+            ofItemAtPath: workDir.path
+        )
+        defer {
+            // Restore before tearDown tries to remove the directory.
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o755)],
+                ofItemAtPath: workDir.path
+            )
+        }
+
+        // list() must throw rather than silently return an empty array.
+        XCTAssertThrowsError(try lib.list(), "list() must propagate directory enumeration failure")
+    }
+
+    // MARK: - lastIndexPersistFailed (I1)
+
+    func testLastIndexPersistFailedClearsOnSuccessfulWrite() throws {
+        let lib = try makeLibrary()
+        // Initial state: not failed.
+        XCTAssertFalse(lib.lastIndexPersistFailed)
+
+        // Create a portfolio to write an index.
+        _ = try lib.create(samplePortfolio())
+        XCTAssertFalse(lib.lastIndexPersistFailed)
+
+        // A successful save clears the flag.
+        let id = try lib.create(samplePortfolio(label: "Second"))
+        XCTAssertFalse(lib.lastIndexPersistFailed)
+
+        // A successful delete clears the flag.
+        try lib.delete(id: id)
+        XCTAssertFalse(lib.lastIndexPersistFailed)
     }
 
     // MARK: - exportPortfolio rejects destinations inside the library directory
