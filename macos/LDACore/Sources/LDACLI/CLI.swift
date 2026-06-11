@@ -184,8 +184,9 @@ public enum LDACLI {
         }
     }
 
-    /// Choose a MappingProtection: an explicit passphrase, or a Keychain account
-    /// derived from the supplied base name.
+    /// Choose a MappingProtection for mapping sidecars: an explicit passphrase,
+    /// or a Keychain account derived from the supplied base name with the
+    /// "lda-" prefix (legacy mapping-sidecar format, unchanged).
     /// Internal so CLIFill.swift can call it without duplication.
     internal static func protectionFor(
         passphrase: String?,
@@ -195,6 +196,21 @@ public enum LDACLI {
             return .passphrase(passphrase)
         }
         return .keychain(account: "lda-\(derivedAccount)")
+    }
+
+    /// Choose a MappingProtection for profile files (.ldaprofile): an explicit
+    /// passphrase, or the unified standard Keychain account (bare base name,
+    /// no prefix). This is the canonical post-unification format for all new
+    /// profile saves. Use loadWithAccountFallback on load to handle files saved
+    /// by any prior edge.
+    internal static func profileProtectionFor(
+        passphrase: String?,
+        profileURL: URL
+    ) -> MappingProtection {
+        if let passphrase, !passphrase.isEmpty {
+            return .passphrase(passphrase)
+        }
+        return .keychain(account: ProfileStore.standardAccount(for: profileURL))
     }
 }
 

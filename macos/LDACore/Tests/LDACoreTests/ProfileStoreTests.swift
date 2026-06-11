@@ -254,6 +254,131 @@ final class ProfileStoreTests: XCTestCase {
         XCTAssertEqual(back.label, profile.label)
     }
 
+    // MARK: - Keychain fallback: legacy CLI account
+
+    /// Saves under the legacy CLI account ("lda-" prefix) and then loads via
+    /// loadWithAccountFallback. Proves the legacy-CLI fallback path. Skipped
+    /// when the unsigned test process cannot access the Keychain.
+    func testKeychainFallbackFromLegacyCLIAccountOrSkip() throws {
+        let url = tempURL()
+        let profile = sampleProfile()
+        let standardAcc = ProfileStore.standardAccount(for: url)
+        let legacyAcc = ProfileStore.legacyAccount(for: url)
+        let legacyCLIAcc = ProfileStore.legacyCLIAccount(for: url)
+
+        // Verify the format is what we expect.
+        XCTAssertEqual(legacyCLIAcc, "lda-\(standardAcc)")
+
+        // Clean up any stale keys from a previous run.
+        try? ProfileStore.deleteKeychainKey(account: standardAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
+
+        // Save using the legacy CLI account directly.
+        do {
+            try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyCLIAcc))
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain save failed with status \(status)")
+            return
+        }
+
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
+        }
+
+        let back: ClientPortfolio
+        do {
+            back = try ProfileStore.loadWithAccountFallback(from: url)
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain load failed with status \(status)")
+            return
+        }
+
+        XCTAssertEqual(back.label, profile.label)
+    }
+
+    // MARK: - Keychain fallback: legacy MCP account
+
+    /// Saves under the legacy MCP account ("ai.openclaw.lda.mcp.profile." prefix)
+    /// and then loads via loadWithAccountFallback. Proves the legacy-MCP fallback
+    /// path. Skipped when the unsigned test process cannot access the Keychain.
+    func testKeychainFallbackFromLegacyMCPAccountOrSkip() throws {
+        let url = tempURL()
+        let profile = sampleProfile()
+        let standardAcc = ProfileStore.standardAccount(for: url)
+        let legacyAcc = ProfileStore.legacyAccount(for: url)
+        let legacyMCPAcc = ProfileStore.legacyMCPAccount(for: url)
+
+        // Verify the format is what we expect.
+        XCTAssertEqual(legacyMCPAcc, "ai.openclaw.lda.mcp.profile.\(standardAcc)")
+
+        // Clean up any stale keys from a previous run.
+        try? ProfileStore.deleteKeychainKey(account: standardAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
+
+        // Save using the legacy MCP account directly.
+        do {
+            try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyMCPAcc))
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain save failed with status \(status)")
+            return
+        }
+
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
+        }
+
+        let back: ClientPortfolio
+        do {
+            back = try ProfileStore.loadWithAccountFallback(from: url)
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain load failed with status \(status)")
+            return
+        }
+
+        XCTAssertEqual(back.label, profile.label)
+    }
+
+    // MARK: - Keychain fallback: all accounts fail
+
+    /// Verifies that loadWithAccountFallback throws when no account holds a key.
+    /// Uses a passphrase-mode file so all Keychain lookups will fail with a
+    /// decryption error rather than a Keychain API error, making this test
+    /// reliable in environments where the Keychain is available but the key is
+    /// genuinely absent.
+    func testLoadWithAccountFallbackThrowsWhenAllFail() throws {
+        let url = tempURL()
+        // Save with a passphrase; no Keychain key is stored.
+        try ProfileStore.save(sampleProfile(), to: url, protection: .passphrase("some-pass"))
+
+        // loadWithAccountFallback tries each Keychain account in turn. Because
+        // the file was saved with a passphrase and no Keychain key was written,
+        // every Keychain attempt will fail. The method must throw.
+        do {
+            _ = try ProfileStore.loadWithAccountFallback(from: url)
+            XCTFail("Expected loadWithAccountFallback to throw when no Keychain key exists")
+        } catch let DocumentIOError.keychainError(status) {
+            // Acceptable: Keychain item not found (-25300) or unavailable
+            // in this process. Either means all accounts failed as expected.
+            _ = status
+        } catch DocumentIOError.decryptionFailed {
+            // Also acceptable: the Keychain returned some other key or a
+            // placeholder that does not decrypt the file.
+        } catch {
+            // Any error from the final attempt is fine; just confirm it throws.
+            _ = error
+        }
+    }
+
     // MARK: - Helpers
 
     /// Skips the current test when a Keychain status indicates the service is

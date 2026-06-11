@@ -105,12 +105,13 @@ extension MCPServer {
         let profileURL = URL(fileURLWithPath: profilePath)
         let inputURL = URL(fileURLWithPath: inputPath)
 
-        let protection = profileProtectionMode(
-            from: arguments,
-            profileBaseName: ProfileStore.standardAccount(for: profileURL)
-        )
-
-        let profile = try ProfileStore.load(from: profileURL, protection: protection)
+        let passphrase = arguments["passphrase"] as? String
+        let profile: ClientPortfolio
+        if let passphrase, !passphrase.isEmpty {
+            profile = try ProfileStore.load(from: profileURL, protection: .passphrase(passphrase))
+        } else {
+            profile = try ProfileStore.loadWithAccountFallback(from: profileURL)
+        }
 
         let modelPath = (arguments["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 
@@ -262,8 +263,9 @@ extension MCPServer {
 
     /// Choose the profile protection mode from the arguments. A passphrase,
     /// when present and non-empty, selects PBKDF2 passphrase protection;
-    /// otherwise the server uses a Keychain account derived from the profile
-    /// base name, one key per profile file.
+    /// otherwise the server uses the unified standard Keychain account (bare
+    /// base name, no prefix) for new saves. Use loadWithAccountFallback on
+    /// load to handle files saved by any prior edge.
     func profileProtectionMode(
         from arguments: [String: Any],
         profileBaseName: String
@@ -271,9 +273,7 @@ extension MCPServer {
         if let passphrase = arguments["passphrase"] as? String, !passphrase.isEmpty {
             return .passphrase(passphrase)
         }
-        return .keychain(
-            account: "\(MCPServer.defaultKeychainAccount).profile.\(profileBaseName)"
-        )
+        return .keychain(account: profileBaseName)
     }
 }
 

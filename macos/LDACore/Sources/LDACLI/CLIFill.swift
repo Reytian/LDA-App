@@ -192,10 +192,7 @@ extension LDACLI {
             modelPath: llmModelPath,
             createdAtISO8601: timestamp()
         )
-        let protection = protectionFor(
-            passphrase: passphrase,
-            derivedAccount: ProfileStore.standardAccount(for: out)
-        )
+        let protection = profileProtectionFor(passphrase: passphrase, profileURL: out)
         try ProfileStore.save(result.profile, to: out, protection: protection)
         let summary = ExtractProfileSummaryJSON(result: result, profilePath: out)
         return (summary, out)

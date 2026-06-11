@@ -85,19 +85,50 @@ public enum ProfileStore {
     /// Legacy account written by the pre-portal UI: the file name WITH extension.
     /// Used only as a fallback on load so that UI-saved files can still be read.
     /// Example: "Acme Matter.ldaprofile" -> "Acme Matter.ldaprofile"
+    /// Legacy account format written before unification; retained for reads only.
     public static func legacyAccount(for url: URL) -> String {
         url.lastPathComponent
     }
 
-    /// Keychain-mode load that tries the standard account first, then the legacy
-    /// account. Call this for every Keychain load so that files saved by the
-    /// pre-portal UI (which used the extension-included account) still open.
+    /// Legacy account written by the pre-unification CLI (LDACLI.protectionFor):
+    /// the "lda-" prefix followed by the standard account.
+    /// Example: "Acme Matter.ldaprofile" -> "lda-Acme Matter"
+    /// Legacy account format written before unification; retained for reads only.
+    public static func legacyCLIAccount(for url: URL) -> String {
+        "lda-\(standardAccount(for: url))"
+    }
+
+    /// Legacy account written by the pre-unification MCP (MCPFillTools.profileProtectionMode):
+    /// the "ai.openclaw.lda.mcp.profile." prefix followed by the standard account.
+    /// Example: "Acme Matter.ldaprofile" -> "ai.openclaw.lda.mcp.profile.Acme Matter"
+    /// Legacy account format written before unification; retained for reads only.
+    public static func legacyMCPAccount(for url: URL) -> String {
+        "ai.openclaw.lda.mcp.profile.\(standardAccount(for: url))"
+    }
+
+    /// Keychain-mode load that tries every known account format in order:
+    /// 1. standard (canonical post-unification format)
+    /// 2. legacy UI (file name with extension)
+    /// 3. legacy CLI ("lda-" prefix)
+    /// 4. legacy MCP ("ai.openclaw.lda.mcp.profile." prefix)
+    /// Call this for every Keychain load so that files saved by any prior
+    /// edge can still be opened. Throws the last error when all four fail.
     public static func loadWithAccountFallback(from url: URL) throws -> ClientPortfolio {
-        do {
-            return try load(from: url, protection: .keychain(account: standardAccount(for: url)))
-        } catch {
-            return try load(from: url, protection: .keychain(account: legacyAccount(for: url)))
+        let accounts = [
+            standardAccount(for: url),
+            legacyAccount(for: url),
+            legacyCLIAccount(for: url),
+            legacyMCPAccount(for: url)
+        ]
+        var lastError: Error = DocumentIOError.keychainError(-1)
+        for account in accounts {
+            do {
+                return try load(from: url, protection: .keychain(account: account))
+            } catch {
+                lastError = error
+            }
         }
+        throw lastError
     }
 
     // MARK: - Encoding
