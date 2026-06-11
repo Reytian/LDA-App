@@ -129,7 +129,10 @@ and AcroForm PDFs, all on-device with no network access. Profiles are saved as
 AES-GCM encrypted `.ldaprofile` files; no plaintext profile data is written to
 disk. The feature supports `.docx` (text-span blanks) and `.pdf` (AcroForm text
 widgets) as fill targets, and uses a review-first posture so you inspect proposed
-fills before they are applied. Full CLI usage and V1 limits are documented in
+fills before they are applied. A built-in portfolio library (stored in Application
+Support, key in the macOS Keychain) lets you browse, create, edit, fill, export,
+import, and delete portfolios for three subject kinds: company, individual, and
+general. Full CLI usage, library commands, and V1 limits are documented in
 [macos/LDACore/README.md](macos/LDACore/README.md).
 
 ## Roadmap: Fully Local Operation

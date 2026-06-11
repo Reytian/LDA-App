@@ -74,6 +74,62 @@ re-plans from the current profile state and promotes all proposed blanks
 with a value to confirmed, then writes the output; a warning is printed
 when the target has changed since you ran `--plan`.
 
+### Portfolio library
+
+The portfolio library is a persistent, encrypted store of client portfolios
+on your Mac. You can browse all saved portfolios, create a new one from source
+documents or from scratch, edit fields, add custom fields, fill documents
+directly from a saved portfolio, export a portfolio to a portable `.ldaprofile`
+file, import a portfolio shared by a colleague, and delete portfolios you no
+longer need.
+
+**Three portfolio kinds** control which fact set the model is prompted for:
+
+| Kind | Field set |
+|------|-----------|
+| `company` | Corporate fields: name, company number, incorporation date, registered office, directors, shareholders, and similar (19 fields). |
+| `individual` | Personal fields: full name, date of birth, nationality, passport number, national ID, residential address, email, phone (8 fields). |
+| `general` | The combined set of both company and individual fields. |
+
+**Library location:** portfolios are stored in
+`~/Library/Application Support/LDA/Portfolios/` as AES-GCM encrypted
+`.ldaprofile` files. The decryption key is held in the macOS Keychain under
+the service `ai.openclaw.lda.profilekey`. No plaintext portfolio data is
+ever written to disk.
+
+**CLI commands:**
+
+List all portfolios in the library (value-free JSON, no field values):
+
+```
+lda portfolio list
+```
+
+Show metadata and field keys for one portfolio (by name or UUID):
+
+```
+lda portfolio show "John Whitmore"
+lda portfolio show 3F8A9C12-...
+```
+
+Build a profile from source documents and save it to the library via a
+`.ldaprofile` file that you can import:
+
+```
+lda extract-profile --label "John Whitmore" --kind individual \
+    --model /path/to/lda-v2-Q4_K_M.gguf \
+    --out whitmore.ldaprofile identity-letter.pdf passport-scan.pdf
+```
+
+Fill a document from a saved library portfolio:
+
+```
+lda fill --portfolio "Meridian Pacific" --input agreement.docx \
+    --plan
+lda fill --portfolio "Meridian Pacific" --input agreement.docx \
+    --apply --output-dir ./filled/
+```
+
 ### V1 limits
 
 - Supported fill targets: `.docx` (text-span blanks) and `.pdf` (AcroForm

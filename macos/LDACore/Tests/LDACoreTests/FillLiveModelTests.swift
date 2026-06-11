@@ -127,6 +127,73 @@ final class FillLiveModelTests: XCTestCase {
         return url
     }
 
+    /// Write a realistic identity-letter plain-text source file for extractProfile
+    /// with kind .individual. The text carries clientName, dateOfBirth, passportNumber,
+    /// nationality, and residentialAddress in authentic letter phrasing.
+    private func writeIdentityLetterText() throws -> URL {
+        let text = """
+        IDENTITY CONFIRMATION LETTER
+
+        To Whom It May Concern:
+
+        This letter is to confirm the identity of the individual named below,
+        who has been a client of this firm since 2019.
+
+        Full Name: Jonathan Andrew Whitmore
+        Date of Birth: 14 March 1982
+        Nationality: British
+        Passport Number: BC793241
+        Residential Address: 47 Kensington Gardens Square, London W2 4BJ, United Kingdom
+
+        The above information has been verified against the original passport document
+        presented to our office on 3 June 2026.
+
+        We confirm that the passport was valid and unexpired at the time of presentation.
+
+        Yours faithfully,
+        Pemberton & Associates LLP
+        """
+        let url = workDir.appendingPathComponent("identity-letter.txt")
+        try Data(text.utf8).write(to: url)
+        return url
+    }
+
+    /// Write a minimal fixture .docx that contains "[Full Name]" and
+    /// "[Passport Number]" blanks, matching the individual-kind synonyms.
+    private func writeIndividualBlankDocx() throws -> URL {
+        let contentTypesXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+        </Types>
+        """
+        let relsXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+        </Relationships>
+        """
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body>\
+        <w:p><w:r><w:t xml:space="preserve">Client name: [Full Name]</w:t></w:r></w:p>\
+        <w:p><w:r><w:t xml:space="preserve">Passport: [Passport Number]</w:t></w:r></w:p>\
+        </w:body>
+        </w:document>
+        """
+        let url = workDir.appendingPathComponent("individual-template-\(UUID().uuidString).docx")
+        let parts: [(String, Data)] = [
+            ("[Content_Types].xml", Data(contentTypesXML.utf8)),
+            ("_rels/.rels", Data(relsXML.utf8)),
+            ("word/document.xml", Data(documentXML.utf8))
+        ]
+        try DocxZip.writeArchive(parts: parts, to: url)
+        return url
+    }
+
     // MARK: - Live model test
 
     /// Gated integration test. Requires a GGUF model at LDA_MODEL_PATH or at
@@ -178,6 +245,142 @@ final class FillLiveModelTests: XCTestCase {
             // The profile is now in hand; use it for Part 2.
             try runFillPart(profile: profile, extractedCompanyName: field.value, modelPath: modelPath)
         }
+    }
+
+    // MARK: - Individual-kind live model test
+
+    /// Gated integration test for the .individual portfolio kind. Requires a GGUF
+    /// model at LDA_MODEL_PATH or at the default packaging location; skipped
+    /// cleanly otherwise.
+    ///
+    /// Part 1: extractProfile with kind .individual over an identity-letter text
+    /// must surface at least clientName OR passportNumber AND the extracted field
+    /// must be grounded (snippetVerified == true).
+    ///
+    /// Part 2: planFill on a fixture .docx with "[Full Name]" and "[Passport Number]"
+    /// must propose at least one fill; confirming proposed-valued blanks and calling
+    /// applyFill must produce a filled document that contains the extracted value.
+    func testIndividualKindLiveExtractionAndFill() throws {
+        guard let modelPath = resolveModelPath() else {
+            throw XCTSkip(
+                "GGUF model not present; set LDA_MODEL_PATH or place the model at "
+                    + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf"
+            )
+        }
+
+        // MARK: Part 1 - extractProfile (kind .individual)
+
+        let letterURL = try writeIdentityLetterText()
+
+        let extracted = try LDAService.extractProfile(
+            sources: [letterURL],
+            label: "JohnDoeLive",
+            kind: .individual,
+            modelPath: modelPath,
+            createdAtISO8601: Self.createdAt
+        )
+
+        let profile = extracted.profile
+
+        // The model must extract at least one of: clientName or passportNumber.
+        let clientNameField   = profile.fields.first { $0.key == .clientName }
+        let passportField     = profile.fields.first { $0.key == .passportNumber }
+
+        let surfacedSomething = clientNameField != nil || passportField != nil
+        XCTAssertTrue(
+            surfacedSomething,
+            "extractProfile with kind=.individual must surface clientName or passportNumber; "
+                + "got fields: "
+                + profile.fields.map { $0.key.rawKey }.joined(separator: ", ")
+        )
+
+        // The first surfaced field must be grounded (snippetVerified == true).
+        let anchorField = clientNameField ?? passportField
+        if let anchor = anchorField {
+            XCTAssertTrue(
+                anchor.snippetVerified,
+                "\(anchor.key.rawKey) snippet must be grounded (snippetVerified=true); "
+                    + "value=\(anchor.value), snippet=\(anchor.sourceSnippet)"
+            )
+            // Part 2 uses whichever field surfaced first.
+            try runIndividualFillPart(
+                profile: profile,
+                anchorField: anchor,
+                modelPath: modelPath
+            )
+        }
+    }
+
+    // MARK: - Individual Part 2 helper
+
+    /// Verify that the fill pipeline works end-to-end for the .individual kind.
+    ///
+    /// The fixture .docx contains both "[Full Name]" and "[Passport Number]"
+    /// placeholders. The synonym matcher should hit at least one of them
+    /// (clientName <-> "Full Name", passportNumber <-> "Passport Number").
+    private func runIndividualFillPart(
+        profile: ClientPortfolio,
+        anchorField: ProfileField,
+        modelPath: String
+    ) throws {
+        let docxURL = try writeIndividualBlankDocx()
+        let outputDir = workDir.appendingPathComponent("individual-fill-out", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        // planFill: synonym matching should hit "Full Name" and "Passport Number".
+        var plan = try LDAService.planFill(
+            target: docxURL,
+            profile: profile,
+            modelPath: modelPath
+        )
+
+        XCTAssertFalse(
+            plan.blanks.isEmpty,
+            "planFill must detect at least one blank in a document containing "
+                + "'[Full Name]' and '[Passport Number]'"
+        )
+
+        // Promote proposed+valued blanks to confirmed.
+        plan.blanks = plan.blanks.map { blank in
+            guard blank.status == .proposed,
+                  let v = blank.proposedValue, !v.isEmpty else { return blank }
+            return Blank(
+                id: blank.id,
+                location: blank.location,
+                label: blank.label,
+                context: blank.context,
+                proposedFieldID: blank.proposedFieldID,
+                proposedValue: blank.proposedValue,
+                status: .confirmed
+            )
+        }
+
+        let confirmedCount = plan.blanks.filter { $0.status == .confirmed }.count
+        XCTAssertGreaterThanOrEqual(
+            confirmedCount, 1,
+            "at least one blank must be confirmed after promoting proposed+valued blanks"
+        )
+
+        // applyFill.
+        let report = try LDAService.applyFill(
+            plan: plan,
+            target: docxURL,
+            profile: profile,
+            outputDir: outputDir
+        )
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: report.outputURL.path),
+            "applyFill must produce an output file"
+        )
+
+        // The filled document must contain the anchor field value.
+        let filled = try DocxImporter().importDocument(report.outputURL)
+        XCTAssertTrue(
+            filled.text.contains(anchorField.value),
+            "filled document must contain the extracted \(anchorField.key.rawKey) "
+                + "'\(anchorField.value)'; got: \(filled.text.prefix(300))"
+        )
     }
 
     // MARK: - Part 2 helper (separate function to keep line count manageable)
