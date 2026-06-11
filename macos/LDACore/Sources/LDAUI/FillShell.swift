@@ -86,7 +86,7 @@ public struct FillShell: View {
     public var body: some View {
         Group {
             switch model.stage {
-            case .idle, .importingSources, .extracting, .profileReady:
+            case .idle, .library, .importingSources, .extracting, .profileReady:
                 profileBuilderView
             case .planning, .reviewing, .applying, .done, .failed:
                 fillReviewView
@@ -117,7 +117,7 @@ public struct FillShell: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         switch model.stage {
-        case .idle, .importingSources, .extracting, .profileReady:
+        case .idle, .library, .importingSources, .extracting, .profileReady:
             profileBuilderToolbar
         case .planning, .reviewing, .applying, .done, .failed:
             fillReviewToolbar

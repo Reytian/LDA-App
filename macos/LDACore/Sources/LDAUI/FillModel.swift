@@ -2,26 +2,39 @@
 //  FillModel.swift
 //  LDAUI
 //
-//  The testable view-model that orchestrates LDACore's fill-from-profile feature.
-//  The user imports source documents, the model extracts a ClientPortfolio, the user
-//  reviews and edits the profile, a target document is planned, and blanks are
-//  accepted or rejected before the filled document is written.
+//  The testable view-model that orchestrates LDACore's fill-from-profile feature
+//  and the Client Portfolio Library (portfolio creation, editing, and persistence).
 //
 //  Stage lifecycle:
-//    idle -> importingSources -> extracting -> profileReady
+//    idle -> library (shell calls refreshLibrary() on appear)
+//    library -> profileReady (createPortfolio / openForEdit / fillFrom)
+//    library/profileReady -> profileReady (extractProfile with sources)
+//    profileReady -> importing -> extracting -> profileReady
 //    profileReady -> planning -> reviewing -> applying -> done(FillReport)
 //    (any async step) -> failed(String)
+//    (any stage) -> library (backToLibrary)
 //
-//  Heavy work (extraction, planning, applying) runs off the main thread in a
-//  detached Task; results are published back on the main actor. The model is
-//  @MainActor so every @Published mutation is main-actor isolated.
+//  Heavy work (extraction, planning, applying, library I/O) runs off the main
+//  thread in a detached Task; results are published back on the main actor. The
+//  model is @MainActor so every @Published mutation is main-actor isolated.
 //
-//  Purity at the seam: createdAtISO8601 is supplied by the caller so the model
-//  never reads the clock directly.
+//  Purity at the seam: createdAtISO8601 / modifiedAtISO8601 are supplied by the
+//  caller so the model never reads the clock directly.
 //
-//  Test seams: three nonisolated(unsafe) internal static vars shadow the real
-//  LDAService calls, mirroring the ReviewModel / LDAFillService pattern exactly.
-//  Tests set them to fakes and nil them out in tearDown.
+//  Test seams: four nonisolated(unsafe) internal static vars shadow the real
+//  LDAService / PortfolioLibrary calls. Tests set them to fakes and nil them out
+//  in tearDown, mirroring the ReviewModel / LDAFillService static-var seam pattern.
+//
+//  Library production default: PortfolioLibrary() is constructed lazily inside
+//  each library intent off the main thread (PortfolioLibrary.init can throw; on
+//  failure the intent surfaces .failed). The same lazy construction is skipped
+//  when libraryForTesting is non-nil. This means the production default is never
+//  constructed in test runs.
+//
+//  Export error surfacing: exportPortfolio failures surface as a .failed stage
+//  change (not via a separate errorBanner channel). This keeps model-level error
+//  state to a single place. The shell can return the user to .library via
+//  refreshLibrary() after an export failure.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -33,7 +46,10 @@ import LDACore
 
 /// The stage lifecycle state of a fill session.
 public enum FillStage: Equatable {
+    /// Pre-boot state. The shell calls refreshLibrary() on appear, moving to .library.
     case idle
+    /// The portfolio library is visible; the user browses and opens portfolios.
+    case library
     /// Source documents are being imported before extraction starts.
     case importingSources
     /// The LLM is running over the imported source documents.
@@ -101,6 +117,24 @@ public final class FillModel: ObservableObject {
     /// observes this and opens the picker, then calls repointBlank to apply the
     /// chosen field.
     @Published public var pickerRequestID: UUID?
+
+    // MARK: - Library state
+
+    /// The portfolio summaries from the most recent refreshLibrary() call.
+    /// Sorted by label (stable tiebreak by UUID). Empty before the first refresh.
+    @Published public var summaries: [PortfolioSummary] = []
+
+    /// The UUID of the portfolio currently open for editing. Nil when a new
+    /// portfolio has been created but not yet saved (assigned by saveToLibrary
+    /// on first save). Nil when stage is .library.
+    @Published public var currentPortfolioID: UUID?
+
+    /// A one-time advisory string built from lastListReconciled /
+    /// lastIndexPersistFailed on the most recent refreshLibrary call. Non-nil only
+    /// when the library had to reconcile its index on the last refresh. The shell
+    /// should present this as a non-blocking notice and not re-query on every
+    /// render (it is cleared at the start of each refreshLibrary call).
+    @Published public var libraryNotice: String?
 
     /// Optional absolute path to the GGUF model. Passed to LDAService.extractProfile.
     public var modelPath: String?
@@ -180,6 +214,13 @@ public final class FillModel: ObservableObject {
     /// Replaces LDAService.applyFill in tests. Receives (plan, target, outputDir)
     /// and returns a FillReport or throws. Nil in production.
     nonisolated(unsafe) internal static var applyFillForTesting: ((FillPlan, URL, URL) throws -> FillReport)?
+
+    /// Replaces the production PortfolioLibrary in tests. When non-nil, all
+    /// library intents use this instance instead of constructing the default
+    /// (Application Support / LDA / Portfolios) root. Nil in production. Tests
+    /// supply a PortfolioLibrary over a temp directory so Keychain-gated I/O runs
+    /// against a hermetic on-disk store.
+    nonisolated(unsafe) internal static var libraryForTesting: PortfolioLibrary?
 
     // MARK: - Init
 
@@ -306,6 +347,266 @@ public final class FillModel: ObservableObject {
     public func backToProfile() {
         pickerRequestID = nil
         stage = .profileReady
+    }
+
+    /// Navigate back to the library stage from any stage.
+    ///
+    /// Clears pickerRequestID and any in-flight blank/target state, mirroring
+    /// backToProfile's hygiene. Does NOT release the security scope (mirrors
+    /// backToProfile's rationale: the scope was opened for a target and will be
+    /// reclaimed when a new target is opened or when the session ends).
+    public func backToLibrary() {
+        pickerRequestID = nil
+        stage = .library
+    }
+
+    // MARK: - Library intents
+
+    /// Resolve a typed field name string to a ProfileFieldKey. Uses canonical-first
+    /// resolution: if the raw string matches a known canonical key it returns that
+    /// canonical case; otherwise it returns .custom(typed).
+    ///
+    /// Exposed for UI preview and addField callers. Wraps ProfileFieldKey(rawKey:)
+    /// which handles the "custom:" prefix convention transparently.
+    public func resolveFieldName(_ typed: String) -> ProfileFieldKey {
+        ProfileFieldKey(rawKey: typed)
+    }
+
+    /// Append a field with manual-entry provenance to the current profile and mark
+    /// dirty. The key is stored as provided (canonical or custom). No-op when
+    /// profile is nil.
+    public func addField(key: ProfileFieldKey, value: String) {
+        guard profile != nil else { return }
+        let field = ProfileField(
+            id: UUID(),
+            key: key,
+            value: value,
+            sourceDocument: "manual entry",
+            sourceSnippet: "",
+            snippetVerified: false,
+            confidence: 1.0,
+            userEdited: true
+        )
+        profile!.fields.append(field)
+        profileDirty = true
+    }
+
+    /// Refresh the library: load the list off-main, publish summaries, set stage
+    /// to .library. On failure, stage becomes .failed. Builds libraryNotice from
+    /// lastListReconciled / lastIndexPersistFailed when set.
+    ///
+    /// Called by the shell on appear to boot from .idle into .library.
+    public func refreshLibrary() async {
+        libraryNotice = nil
+
+        do {
+            let lib = try await resolveLibrary()
+            let fetched = try await Task.detached(priority: .userInitiated) {
+                try lib.list()
+            }.value
+
+            summaries = fetched
+
+            // Build the one-time notice from the flags set during list().
+            if lib.lastListReconciled || lib.lastIndexPersistFailed {
+                var parts: [String] = []
+                if lib.lastListReconciled {
+                    parts.append("The portfolio index was rebuilt.")
+                }
+                if lib.lastIndexPersistFailed {
+                    parts.append("The index could not be saved to disk.")
+                }
+                libraryNotice = parts.joined(separator: " ")
+            }
+
+            stage = .library
+
+        } catch {
+            stage = .failed(Self.describe(error))
+        }
+    }
+
+    /// Create a new portfolio (from scratch or from extraction), set stage to
+    /// .profileReady, and mark dirty. currentPortfolioID is nil until the first
+    /// saveToLibrary call.
+    ///
+    /// fromScratch true: empty ClientPortfolio of the given kind/label.
+    /// fromScratch false: same empty portfolio with stage .profileReady; the shell
+    /// follows up with extractProfile which populates fields (extraction threads
+    /// the portfolio's kind from the profile automatically).
+    ///
+    /// createdAtISO8601 is supplied by the caller per the purity rule.
+    public func createPortfolio(
+        kind: PortfolioKind,
+        label: String,
+        fromScratch: Bool,
+        createdAtISO8601: String
+    ) async {
+        let emptyPortfolio = ClientPortfolio(
+            label: label,
+            fields: [],
+            sourceDocuments: [],
+            createdAtISO8601: createdAtISO8601,
+            incomplete: false,
+            kind: kind,
+            modifiedAtISO8601: createdAtISO8601
+        )
+        currentPortfolioID = nil
+        profile = emptyPortfolio
+        profileDirty = true
+        stage = .profileReady
+    }
+
+    /// Load a portfolio from the library for editing. Sets stage to .profileReady,
+    /// currentPortfolioID to id, and dirty to false. On failure, stage becomes
+    /// .failed.
+    public func openForEdit(id: UUID) async {
+        do {
+            let lib = try await resolveLibrary()
+            let loaded = try await Task.detached(priority: .userInitiated) {
+                try lib.load(id: id)
+            }.value
+
+            profile = loaded
+            currentPortfolioID = id
+            profileDirty = false
+            stage = .profileReady
+
+        } catch {
+            stage = .failed(Self.describe(error))
+        }
+    }
+
+    /// Identical to openForEdit. The shell drives the target-opening flow from
+    /// .profileReady after this call completes.
+    public func fillFrom(id: UUID) async {
+        await openForEdit(id: id)
+    }
+
+    /// Save the current profile to the library.
+    ///
+    /// Sets profile.modifiedAt from the caller-supplied timestamp (purity rule).
+    /// When currentPortfolioID is nil (first save of a new portfolio), creates a
+    /// new entry and captures the returned UUID. When currentPortfolioID is set,
+    /// updates the existing entry. Clears profileDirty. Refreshes summaries.
+    /// Stage remains .profileReady; the shell decides navigation.
+    ///
+    /// modifiedAtISO8601 is supplied by the caller per the purity rule.
+    public func saveToLibrary(modifiedAtISO8601: String) async {
+        guard var p = profile else { return }
+        p.modifiedAtISO8601 = modifiedAtISO8601
+        profile = p
+
+        do {
+            let lib = try await resolveLibrary()
+            let savedID: UUID
+
+            if let existingID = currentPortfolioID {
+                try await Task.detached(priority: .userInitiated) {
+                    try lib.save(p, id: existingID)
+                }.value
+                savedID = existingID
+            } else {
+                savedID = try await Task.detached(priority: .userInitiated) {
+                    try lib.create(p)
+                }.value
+            }
+
+            currentPortfolioID = savedID
+            profileDirty = false
+
+            // Refresh summaries so the shell's list stays current.
+            let refreshed = try await Task.detached(priority: .userInitiated) {
+                try lib.list()
+            }.value
+            summaries = refreshed
+
+        } catch {
+            stage = .failed(Self.describe(error))
+        }
+    }
+
+    /// Delete a portfolio from the library. When id matches currentPortfolioID,
+    /// clears currentPortfolioID and sets stage to .library. Refreshes summaries
+    /// regardless. On failure, stage becomes .failed.
+    public func deletePortfolio(id: UUID) async {
+        do {
+            let lib = try await resolveLibrary()
+            try await Task.detached(priority: .userInitiated) {
+                try lib.delete(id: id)
+            }.value
+
+            let refreshed = try await Task.detached(priority: .userInitiated) {
+                try lib.list()
+            }.value
+            summaries = refreshed
+
+            if id == currentPortfolioID {
+                currentPortfolioID = nil
+                stage = .library
+            }
+
+        } catch {
+            stage = .failed(Self.describe(error))
+        }
+    }
+
+    /// Export the portfolio at id to url with the given protection. Refreshes
+    /// summaries after a successful export. On failure, stage becomes .failed
+    /// (see file header for the export-error surfacing choice).
+    public func exportPortfolio(id: UUID, to url: URL, protection: MappingProtection) async {
+        do {
+            let lib = try await resolveLibrary()
+            try await Task.detached(priority: .userInitiated) {
+                try lib.exportPortfolio(id: id, to: url, protection: protection)
+            }.value
+
+        } catch {
+            stage = .failed(Self.describe(error))
+        }
+    }
+
+    /// Import a portfolio from url and store it in the library. Returns the new
+    /// UUID, or nil on failure (stage becomes .failed). Refreshes summaries.
+    @discardableResult
+    public func importPortfolio(from url: URL, protection: MappingProtection) async -> UUID? {
+        do {
+            let lib = try await resolveLibrary()
+            let newID = try await Task.detached(priority: .userInitiated) {
+                try lib.importPortfolio(from: url, protection: protection)
+            }.value
+
+            let refreshed = try await Task.detached(priority: .userInitiated) {
+                try lib.list()
+            }.value
+            summaries = refreshed
+
+            return newID
+
+        } catch {
+            stage = .failed(Self.describe(error))
+            return nil
+        }
+    }
+
+    // MARK: - Private library helpers
+
+    /// Returns the test-seam library if set, or constructs the production default
+    /// off the main thread. Throws if the production default cannot be initialised
+    /// (e.g. Application Support is unavailable).
+    ///
+    /// Declared nonisolated so it can be called from within a detached Task without
+    /// requiring main-actor hops. The seam read is safe because nonisolated(unsafe)
+    /// is declared only on the static var, not on this function; Swift rules require
+    /// us to read nonisolated(unsafe) statics from nonisolated contexts, which this
+    /// satisfies.
+    private func resolveLibrary() async throws -> PortfolioLibrary {
+        if let seam = Self.libraryForTesting {
+            return seam
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try PortfolioLibrary()
+        }.value
     }
 
     /// Move selection to the next blank, wrapping at the end.

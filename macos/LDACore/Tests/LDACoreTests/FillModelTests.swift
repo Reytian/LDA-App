@@ -5,11 +5,22 @@
 //  Tests for the LDAUI FillModel view-model. They exercise synchronous intents
 //  (accept, reject, repoint, field editing, conflict resolution, navigation),
 //  async intent paths via injected fakes (extractProfile, planFill, applyFill),
-//  and the applyFill gating assertion (all blanks passed through to the facade).
+//  the applyFill gating assertion (all blanks passed through to the facade),
+//  and library-stage intents (refreshLibrary, createPortfolio, openForEdit,
+//  addField, saveToLibrary, deletePortfolio, exportPortfolio, importPortfolio,
+//  backToLibrary, resolveFieldName).
 //
 //  FillModel is @MainActor isolated; the suite is annotated @MainActor to match.
 //  Fake service runners are wired via FillModel's static test-seam vars and
 //  nilled out in tearDown, mirroring ReviewModelTests.
+//
+//  Library tests use the libraryForTesting seam with a real PortfolioLibrary over
+//  a temp directory. The Keychain probe is duplicated from PortfolioLibraryTests
+//  (choice: duplicate rather than extract to a shared helper to avoid creating a
+//  new source file just for a ~20-line probe; the duplication is isolated and
+//  self-documenting). A per-test workDir is created in setUpWithError and removed
+//  in tearDownWithError. When the Keychain is unavailable the class-level
+//  setUpWithError throws XCTSkip, which skips the entire run for that process.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -17,20 +28,108 @@
 
 import XCTest
 import Combine
+import Security
 @testable import LDACore
 @testable import LDAUI
 
 @MainActor
 final class FillModelTests: XCTestCase {
 
+    // MARK: - Per-test library root
+
+    private var workDir: URL!
+
     // MARK: - Setup / teardown
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+
+        // Probe the Keychain so library tests skip cleanly on unsigned processes.
+        // Duplicated from PortfolioLibraryTests (see file header for rationale).
+        let probeService = "ai.openclaw.lda.libraryindexkey"
+        let probeAccount = "fillmodel-test-probe-\(UUID().uuidString)"
+        let probeData = Data("probe".utf8)
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: probeService,
+            kSecAttrAccount as String: probeAccount,
+            kSecValueData as String: probeData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        let tolerated: Set<OSStatus> = [
+            errSecMissingEntitlement,
+            errSecNotAvailable,
+            errSecInteractionNotAllowed,
+            errSecAuthFailed
+        ]
+        if tolerated.contains(addStatus) {
+            throw XCTSkip("Keychain unavailable in this test process (status \(addStatus)); skipping FillModelTests")
+        }
+        if addStatus == errSecSuccess {
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: probeService,
+                kSecAttrAccount as String: probeAccount
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+        }
+
+        workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FillModelTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+    }
 
     override func tearDownWithError() throws {
         // Clear all static test seams after every test so they never bleed.
         FillModel.extractProfileForTesting = nil
         FillModel.planFillForTesting = nil
         FillModel.applyFillForTesting = nil
+        FillModel.libraryForTesting = nil
+
+        if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
+            try? FileManager.default.removeItem(at: workDir)
+        }
+        workDir = nil
+
         try super.tearDownWithError()
+    }
+
+    // MARK: - Library helpers
+
+    /// Creates a PortfolioLibrary over workDir and injects it as the test seam.
+    private func makeLibrarySeam() throws -> PortfolioLibrary {
+        let lib = try PortfolioLibrary(rootDirectory: workDir)
+        FillModel.libraryForTesting = lib
+        return lib
+    }
+
+    /// A minimal company portfolio suitable for library round-trip tests.
+    private func makeCompanyPortfolio(
+        label: String = "Test Co",
+        kind: PortfolioKind = .company,
+        createdAt: String = "2026-06-11T00:00:00Z"
+    ) -> ClientPortfolio {
+        ClientPortfolio(
+            label: label,
+            fields: [
+                ProfileField(
+                    id: UUID(),
+                    key: .companyName,
+                    value: "Test Holdings Limited",
+                    sourceDocument: "cert.pdf",
+                    sourceSnippet: "Test Holdings Limited",
+                    snippetVerified: true,
+                    confidence: 0.95,
+                    userEdited: false
+                )
+            ],
+            sourceDocuments: ["cert.pdf"],
+            createdAtISO8601: createdAt,
+            incomplete: false,
+            kind: kind,
+            modifiedAtISO8601: createdAt
+        )
     }
 
     // MARK: - Helpers
@@ -955,4 +1054,276 @@ final class FillModelTests: XCTestCase {
         // Final stage must be .profileReady.
         XCTAssertEqual(model.stage, .profileReady)
     }
+
+    // MARK: - Library: refreshLibrary publishes sorted summaries and stage .library
+
+    func testRefreshLibraryPublishesSortedSummariesAndStageLibrary() async throws {
+        let lib = try makeLibrarySeam()
+        let p1 = makeCompanyPortfolio(label: "Zeta Corp")
+        let p2 = makeCompanyPortfolio(label: "Alpha Inc")
+        _ = try lib.create(p1)
+        _ = try lib.create(p2)
+
+        let model = FillModel(modelPath: nil)
+        await model.refreshLibrary()
+
+        XCTAssertEqual(model.stage, .library, "stage must be .library after refreshLibrary")
+        XCTAssertEqual(model.summaries.count, 2)
+        XCTAssertEqual(model.summaries[0].label, "Alpha Inc", "summaries must be sorted alphabetically")
+        XCTAssertEqual(model.summaries[1].label, "Zeta Corp")
+    }
+
+    // MARK: - Library: refreshLibrary failure path -> .failed
+
+    func testRefreshLibraryFailureSetsFailed() async throws {
+        // Inject a library backed by a workDir that we then make unreadable.
+        let lib = try makeLibrarySeam()
+        _ = try lib.create(makeCompanyPortfolio())
+
+        // Make the directory unreadable so list() throws.
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o000)],
+            ofItemAtPath: workDir.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: 0o755)],
+                ofItemAtPath: workDir.path
+            )
+        }
+
+        let model = FillModel(modelPath: nil)
+        await model.refreshLibrary()
+
+        guard case .failed = model.stage else {
+            XCTFail("stage must be .failed when library list() throws; got \(model.stage)")
+            return
+        }
+    }
+
+    // MARK: - Library: libraryNotice set when reconciliation happened
+
+    func testLibraryNoticeSetWhenReconciliationHappened() async throws {
+        let lib = try makeLibrarySeam()
+        _ = try lib.create(makeCompanyPortfolio(label: "Reconcile Me"))
+
+        // Delete the index file to force reconciliation on the next list().
+        let indexFile = workDir.appendingPathComponent("index.ldapidx")
+        try FileManager.default.removeItem(at: indexFile)
+
+        let model = FillModel(modelPath: nil)
+        await model.refreshLibrary()
+
+        XCTAssertEqual(model.stage, .library)
+        XCTAssertNotNil(model.libraryNotice,
+            "libraryNotice must be set when lastListReconciled is true")
+    }
+
+    // MARK: - Library: createPortfolio fromScratch yields empty editable portfolio
+
+    func testCreatePortfolioFromScratchYieldsEmptyEditablePortfolio() async throws {
+        _ = try makeLibrarySeam()
+
+        let model = FillModel(modelPath: nil)
+        await model.createPortfolio(
+            kind: .individual,
+            label: "Jane Doe",
+            fromScratch: true,
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        XCTAssertEqual(model.stage, .profileReady, "stage must be .profileReady after createPortfolio")
+        XCTAssertNil(model.currentPortfolioID, "currentPortfolioID must be nil before first save")
+        XCTAssertTrue(model.profileDirty, "profileDirty must be true for a new unsaved portfolio")
+        let profile = try XCTUnwrap(model.profile, "profile must be non-nil after createPortfolio")
+        XCTAssertEqual(profile.kind, .individual, "profile kind must match the requested kind")
+        XCTAssertEqual(profile.label, "Jane Doe", "profile label must match")
+        XCTAssertTrue(profile.fields.isEmpty, "fromScratch portfolio must have no fields")
+    }
+
+    // MARK: - Library: addField resolves canonical and custom keys
+
+    func testAddFieldResolvesCanonicalAndCustomKeys() async throws {
+        _ = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+        await model.createPortfolio(
+            kind: .company,
+            label: "Field Test Co",
+            fromScratch: true,
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+
+        // "email" resolves to canonical .email
+        model.addField(key: ProfileFieldKey(rawKey: "email"), value: "test@example.com")
+
+        // "sealNumber" is not canonical, becomes .custom("sealNumber")
+        model.addField(key: ProfileFieldKey(rawKey: "sealNumber"), value: "SN-42")
+
+        let profile = try XCTUnwrap(model.profile)
+        XCTAssertEqual(profile.fields.count, 2)
+
+        let emailField = profile.fields.first { $0.key == .email }
+        XCTAssertNotNil(emailField, "email field must be present after addField(key: .email)")
+        XCTAssertEqual(emailField?.value, "test@example.com")
+        XCTAssertEqual(emailField?.sourceDocument, "manual entry")
+        XCTAssertTrue(emailField?.userEdited == true)
+        XCTAssertEqual(emailField?.confidence, 1.0)
+
+        let sealField = profile.fields.first { $0.key == .custom("sealNumber") }
+        XCTAssertNotNil(sealField, "custom sealNumber field must be present")
+        XCTAssertEqual(sealField?.value, "SN-42")
+
+        XCTAssertTrue(model.profileDirty)
+    }
+
+    // MARK: - Library: resolveFieldName canonical and custom
+
+    func testResolveFieldNameCanonicalAndCustom() async throws {
+        _ = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+
+        let emailKey = model.resolveFieldName("email")
+        XCTAssertEqual(emailKey, .email, "'email' must resolve to canonical .email")
+
+        let sealKey = model.resolveFieldName("sealNumber")
+        XCTAssertEqual(sealKey, .custom("sealNumber"), "'sealNumber' must resolve to .custom(\"sealNumber\")")
+    }
+
+    // MARK: - Library: saveToLibrary create-then-update round trip
+
+    func testSaveToLibraryCreateThenUpdateRoundTrip() async throws {
+        let lib = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+
+        // Create a new from-scratch portfolio.
+        await model.createPortfolio(
+            kind: .company,
+            label: "Round Trip Co",
+            fromScratch: true,
+            createdAtISO8601: "2026-06-11T00:00:00Z"
+        )
+        model.addField(key: .companyName, value: "Round Trip Holdings")
+
+        // First save: assigns currentPortfolioID.
+        await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T01:00:00Z")
+
+        let firstID = try XCTUnwrap(model.currentPortfolioID,
+            "currentPortfolioID must be assigned after first save")
+        XCTAssertFalse(model.profileDirty, "profileDirty must be cleared after save")
+        XCTAssertEqual(model.stage, .profileReady, "stage must remain .profileReady after save")
+
+        // Verify the portfolio exists in the library.
+        let afterFirst = try lib.load(id: firstID)
+        XCTAssertEqual(afterFirst.label, "Round Trip Co")
+
+        // Second save: updates the existing entry.
+        model.addField(key: .jurisdiction, value: "BVI")
+        await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T02:00:00Z")
+
+        let secondID = try XCTUnwrap(model.currentPortfolioID)
+        XCTAssertEqual(secondID, firstID, "ID must be stable across saves")
+        XCTAssertFalse(model.profileDirty)
+
+        // The summary's modifiedAt must reflect the second save timestamp.
+        let summaries = model.summaries
+        let summary = try XCTUnwrap(summaries.first { $0.id == firstID })
+        XCTAssertEqual(summary.modifiedAtISO8601, "2026-06-11T02:00:00Z",
+            "summary modifiedAt must reflect the second save timestamp")
+
+        // The library must store 2 fields now.
+        let afterSecond = try lib.load(id: firstID)
+        XCTAssertEqual(afterSecond.fields.count, 2)
+    }
+
+    // MARK: - Library: deletePortfolio of the open portfolio returns .library and clears id
+
+    func testDeletePortfolioOfOpenPortfolioReturnsLibraryAndClearsID() async throws {
+        let lib = try makeLibrarySeam()
+        let portfolio = makeCompanyPortfolio(label: "To Delete")
+        let id = try lib.create(portfolio)
+
+        let model = FillModel(modelPath: nil)
+
+        // Open the portfolio for edit so currentPortfolioID is set.
+        await model.openForEdit(id: id)
+        XCTAssertEqual(model.currentPortfolioID, id, "precondition: currentPortfolioID set")
+        XCTAssertEqual(model.stage, .profileReady)
+
+        // Delete it.
+        await model.deletePortfolio(id: id)
+
+        XCTAssertEqual(model.stage, .library,
+            "stage must be .library after deleting the currently open portfolio")
+        XCTAssertNil(model.currentPortfolioID,
+            "currentPortfolioID must be cleared after deleting the open portfolio")
+        XCTAssertTrue(model.summaries.isEmpty,
+            "summaries must be empty after deleting the only portfolio")
+    }
+
+    // MARK: - Library: openForEdit loads the saved portfolio
+
+    func testOpenForEditLoadsTheSavedPortfolio() async throws {
+        let lib = try makeLibrarySeam()
+        let portfolio = makeCompanyPortfolio(label: "Load Me")
+        let id = try lib.create(portfolio)
+
+        let model = FillModel(modelPath: nil)
+        await model.openForEdit(id: id)
+
+        XCTAssertEqual(model.stage, .profileReady)
+        XCTAssertEqual(model.currentPortfolioID, id)
+        XCTAssertFalse(model.profileDirty, "profileDirty must be false after loading an existing portfolio")
+        let loaded = try XCTUnwrap(model.profile)
+        XCTAssertEqual(loaded.label, "Load Me")
+        XCTAssertEqual(loaded.kind, .company)
+        XCTAssertEqual(loaded.fields.count, portfolio.fields.count)
+    }
+
+    // MARK: - Library: export/import round trip through the model
+
+    func testExportImportRoundTripThroughModel() async throws {
+        let lib = try makeLibrarySeam()
+        let portfolio = makeCompanyPortfolio(label: "Export Me")
+        let id = try lib.create(portfolio)
+
+        let exportDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FillModelTests-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: exportDir) }
+
+        let exportURL = exportDir.appendingPathComponent("export.ldaprofile")
+
+        let model = FillModel(modelPath: nil)
+
+        // Export the portfolio.
+        await model.exportPortfolio(id: id, to: exportURL, protection: .passphrase("test-pass"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportURL.path),
+            "export file must exist after exportPortfolio")
+
+        // Delete the original and import from the export file.
+        try lib.delete(id: id)
+        let importedID = await model.importPortfolio(from: exportURL, protection: .passphrase("test-pass"))
+
+        XCTAssertNotNil(importedID, "importPortfolio must return the new UUID")
+        XCTAssertNotEqual(importedID, id, "imported portfolio must have a new UUID")
+
+        // Verify summaries were refreshed.
+        XCTAssertEqual(model.summaries.count, 1)
+        XCTAssertEqual(model.summaries[0].label, "Export Me")
+    }
+
+    // MARK: - Library: backToLibrary clears pickerRequestID and transient state
+
+    func testBackToLibraryRestoresLibraryStage() async throws {
+        _ = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+        model.pickerRequestID = UUID()
+        model.stage = .profileReady
+
+        model.backToLibrary()
+
+        XCTAssertEqual(model.stage, .library, "backToLibrary must set stage to .library")
+        XCTAssertNil(model.pickerRequestID, "backToLibrary must clear pickerRequestID")
+    }
 }
+
