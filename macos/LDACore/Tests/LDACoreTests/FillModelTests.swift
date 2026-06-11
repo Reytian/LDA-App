@@ -86,6 +86,7 @@ final class FillModelTests: XCTestCase {
         FillModel.planFillForTesting = nil
         FillModel.applyFillForTesting = nil
         FillModel.libraryForTesting = nil
+        FillModel.libraryRootForTesting = nil
 
         if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
             try? FileManager.default.removeItem(at: workDir)
@@ -1324,6 +1325,65 @@ final class FillModelTests: XCTestCase {
 
         XCTAssertEqual(model.stage, .library, "backToLibrary must set stage to .library")
         XCTAssertNil(model.pickerRequestID, "backToLibrary must clear pickerRequestID")
+    }
+
+    // MARK: - Library: cached instance is stable across intents
+
+    /// Two successive refreshLibrary calls on the same model must use the same
+    /// PortfolioLibrary instance. The production path is exercised by setting
+    /// libraryRootForTesting (so the real Application Support directory is never
+    /// touched) and leaving libraryForTesting nil so resolveLibrary() takes the
+    /// construct-and-cache branch on the first call and the cache-hit branch on
+    /// the second.
+    func testLibraryInstanceIsCachedAcrossIntents() async throws {
+        // Set the root override so the real Application Support is not used.
+        FillModel.libraryRootForTesting = workDir
+
+        let model = FillModel(modelPath: nil)
+
+        // First intent: constructs and caches.
+        await model.refreshLibrary()
+        XCTAssertEqual(model.stage, .library, "stage must be .library after first refreshLibrary")
+        let firstInstance = model._library
+
+        // Second intent: must return the cached instance, not a new one.
+        await model.refreshLibrary()
+        XCTAssertEqual(model.stage, .library, "stage must be .library after second refreshLibrary")
+        let secondInstance = model._library
+
+        let first = try XCTUnwrap(firstInstance, "_library must be non-nil after first refreshLibrary")
+        let second = try XCTUnwrap(secondInstance, "_library must be non-nil after second refreshLibrary")
+        XCTAssertTrue(
+            ObjectIdentifier(first) == ObjectIdentifier(second),
+            "_library must be the same instance across successive intents"
+        )
+    }
+
+    // MARK: - Library: export failure preserves library stage
+
+    /// When exportPortfolio throws (destination is inside the library directory,
+    /// which PortfolioLibrary rejects), the stage must remain .library and
+    /// exportError must be non-nil. The user is not evicted from the list.
+    func testExportFailurePreservesLibraryStage() async throws {
+        let lib = try makeLibrarySeam()
+        let portfolio = makeCompanyPortfolio(label: "Export Fail Co")
+        let id = try lib.create(portfolio)
+
+        let model = FillModel(modelPath: nil)
+        await model.refreshLibrary()
+        XCTAssertEqual(model.stage, .library, "precondition: stage must be .library")
+
+        // Exporting to a path inside the library root triggers
+        // PortfolioLibraryError.exportDestinationInsideLibrary (assertNotInsideLibrary).
+        // workDir is the library root, so any path under it is rejected.
+        let badDestination = workDir.appendingPathComponent("inside-library.ldaprofile")
+
+        await model.exportPortfolio(id: id, to: badDestination, protection: .passphrase("test"))
+
+        XCTAssertEqual(model.stage, .library,
+            "stage must remain .library after export failure (user must not be evicted)")
+        XCTAssertNotNil(model.exportError,
+            "exportError must be non-nil after a failed export")
     }
 }
 

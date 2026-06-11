@@ -25,16 +25,20 @@
 //  LDAService / PortfolioLibrary calls. Tests set them to fakes and nil them out
 //  in tearDown, mirroring the ReviewModel / LDAFillService static-var seam pattern.
 //
-//  Library production default: PortfolioLibrary() is constructed lazily inside
-//  each library intent off the main thread (PortfolioLibrary.init can throw; on
-//  failure the intent surfaces .failed). The same lazy construction is skipped
-//  when libraryForTesting is non-nil. This means the production default is never
-//  constructed in test runs.
+//  Library production default: PortfolioLibrary() is constructed once, lazily,
+//  the first time a library intent runs. The instance is cached in _library and
+//  reused by all subsequent intents. Construction happens off the main thread
+//  (PortfolioLibrary.init can throw; on failure the intent surfaces .failed).
+//  The cache is skipped when libraryForTesting is non-nil, so production library
+//  I/O never runs in test processes. One instance per model honors the library's
+//  one-instance concurrency contract.
 //
-//  Export error surfacing: exportPortfolio failures surface as a .failed stage
-//  change (not via a separate errorBanner channel). This keeps model-level error
-//  state to a single place. The shell can return the user to .library via
-//  refreshLibrary() after an export failure.
+//  Export error surfacing: exportPortfolio failures are published through the
+//  dedicated exportError channel and do NOT change the stage. This keeps the user
+//  on the library list so they can retry or choose a different destination. The
+//  single .failed stage channel is reserved for all other errors (library I/O,
+//  fill planning, apply). exportError is cleared at the start of each export call
+//  and on refreshLibrary.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -136,6 +140,11 @@ public final class FillModel: ObservableObject {
     /// render (it is cleared at the start of each refreshLibrary call).
     @Published public var libraryNotice: String?
 
+    /// A non-nil value means the most recent exportPortfolio call failed. The stage
+    /// is NOT changed by export failures; the user stays on the library list. Cleared
+    /// at the start of each exportPortfolio call and in refreshLibrary.
+    @Published public private(set) var exportError: String?
+
     /// Optional absolute path to the GGUF model. Passed to LDAService.extractProfile.
     public var modelPath: String?
 
@@ -221,6 +230,20 @@ public final class FillModel: ObservableObject {
     /// supply a PortfolioLibrary over a temp directory so Keychain-gated I/O runs
     /// against a hermetic on-disk store.
     nonisolated(unsafe) internal static var libraryForTesting: PortfolioLibrary?
+
+    /// Overrides the root URL used to construct the production PortfolioLibrary.
+    /// Consulted only when libraryForTesting is nil. Allows tests to exercise the
+    /// cached-instance path (resolveLibrary() constructs once and reuses) without
+    /// touching the real Application Support directory. Nil in production.
+    nonisolated(unsafe) internal static var libraryRootForTesting: URL?
+
+    // MARK: - Library instance cache
+
+    /// Cached production PortfolioLibrary. Nil until the first library intent runs.
+    /// Constructed once off the main thread and held for the lifetime of this model
+    /// so all subsequent intents reuse the same instance. Internal (underscore-named)
+    /// so FillModelTests can assert identity stability with @testable import.
+    internal var _library: PortfolioLibrary?
 
     // MARK: - Init
 
@@ -398,6 +421,7 @@ public final class FillModel: ObservableObject {
     /// Called by the shell on appear to boot from .idle into .library.
     public func refreshLibrary() async {
         libraryNotice = nil
+        exportError = nil
 
         do {
             let lib = try await resolveLibrary()
@@ -411,10 +435,10 @@ public final class FillModel: ObservableObject {
             if lib.lastListReconciled || lib.lastIndexPersistFailed {
                 var parts: [String] = []
                 if lib.lastListReconciled {
-                    parts.append("The portfolio index was rebuilt.")
+                    parts.append("The portfolio index was rebuilt; the list was rebuilt from the portfolio files.")
                 }
                 if lib.lastIndexPersistFailed {
-                    parts.append("The index could not be saved to disk.")
+                    parts.append("Portfolio list changes may not persist; check Keychain access and disk space.")
                 }
                 libraryNotice = parts.joined(separator: " ")
             }
@@ -551,10 +575,13 @@ public final class FillModel: ObservableObject {
         }
     }
 
-    /// Export the portfolio at id to url with the given protection. Refreshes
-    /// summaries after a successful export. On failure, stage becomes .failed
-    /// (see file header for the export-error surfacing choice).
+    /// Export the portfolio at id to url with the given protection. On failure,
+    /// exportError is set and the stage is left unchanged so the user stays on the
+    /// library list. exportError is cleared at the start of this call and in
+    /// refreshLibrary (see file header for the export-error surfacing choice).
     public func exportPortfolio(id: UUID, to url: URL, protection: MappingProtection) async {
+        exportError = nil
+
         do {
             let lib = try await resolveLibrary()
             try await Task.detached(priority: .userInitiated) {
@@ -562,7 +589,7 @@ public final class FillModel: ObservableObject {
             }.value
 
         } catch {
-            stage = .failed(Self.describe(error))
+            exportError = Self.describe(error)
         }
     }
 
@@ -591,22 +618,32 @@ public final class FillModel: ObservableObject {
 
     // MARK: - Private library helpers
 
-    /// Returns the test-seam library if set, or constructs the production default
-    /// off the main thread. Throws if the production default cannot be initialised
-    /// (e.g. Application Support is unavailable).
+    /// Returns the library to use for the current intent:
+    ///   1. Test seam (libraryForTesting): returned as-is; no caching.
+    ///   2. Cached instance (_library): returned immediately if already constructed.
+    ///   3. Production construction: built off the main thread, cached in _library,
+    ///      and returned. Uses libraryRootForTesting when set (test-only override
+    ///      that exercises the cached-instance path without touching Application
+    ///      Support); otherwise constructs the default Application Support root.
     ///
-    /// Declared nonisolated so it can be called from within a detached Task without
-    /// requiring main-actor hops. The seam read is safe because nonisolated(unsafe)
-    /// is declared only on the static var, not on this function; Swift rules require
-    /// us to read nonisolated(unsafe) statics from nonisolated contexts, which this
-    /// satisfies.
+    /// Throws if the production default cannot be initialised (e.g. Application
+    /// Support is unavailable).
     private func resolveLibrary() async throws -> PortfolioLibrary {
         if let seam = Self.libraryForTesting {
             return seam
         }
-        return try await Task.detached(priority: .userInitiated) {
-            try PortfolioLibrary()
+        if let cached = _library {
+            return cached
+        }
+        let root = Self.libraryRootForTesting
+        let constructed = try await Task.detached(priority: .userInitiated) {
+            if let root {
+                return try PortfolioLibrary(rootDirectory: root)
+            }
+            return try PortfolioLibrary()
         }.value
+        _library = constructed
+        return constructed
     }
 
     /// Move selection to the next blank, wrapping at the end.
