@@ -157,8 +157,14 @@ public enum ProfileStore {
     }
 
     // MARK: - Encoding
+    //
+    // encodeProfile and decodeProfile are `internal` (not `private`) so that
+    // PortfolioLibrary can reuse the same JSON codec without duplicating it.
+    // They are not public because the serialization format is an implementation
+    // detail of the Security layer; callers outside this module use the
+    // ProfileStore.save / load API instead.
 
-    private static func encodeProfile(_ profile: ClientPortfolio) throws -> Data {
+    static func encodeProfile(_ profile: ClientPortfolio) throws -> Data {
         let encoder = JSONEncoder()
         // Sorted keys keep the output deterministic; does not affect security.
         encoder.outputFormatting = [.sortedKeys]
@@ -169,7 +175,7 @@ public enum ProfileStore {
         }
     }
 
-    private static func decodeProfile(_ data: Data) throws -> ClientPortfolio {
+    static func decodeProfile(_ data: Data) throws -> ClientPortfolio {
         do {
             return try JSONDecoder().decode(ClientPortfolio.self, from: data)
         } catch {
