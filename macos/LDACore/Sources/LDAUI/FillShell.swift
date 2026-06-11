@@ -27,7 +27,8 @@
 //    in LDAUI.
 //
 //  Subviews too large for this file live in FillShellViews.swift and
-//  FillLibraryViews.swift.
+//  FillLibraryViews.swift. Sheet bodies and confirm methods live in
+//  FillShellSheets.swift.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -49,36 +50,36 @@ public struct FillShell: View {
     // MARK: - Profile passphrase sheet
 
     /// True while the passphrase sheet for save-profile is presented.
-    @State private var isSavingWithPassphrase = false
+    @State var isSavingWithPassphrase = false // internal for FillShellSheets.swift
 
     /// True while the passphrase sheet for load-profile is presented.
-    @State private var isLoadingWithPassphrase = false
+    @State var isLoadingWithPassphrase = false // internal for FillShellSheets.swift
 
     /// Passphrase entered in the sheet.
-    @State private var passphraseInput = ""
+    @State var passphraseInput = "" // internal for FillShellSheets.swift
 
     /// The URL chosen by the Save panel, held while the passphrase is collected.
-    @State private var pendingSaveURL: URL?
+    @State var pendingSaveURL: URL? // internal for FillShellSheets.swift
 
     /// The URL chosen by the Load panel, held while the passphrase is collected.
-    @State private var pendingLoadURL: URL?
+    @State var pendingLoadURL: URL? // internal for FillShellSheets.swift
 
     // MARK: - Import sheet (library)
 
     /// True while the import passphrase/protection sheet is presented.
-    @State private var isImportingProfile = false
+    @State var isImportingProfile = false // internal for FillShellSheets.swift
 
     /// The URL chosen by the import panel, held while protection is selected.
-    @State private var pendingImportURL: URL?
+    @State var pendingImportURL: URL? // internal for FillShellSheets.swift
 
     /// The summary currently being exported from the library list.
-    @State private var exportingSummary: PortfolioSummary?
+    @State var exportingSummary: PortfolioSummary? // internal for FillShellSheets.swift
 
     /// True while the export passphrase sheet is presented.
-    @State private var isExportingWithPassphrase = false
+    @State var isExportingWithPassphrase = false // internal for FillShellSheets.swift
 
     /// The URL chosen by the export Save panel.
-    @State private var pendingExportURL: URL?
+    @State var pendingExportURL: URL? // internal for FillShellSheets.swift
 
     // MARK: - Editor extras
 
@@ -598,63 +599,6 @@ public struct FillShell: View {
         isImportingProfile = true
     }
 
-    private func confirmImportProfile() {
-        isImportingProfile = false
-        guard let url = pendingImportURL else {
-            pendingImportURL = nil
-            passphraseInput = ""
-            return
-        }
-        let isPassphrase = !passphraseInput.isEmpty
-        let capturedPassphrase = passphraseInput
-        pendingImportURL = nil
-        passphraseInput = ""
-        let protection: MappingProtection = isPassphrase
-            ? .passphrase(capturedPassphrase)
-            : .keychain(account: ProfileStore.standardAccount(for: url))
-        Task {
-            await model.importPortfolio(from: url, protection: protection)
-        }
-    }
-
-    private var importProfileSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Import portfolio")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("If this file was saved with a passphrase, enter it. "
-                 + "Leave it blank if it uses the Keychain.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SecureField("Passphrase (optional)", text: $passphraseInput)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    isImportingProfile = false
-                    pendingImportURL = nil
-                    passphraseInput = ""
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Import") {
-                    confirmImportProfile()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 380)
-        .background(CounselTheme.raised)
-    }
-
     // MARK: - Library Export
 
     private func beginExportFromLibrary(_ summary: PortfolioSummary) {
@@ -667,75 +611,6 @@ public struct FillShell: View {
         pendingExportURL = url
         passphraseInput = ""
         isExportingWithPassphrase = true
-    }
-
-    private func confirmExportFromLibrary() {
-        isExportingWithPassphrase = false
-        guard let summary = exportingSummary, let url = pendingExportURL else {
-            exportingSummary = nil
-            pendingExportURL = nil
-            passphraseInput = ""
-            return
-        }
-        let protection: MappingProtection = passphraseInput.isEmpty
-            ? .keychain(account: ProfileStore.standardAccount(for: url))
-            : .passphrase(passphraseInput)
-        let capturedID = summary.id
-        exportingSummary = nil
-        pendingExportURL = nil
-        passphraseInput = ""
-        Task {
-            await model.exportPortfolio(id: capturedID, to: url, protection: protection)
-        }
-    }
-
-    private var exportProfilePassphraseSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the export")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("Enter an optional passphrase to encrypt the exported file. "
-                 + "Leave it blank to protect it with the system Keychain.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let url = pendingExportURL, Self.isUnderICloud(url) {
-                Label(
-                    "This folder syncs to iCloud. The encrypted file will be uploaded with it.",
-                    systemImage: "icloud.and.arrow.up"
-                )
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SecureField("Passphrase (optional)", text: $passphraseInput)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    isExportingWithPassphrase = false
-                    exportingSummary = nil
-                    pendingExportURL = nil
-                    passphraseInput = ""
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Export") {
-                    confirmExportFromLibrary()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 380)
-        .background(CounselTheme.raised)
     }
 
     // MARK: - Add Sources
@@ -808,77 +683,6 @@ public struct FillShell: View {
         isSavingWithPassphrase = true
     }
 
-    private func confirmSaveProfile() {
-        isSavingWithPassphrase = false
-        guard let url = pendingSaveURL, let profile = model.profile else {
-            pendingSaveURL = nil
-            passphraseInput = ""
-            return
-        }
-        let protection: MappingProtection = passphraseInput.isEmpty
-            ? .keychain(account: ProfileStore.standardAccount(for: url))
-            : .passphrase(passphraseInput)
-        pendingSaveURL = nil
-        passphraseInput = ""
-        do {
-            try ProfileStore.save(profile, to: url, protection: protection)
-        } catch {
-            showAlert(
-                title: "Save failed",
-                text: error.localizedDescription,
-                warning: true
-            )
-        }
-    }
-
-    private var saveProfilePassphraseSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the profile")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("Enter an optional passphrase to encrypt the profile. "
-                 + "Leave it blank to protect it with the system Keychain.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let url = pendingSaveURL, Self.isUnderICloud(url) {
-                Label(
-                    "This folder syncs to iCloud. The encrypted profile will be uploaded with it.",
-                    systemImage: "icloud.and.arrow.up"
-                )
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SecureField("Passphrase (optional)", text: $passphraseInput)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    isSavingWithPassphrase = false
-                    pendingSaveURL = nil
-                    passphraseInput = ""
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Save") {
-                    confirmSaveProfile()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 380)
-        .background(CounselTheme.raised)
-    }
-
     // MARK: - Load Profile flow
 
     private func beginLoadProfile() {
@@ -892,72 +696,6 @@ public struct FillShell: View {
         pendingLoadURL = url
         passphraseInput = ""
         isLoadingWithPassphrase = true
-    }
-
-    private func confirmLoadProfile() {
-        isLoadingWithPassphrase = false
-        guard let url = pendingLoadURL else {
-            pendingLoadURL = nil
-            passphraseInput = ""
-            return
-        }
-        let isPassphrase = !passphraseInput.isEmpty
-        let capturedPassphrase = passphraseInput
-        pendingLoadURL = nil
-        passphraseInput = ""
-        do {
-            let profile: ClientPortfolio
-            if isPassphrase {
-                profile = try ProfileStore.load(from: url, protection: .passphrase(capturedPassphrase))
-            } else {
-                profile = try ProfileStore.loadWithAccountFallback(from: url)
-            }
-            model.loadProfile(profile)
-        } catch {
-            showAlert(
-                title: "Load failed",
-                text: error.localizedDescription,
-                warning: true
-            )
-        }
-    }
-
-    private var loadProfilePassphraseSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Profile passphrase")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("If this profile was saved with a passphrase, enter it. "
-                 + "Leave it blank if it uses the Keychain.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            SecureField("Passphrase (optional)", text: $passphraseInput)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    isLoadingWithPassphrase = false
-                    pendingLoadURL = nil
-                    passphraseInput = ""
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Load") {
-                    confirmLoadProfile()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 380)
-        .background(CounselTheme.raised)
     }
 
     // MARK: - Helpers
@@ -982,7 +720,7 @@ public struct FillShell: View {
         }
     }
 
-    private func showAlert(title: String, text: String, warning: Bool) {
+    func showAlert(title: String, text: String, warning: Bool) { // internal for FillShellSheets.swift
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = text
@@ -991,7 +729,7 @@ public struct FillShell: View {
         alert.runModal()
     }
 
-    private static func isUnderICloud(_ url: URL) -> Bool {
+    static func isUnderICloud(_ url: URL) -> Bool { // internal for FillShellSheets.swift
         url.standardizedFileURL.path.contains("/Library/Mobile Documents/")
     }
 
