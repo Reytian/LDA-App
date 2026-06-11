@@ -48,12 +48,18 @@ public enum Tokenizer {
     ///   - spans: Located candidate detections in UTF-16 offset space.
     ///   - sourceFile: The source file this mapping is built from.
     ///   - createdAtISO8601: The caller-supplied ISO-8601 creation timestamp.
+    ///   - seedMapping: An optional existing mapping to extend (a prior document
+    ///     in the same session, or a client profile's stored mapping). A surface
+    ///     text known to the seed (its value, surfaceText, or an alias) reuses
+    ///     the seed's token, per-type counters continue past the seed's maxima,
+    ///     and the returned mapping is the union of seed and new entries.
     /// - Returns: The tokenized text plus the mapping needed to restore it.
     public static func tokenize(
         text: String,
         spans: [Span],
         sourceFile: String,
-        createdAtISO8601: String
+        createdAtISO8601: String,
+        seedMapping: Mapping? = nil
     ) -> TokenizeResult {
         let utf16Count = text.utf16.count
 
@@ -105,6 +111,35 @@ public enum Tokenizer {
         var typeCounters: [String: Int] = [:]
         var textToToken: [String: String] = [:]
         var entries: [String: MappingEntry] = [:]
+
+        // Seed the walk from an existing mapping: known surfaces reuse their
+        // token, counters continue past the seed maxima, and the seed entries
+        // are carried into the result so one mapping restores every document.
+        // Seed entries are visited in sorted-token order because dictionary
+        // iteration is unordered and the walk must stay deterministic.
+        if let seedMapping {
+            for token in seedMapping.entries.keys.sorted() {
+                guard let entry = seedMapping.entries[token], !entry.token.isEmpty else {
+                    continue
+                }
+                entries[entry.token] = entry
+
+                if let parsed = parseToken(entry.token) {
+                    typeCounters[parsed.type] = max(typeCounters[parsed.type] ?? 0, parsed.number)
+                }
+
+                // A seed token that already exists as a literal in THIS text
+                // must not be emitted again (the literal and the reused token
+                // would be byte-identical); leave those surfaces unseeded so a
+                // fresh token is minted for this document instead.
+                guard !reservedLiterals.contains(entry.token) else { continue }
+
+                for surface in [entry.value, entry.surfaceText] + entry.aliases
+                where !surface.isEmpty && textToToken[surface] == nil {
+                    textToToken[surface] = entry.token
+                }
+            }
+        }
 
         for span in accepted {
             let surfaceText = span.text
@@ -207,5 +242,24 @@ public enum Tokenizer {
         let lower = String.Index(utf16Offset: from, in: text)
         let upper = String.Index(utf16Offset: to, in: text)
         return String(text[lower..<upper])
+    }
+
+    /// Parse a grammar token "{TYPE_N}" into its TYPE string and number, or nil
+    /// when the string is not an exact grammar token. Used to continue per-type
+    /// counters past a seed mapping's maxima.
+    private static func parseToken(_ token: String) -> (type: String, number: Int)? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^\{([A-Z][A-Z0-9]*)_(\d+)\}$"#
+        ) else {
+            return nil
+        }
+        let nsToken = token as NSString
+        let range = NSRange(location: 0, length: nsToken.length)
+        guard let match = regex.firstMatch(in: token, options: [], range: range),
+              match.numberOfRanges == 3,
+              let number = Int(nsToken.substring(with: match.range(at: 2))) else {
+            return nil
+        }
+        return (nsToken.substring(with: match.range(at: 1)), number)
     }
 }

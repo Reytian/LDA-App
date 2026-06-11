@@ -497,7 +497,7 @@ public struct AppShell: View {
     }
 
     private func showRestoreResult(_ report: RestoreReport) {
-        if report.orphanTokens.isEmpty {
+        if report.orphanTokens.isEmpty && report.suspectPlaceholders.isEmpty {
             showAlert(
                 title: "Document restored",
                 text: "Restored \(report.restoredCount) value"
@@ -506,13 +506,29 @@ public struct AppShell: View {
                 warning: false
             )
         } else {
-            let sample = report.orphanTokens.prefix(5).joined(separator: ", ")
+            var problems: [String] = []
+            if !report.orphanTokens.isEmpty {
+                let sample = report.orphanTokens.prefix(5).joined(separator: ", ")
+                problems.append(
+                    "\(report.orphanTokens.count) placeholder"
+                        + (report.orphanTokens.count == 1 ? "" : "s")
+                        + " could not be matched: \(sample)."
+                )
+            }
+            if !report.suspectPlaceholders.isEmpty {
+                let sample = report.suspectPlaceholders.prefix(5).joined(separator: ", ")
+                problems.append(
+                    "\(report.suspectPlaceholders.count) placeholder"
+                        + (report.suspectPlaceholders.count == 1 ? " looks" : "s look")
+                        + " damaged by editing: \(sample)."
+                )
+            }
             showAlert(
                 title: "Restored with warnings",
-                text: "Restored \(report.restoredCount) values, but \(report.orphanTokens.count) token"
-                    + (report.orphanTokens.count == 1 ? "" : "s")
-                    + " could not be matched (they may have been edited): \(sample). "
-                    + "Those placeholders remain in \(report.outputURL.lastPathComponent).",
+                text: "Restored \(report.restoredCount) values. "
+                    + problems.joined(separator: " ")
+                    + " Nothing was guessed; please review these in "
+                    + "\(report.outputURL.lastPathComponent) and fix them by hand.",
                 warning: true
             )
         }

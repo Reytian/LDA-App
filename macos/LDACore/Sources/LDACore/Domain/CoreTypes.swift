@@ -162,11 +162,22 @@ public struct RestoreResult: Sendable {
     public var restoredCount: Int
     /// Leftover or broken tokens detected by the orphan guard.
     public var orphanTokens: [String]
+    /// Near-miss placeholder shapes found by the forensics scan: strings that
+    /// look like a mangled session placeholder (bracket swap, lost brace, case
+    /// or space damage, bare TYPE_N). These are flagged for the user and NEVER
+    /// substituted, per the flag-don't-guess contract.
+    public var suspectPlaceholders: [String]
 
-    public init(text: String, restoredCount: Int, orphanTokens: [String]) {
+    public init(
+        text: String,
+        restoredCount: Int,
+        orphanTokens: [String],
+        suspectPlaceholders: [String] = []
+    ) {
         self.text = text
         self.restoredCount = restoredCount
         self.orphanTokens = orphanTokens
+        self.suspectPlaceholders = suspectPlaceholders
     }
 }
 

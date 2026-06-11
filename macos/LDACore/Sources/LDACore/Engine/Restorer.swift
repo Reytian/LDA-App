@@ -51,8 +51,16 @@ public enum Restorer {
     ///   - text: The tokenized (and possibly user-edited) text.
     ///   - mapping: The token map produced during tokenization.
     /// - Returns: A `RestoreResult` with the restored text, the count of token
-    ///   occurrences replaced, and any orphan tokens found during the scan.
+    ///   occurrences replaced, any orphan tokens found during the scan, and any
+    ///   near-miss suspect placeholders found by the forensics scan.
     public static func restore(text: String, mapping: Mapping) -> RestoreResult {
+        // Decode Markdown-escaped underscores inside otherwise exact tokens
+        // ("{PERSON\_1}" is the exact token, Markdown-encoded) so a Markdown
+        // round-trip through an external AI restores cleanly. This is a
+        // deterministic decode, not a guess; genuinely mangled placeholders are
+        // handled by the suspect scan below, which only ever flags.
+        let text = PlaceholderForensics.decodeMarkdownEscapedTokens(in: text)
+
         // Token -> value lookup. mapping.entries is keyed by token already, but a
         // dedicated map keeps the lookup independent of the entry shape and skips
         // any empty-token entries defensively.
@@ -115,10 +123,18 @@ public enum Restorer {
             result += nsText.substring(from: cursor)
         }
 
+        // Forensics pass: find near-miss placeholder shapes (an external AI may
+        // have swapped brackets, dropped a brace, changed case, or stripped the
+        // braces). Suspects are flagged for the user and never substituted. The
+        // scan runs over the decoded INPUT text, where mangled shapes still sit
+        // in their original form.
+        let suspects = PlaceholderForensics.suspects(in: text, mapping: mapping)
+
         return RestoreResult(
             text: result,
             restoredCount: restoredCount,
-            orphanTokens: orphanTokens
+            orphanTokens: orphanTokens,
+            suspectPlaceholders: suspects
         )
     }
 }

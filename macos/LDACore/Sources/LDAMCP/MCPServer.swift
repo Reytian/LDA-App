@@ -242,7 +242,8 @@ public struct MCPServer {
         return [
             "output": report.outputURL.path,
             "restoredCount": report.restoredCount,
-            "orphanTokens": report.orphanTokens
+            "orphanTokens": report.orphanTokens,
+            "suspectPlaceholders": report.suspectPlaceholders
         ]
     }
 

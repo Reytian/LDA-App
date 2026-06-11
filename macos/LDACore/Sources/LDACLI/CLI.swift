@@ -101,11 +101,13 @@ public struct RestoreSummaryJSON: Codable, Equatable {
     public let outputURL: String
     public let restoredCount: Int
     public let orphanTokens: [String]
+    public let suspectPlaceholders: [String]
 
     public init(report: RestoreReport) {
         self.outputURL = report.outputURL.path
         self.restoredCount = report.restoredCount
         self.orphanTokens = report.orphanTokens
+        self.suspectPlaceholders = report.suspectPlaceholders
     }
 }
 

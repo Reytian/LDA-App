@@ -71,11 +71,20 @@ public struct RestoreReport: Sendable {
     /// Tokens present in the edited file but absent from (or broken in) the
     /// mapping, as reported by the orphan guard.
     public var orphanTokens: [String]
+    /// Near-miss placeholder shapes flagged by the forensics scan (an external
+    /// AI may have mangled a placeholder); never substituted, only reported.
+    public var suspectPlaceholders: [String]
 
-    public init(outputURL: URL, restoredCount: Int, orphanTokens: [String]) {
+    public init(
+        outputURL: URL,
+        restoredCount: Int,
+        orphanTokens: [String],
+        suspectPlaceholders: [String] = []
+    ) {
         self.outputURL = outputURL
         self.restoredCount = restoredCount
         self.orphanTokens = orphanTokens
+        self.suspectPlaceholders = suspectPlaceholders
     }
 }
 
@@ -320,7 +329,8 @@ public enum LDAService {
             return RestoreReport(
                 outputURL: output,
                 restoredCount: report.restoredCount,
-                orphanTokens: report.orphanTokens
+                orphanTokens: report.orphanTokens,
+                suspectPlaceholders: report.suspectPlaceholders
             )
         }
 
@@ -331,7 +341,8 @@ public enum LDAService {
         return RestoreReport(
             outputURL: output,
             restoredCount: report.restoredCount,
-            orphanTokens: report.orphanTokens
+            orphanTokens: report.orphanTokens,
+            suspectPlaceholders: report.suspectPlaceholders
         )
     }
 
