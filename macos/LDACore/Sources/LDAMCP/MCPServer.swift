@@ -500,7 +500,8 @@ public struct MCPServer {
                     ],
                     "outputDir": ["type": "string", "description": "Directory for the redacted intermediates and the session sidecar."],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
+                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."],
+                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities (same value, same placeholder, across sessions)."]
                 ],
                 "required": ["inputs", "outputDir"]
             ]

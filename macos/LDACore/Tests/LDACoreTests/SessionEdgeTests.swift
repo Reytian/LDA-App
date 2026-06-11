@@ -99,6 +99,46 @@ final class SessionEdgeTests: XCTestCase {
         XCTAssertEqual(resolved[1].lastPathComponent, "inner.txt")
     }
 
+    // MARK: - CLI client continuity (R10)
+
+    func testCLIClientLabelKeepsIdentitiesAcrossRuns() throws {
+        let store = try ClientMappingStore(
+            rootDirectory: workDir.appendingPathComponent("clients")
+        )
+        let doc1 = try write("first.txt", "Mail john@acme.com now.")
+        let doc2 = try write("second.txt", "Reach john@acme.com or mary@beta.io.")
+
+        _ = try LDACLI.runAnonymizeSession(
+            inputs: [doc1],
+            outputDir: workDir.appendingPathComponent("run1"),
+            passphrase: "pw",
+            clientLabel: "Acme Matter",
+            clientStore: store,
+            timestamp: { "2026-06-11T00:00:00Z" }
+        )
+
+        let second = try LDACLI.runAnonymizeSession(
+            inputs: [doc2],
+            outputDir: workDir.appendingPathComponent("run2"),
+            passphrase: "pw",
+            clientLabel: "Acme Matter",
+            clientStore: store,
+            timestamp: { "2026-06-12T00:00:00Z" }
+        )
+
+        // The address from run 1 keeps {EMAIL_1}; the new one continues at 2.
+        let markdown = try String(
+            contentsOf: URL(fileURLWithPath: second.documents[0].redactedFile),
+            encoding: .utf8
+        )
+        XCTAssertTrue(markdown.contains("{EMAIL_1}"))
+        XCTAssertTrue(markdown.contains("{EMAIL_2}"))
+
+        // The client store now remembers both identities.
+        let stored = try store.load(label: "Acme Matter", protection: .passphrase("pw"))
+        XCTAssertEqual(stored?.entries.count, 2)
+    }
+
     // MARK: - MCP anonymize_session tool
 
     func testMCPAnonymizeSessionToolSharesOneMapping() throws {

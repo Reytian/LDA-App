@@ -268,13 +268,16 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
     var model: String?
 
+    @Option(name: .long, help: "Client profile label. The session reuses and extends that client's stored identities (same value, same placeholder, across sessions). Routes through session mode.")
+    var client: String?
+
     func run() throws {
         do {
             let inputs = try LDACLI.resolveSessionInputs(input.map { URL(fileURLWithPath: $0) })
             // One plain document keeps the original single-document behavior
-            // (format-specific edit surface). Several documents, or a .zip,
-            // run as ONE session sharing ONE mapping (R12/R19).
-            if inputs.count == 1, !ZipImporter.isZip(URL(fileURLWithPath: input[0])) {
+            // (format-specific edit surface). Several documents, a .zip, or a
+            // --client label run as ONE session sharing ONE mapping (R10/R12/R19).
+            if inputs.count == 1, client == nil, !ZipImporter.isZip(URL(fileURLWithPath: input[0])) {
                 let result = try LDACLI.runAnonymize(
                     input: inputs[0],
                     outputDir: URL(fileURLWithPath: outputDir),
@@ -287,7 +290,8 @@ struct Anonymize: ParsableCommand {
                     inputs: inputs,
                     outputDir: URL(fileURLWithPath: outputDir),
                     passphrase: passphrase,
-                    llmModelPath: model
+                    llmModelPath: model,
+                    clientLabel: client
                 )
                 print(try CLIJSON.encode(result))
             }

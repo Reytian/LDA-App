@@ -53,11 +53,19 @@ extension LDACLI {
     /// Session anonymize core: run the whole set against one shared mapping,
     /// write per-document Markdown intermediates plus the single session
     /// sidecar, and return the printable summary.
+    ///
+    /// When clientLabel is given, the session seeds from that client's stored
+    /// mapping and saves the union back (R10): the same client's entities keep
+    /// the same placeholders across sessions. The client file uses the same
+    /// protection choice as the session sidecar (the given passphrase, or its
+    /// own derived Keychain account).
     public static func runAnonymizeSession(
         inputs: [URL],
         outputDir: URL,
         passphrase: String?,
         llmModelPath: String? = nil,
+        clientLabel: String? = nil,
+        clientStore: ClientMappingStore? = nil,
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> SessionSummaryJSON {
         guard let first = inputs.first else {
@@ -69,11 +77,32 @@ extension LDACLI {
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
+        // Client seeding (R10): load the client's stored mapping, if any.
+        var store: ClientMappingStore?
+        var clientProtection: MappingProtection?
+        var seed: Mapping?
+        if let clientLabel {
+            let resolved = try clientStore ?? ClientMappingStore()
+            let protection: MappingProtection = passphrase.flatMap {
+                $0.isEmpty ? nil : .passphrase($0)
+            } ?? ClientMappingStore.defaultProtection(label: clientLabel)
+            seed = try resolved.load(label: clientLabel, protection: protection)
+            store = resolved
+            clientProtection = protection
+        }
+
         let session = try LDAService.anonymizeSession(
             inputs: inputs,
             createdAtISO8601: timestamp(),
-            llmModelPath: llmModelPath
+            llmModelPath: llmModelPath,
+            seedMapping: seed
         )
+
+        // Save the union back so the client's next session keeps these
+        // identities.
+        if let clientLabel, let store, let clientProtection {
+            try store.save(session.mapping, label: clientLabel, protection: clientProtection)
+        }
 
         // Write each document's redacted Markdown intermediate. Duplicate base
         // names get a numeric suffix instead of overwriting.

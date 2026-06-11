@@ -48,11 +48,36 @@ extension MCPServer {
         let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let createdAt = MCPServer.iso8601Now()
 
+        // Client seeding (R10): when a client label is given, reuse and extend
+        // that client's stored identities. The client file uses the same
+        // protection choice as the session sidecar.
+        let clientLabel = (arguments["client"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var clientStore: ClientMappingStore?
+        var clientProtection: MappingProtection?
+        var seed: Mapping?
+        if let clientLabel {
+            let store = try ClientMappingStore()
+            let protection: MappingProtection
+            if let passphrase = arguments["passphrase"] as? String, !passphrase.isEmpty {
+                protection = .passphrase(passphrase)
+            } else {
+                protection = ClientMappingStore.defaultProtection(label: clientLabel)
+            }
+            seed = try store.load(label: clientLabel, protection: protection)
+            clientStore = store
+            clientProtection = protection
+        }
+
         let session = try LDAService.anonymizeSession(
             inputs: inputs,
             createdAtISO8601: createdAt,
-            llmModelPath: modelPath
+            llmModelPath: modelPath,
+            seedMapping: seed
         )
+
+        if let clientLabel, let clientStore, let clientProtection {
+            try clientStore.save(session.mapping, label: clientLabel, protection: clientProtection)
+        }
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
