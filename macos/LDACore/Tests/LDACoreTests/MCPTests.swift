@@ -699,6 +699,87 @@ final class MCPTests: XCTestCase {
                       "error message should mention the invalid mode, got: \(text)")
     }
 
+    // MARK: - extract_profile kind validation
+
+    /// A present but unrecognized kind string must return isError with a message
+    /// that names the bad value and the three accepted values.
+    func testExtractProfileInvalidKindReturnsIsError() throws {
+        let sourceURL = workDir.appendingPathComponent("kind-test-source.txt")
+        try Data("The company name is TestCo Ltd.".utf8).write(to: sourceURL)
+        let outURL = workDir.appendingPathComponent("kind-test.ldaprofile")
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 90,
+            "method": "tools/call",
+            "params": [
+                "name": "extract_profile",
+                "arguments": [
+                    "sources": [sourceURL.path],
+                    "label": "TestCo",
+                    "out": outURL.path,
+                    "model": "fake-model.gguf",
+                    "kind": "person",          // unrecognized value
+                    "passphrase": fillPassphrase
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true,
+                       "extract_profile with kind='person' must report isError")
+
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+
+        // The error message must identify the bad value.
+        XCTAssertTrue(text.contains("person"),
+                      "error message must name the invalid value 'person', got: \(text)")
+        // The error message must name at least one accepted value.
+        XCTAssertTrue(
+            text.contains("company") || text.contains("individual") || text.contains("general"),
+            "error message must name the accepted values, got: \(text)"
+        )
+    }
+
+    /// An absent kind must default to .company without error (documented default).
+    func testExtractProfileAbsentKindDefaultsToCompanyNoError() throws {
+        let companyName = "AbsentKindTestCo Ltd"
+        let sourceURL = workDir.appendingPathComponent("absent-kind-source.txt")
+        try Data("The company name is \(companyName).".utf8).write(to: sourceURL)
+        let outURL = workDir.appendingPathComponent("absent-kind.ldaprofile")
+
+        let fake = FakeExtractCompleter(companyName: companyName)
+        LDAService.makeCompleterForTesting = { fake }
+        defer { LDAService.makeCompleterForTesting = nil }
+
+        // No "kind" key in arguments at all.
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 91,
+            "method": "tools/call",
+            "params": [
+                "name": "extract_profile",
+                "arguments": [
+                    "sources": [sourceURL.path],
+                    "label": "AbsentKindTestCo",
+                    "out": outURL.path,
+                    "model": "fake-model.gguf",
+                    "passphrase": fillPassphrase
+                    // "kind" deliberately absent
+                ]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, false,
+                       "extract_profile with absent kind must succeed (default to company): \(result)")
+
+        let summary = try toolSummary(from: response)
+        let fieldCount = try XCTUnwrap(summary["fieldCount"] as? Int)
+        XCTAssertGreaterThan(fieldCount, 0, "absent kind must still extract fields")
+    }
+
     // MARK: - staleTarget describe arm produces actionable message
 
     func testDescribeStaleTargetContainsRerunInstruction() throws {

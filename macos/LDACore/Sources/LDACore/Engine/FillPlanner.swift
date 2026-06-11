@@ -340,7 +340,7 @@ public enum FillPlanner {
             "entity type", "company type", "公司类型"
         ]),
         (.clientName, [
-            "client name", "full name", "name of individual", "姓名"
+            "client name", "full name", "individual name", "姓名"
         ]),
         (.dateOfBirth, [
             "date of birth", "birth date", "dob", "出生日期"

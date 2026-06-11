@@ -360,6 +360,12 @@ public final class PromptStore {
     ///
     /// The rendered string is the fully resolved system prompt ready to hand
     /// to the LLM; it never contains the literal "{allowed_keys}" text.
+    ///
+    /// Silent-noop note: if an edited template no longer contains the literal
+    /// "{allowed_keys}" token, replacingOccurrences returns the template body
+    /// unchanged and the LLM receives no key list at all. Call
+    /// validateProfileTemplate(_:) at edit time to catch this case before it
+    /// reaches the model.
     public func profileSystem(for kind: PortfolioKind) -> String {
         let keys = ProfileFieldKey.canonical(for: kind)
             .map { $0.rawKey }

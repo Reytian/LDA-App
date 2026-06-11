@@ -62,12 +62,20 @@ extension MCPServer {
         let createdAt = MCPServer.iso8601Now()
 
         // Optional kind parameter: "company" (default), "individual", or "general".
+        // An absent kind silently defaults to .company (documented default).
+        // A present but unrecognized kind is an explicit caller error and must
+        // be rejected so the caller is not surprised by silent mis-routing.
         let portfolioKind: PortfolioKind
-        let kindString = (arguments["kind"] as? String) ?? "company"
-        switch kindString {
-        case "individual": portfolioKind = .individual
-        case "general":    portfolioKind = .general
-        default:           portfolioKind = .company
+        if let kindString = arguments["kind"] as? String {
+            switch kindString {
+            case "company":    portfolioKind = .company
+            case "individual": portfolioKind = .individual
+            case "general":    portfolioKind = .general
+            default:
+                throw MCPFillToolError.invalidKind(kindString)
+            }
+        } else {
+            portfolioKind = .company
         }
 
         let result = try LDAService.extractProfile(
@@ -293,6 +301,7 @@ extension MCPServer {
 enum MCPFillToolError: Error {
     case missingOrEmptyArgument(String)
     case invalidMode(String)
+    case invalidKind(String)
 
     var message: String {
         switch self {
@@ -300,6 +309,8 @@ enum MCPFillToolError: Error {
             return "Missing or empty required argument: \(key)"
         case .invalidMode(let mode):
             return "Invalid fill mode \"\(mode)\": must be \"plan\" or \"apply\""
+        case .invalidKind(let kind):
+            return "kind must be 'company', 'individual', or 'general'; got '\(kind)'"
         }
     }
 }
