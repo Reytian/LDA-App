@@ -232,4 +232,49 @@ final class ProfileTypesTests: XCTestCase {
         let back = try JSONDecoder().decode([ProfileFieldKey].self, from: JSONEncoder().encode(keys))
         XCTAssertEqual(back, keys)
     }
+
+    // MARK: - Design-decision: conflict detection is data-scoped, not kind-scoped
+
+    func testConflictDetectionIsDataScopedNotKindScoped() {
+        // A .company-kind portfolio that happens to hold two different passportNumber
+        // values still has a real data inconsistency (two distinct single-valued facts
+        // for the same key). conflictedKeys must surface it regardless of kind.
+        // This test pins the design decision that conflict detection covers ALL
+        // single-valued canonical keys the portfolio holds, not just the keys that
+        // are "expected" for the portfolio's kind.
+        let a = ProfileField(key: .passportNumber, value: "A12345678",
+                             sourceDocument: "corp.pdf", sourceSnippet: "A12345678",
+                             snippetVerified: true, confidence: 0.9, userEdited: false)
+        let b = ProfileField(key: .passportNumber, value: "B99999999",
+                             sourceDocument: "corp.pdf", sourceSnippet: "B99999999",
+                             snippetVerified: true, confidence: 0.9, userEdited: false)
+        let portfolio = ClientPortfolio(
+            label: "Acme Corp",
+            fields: [a, b],
+            sourceDocuments: ["corp.pdf"],
+            createdAtISO8601: "2026-06-11T00:00:00Z",
+            incomplete: false,
+            kind: .company
+        )
+        XCTAssertEqual(portfolio.kind, .company, "sanity: portfolio is company-kind")
+        XCTAssertTrue(portfolio.conflictedKeys.contains(.passportNumber),
+                      "passportNumber conflict must appear even in a company-kind portfolio")
+    }
+
+    func testInitErgonomicsKindParameter() {
+        // Verify the new convenience parameters: kind is set directly on init,
+        // and modifiedAtISO8601 falls back to createdAtISO8601 when nil.
+        let created = "2026-06-11T00:00:00Z"
+        let portfolio = ClientPortfolio(
+            label: "Jane Doe",
+            fields: [],
+            sourceDocuments: [],
+            createdAtISO8601: created,
+            incomplete: false,
+            kind: .individual
+        )
+        XCTAssertEqual(portfolio.kind, .individual)
+        XCTAssertEqual(portfolio.modifiedAtISO8601, created,
+                       "modifiedAtISO8601 must default to createdAtISO8601 when nil is passed")
+    }
 }

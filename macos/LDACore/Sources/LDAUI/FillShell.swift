@@ -4,7 +4,7 @@
 //
 //  The Counsel Fill window shell. Hosts the two-stage fill workflow:
 //
-//  Stage 1 (profile builder): Add source documents, extract a company profile,
+//  Stage 1 (profile builder): Add source documents, extract a client portfolio,
 //  review and edit fields, resolve conflicts, save/load the profile as an
 //  encrypted .ldaprofile.
 //

@@ -64,7 +64,7 @@ public enum FillPlanner {
     /// - Parameters:
     ///   - blanks: the blanks to plan, in document order. Blanks with status
     ///     other than .unmatched are passed through unchanged (idempotence).
-    ///   - profile: the company profile supplying candidate field values.
+    ///   - profile: the client portfolio supplying candidate field values.
     ///   - completer: optional LLM backend. When nil, only the synonym pass
     ///     runs; blanks that miss the table stay .unmatched.
     ///   - prompts: prompt store used to assemble the blank-match prompt.

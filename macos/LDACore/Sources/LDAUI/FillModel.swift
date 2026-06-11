@@ -65,7 +65,7 @@ public final class FillModel: ObservableObject {
     /// The current stage of the fill session.
     @Published public var stage: FillStage = .idle
 
-    /// The extracted or user-loaded company profile. Nil before extraction completes.
+    /// The extracted or user-loaded client portfolio. Nil before extraction completes.
     @Published public var profile: ClientPortfolio?
 
     /// True when the profile has unsaved user edits (field updates, removals, or

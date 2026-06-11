@@ -64,8 +64,8 @@ public enum ProfileFieldKey: Hashable, Sendable {
     case phone
     case custom(String)
 
-    /// The canonical cases in stable order for company profiles (17 original
-    /// keys), excluding custom.
+    /// The full ordered canonical list of 25 keys across all portfolio kinds,
+    /// excluding custom.
     public static let canonical: [ProfileFieldKey] = [
         .companyName, .companyNameLocal, .formerName, .entityKind,
         .jurisdiction, .companyNumber, .incorporationDate, .registeredOffice,
@@ -308,19 +308,26 @@ public struct ClientPortfolio: Equatable, Sendable {
         fields: [ProfileField],
         sourceDocuments: [String],
         createdAtISO8601: String,
-        incomplete: Bool
+        incomplete: Bool,
+        kind: PortfolioKind = .company,
+        modifiedAtISO8601: String? = nil
     ) {
         self.label = label
         self.fields = fields
         self.sourceDocuments = sourceDocuments
         self.createdAtISO8601 = createdAtISO8601
         self.incomplete = incomplete
-        self.kind = .company
-        self.modifiedAtISO8601 = createdAtISO8601
+        self.kind = kind
+        self.modifiedAtISO8601 = modifiedAtISO8601 ?? createdAtISO8601
     }
 
     /// Single-valued keys currently holding more than one distinct normalized
     /// value. Derived at call time; nothing is stored.
+    ///
+    /// Conflict detection is intentionally scoped to ALL single-valued canonical
+    /// keys the portfolio holds, regardless of portfolio kind. Two distinct
+    /// passport numbers in a company-kind portfolio is still a data inconsistency
+    /// that must be resolved before the portfolio can be saved.
     public var conflictedKeys: [ProfileFieldKey] {
         var valuesByKey: [ProfileFieldKey: Set<String>] = [:]
         for field in fields where !ProfileFieldKey.listLike.contains(field.key) {
