@@ -531,7 +531,7 @@ public struct FillShell: View {
             return
         }
         let protection: MappingProtection = passphraseInput.isEmpty
-            ? .keychain(account: url.lastPathComponent)
+            ? .keychain(account: ProfileStore.standardAccount(for: url))
             : .passphrase(passphraseInput)
         pendingSaveURL = nil
         passphraseInput = ""
@@ -616,13 +616,17 @@ public struct FillShell: View {
             passphraseInput = ""
             return
         }
-        let protection: MappingProtection = passphraseInput.isEmpty
-            ? .keychain(account: url.lastPathComponent)
-            : .passphrase(passphraseInput)
+        let isPassphrase = !passphraseInput.isEmpty
+        let capturedPassphrase = passphraseInput
         pendingLoadURL = nil
         passphraseInput = ""
         do {
-            let profile = try ProfileStore.load(from: url, protection: protection)
+            let profile: ClientPortfolio
+            if isPassphrase {
+                profile = try ProfileStore.load(from: url, protection: .passphrase(capturedPassphrase))
+            } else {
+                profile = try ProfileStore.loadWithAccountFallback(from: url)
+            }
             model.loadProfile(profile)
         } catch {
             showAlert(

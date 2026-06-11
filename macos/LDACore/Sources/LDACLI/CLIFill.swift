@@ -194,7 +194,7 @@ extension LDACLI {
         )
         let protection = protectionFor(
             passphrase: passphrase,
-            derivedAccount: out.deletingPathExtension().lastPathComponent
+            derivedAccount: ProfileStore.standardAccount(for: out)
         )
         try ProfileStore.save(result.profile, to: out, protection: protection)
         let summary = ExtractProfileSummaryJSON(result: result, profilePath: out)
@@ -214,11 +214,15 @@ extension LDACLI {
     ) throws -> [FillPlanEntryJSON] {
         try requireExists(profileURL)
         try requireExists(input)
-        let protection = protectionFor(
-            passphrase: passphrase,
-            derivedAccount: profileURL.deletingPathExtension().lastPathComponent
-        )
-        let profile = try ProfileStore.load(from: profileURL, protection: protection)
+        let profile: ClientPortfolio
+        if let passphrase, !passphrase.isEmpty {
+            profile = try ProfileStore.load(
+                from: profileURL,
+                protection: .passphrase(passphrase)
+            )
+        } else {
+            profile = try ProfileStore.loadWithAccountFallback(from: profileURL)
+        }
         let plan = try LDAService.planFill(
             target: input,
             profile: profile,
@@ -240,11 +244,15 @@ extension LDACLI {
     ) throws -> FillReport {
         try requireExists(profileURL)
         try requireExists(input)
-        let protection = protectionFor(
-            passphrase: passphrase,
-            derivedAccount: profileURL.deletingPathExtension().lastPathComponent
-        )
-        let profile = try ProfileStore.load(from: profileURL, protection: protection)
+        let profile: ClientPortfolio
+        if let passphrase, !passphrase.isEmpty {
+            profile = try ProfileStore.load(
+                from: profileURL,
+                protection: .passphrase(passphrase)
+            )
+        } else {
+            profile = try ProfileStore.loadWithAccountFallback(from: profileURL)
+        }
         var plan = try LDAService.planFill(
             target: input,
             profile: profile,

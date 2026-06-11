@@ -73,6 +73,33 @@ public enum ProfileStore {
         try container.deleteKeychainKey(account: account)
     }
 
+    // MARK: - Keychain account derivation
+
+    /// Standard per-file Keychain account: the file name without extension.
+    /// This is the canonical form used for all new saves.
+    /// Example: "Acme Matter.ldaprofile" -> "Acme Matter"
+    public static func standardAccount(for url: URL) -> String {
+        url.deletingPathExtension().lastPathComponent
+    }
+
+    /// Legacy account written by the pre-portal UI: the file name WITH extension.
+    /// Used only as a fallback on load so that UI-saved files can still be read.
+    /// Example: "Acme Matter.ldaprofile" -> "Acme Matter.ldaprofile"
+    public static func legacyAccount(for url: URL) -> String {
+        url.lastPathComponent
+    }
+
+    /// Keychain-mode load that tries the standard account first, then the legacy
+    /// account. Call this for every Keychain load so that files saved by the
+    /// pre-portal UI (which used the extension-included account) still open.
+    public static func loadWithAccountFallback(from url: URL) throws -> ClientPortfolio {
+        do {
+            return try load(from: url, protection: .keychain(account: standardAccount(for: url)))
+        } catch {
+            return try load(from: url, protection: .keychain(account: legacyAccount(for: url)))
+        }
+    }
+
     // MARK: - Encoding
 
     private static func encodeProfile(_ profile: ClientPortfolio) throws -> Data {

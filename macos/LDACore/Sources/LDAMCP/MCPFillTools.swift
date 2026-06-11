@@ -56,7 +56,7 @@ extension MCPServer {
         let passphrase = arguments["passphrase"] as? String
         let protection = profileProtectionMode(
             from: arguments,
-            profileBaseName: out.deletingPathExtension().lastPathComponent
+            profileBaseName: ProfileStore.standardAccount(for: out)
         )
 
         let createdAt = MCPServer.iso8601Now()
@@ -107,7 +107,7 @@ extension MCPServer {
 
         let protection = profileProtectionMode(
             from: arguments,
-            profileBaseName: profileURL.deletingPathExtension().lastPathComponent
+            profileBaseName: ProfileStore.standardAccount(for: profileURL)
         )
 
         let profile = try ProfileStore.load(from: profileURL, protection: protection)

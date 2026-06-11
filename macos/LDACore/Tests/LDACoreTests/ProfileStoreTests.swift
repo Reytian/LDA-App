@@ -9,6 +9,7 @@
 //
 
 import XCTest
+import Security
 @testable import LDACore
 
 final class ProfileStoreTests: XCTestCase {
@@ -163,6 +164,109 @@ final class ProfileStoreTests: XCTestCase {
                 XCTFail("Expected corrupt for a non-container file, got \(error)")
                 return
             }
+        }
+    }
+
+    // MARK: - Account derivation helpers
+
+    func testStandardAccountDerivation() {
+        let url = URL(fileURLWithPath: "/tmp/Acme Matter.ldaprofile")
+        XCTAssertEqual(ProfileStore.standardAccount(for: url), "Acme Matter")
+        XCTAssertEqual(ProfileStore.legacyAccount(for: url), "Acme Matter.ldaprofile")
+    }
+
+    // MARK: - Keychain fallback (tolerant)
+
+    /// Saves under the LEGACY (extension-included) account and then loads via
+    /// loadWithAccountFallback. Proves the legacy fallback path. Skipped when
+    /// the unsigned test process cannot access the Keychain.
+    func testKeychainLoadFallsBackToLegacyAccountOrSkip() throws {
+        let url = tempURL()
+        let profile = sampleProfile()
+        let standardAcc = ProfileStore.standardAccount(for: url)
+        let legacyAcc = ProfileStore.legacyAccount(for: url)
+
+        // Clean up any stale keys from a previous run.
+        try? ProfileStore.deleteKeychainKey(account: standardAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+
+        // Save using the legacy (extension-included) account directly.
+        do {
+            try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyAcc))
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain save failed with status \(status)")
+            return
+        }
+
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        }
+
+        // Load using the fallback helper: standard account will fail, legacy
+        // account should succeed.
+        let back: ClientPortfolio
+        do {
+            back = try ProfileStore.loadWithAccountFallback(from: url)
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain load failed with status \(status)")
+            return
+        }
+
+        XCTAssertEqual(back.label, profile.label)
+    }
+
+    /// Saves under the STANDARD (extension-less) account and then loads via
+    /// loadWithAccountFallback. Proves the primary path.
+    func testKeychainStandardAccountRoundTripOrSkip() throws {
+        let url = tempURL()
+        let profile = sampleProfile()
+        let standardAcc = ProfileStore.standardAccount(for: url)
+        let legacyAcc = ProfileStore.legacyAccount(for: url)
+
+        try? ProfileStore.deleteKeychainKey(account: standardAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+
+        do {
+            try ProfileStore.save(profile, to: url, protection: .keychain(account: standardAcc))
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain save failed with status \(status)")
+            return
+        }
+
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        }
+
+        let back: ClientPortfolio
+        do {
+            back = try ProfileStore.loadWithAccountFallback(from: url)
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain load failed with status \(status)")
+            return
+        }
+
+        XCTAssertEqual(back.label, profile.label)
+    }
+
+    // MARK: - Helpers
+
+    /// Skips the current test when a Keychain status indicates the service is
+    /// unavailable in this unsigned, non-app test process.
+    private func skipIfKeychainUnavailable(_ status: OSStatus) throws {
+        let tolerated: Set<OSStatus> = [
+            errSecMissingEntitlement,
+            errSecNotAvailable,
+            errSecInteractionNotAllowed,
+            errSecAuthFailed
+        ]
+        if tolerated.contains(status) {
+            throw XCTSkip("Keychain unavailable in this test process (status \(status))")
         }
     }
 }
