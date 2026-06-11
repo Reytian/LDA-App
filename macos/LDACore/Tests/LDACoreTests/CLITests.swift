@@ -816,8 +816,8 @@ final class CLITests: XCTestCase {
             )
             // Both candidate labels must appear in the error message.
             XCTAssertTrue(
-                desc.contains("Duplicate Client") || desc.contains("DUPLICATE CLIENT"),
-                "Error must list candidate labels, got: \(desc)"
+                desc.contains("Duplicate Client") && desc.contains("DUPLICATE CLIENT"),
+                "Error must list both candidate labels, got: \(desc)"
             )
         }
     }
