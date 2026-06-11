@@ -81,11 +81,15 @@ public final class ProfileExtractor {
         self.prompts = prompts
     }
 
-    /// Extract company-profile fields from one or more source documents.
+    /// Extract profile fields from one or more source documents.
     ///
     /// - Parameters:
     ///   - sources: the source documents as (name, plain text) pairs. The
     ///     name is recorded in ProfileField.sourceDocument.
+    ///   - kind: the portfolio kind that determines which keys the model is
+    ///     instructed to look for. Defaults to .company for backward compatibility
+    ///     with older callers (ProfileExtractorTests and internal integration tests)
+    ///     that predate kind-aware extraction.
     ///   - onProgress: optional callback invoked as (segmentsDone,
     ///     segmentsTotal). Called once with (0, total) before any model call;
     ///     then once after each original chunk completes (retries and split
@@ -95,6 +99,7 @@ public final class ProfileExtractor {
     /// - Throws: any error thrown by the completer.
     public func extract(
         sources: [(name: String, text: String)],
+        kind: PortfolioKind = .company,
         onProgress: ((Int, Int) -> Void)? = nil
     ) throws -> ProfileExtractionResult {
 
@@ -120,6 +125,9 @@ public final class ProfileExtractor {
         let total = work.count
         onProgress?(0, total)
 
+        // Render the kind-specific system prompt once for the whole run.
+        let systemPrompt = prompts.profileSystem(for: kind)
+
         // 2. Process each chunk, accumulating raw parsed rows.
         //    Completer errors propagate immediately.
         //    onProgress fires exactly once per original chunk after scanChunk
@@ -131,7 +139,8 @@ public final class ProfileExtractor {
             let outcome = try scanChunk(
                 item.chunkText,
                 documentName: item.documentName,
-                sourceText: item.sourceText
+                sourceText: item.sourceText,
+                systemPrompt: systemPrompt
             )
             rawRows.append(contentsOf: outcome.rows.map { ($0, item.documentName, item.sourceText) })
             if outcome.incomplete {
@@ -186,18 +195,29 @@ public final class ProfileExtractor {
     private func scanChunk(
         _ chunkText: String,
         documentName: String,
-        sourceText: String
+        sourceText: String,
+        systemPrompt: String
     ) throws -> ChunkOutcome {
 
         // First attempt at the default cap.
-        let firstCompletion = try completeChunk(chunkText, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens)
+        let firstCompletion = try completeChunk(
+            chunkText,
+            documentName: documentName,
+            maxTokens: ProfileExtractor.defaultMaxTokens,
+            systemPrompt: systemPrompt
+        )
 
         if let firstRows = ProfileJSONParser.parseProfileRowsDetailed(firstCompletion) {
             return ChunkOutcome(rows: firstRows, incomplete: false)
         }
 
         // Retry once with doubled maxTokens.
-        let retryCompletion = try completeChunk(chunkText, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens * 2)
+        let retryCompletion = try completeChunk(
+            chunkText,
+            documentName: documentName,
+            maxTokens: ProfileExtractor.defaultMaxTokens * 2,
+            systemPrompt: systemPrompt
+        )
 
         if let retryRows = ProfileJSONParser.parseProfileRowsDetailed(retryCompletion) {
             return ChunkOutcome(rows: retryRows, incomplete: false)
@@ -214,7 +234,12 @@ public final class ProfileExtractor {
         var anyIncomplete = false
 
         for half in halves {
-            let halfCompletion = try completeChunk(half, documentName: documentName, maxTokens: ProfileExtractor.defaultMaxTokens)
+            let halfCompletion = try completeChunk(
+                half,
+                documentName: documentName,
+                maxTokens: ProfileExtractor.defaultMaxTokens,
+                systemPrompt: systemPrompt
+            )
 
             if let halfRows = ProfileJSONParser.parseProfileRowsDetailed(halfCompletion) {
                 allRows.append(contentsOf: halfRows)
@@ -230,10 +255,11 @@ public final class ProfileExtractor {
     private func completeChunk(
         _ chunkText: String,
         documentName: String,
-        maxTokens: Int
+        maxTokens: Int,
+        systemPrompt: String
     ) throws -> String {
         let prompt = LLMEngine.buildChatMLPrompt(
-            system: prompts.currentProfileSystem,
+            system: systemPrompt,
             user: prompts.profileUser(documentName: documentName, chunk: chunkText)
         )
         return try completer.complete(

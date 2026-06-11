@@ -235,12 +235,19 @@ final class PromptStoreTests: XCTestCase {
 
     func testProfilePromptDefaultsCarryJSONContractAndKeys() {
         let store = PromptStore()
+        // The template (currentProfileSystem / currentProfileTemplate) carries
+        // the JSON contract phrase but NOT the raw key names (those live in the
+        // {allowed_keys} slot). Re-target key assertions at the rendered output.
         XCTAssertTrue(store.currentProfileSystem.contains("JSON"))
+        // The template must carry the literal slot so rendering can substitute it.
+        XCTAssertTrue(
+            store.currentProfileSystem.contains("{allowed_keys}"),
+            "currentProfileSystem (template) must carry the {allowed_keys} slot"
+        )
+        // The four key names appear only in the rendered output for .company.
+        let rendered = store.profileSystem(for: .company)
         for key in ["companyName", "companyNumber", "incorporationDate", "registeredOffice"] {
-            XCTAssertTrue(
-                store.currentProfileSystem.contains(key),
-                "missing \(key)"
-            )
+            XCTAssertTrue(rendered.contains(key), "rendered company system must contain '\(key)'")
         }
         let user = store.profileUser(documentName: "cert.pdf", chunk: "TEXT HERE")
         XCTAssertTrue(user.contains("TEXT HERE"))
@@ -306,5 +313,105 @@ final class PromptStoreTests: XCTestCase {
         // The new prompts fall back to their defaults.
         XCTAssertEqual(store.currentProfileSystem, PromptStore.defaultProfileSystem)
         XCTAssertEqual(store.currentBlankMatchSystem, PromptStore.defaultBlankMatchSystem)
+    }
+
+    // MARK: - Kind-aware profileSystem(for:) tests (Task 4)
+
+    func testProfileSystemForIndividualContainsPersonKeys() {
+        let store = PromptStore()
+        let rendered = store.profileSystem(for: .individual)
+        XCTAssertTrue(rendered.contains("passportNumber"), "individual must contain passportNumber")
+        XCTAssertTrue(rendered.contains("dateOfBirth"), "individual must contain dateOfBirth")
+        XCTAssertFalse(
+            rendered.contains("authorizedCapital"),
+            "individual must NOT contain authorizedCapital"
+        )
+    }
+
+    func testProfileSystemForCompanyContainsCompanyKeys() {
+        let store = PromptStore()
+        let rendered = store.profileSystem(for: .company)
+        XCTAssertTrue(rendered.contains("companyName"), "company must contain companyName")
+        XCTAssertTrue(rendered.contains("email"), "company must contain email")
+        XCTAssertFalse(
+            rendered.contains("passportNumber"),
+            "company must NOT contain passportNumber"
+        )
+    }
+
+    func testProfileSystemForGeneralContainsBothKeyGroups() {
+        let store = PromptStore()
+        let rendered = store.profileSystem(for: .general)
+        XCTAssertTrue(rendered.contains("companyName"), "general must contain companyName")
+        XCTAssertTrue(rendered.contains("passportNumber"), "general must contain passportNumber")
+    }
+
+    func testDefaultProfileTemplateCarriesAllowedKeysSlot() {
+        // The raw template must carry the literal slot so it is visible to a host
+        // that needs to know the contract before rendering.
+        XCTAssertTrue(
+            PromptStore.defaultProfileTemplate.contains("{allowed_keys}"),
+            "defaultProfileTemplate must contain the literal {allowed_keys} slot"
+        )
+    }
+
+    func testValidateProfileTemplateReturnsNoWarningsWhenIntact() {
+        let warnings = PromptStore.validateProfileTemplate(PromptStore.defaultProfileTemplate)
+        XCTAssertEqual(warnings, [], "intact template must produce no warnings; got \(warnings)")
+    }
+
+    func testValidateProfileTemplateWarnsWhenAllowedKeysSlotDropped() {
+        let edited = PromptStore.defaultProfileTemplate
+            .replacingOccurrences(of: "{allowed_keys}", with: "companyName, companyNumber")
+        let warnings = PromptStore.validateProfileTemplate(edited)
+        XCTAssertFalse(
+            warnings.isEmpty,
+            "validateProfileTemplate must warn when {allowed_keys} slot is dropped"
+        )
+    }
+
+    func testValidateProfileTemplateWarnsWhenRawJSONContractDropped() {
+        let edited = PromptStore.defaultProfileTemplate
+            .replacingOccurrences(of: "RAW JSON ONLY", with: "some output")
+        let warnings = PromptStore.validateProfileTemplate(edited)
+        XCTAssertFalse(
+            warnings.isEmpty,
+            "validateProfileTemplate must warn when the raw-JSON contract sentence is dropped"
+        )
+    }
+
+    func testProfileSystemBodyContainsIdentityDocumentOpening() {
+        let store = PromptStore()
+        // The generalized opening should mention identity documents so both
+        // company and individual docs are covered.
+        let rendered = store.profileSystem(for: .individual)
+        XCTAssertTrue(
+            rendered.lowercased().contains("identity"),
+            "rendered profile system must mention 'identity' in its opening"
+        )
+    }
+
+    // MARK: Ripple: testProfilePromptDefaultsCarryJSONContractAndKeys
+    //
+    // After templating, currentProfileSystem holds the raw template (with the
+    // {allowed_keys} slot). The four key-name assertions must therefore target the
+    // rendered output of profileSystem(for: .company), which has the slot substituted.
+
+    func testProfilePromptDefaultsCarryJSONContractAndKeysViaRendered() {
+        let store = PromptStore()
+        // The template must still carry the JSON contract phrase.
+        XCTAssertTrue(
+            store.currentProfileTemplate.contains("JSON"),
+            "currentProfileTemplate must contain 'JSON'"
+        )
+        // The four key names appear only after rendering.
+        let rendered = store.profileSystem(for: .company)
+        for key in ["companyName", "companyNumber", "incorporationDate", "registeredOffice"] {
+            XCTAssertTrue(rendered.contains(key), "rendered company system must contain '\(key)'")
+        }
+        // The user builder is unchanged.
+        let user = store.profileUser(documentName: "cert.pdf", chunk: "TEXT HERE")
+        XCTAssertTrue(user.contains("TEXT HERE"))
+        XCTAssertTrue(user.contains("cert.pdf"))
     }
 }

@@ -172,6 +172,8 @@ extension LDACLI {
     /// - Parameters:
     ///   - sources: source document paths (one or more).
     ///   - label: human label for the resulting profile.
+    ///   - kind: portfolio kind (company, individual, or general). Defaults to
+    ///     .company. The CLI --kind flag feeds this parameter.
     ///   - out: destination path for the encrypted .ldaprofile.
     ///   - passphrase: explicit passphrase, or nil to use Keychain (account
     ///     derived from the output file's base name).
@@ -181,6 +183,7 @@ extension LDACLI {
     public static func runExtractProfile(
         sources: [URL],
         label: String,
+        kind: PortfolioKind = .company,
         out: URL,
         passphrase: String?,
         llmModelPath: String,
@@ -189,6 +192,7 @@ extension LDACLI {
         let result = try LDAService.extractProfile(
             sources: sources,
             label: label,
+            kind: kind,
             modelPath: llmModelPath,
             createdAtISO8601: timestamp()
         )
@@ -296,6 +300,12 @@ struct ExtractProfile: ParsableCommand {
     @Option(name: .long, help: "Path to the v2 GGUF model. Required for extraction.")
     var model: String
 
+    @Option(
+        name: .long,
+        help: "Portfolio kind: company, individual, or general. Defaults to company."
+    )
+    var kind: String = "company"
+
     @Argument(help: "Source document paths (one or more).")
     var sources: [String]
 
@@ -303,14 +313,27 @@ struct ExtractProfile: ParsableCommand {
         guard !sources.isEmpty else {
             throw ValidationError("At least one source document is required.")
         }
+        let valid = ["company", "individual", "general"]
+        guard valid.contains(kind) else {
+            throw ValidationError(
+                "Invalid --kind '\(kind)': must be one of company, individual, general."
+            )
+        }
     }
 
     func run() throws {
         do {
             let sourceURLs = sources.map { URL(fileURLWithPath: $0) }
+            let portfolioKind: PortfolioKind
+            switch kind {
+            case "individual": portfolioKind = .individual
+            case "general":    portfolioKind = .general
+            default:           portfolioKind = .company
+            }
             let (summary, _) = try LDACLI.runExtractProfile(
                 sources: sourceURLs,
                 label: label,
+                kind: portfolioKind,
                 out: URL(fileURLWithPath: out),
                 passphrase: passphrase,
                 llmModelPath: model

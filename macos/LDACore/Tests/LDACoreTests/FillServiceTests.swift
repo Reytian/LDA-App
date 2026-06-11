@@ -747,6 +747,30 @@ final class FillServiceTests: XCTestCase {
         XCTAssertNotNil(dupSkip, "second occurrence must be skipped with reason 'duplicate location'")
     }
 
+    // Test (Task 4): extractProfile carries the requested kind in the resulting profile.
+    func testExtractProfileCarriesRequestedKind() throws {
+        let sourceURL = workDir.appendingPathComponent("passport.txt")
+        let sourceText = "Name: Alice Smith. Passport: A98765432."
+        try Data(sourceText.utf8).write(to: sourceURL)
+
+        let fakeRow = """
+        [{"key":"clientName","value":"Alice Smith","snippet":"Name: Alice Smith","confidence":0.9}]
+        """
+        let fake = FakeCompleter([fakeRow])
+        LDAService.makeCompleterForTesting = { fake }
+
+        let result = try LDAService.extractProfile(
+            sources: [sourceURL],
+            label: "Alice",
+            kind: .individual,
+            modelPath: "fake-path",
+            createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertEqual(result.profile.kind, .individual,
+                       "extractProfile must carry the requested kind in the resulting portfolio")
+    }
+
     // Test (M10): a completed re-fill (re-applying to the already-filled output)
     // succeeds without a collision: the new output gets a double suffix and a
     // pre-existing output file from a prior run is removed rather than causing

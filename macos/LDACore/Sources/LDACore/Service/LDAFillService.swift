@@ -68,6 +68,10 @@ extension LDAService {
     /// - Parameters:
     ///   - sources: the source document URLs to import and extract from.
     ///   - label: a short human label for the resulting ClientPortfolio.
+    ///   - kind: the portfolio kind (company, individual, or general). Controls
+    ///     which keys the model is prompted to extract and is stored on the
+    ///     resulting ClientPortfolio. Defaults to .company for backward
+    ///     compatibility with existing callers.
     ///   - modelPath: absolute path to the GGUF model. REQUIRED. Ignored only
     ///     when makeCompleterForTesting is set (test seam).
     ///   - createdAtISO8601: caller-supplied creation timestamp (purity rule).
@@ -76,6 +80,7 @@ extension LDAService {
     public static func extractProfile(
         sources: [URL],
         label: String,
+        kind: PortfolioKind = .company,
         modelPath: String,
         createdAtISO8601: String,
         onProgress: ((Int, Int) -> Void)? = nil
@@ -119,14 +124,16 @@ extension LDAService {
         }
 
         let extractor = ProfileExtractor(completer: completer)
-        let result = try extractor.extract(sources: readable, onProgress: onProgress)
+        let result = try extractor.extract(sources: readable, kind: kind, onProgress: onProgress)
 
         let profile = ClientPortfolio(
             label: label,
             fields: result.fields,
             sourceDocuments: readable.map { $0.name },
             createdAtISO8601: createdAtISO8601,
-            incomplete: result.incompleteSegmentCount > 0
+            incomplete: result.incompleteSegmentCount > 0,
+            kind: kind,
+            modifiedAtISO8601: createdAtISO8601
         )
         return ExtractProfileResult(profile: profile, failedSources: failedSources)
     }

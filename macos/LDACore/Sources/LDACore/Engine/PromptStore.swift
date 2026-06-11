@@ -163,22 +163,28 @@ public final class PromptStore {
     information and return strict JSON. Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS.
     """
 
-    /// Default system prompt for the profile-extraction pass. Extracts company
-    /// facts from incorporation documents and returns a raw JSON array of fact
-    /// objects. English by design (the "Fill from Profile" feature targets
-    /// English-language incorporation documents as the primary input).
-    public static let defaultProfileSystem: String = """
-    You extract company facts from incorporation documents (certificates of \
-    incorporation, articles of association, business licenses). The document may \
-    be in English or Chinese; extract facts regardless of language.
+    /// The profile-extraction prompt template. Contains an {allowed_keys} slot
+    /// where the key-list sentence is substituted at render time via
+    /// profileSystem(for:). The slot lets kind-aware rendering inject exactly the
+    /// keys relevant to the portfolio kind (company, individual, or general)
+    /// without duplicating the surrounding rule sentences.
+    ///
+    /// Use profileSystem(for:) to get a fully rendered system prompt; use
+    /// currentProfileTemplate when you need the raw template (e.g. to validate
+    /// that a user-edited body still carries the slot).
+    ///
+    /// All rule sentences are kept verbatim from the prior defaultProfileSystem
+    /// so existing behavior is preserved when rendering for .company.
+    public static let defaultProfileTemplate: String = """
+    You extract client facts from legal, corporate, and identity documents \
+    (certificates of incorporation, articles of association, business licenses, \
+    registers, passports, identity cards, utility statements, letters). \
+    The document may be in English or Chinese; extract facts regardless of language.
 
     Return RAW JSON ONLY, no code fences, no commentary: an array of objects, \
     each {"key": string, "value": string, "snippet": string, "confidence": number}.
 
-    Allowed keys: companyName, companyNameLocal, formerName, entityKind, \
-    jurisdiction, companyNumber, incorporationDate, registeredOffice, \
-    authorizedCapital, issuedCapital, parValue, shareClass, directorName, \
-    shareholderName, shareholderShares, companySecretary, registeredAgent. \
+    Allowed keys: {allowed_keys}. \
     If you find an important fact that fits none of these, use a single camelCase \
     word of your own (no spaces, no underscores).
 
@@ -196,6 +202,12 @@ public final class PromptStore {
     "Jane Roe: 9,000 ordinary shares".
     - If the chunk contains no extractable fact, return [].
     """
+
+    /// Backward-compatible alias for defaultProfileTemplate. Kept so existing code
+    /// that reads the constant compiles without change; it returns the raw template
+    /// body (with the {allowed_keys} slot). To get a fully rendered system prompt
+    /// for a specific kind, call profileSystem(for:) on a store instance.
+    public static var defaultProfileSystem: String { defaultProfileTemplate }
 
     /// Default system prompt for the blank-match pass. Matches blanks in a legal
     /// draft to fields from a company profile and returns a raw JSON array.
@@ -258,9 +270,19 @@ public final class PromptStore {
     /// defaultExtractionSystem; edit freely. reset(.extraction) restores it.
     public var currentExtractionSystem: String
 
-    /// The current profile-extraction system prompt. Defaults to
-    /// defaultProfileSystem; edit freely. reset(.profile) restores it.
-    public var currentProfileSystem: String
+    /// The current profile-extraction prompt template. Defaults to
+    /// defaultProfileTemplate; edit freely. reset(.profile) restores it.
+    /// Contains the {allowed_keys} slot; render via profileSystem(for:) to get
+    /// a fully substituted system prompt.
+    public var currentProfileTemplate: String
+
+    /// Backward-compatible read/write alias for currentProfileTemplate so callers
+    /// that predate the template rename continue to compile. Reading returns the
+    /// template body; writing sets it.
+    public var currentProfileSystem: String {
+        get { currentProfileTemplate }
+        set { currentProfileTemplate = newValue }
+    }
 
     /// The current blank-match system prompt. Defaults to
     /// defaultBlankMatchSystem; edit freely. reset(.blankMatch) restores it.
@@ -273,7 +295,7 @@ public final class PromptStore {
         self.currentPass1 = PromptStore.defaultPass1
         self.currentPass2 = PromptStore.defaultPass2
         self.currentExtractionSystem = PromptStore.defaultExtractionSystem
-        self.currentProfileSystem = PromptStore.defaultProfileSystem
+        self.currentProfileTemplate = PromptStore.defaultProfileTemplate
         self.currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
     }
 
@@ -284,7 +306,7 @@ public final class PromptStore {
         self.currentPass1 = snapshot.pass1
         self.currentPass2 = snapshot.pass2
         self.currentExtractionSystem = PromptStore.defaultExtractionSystem
-        self.currentProfileSystem = PromptStore.defaultProfileSystem
+        self.currentProfileTemplate = PromptStore.defaultProfileTemplate
         self.currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
     }
 
@@ -300,7 +322,7 @@ public final class PromptStore {
         case .extraction:
             currentExtractionSystem = PromptStore.defaultExtractionSystem
         case .profile:
-            currentProfileSystem = PromptStore.defaultProfileSystem
+            currentProfileTemplate = PromptStore.defaultProfileTemplate
         case .blankMatch:
             currentBlankMatchSystem = PromptStore.defaultBlankMatchSystem
         }
@@ -330,6 +352,21 @@ public final class PromptStore {
             + chunk
     }
 
+    // MARK: Profile system prompt rendering
+
+    /// Render the profile-extraction SYSTEM prompt for a given portfolio kind.
+    /// Substitutes the {allowed_keys} slot in currentProfileTemplate with the
+    /// comma-separated list of canonical key rawKey strings for that kind.
+    ///
+    /// The rendered string is the fully resolved system prompt ready to hand
+    /// to the LLM; it never contains the literal "{allowed_keys}" text.
+    public func profileSystem(for kind: PortfolioKind) -> String {
+        let keys = ProfileFieldKey.canonical(for: kind)
+            .map { $0.rawKey }
+            .joined(separator: ", ")
+        return currentProfileTemplate.replacingOccurrences(of: "{allowed_keys}", with: keys)
+    }
+
     // MARK: Profile and BlankMatch prompt builders
 
     /// Builds the profile-extraction USER turn for one document chunk.
@@ -354,6 +391,38 @@ public final class PromptStore {
     public func apply(_ snapshot: PromptSnapshot) {
         currentPass1 = snapshot.pass1
         currentPass2 = snapshot.pass2
+    }
+
+    // MARK: Profile template validation
+
+    /// Validate an edited profile template body. Returns human-readable warnings
+    /// when structural anchors are missing. An empty array means the body is
+    /// structurally intact.
+    ///
+    /// Checks:
+    /// - The {allowed_keys} substitution slot is present (without it, kind-aware
+    ///   rendering cannot inject the correct key list).
+    /// - The raw-JSON contract phrase "RAW JSON ONLY" is present (the model must
+    ///   be instructed to return only JSON).
+    ///
+    /// This is separate from validate(_:), which is calibrated for the Chinese
+    /// pass1/pass2 bodies. Profile templates use English phrasing and the
+    /// {allowed_keys} slot rather than str.format-style placeholders.
+    public static func validateProfileTemplate(_ body: String) -> [String] {
+        var warnings: [String] = []
+        if !body.contains("{allowed_keys}") {
+            warnings.append(
+                "Missing {allowed_keys} slot: the template must contain the literal "
+                + "{allowed_keys} so kind-aware rendering can inject the correct key list."
+            )
+        }
+        if !body.contains("RAW JSON ONLY") {
+            warnings.append(
+                "Missing raw-JSON contract: the template should instruct the model to "
+                + "return RAW JSON ONLY."
+            )
+        }
+        return warnings
     }
 
     // MARK: Validation

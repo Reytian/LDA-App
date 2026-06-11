@@ -415,7 +415,7 @@ final class FillModelTests: XCTestCase {
             failedSources: [("bad.txt", "unreadable")]
         )
 
-        FillModel.extractProfileForTesting = { _, _, _, _ in fakeResult }
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in fakeResult }
 
         await model.extractProfile(
             sources: [URL(fileURLWithPath: "/tmp/source.txt")],
@@ -437,7 +437,7 @@ final class FillModelTests: XCTestCase {
         struct FakeError: Error {
             let msg: String
         }
-        FillModel.extractProfileForTesting = { _, _, _, _ in
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
             throw FakeError(msg: "engine blew up")
         }
 
@@ -922,7 +922,7 @@ final class FillModelTests: XCTestCase {
 
         // Wire the seam to fire the first progress callback, which should flip
         // the stage from .importingSources to .extracting.
-        FillModel.extractProfileForTesting = { _, _, _, onProgress in
+        FillModel.extractProfileForTesting = { _, _, _, _, onProgress in
             // Fire the "extraction started" signal: done=0, total=5.
             onProgress(0, 5)
             return fakeResult

@@ -165,11 +165,12 @@ public final class FillModel: ObservableObject {
     // MARK: - Test seams
 
     /// Replaces LDAService.extractProfile in tests. Receives (sources, label,
-    /// createdAtISO8601, onProgress) and returns an ExtractProfileResult or throws.
-    /// The onProgress closure mirrors the production signature so fakes can fire
-    /// progress callbacks to drive the importingSources -> extracting transition.
-    /// Nil in production. Mirrors the ReviewModel / LDAFillService static-var seam pattern.
-    nonisolated(unsafe) internal static var extractProfileForTesting: (([URL], String, String, (Int, Int) -> Void) throws -> ExtractProfileResult)?
+    /// kind, createdAtISO8601, onProgress) and returns an ExtractProfileResult
+    /// or throws. The onProgress closure mirrors the production signature so
+    /// fakes can fire progress callbacks to drive the importingSources ->
+    /// extracting transition. Nil in production. Mirrors the ReviewModel /
+    /// LDAFillService static-var seam pattern.
+    nonisolated(unsafe) internal static var extractProfileForTesting: (([URL], String, PortfolioKind, String, (Int, Int) -> Void) throws -> ExtractProfileResult)?
 
     /// Replaces LDAService.planFill in tests. Receives (target, profile) and
     /// returns a FillPlan or throws. The live profile is passed at the call site
@@ -340,7 +341,13 @@ public final class FillModel: ObservableObject {
     /// LDAService facade.
     ///
     /// createdAtISO8601 is supplied by the caller; the model never reads the clock.
-    public func extractProfile(sources: [URL], label: String, createdAtISO8601: String) async {
+    /// kind defaults to .company; the portal UI (Task 6) will thread real kinds here.
+    public func extractProfile(
+        sources: [URL],
+        label: String,
+        createdAtISO8601: String,
+        kind: PortfolioKind = .company
+    ) async {
         // Stage starts at .importingSources (documents are being staged before the
         // LLM begins). The facade emits onProgress(0, total) when extraction actually
         // begins (after all imports succeed); we flip to .extracting on that first
@@ -368,11 +375,12 @@ public final class FillModel: ObservableObject {
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 if let seam {
-                    return try seam(sources, label, createdAtISO8601, progressCallback)
+                    return try seam(sources, label, kind, createdAtISO8601, progressCallback)
                 } else {
                     return try LDAService.extractProfile(
                         sources: sources,
                         label: label,
+                        kind: kind,
                         modelPath: path,
                         createdAtISO8601: createdAtISO8601,
                         onProgress: progressCallback

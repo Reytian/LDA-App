@@ -514,7 +514,8 @@ public struct MCPServer {
                     "label": ["type": "string", "description": "Short human label for the resulting profile."],
                     "out": ["type": "string", "description": "Destination path for the encrypted .ldaprofile file."],
                     "model": ["type": "string", "description": "Absolute path to the v2 GGUF model. Required for profile extraction."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the profile. Omit to use a per-profile Keychain key."]
+                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the profile. Omit to use a per-profile Keychain key."],
+                    "kind": ["type": "string", "enum": ["company", "individual", "general"], "description": "Portfolio kind: company (default), individual, or general. Controls which keys the model is prompted to extract."]
                 ],
                 "required": ["sources", "label", "out", "model"]
             ]

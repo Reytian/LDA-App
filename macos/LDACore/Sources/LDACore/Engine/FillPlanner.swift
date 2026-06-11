@@ -338,6 +338,30 @@ public enum FillPlanner {
         ]),
         (.entityKind, [
             "entity type", "company type", "公司类型"
+        ]),
+        (.clientName, [
+            "client name", "full name", "name of individual", "姓名"
+        ]),
+        (.dateOfBirth, [
+            "date of birth", "birth date", "dob", "出生日期"
+        ]),
+        (.nationality, [
+            "nationality", "citizenship", "国籍"
+        ]),
+        (.passportNumber, [
+            "passport number", "passport no", "护照号码", "护照号"
+        ]),
+        (.nationalIDNumber, [
+            "id number", "national id", "identity card number", "身份证号码", "身份证号"
+        ]),
+        (.residentialAddress, [
+            "residential address", "home address", "住址", "住宅地址"
+        ]),
+        (.email, [
+            "email", "e-mail", "email address", "电子邮箱", "邮箱"
+        ]),
+        (.phone, [
+            "phone", "telephone", "mobile", "phone number", "电话", "手机号码"
         ])
     ]
 

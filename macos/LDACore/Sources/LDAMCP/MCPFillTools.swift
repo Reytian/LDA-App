@@ -61,9 +61,19 @@ extension MCPServer {
 
         let createdAt = MCPServer.iso8601Now()
 
+        // Optional kind parameter: "company" (default), "individual", or "general".
+        let portfolioKind: PortfolioKind
+        let kindString = (arguments["kind"] as? String) ?? "company"
+        switch kindString {
+        case "individual": portfolioKind = .individual
+        case "general":    portfolioKind = .general
+        default:           portfolioKind = .company
+        }
+
         let result = try LDAService.extractProfile(
             sources: sources,
             label: label,
+            kind: portfolioKind,
             modelPath: modelPath,
             createdAtISO8601: createdAt
         )

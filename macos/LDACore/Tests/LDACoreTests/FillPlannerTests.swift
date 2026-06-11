@@ -347,4 +347,116 @@ final class FillPlannerTests: XCTestCase {
         XCTAssertEqual(planned[0].proposedFieldID, nameField.id,
                        "bare 'company' label must propose .companyName, not .companyNameLocal")
     }
+
+    // MARK: - Individual portfolio synonyms (Task 4)
+
+    // Build an individual portfolio so the synonym pass can resolve person-specific keys.
+    private func individualProfile(_ fields: [ProfileField]) -> ClientPortfolio {
+        ClientPortfolio(
+            label: "Alice Example",
+            fields: fields,
+            sourceDocuments: [],
+            createdAtISO8601: "2026-06-11T00:00:00Z",
+            incomplete: false,
+            kind: .individual
+        )
+    }
+
+    func testDateOfBirthEnglishSynonymsMatchIndividualProfile() {
+        let dobField = field(.dateOfBirth, "1 January 1990")
+        for label in ["Date of Birth", "birth date", "dob"] {
+            let planned = FillPlanner.plan(
+                blanks: [blank(label)],
+                profile: individualProfile([dobField]),
+                completer: nil
+            )
+            XCTAssertEqual(
+                planned[0].status, .proposed,
+                "label '\(label)' must match .dateOfBirth"
+            )
+            XCTAssertEqual(planned[0].proposedFieldID, dobField.id)
+        }
+    }
+
+    func testDateOfBirthChineseSynonymMatchesIndividualProfile() {
+        let dobField = field(.dateOfBirth, "1990年1月1日")
+        let planned = FillPlanner.plan(
+            blanks: [blank("出生日期")],
+            profile: individualProfile([dobField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "Chinese '出生日期' must match .dateOfBirth")
+        XCTAssertEqual(planned[0].proposedFieldID, dobField.id)
+    }
+
+    func testPassportNumberEnglishSynonymsMatchIndividualProfile() {
+        let passportField = field(.passportNumber, "A12345678")
+        for label in ["Passport Number", "Passport No"] {
+            let planned = FillPlanner.plan(
+                blanks: [blank(label)],
+                profile: individualProfile([passportField]),
+                completer: nil
+            )
+            XCTAssertEqual(
+                planned[0].status, .proposed,
+                "label '\(label)' must match .passportNumber"
+            )
+            XCTAssertEqual(planned[0].proposedFieldID, passportField.id)
+        }
+    }
+
+    func testPassportNumberChineseSynonymMatchesIndividualProfile() {
+        let passportField = field(.passportNumber, "E98765432")
+        let planned = FillPlanner.plan(
+            blanks: [blank("护照号码")],
+            profile: individualProfile([passportField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "Chinese '护照号码' must match .passportNumber")
+        XCTAssertEqual(planned[0].proposedFieldID, passportField.id)
+    }
+
+    func testFullNameEnglishSynonymMatchesClientName() {
+        let nameField = field(.clientName, "Alice Example")
+        let planned = FillPlanner.plan(
+            blanks: [blank("Full Name")],
+            profile: individualProfile([nameField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "'Full Name' must match .clientName")
+        XCTAssertEqual(planned[0].proposedFieldID, nameField.id)
+    }
+
+    func testChineseFullNameSynonymMatchesClientName() {
+        let nameField = field(.clientName, "张三")
+        let planned = FillPlanner.plan(
+            blanks: [blank("姓名")],
+            profile: individualProfile([nameField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "Chinese '姓名' must match .clientName")
+        XCTAssertEqual(planned[0].proposedFieldID, nameField.id)
+    }
+
+    func testEmailAddressEnglishSynonymMatchesEmailKey() {
+        let emailField = field(.email, "alice@example.com")
+        let planned = FillPlanner.plan(
+            blanks: [blank("Email Address")],
+            profile: individualProfile([emailField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "'Email Address' must match .email")
+        XCTAssertEqual(planned[0].proposedFieldID, emailField.id)
+    }
+
+    func testChineseEmailSynonymMatchesEmailKey() {
+        let emailField = field(.email, "zhang.san@example.com")
+        let planned = FillPlanner.plan(
+            blanks: [blank("电子邮箱")],
+            profile: individualProfile([emailField]),
+            completer: nil
+        )
+        XCTAssertEqual(planned[0].status, .proposed, "Chinese '电子邮箱' must match .email")
+        XCTAssertEqual(planned[0].proposedFieldID, emailField.id)
+    }
 }
