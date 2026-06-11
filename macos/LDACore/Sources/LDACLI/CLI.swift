@@ -255,8 +255,8 @@ struct Anonymize: ParsableCommand {
         abstract: "Redact a document and write an encrypted mapping sidecar."
     )
 
-    @Option(name: .long, help: "Path to the source document.")
-    var input: String
+    @Option(name: .long, help: "Path to a source document. Repeat for a multi-document session; a .zip expands into the session.")
+    var input: [String]
 
     @Option(name: .long, help: "Directory to write the edit surface and sidecar.")
     var outputDir: String
@@ -270,13 +270,27 @@ struct Anonymize: ParsableCommand {
 
     func run() throws {
         do {
-            let result = try LDACLI.runAnonymize(
-                input: URL(fileURLWithPath: input),
-                outputDir: URL(fileURLWithPath: outputDir),
-                passphrase: passphrase,
-                llmModelPath: model
-            )
-            print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
+            let inputs = try LDACLI.resolveSessionInputs(input.map { URL(fileURLWithPath: $0) })
+            // One plain document keeps the original single-document behavior
+            // (format-specific edit surface). Several documents, or a .zip,
+            // run as ONE session sharing ONE mapping (R12/R19).
+            if inputs.count == 1, !ZipImporter.isZip(URL(fileURLWithPath: input[0])) {
+                let result = try LDACLI.runAnonymize(
+                    input: inputs[0],
+                    outputDir: URL(fileURLWithPath: outputDir),
+                    passphrase: passphrase,
+                    llmModelPath: model
+                )
+                print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
+            } else {
+                let result = try LDACLI.runAnonymizeSession(
+                    inputs: inputs,
+                    outputDir: URL(fileURLWithPath: outputDir),
+                    passphrase: passphrase,
+                    llmModelPath: model
+                )
+                print(try CLIJSON.encode(result))
+            }
         } catch {
             throw CLIRuntimeError(error)
         }

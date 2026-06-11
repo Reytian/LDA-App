@@ -149,6 +149,8 @@ public struct MCPServer {
             switch name {
             case "anonymize_document":
                 summary = try callAnonymize(arguments)
+            case "anonymize_session":
+                summary = try callAnonymizeSession(arguments)
             case "restore_document":
                 summary = try callRestore(arguments)
             case "detect_entities":
@@ -483,6 +485,24 @@ public struct MCPServer {
                     "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
                 ],
                 "required": ["input", "outputDir"]
+            ]
+        ],
+        [
+            "name": "anonymize_session",
+            "description": "Anonymize several documents as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Writes per-document redacted Markdown intermediates and a single encrypted session sidecar. A .zip input expands into the session.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "inputs": [
+                        "type": "array",
+                        "items": ["type": "string"],
+                        "description": "Paths of the session's documents (DOCX, PDF, TXT, MD, or a .zip of them)."
+                    ],
+                    "outputDir": ["type": "string", "description": "Directory for the redacted intermediates and the session sidecar."],
+                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
+                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
+                ],
+                "required": ["inputs", "outputDir"]
             ]
         ],
         [

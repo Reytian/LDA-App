@@ -369,7 +369,8 @@ public enum LDAService {
     /// A detector that loads the LLM engine at most once and offers two entry
     /// points over it: the primary text pass (which surfaces incomplete scans) and
     /// the secondary image-PII pass (which stays non-throwing for the resolver).
-    private struct Detector {
+    /// Internal (not private) so LDASessionService.swift can reuse it.
+    internal struct Detector {
         let extractor: LLMExtractor?
 
         /// Primary detection over the main document text. Throws
@@ -410,8 +411,9 @@ public enum LDAService {
     /// Build a detector that loads the LLM engine at most once and reuses it for
     /// every call (main text pass and image-PII pass). When modelPath is nil or
     /// the model fails to load, detection is deterministic-only. The primary text
-    /// pass surfaces an incomplete scan; see Detector.
-    private static func makeDetector(modelPath: String?) -> Detector {
+    /// pass surfaces an incomplete scan; see Detector. Internal (not private) so
+    /// LDASessionService.swift can reuse it.
+    internal static func makeDetector(modelPath: String?) -> Detector {
         let extractor: LLMExtractor? = {
             guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else {
                 // No real model. In tests an extractor may still be injected via

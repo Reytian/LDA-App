@@ -210,8 +210,9 @@ final class MCPFillToolTests: XCTestCase {
 
     // MARK: - tools/list includes extract_profile and fill
 
-    // NOTE: tool count updated to 7 in Task 8 (added portfolio_list and portfolio_show).
-    func testToolsListAdvertisesSevenToolsIncludingPortfolioTools() throws {
+    // NOTE: tool count updated to 8 (added anonymize_session for the
+    // multi-document session feature).
+    func testToolsListAdvertisesEightToolsIncludingSessionTool() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 20,
@@ -226,8 +227,9 @@ final class MCPFillToolTests: XCTestCase {
         XCTAssertTrue(names.contains("fill"), "tools/list must include fill")
         XCTAssertTrue(names.contains("portfolio_list"), "tools/list must include portfolio_list")
         XCTAssertTrue(names.contains("portfolio_show"), "tools/list must include portfolio_show")
-        // Sanctioned update: was 5, now 7 (added portfolio_list and portfolio_show).
-        XCTAssertEqual(names.count, 7, "expected exactly 7 tools, got \(names.count): \(names)")
+        XCTAssertTrue(names.contains("anonymize_session"), "tools/list must include anonymize_session")
+        // Sanctioned update: was 7, now 8 (added anonymize_session).
+        XCTAssertEqual(names.count, 8, "expected exactly 8 tools, got \(names.count): \(names)")
 
         // Confirm extract_profile schema required fields.
         let epTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "extract_profile" }))
