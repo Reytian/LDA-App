@@ -183,7 +183,7 @@ final class FillLiveModelTests: XCTestCase {
     // MARK: - Part 2 helper (separate function to keep line count manageable)
 
     private func runFillPart(
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         extractedCompanyName: String,
         modelPath: String
     ) throws {

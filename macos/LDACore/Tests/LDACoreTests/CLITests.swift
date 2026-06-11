@@ -282,7 +282,7 @@ final class CLITests: XCTestCase {
         return url
     }
 
-    /// Build a CompanyProfile saved as an encrypted .ldaprofile and return
+    /// Build a ClientPortfolio saved as an encrypted .ldaprofile and return
     /// the profile URL. Uses passphrase protection for test hermeticity.
     private func writeProfileWithCompanyName(
         _ companyName: String,
@@ -298,7 +298,7 @@ final class CLITests: XCTestCase {
             confidence: 1.0,
             userEdited: false
         )
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: label,
             fields: [field],
             sourceDocuments: ["test"],
@@ -332,7 +332,7 @@ final class CLITests: XCTestCase {
             confidence: 1.0,
             userEdited: false
         )
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: "TwoDirectors",
             fields: [d1, d2],
             sourceDocuments: ["test"],

@@ -190,8 +190,8 @@ final class FillServiceTests: XCTestCase {
 
     private static let createdAt = "2026-06-10T00:00:00Z"
 
-    /// Build a minimal CompanyProfile holding only companyName.
-    private func makeProfile(companyName: String) -> CompanyProfile {
+    /// Build a minimal ClientPortfolio holding only companyName.
+    private func makeProfile(companyName: String) -> ClientPortfolio {
         let field = ProfileField(
             key: .companyName,
             value: companyName,
@@ -201,7 +201,7 @@ final class FillServiceTests: XCTestCase {
             confidence: 1.0,
             userEdited: false
         )
-        return CompanyProfile(
+        return ClientPortfolio(
             label: "TestCo",
             fields: [field],
             sourceDocuments: ["test"],

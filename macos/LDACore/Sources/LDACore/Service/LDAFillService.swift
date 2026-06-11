@@ -24,11 +24,11 @@ import Foundation
 /// The outcome of extractProfile: the profile plus per-source import failures.
 /// Spec section 9: a failing source is named; the others still contribute.
 public struct ExtractProfileResult: Sendable {
-    public var profile: CompanyProfile
+    public var profile: ClientPortfolio
     /// (file name, reason) for every source that could not be imported.
     public var failedSources: [(name: String, reason: String)]
 
-    public init(profile: CompanyProfile, failedSources: [(name: String, reason: String)]) {
+    public init(profile: ClientPortfolio, failedSources: [(name: String, reason: String)]) {
         self.profile = profile
         self.failedSources = failedSources
     }
@@ -51,7 +51,7 @@ extension LDAService {
 
     // MARK: - extractProfile
 
-    /// Build a CompanyProfile from source documents using the on-device model.
+    /// Build a ClientPortfolio from source documents using the on-device model.
     /// modelPath is REQUIRED: profile extraction is a model feature by design.
     /// When the test seam (makeCompleterForTesting) is set, modelPath is still
     /// required in the call signature but the seam factory is used instead of
@@ -67,7 +67,7 @@ extension LDAService {
     ///
     /// - Parameters:
     ///   - sources: the source document URLs to import and extract from.
-    ///   - label: a short human label for the resulting CompanyProfile.
+    ///   - label: a short human label for the resulting ClientPortfolio.
     ///   - modelPath: absolute path to the GGUF model. REQUIRED. Ignored only
     ///     when makeCompleterForTesting is set (test seam).
     ///   - createdAtISO8601: caller-supplied creation timestamp (purity rule).
@@ -121,7 +121,7 @@ extension LDAService {
         let extractor = ProfileExtractor(completer: completer)
         let result = try extractor.extract(sources: readable, onProgress: onProgress)
 
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: label,
             fields: result.fields,
             sourceDocuments: readable.map { $0.name },
@@ -153,7 +153,7 @@ extension LDAService {
     /// need no model do not pay the load cost.
     public static func planFill(
         target: URL,
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         modelPath: String?
     ) throws -> FillPlan {
         let ext = target.pathExtension.lowercased()
@@ -281,7 +281,7 @@ extension LDAService {
     public static func applyFill(
         plan: FillPlan,
         target: URL,
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         outputDir: URL
     ) throws -> FillReport {
         let ext = target.pathExtension.lowercased()

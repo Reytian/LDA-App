@@ -3,7 +3,7 @@
 //  LDACore
 //
 //  Plans blank fills for one target document by matching blanks to a
-//  CompanyProfile in two stages:
+//  ClientPortfolio in two stages:
 //
 //  1. Synonym pass (no model required): normalizes the blank label and looks it
 //     up in a built-in synonym table. A table hit with exactly one profile field
@@ -73,7 +73,7 @@ public enum FillPlanner {
     ///   and proposedValue updated where a match was found.
     public static func plan(
         blanks: [Blank],
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         completer: TextCompleter?,
         prompts: PromptStore = PromptStore()
     ) -> [Blank] {
@@ -99,7 +99,7 @@ public enum FillPlanner {
 
     // MARK: - Stage 1: synonym pass
 
-    private static func synonymPass(blanks: [Blank], profile: CompanyProfile) -> [Blank] {
+    private static func synonymPass(blanks: [Blank], profile: ClientPortfolio) -> [Blank] {
         // Use the cached normalized table.
         let table = normalizedTable
 
@@ -149,7 +149,7 @@ public enum FillPlanner {
 
     private static func modelPass(
         blanks: [Blank],
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         completer: TextCompleter,
         prompts: PromptStore
     ) -> [Blank] {

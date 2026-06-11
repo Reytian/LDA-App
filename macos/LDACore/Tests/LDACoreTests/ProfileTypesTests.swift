@@ -51,8 +51,8 @@ final class ProfileTypesTests: XCTestCase {
         XCTAssertEqual(back, [.custom("futureKey")])
     }
 
-    func testCompanyProfileCodableRoundTrip() throws {
-        let profile = CompanyProfile(
+    func testClientPortfolioCodableRoundTrip() throws {
+        let profile = ClientPortfolio(
             label: "Acme incorporation",
             fields: [field(key: .companyName, value: "Acme Holdings Limited")],
             sourceDocuments: ["cert.pdf"],
@@ -60,12 +60,12 @@ final class ProfileTypesTests: XCTestCase {
             incomplete: false
         )
         let data = try JSONEncoder().encode(profile)
-        let back = try JSONDecoder().decode(CompanyProfile.self, from: data)
+        let back = try JSONDecoder().decode(ClientPortfolio.self, from: data)
         XCTAssertEqual(back, profile)
     }
 
     func testConflictedKeysDerivedForSingleValuedKeyOnly() {
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: "x",
             fields: [
                 field(key: .companyName, value: "Acme Holdings Limited"),
@@ -83,7 +83,7 @@ final class ProfileTypesTests: XCTestCase {
     }
 
     func testConflictIgnoresCaseAndWhitespaceDuplicates() {
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: "x",
             fields: [
                 field(key: .companyName, value: "Acme  Holdings Limited"),
@@ -177,5 +177,59 @@ final class ProfileTypesTests: XCTestCase {
         let data = try JSONEncoder().encode(plan)
         let back = try JSONDecoder().decode(FillPlan.self, from: data)
         XCTAssertEqual(back, plan)
+    }
+
+    // MARK: - ClientPortfolio / PortfolioKind / new canonical keys
+
+    func testPortfolioKindDecodeDefaultsToCompany() throws {
+        // Legacy JSON written before kind existed.
+        let legacy = """
+        {"label":"Acme","fields":[],"sourceDocuments":[],"createdAtISO8601":"2026-06-10T00:00:00Z","incomplete":false}
+        """.data(using: .utf8)!
+        let portfolio = try JSONDecoder().decode(ClientPortfolio.self, from: legacy)
+        XCTAssertEqual(portfolio.kind, .company)
+        XCTAssertEqual(portfolio.modifiedAtISO8601, "2026-06-10T00:00:00Z")
+    }
+
+    func testKindAndModifiedAtRoundTrip() throws {
+        var portfolio = ClientPortfolio(
+            label: "Jane", fields: [], sourceDocuments: [],
+            createdAtISO8601: "2026-06-11T00:00:00Z", incomplete: false
+        )
+        portfolio.kind = .individual
+        portfolio.modifiedAtISO8601 = "2026-06-11T01:00:00Z"
+        let back = try JSONDecoder().decode(ClientPortfolio.self, from: JSONEncoder().encode(portfolio))
+        XCTAssertEqual(back.kind, .individual)
+        XCTAssertEqual(back.modifiedAtISO8601, "2026-06-11T01:00:00Z")
+    }
+
+    func testCanonicalForKind() {
+        let company = ProfileFieldKey.canonical(for: .company)
+        XCTAssertTrue(company.contains(.companyName))
+        XCTAssertTrue(company.contains(.email))
+        XCTAssertTrue(company.contains(.phone))
+        XCTAssertFalse(company.contains(.passportNumber))
+        let individual = ProfileFieldKey.canonical(for: .individual)
+        XCTAssertEqual(individual, [.clientName, .dateOfBirth, .nationality, .passportNumber,
+                                    .nationalIDNumber, .residentialAddress, .email, .phone])
+        let general = ProfileFieldKey.canonical(for: .general)
+        XCTAssertEqual(Set(general), Set(company).union(individual))
+    }
+
+    func testNewSingleValuedKeysConflict() {
+        let a = ProfileField(key: .passportNumber, value: "E12345678", sourceDocument: "p.pdf",
+                             sourceSnippet: "E12345678", snippetVerified: true, confidence: 0.9, userEdited: false)
+        let b = ProfileField(key: .passportNumber, value: "E87654321", sourceDocument: "p2.pdf",
+                             sourceSnippet: "E87654321", snippetVerified: true, confidence: 0.9, userEdited: false)
+        let portfolio = ClientPortfolio(label: "x", fields: [a, b], sourceDocuments: [],
+                                        createdAtISO8601: "2026-06-11T00:00:00Z", incomplete: false)
+        XCTAssertEqual(portfolio.conflictedKeys, [.passportNumber])
+    }
+
+    func testNewKeysRawKeyRoundTrip() throws {
+        let keys: [ProfileFieldKey] = [.clientName, .dateOfBirth, .nationality, .passportNumber,
+                                       .nationalIDNumber, .residentialAddress, .email, .phone]
+        let back = try JSONDecoder().decode([ProfileFieldKey].self, from: JSONEncoder().encode(keys))
+        XCTAssertEqual(back, keys)
     }
 }

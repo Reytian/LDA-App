@@ -140,7 +140,7 @@ extension MCPServer {
 
     private func callFillPlan(
         inputURL: URL,
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         modelPath: String?
     ) throws -> [String: Any] {
         let plan = try LDAService.planFill(
@@ -160,7 +160,7 @@ extension MCPServer {
 
     private func callFillApply(
         inputURL: URL,
-        profile: CompanyProfile,
+        profile: ClientPortfolio,
         outputDir: URL,
         modelPath: String?
     ) throws -> [String: Any] {
@@ -208,7 +208,7 @@ extension MCPServer {
     /// Build a plan entry dictionary for one blank. Values are included (the
     /// plan output is intended for human review; only the apply output is
     /// value-free). This mirrors the shape of FillPlanEntryJSON in LDACLI.
-    private func fillPlanEntryDict(blank: Blank, profile: CompanyProfile) -> [String: Any] {
+    private func fillPlanEntryDict(blank: Blank, profile: ClientPortfolio) -> [String: Any] {
         var entry: [String: Any] = [
             "label": blank.label,
             "locationDescription": locationDescription(blank.location),

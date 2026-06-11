@@ -46,8 +46,8 @@ final class ProfileStoreTests: XCTestCase {
     /// Build a profile with a stable UUID so round-trip equality works. Called
     /// once per test into a local let; never called twice and compared (UUID()
     /// would differ across calls).
-    private func sampleProfile() -> CompanyProfile {
-        CompanyProfile(
+    private func sampleProfile() -> ClientPortfolio {
+        ClientPortfolio(
             label: "Acme",
             fields: [
                 ProfileField(

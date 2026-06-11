@@ -123,7 +123,7 @@ struct SourceListPane: View {
 /// Conflict rows add a Menu to pick the winning candidate.
 struct ProfileFieldTable: View {
     @ObservedObject var model: FillModel
-    let profile: CompanyProfile
+    let profile: ClientPortfolio
 
     var body: some View {
         ScrollView(.vertical) {

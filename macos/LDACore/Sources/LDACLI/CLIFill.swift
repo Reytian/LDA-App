@@ -90,7 +90,7 @@ public struct FillPlanEntryJSON: Codable, Equatable {
     /// JSON compact.
     public let candidates: [String]?
 
-    public init(blank: Blank, profile: CompanyProfile) {
+    public init(blank: Blank, profile: ClientPortfolio) {
         self.label = blank.label
         self.locationDescription = FillPlanEntryJSON.locationDesc(blank.location)
         self.status = blank.status.rawValue
@@ -160,7 +160,7 @@ extension LDACLI {
 
     // MARK: runExtractProfile
 
-    /// Extract a CompanyProfile from source documents, save it via ProfileStore,
+    /// Extract a ClientPortfolio from source documents, save it via ProfileStore,
     /// and return the value-free summary.
     ///
     /// Source existence is NOT pre-validated here: extractProfile collects
@@ -270,7 +270,7 @@ extension LDACLI {
 
 // MARK: - extract-profile subcommand
 
-/// extract-profile subcommand: build and save an encrypted CompanyProfile from
+/// extract-profile subcommand: build and save an encrypted ClientPortfolio from
 /// one or more source documents.
 struct ExtractProfile: ParsableCommand {
     static let configuration = CommandConfiguration(

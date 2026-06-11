@@ -436,7 +436,7 @@ final class MCPTests: XCTestCase {
             confidence: 1.0,
             userEdited: false
         )
-        let profile = CompanyProfile(
+        let profile = ClientPortfolio(
             label: "MCPTestCo",
             fields: [field],
             sourceDocuments: ["mcp-test"],

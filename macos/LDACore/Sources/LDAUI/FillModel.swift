@@ -3,7 +3,7 @@
 //  LDAUI
 //
 //  The testable view-model that orchestrates LDACore's fill-from-profile feature.
-//  The user imports source documents, the model extracts a CompanyProfile, the user
+//  The user imports source documents, the model extracts a ClientPortfolio, the user
 //  reviews and edits the profile, a target document is planned, and blanks are
 //  accepted or rejected before the filled document is written.
 //
@@ -66,7 +66,7 @@ public final class FillModel: ObservableObject {
     @Published public var stage: FillStage = .idle
 
     /// The extracted or user-loaded company profile. Nil before extraction completes.
-    @Published public var profile: CompanyProfile?
+    @Published public var profile: ClientPortfolio?
 
     /// True when the profile has unsaved user edits (field updates, removals, or
     /// a setProfile call). Cleared by loadProfile.
@@ -174,7 +174,7 @@ public final class FillModel: ObservableObject {
     /// Replaces LDAService.planFill in tests. Receives (target, profile) and
     /// returns a FillPlan or throws. The live profile is passed at the call site
     /// so tests can assert the hand-off. Nil in production.
-    nonisolated(unsafe) internal static var planFillForTesting: ((URL, CompanyProfile) throws -> FillPlan)?
+    nonisolated(unsafe) internal static var planFillForTesting: ((URL, ClientPortfolio) throws -> FillPlan)?
 
     /// Replaces LDAService.applyFill in tests. Receives (plan, target, outputDir)
     /// and returns a FillReport or throws. Nil in production.
@@ -190,14 +190,14 @@ public final class FillModel: ObservableObject {
 
     /// Set the profile directly and mark dirty. Stage is NOT updated; use
     /// loadProfile when a clean profile-ready state is desired.
-    public func setProfile(_ profile: CompanyProfile) {
+    public func setProfile(_ profile: ClientPortfolio) {
         self.profile = profile
         profileDirty = true
     }
 
     /// Set the profile, advance stage to .profileReady, and clear the dirty flag.
     /// Used by extractProfile on success and by tests to seed a clean profile.
-    public func loadProfile(_ profile: CompanyProfile) {
+    public func loadProfile(_ profile: ClientPortfolio) {
         self.profile = profile
         profileDirty = false
         stage = .profileReady
@@ -333,7 +333,7 @@ public final class FillModel: ObservableObject {
 
     // MARK: - Async intents
 
-    /// Extract a CompanyProfile from source documents.
+    /// Extract a ClientPortfolio from source documents.
     ///
     /// Stage transitions: .importingSources -> .extracting -> .profileReady
     /// (or .failed on error). Progress is reported via onProgress from the

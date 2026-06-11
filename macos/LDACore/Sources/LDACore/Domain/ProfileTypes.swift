@@ -3,7 +3,7 @@
 //  LDACore
 //
 //  Frozen public domain types for the fill-from-profile feature: the extracted
-//  Company Profile, detected blanks in a fill target, the fill plan, and the
+//  Client Portfolio, detected blanks in a fill target, the fill plan, and the
 //  value-free fill report.
 //
 //  Offset convention: BlankLocation.textSpan offsets are UTF-16 code units into
@@ -18,13 +18,24 @@
 
 import Foundation
 
+// MARK: - PortfolioKind
+
+/// Classifies the subject of a ClientPortfolio: a corporate entity, a natural
+/// person, or a general-purpose portfolio that covers both field sets.
+public enum PortfolioKind: String, Codable, Sendable, CaseIterable {
+    case company
+    case individual
+    case general
+}
+
 // MARK: - ProfileFieldKey
 
-/// The canonical fact kinds a Company Profile can hold, plus a custom escape
+/// The canonical fact kinds a Client Portfolio can hold, plus a custom escape
 /// hatch for anything else the model finds worth keeping. Codable as a plain
 /// string; unknown canonical strings decode as .custom for forward
 /// compatibility.
 public enum ProfileFieldKey: Hashable, Sendable {
+    // Company keys (original 17)
     case companyName
     case companyNameLocal
     case formerName
@@ -42,16 +53,56 @@ public enum ProfileFieldKey: Hashable, Sendable {
     case shareholderShares
     case companySecretary
     case registeredAgent
+    // Individual keys (8 new)
+    case clientName
+    case dateOfBirth
+    case nationality
+    case passportNumber
+    case nationalIDNumber
+    case residentialAddress
+    case email
+    case phone
     case custom(String)
 
-    /// The canonical cases in stable order, excluding custom.
+    /// The canonical cases in stable order for company profiles (17 original
+    /// keys), excluding custom.
     public static let canonical: [ProfileFieldKey] = [
         .companyName, .companyNameLocal, .formerName, .entityKind,
         .jurisdiction, .companyNumber, .incorporationDate, .registeredOffice,
         .authorizedCapital, .issuedCapital, .parValue, .shareClass,
         .directorName, .shareholderName, .shareholderShares,
-        .companySecretary, .registeredAgent
+        .companySecretary, .registeredAgent,
+        .clientName, .dateOfBirth, .nationality, .passportNumber,
+        .nationalIDNumber, .residentialAddress, .email, .phone
     ]
+
+    /// The canonical keys for a given portfolio kind, in stable order.
+    /// company: the original 17 corporate keys plus email and phone.
+    /// individual: the 8 person-specific keys.
+    /// general: the company list followed by any individual keys not already present.
+    public static func canonical(for kind: PortfolioKind) -> [ProfileFieldKey] {
+        let companyKeys: [ProfileFieldKey] = [
+            .companyName, .companyNameLocal, .formerName, .entityKind,
+            .jurisdiction, .companyNumber, .incorporationDate, .registeredOffice,
+            .authorizedCapital, .issuedCapital, .parValue, .shareClass,
+            .directorName, .shareholderName, .shareholderShares,
+            .companySecretary, .registeredAgent, .email, .phone
+        ]
+        let individualKeys: [ProfileFieldKey] = [
+            .clientName, .dateOfBirth, .nationality, .passportNumber,
+            .nationalIDNumber, .residentialAddress, .email, .phone
+        ]
+        switch kind {
+        case .company:
+            return companyKeys
+        case .individual:
+            return individualKeys
+        case .general:
+            let companySet = Set(companyKeys)
+            let extra = individualKeys.filter { !companySet.contains($0) }
+            return companyKeys + extra
+        }
+    }
 
     /// Keys that may legitimately hold several distinct values.
     public static let listLike: Set<ProfileFieldKey> = [
@@ -77,7 +128,15 @@ public enum ProfileFieldKey: Hashable, Sendable {
         "shareholderName": .shareholderName,
         "shareholderShares": .shareholderShares,
         "companySecretary": .companySecretary,
-        "registeredAgent": .registeredAgent
+        "registeredAgent": .registeredAgent,
+        "clientName": .clientName,
+        "dateOfBirth": .dateOfBirth,
+        "nationality": .nationality,
+        "passportNumber": .passportNumber,
+        "nationalIDNumber": .nationalIDNumber,
+        "residentialAddress": .residentialAddress,
+        "email": .email,
+        "phone": .phone
     ]
 
     /// The stable wire string. Canonical keys use their name; custom keys are
@@ -103,6 +162,14 @@ public enum ProfileFieldKey: Hashable, Sendable {
         case .shareholderShares: return "shareholderShares"
         case .companySecretary: return "companySecretary"
         case .registeredAgent: return "registeredAgent"
+        case .clientName: return "clientName"
+        case .dateOfBirth: return "dateOfBirth"
+        case .nationality: return "nationality"
+        case .passportNumber: return "passportNumber"
+        case .nationalIDNumber: return "nationalIDNumber"
+        case .residentialAddress: return "residentialAddress"
+        case .email: return "email"
+        case .phone: return "phone"
         case .custom(let name): return "custom:\(name)"
         }
     }
@@ -139,6 +206,14 @@ public enum ProfileFieldKey: Hashable, Sendable {
         case .shareholderShares: return "Shareholder shares"
         case .companySecretary: return "Company secretary"
         case .registeredAgent: return "Registered agent"
+        case .clientName: return "Client name"
+        case .dateOfBirth: return "Date of birth"
+        case .nationality: return "Nationality"
+        case .passportNumber: return "Passport number"
+        case .nationalIDNumber: return "National ID number"
+        case .residentialAddress: return "Residential address"
+        case .email: return "Email"
+        case .phone: return "Phone"
         case .custom(let name): return name
         }
     }
@@ -205,18 +280,28 @@ public struct ProfileField: Identifiable, Equatable, Sendable, Codable {
     }
 }
 
-// MARK: - CompanyProfile
+// MARK: - ClientPortfolio
 
-/// The reviewed, persistable profile. createdAtISO8601 is supplied by the
-/// caller per the purity rule. incomplete mirrors the LJE-001 posture: true
-/// when any extraction segment was truncated, so fields may be missing.
-public struct CompanyProfile: Equatable, Sendable, Codable {
+/// The reviewed, persistable portfolio for any client type (company,
+/// individual, or general). createdAtISO8601 is supplied by the caller per
+/// the purity rule. incomplete mirrors the LJE-001 posture: true when any
+/// extraction segment was truncated, so fields may be missing.
+///
+/// kind and modifiedAtISO8601 were added after the initial release. Legacy
+/// JSON without these keys decodes with kind = .company and modifiedAt equal
+/// to createdAt (backward compatible).
+public struct ClientPortfolio: Equatable, Sendable {
     public var label: String
     /// Field order is significant for Equatable comparisons.
     public var fields: [ProfileField]
     public var sourceDocuments: [String]
     public var createdAtISO8601: String
     public var incomplete: Bool
+    /// The subject kind. Defaults to .company for legacy data.
+    public var kind: PortfolioKind
+    /// Last modification timestamp (ISO 8601). Defaults to createdAtISO8601
+    /// for legacy data.
+    public var modifiedAtISO8601: String
 
     public init(
         label: String,
@@ -230,6 +315,8 @@ public struct CompanyProfile: Equatable, Sendable, Codable {
         self.sourceDocuments = sourceDocuments
         self.createdAtISO8601 = createdAtISO8601
         self.incomplete = incomplete
+        self.kind = .company
+        self.modifiedAtISO8601 = createdAtISO8601
     }
 
     /// Single-valued keys currently holding more than one distinct normalized
@@ -241,6 +328,36 @@ public struct CompanyProfile: Equatable, Sendable, Codable {
             valuesByKey[field.key, default: []].insert(field.normalizedValue)
         }
         return ProfileFieldKey.canonical.filter { (valuesByKey[$0]?.count ?? 0) > 1 }
+    }
+}
+
+extension ClientPortfolio: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case label, fields, sourceDocuments, createdAtISO8601, incomplete
+        case kind, modifiedAtISO8601
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = try c.decode(String.self, forKey: .label)
+        fields = try c.decode([ProfileField].self, forKey: .fields)
+        sourceDocuments = try c.decode([String].self, forKey: .sourceDocuments)
+        createdAtISO8601 = try c.decode(String.self, forKey: .createdAtISO8601)
+        incomplete = try c.decode(Bool.self, forKey: .incomplete)
+        // New optional fields: default to company / createdAt for legacy JSON.
+        kind = try c.decodeIfPresent(PortfolioKind.self, forKey: .kind) ?? .company
+        modifiedAtISO8601 = try c.decodeIfPresent(String.self, forKey: .modifiedAtISO8601) ?? createdAtISO8601
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(label, forKey: .label)
+        try c.encode(fields, forKey: .fields)
+        try c.encode(sourceDocuments, forKey: .sourceDocuments)
+        try c.encode(createdAtISO8601, forKey: .createdAtISO8601)
+        try c.encode(incomplete, forKey: .incomplete)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(modifiedAtISO8601, forKey: .modifiedAtISO8601)
     }
 }
 

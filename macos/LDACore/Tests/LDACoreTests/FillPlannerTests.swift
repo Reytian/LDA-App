@@ -50,8 +50,8 @@ final class FillPlannerTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func profile(_ fields: [ProfileField]) -> CompanyProfile {
-        CompanyProfile(
+    private func profile(_ fields: [ProfileField]) -> ClientPortfolio {
+        ClientPortfolio(
             label: "x",
             fields: fields,
             sourceDocuments: [],

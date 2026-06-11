@@ -502,7 +502,7 @@ public struct MCPServer {
         ],
         [
             "name": "extract_profile",
-            "description": "Build an encrypted CompanyProfile from source documents and save it to disk. Returns a value-free summary (field count, keys, conflicts); no field values are included in the response.",
+            "description": "Build an encrypted ClientPortfolio from source documents and save it to disk. Returns a value-free summary (field count, keys, conflicts); no field values are included in the response.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -521,7 +521,7 @@ public struct MCPServer {
         ],
         [
             "name": "fill",
-            "description": "Fill blanks in a document from an encrypted CompanyProfile. mode=plan returns the fill plan (with proposed values) for review. mode=apply promotes proposed blanks and writes the filled document, returning a value-free report.",
+            "description": "Fill blanks in a document from an encrypted ClientPortfolio. mode=plan returns the fill plan (with proposed values) for review. mode=apply promotes proposed blanks and writes the filled document, returning a value-free report.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

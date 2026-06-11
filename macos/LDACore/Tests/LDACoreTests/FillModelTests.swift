@@ -35,11 +35,11 @@ final class FillModelTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// A minimal CompanyProfile with two distinct fields.
+    /// A minimal ClientPortfolio with two distinct fields.
     private func makeProfile(
         companyName: String = "Acme Corp",
         jurisdiction: String = "BVI"
-    ) -> CompanyProfile {
+    ) -> ClientPortfolio {
         let f1 = ProfileField(
             id: UUID(),
             key: .companyName,
@@ -60,7 +60,7 @@ final class FillModelTests: XCTestCase {
             confidence: 1.0,
             userEdited: false
         )
-        return CompanyProfile(
+        return ClientPortfolio(
             label: "Test Co",
             fields: [f1, f2],
             sourceDocuments: ["test.txt"],
@@ -70,7 +70,7 @@ final class FillModelTests: XCTestCase {
     }
 
     /// A profile with a conflict: two .companyName fields with different values.
-    private func makeConflictedProfile() -> CompanyProfile {
+    private func makeConflictedProfile() -> ClientPortfolio {
         let f1 = ProfileField(
             id: UUID(),
             key: .companyName,
@@ -91,7 +91,7 @@ final class FillModelTests: XCTestCase {
             confidence: 0.9,
             userEdited: false
         )
-        return CompanyProfile(
+        return ClientPortfolio(
             label: "Test Co",
             fields: [f1, f2],
             sourceDocuments: ["test.txt", "other.txt"],
@@ -553,7 +553,7 @@ final class FillModelTests: XCTestCase {
         let profile = makeProfile(companyName: "SeamCheck Corp")
         model.loadProfile(profile)
 
-        var receivedProfile: CompanyProfile?
+        var receivedProfile: ClientPortfolio?
         let fakePlan = FillPlan(
             targetFormat: .pdf,
             blanks: [],

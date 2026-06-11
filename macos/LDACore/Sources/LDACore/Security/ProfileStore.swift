@@ -2,7 +2,7 @@
 //  ProfileStore.swift
 //  LDACore
 //
-//  Encrypted persistence for CompanyProfile (.ldaprofile). The profile holds
+//  Encrypted persistence for ClientPortfolio (.ldaprofile). The profile holds
 //  real client PII and must never touch disk in plaintext. Same container
 //  format and protection modes as MappingStore, with its own distinct magic
 //  bytes and distinct Keychain service string (per the EncryptedContainer rule:
@@ -16,13 +16,13 @@ import Foundation
 
 // MARK: - ProfileStore
 
-/// Persists a CompanyProfile to disk as an AES-GCM encrypted, versioned
+/// Persists a ClientPortfolio to disk as an AES-GCM encrypted, versioned
 /// container, and loads it back. The on-disk bytes never contain any plaintext
 /// profile value.
 ///
 /// All container crypto is handled by the shared EncryptedContainer.
 /// ProfileStore is responsible only for JSON encode/decode of the
-/// CompanyProfile payload.
+/// ClientPortfolio payload.
 public enum ProfileStore {
 
     // MARK: - Public constants
@@ -40,12 +40,12 @@ public enum ProfileStore {
 
     // MARK: - Public API
 
-    /// Encrypts and writes the CompanyProfile to url under the given protection.
+    /// Encrypts and writes the ClientPortfolio to url under the given protection.
     ///
     /// For .keychain the symmetric key is created if absent and reused
     /// otherwise. Throws DocumentIOError.keychainError on a Keychain failure.
     public static func save(
-        _ profile: CompanyProfile,
+        _ profile: ClientPortfolio,
         to url: URL,
         protection: MappingProtection
     ) throws {
@@ -53,7 +53,7 @@ public enum ProfileStore {
         try container.save(plaintext, to: url, protection: protection)
     }
 
-    /// Reads url, decrypts it, and returns the CompanyProfile.
+    /// Reads url, decrypts it, and returns the ClientPortfolio.
     ///
     /// A wrong passphrase or any tampering throws DocumentIOError.decryptionFailed.
     /// A Keychain failure throws DocumentIOError.keychainError.
@@ -62,7 +62,7 @@ public enum ProfileStore {
     public static func load(
         from url: URL,
         protection: MappingProtection
-    ) throws -> CompanyProfile {
+    ) throws -> ClientPortfolio {
         let plaintext = try container.load(from: url, protection: protection)
         return try decodeProfile(plaintext)
     }
@@ -75,7 +75,7 @@ public enum ProfileStore {
 
     // MARK: - Encoding
 
-    private static func encodeProfile(_ profile: CompanyProfile) throws -> Data {
+    private static func encodeProfile(_ profile: ClientPortfolio) throws -> Data {
         let encoder = JSONEncoder()
         // Sorted keys keep the output deterministic; does not affect security.
         encoder.outputFormatting = [.sortedKeys]
@@ -86,13 +86,13 @@ public enum ProfileStore {
         }
     }
 
-    private static func decodeProfile(_ data: Data) throws -> CompanyProfile {
+    private static func decodeProfile(_ data: Data) throws -> ClientPortfolio {
         do {
-            return try JSONDecoder().decode(CompanyProfile.self, from: data)
+            return try JSONDecoder().decode(ClientPortfolio.self, from: data)
         } catch {
-            // Decryption succeeded but the payload is not a valid CompanyProfile;
+            // Decryption succeeded but the payload is not a valid ClientPortfolio;
             // treat as a corrupt container rather than a decryption failure.
-            throw DocumentIOError.corrupt("Decrypted payload is not a valid CompanyProfile: \(error)")
+            throw DocumentIOError.corrupt("Decrypted payload is not a valid ClientPortfolio: \(error)")
         }
     }
 }
