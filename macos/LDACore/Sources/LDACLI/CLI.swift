@@ -187,6 +187,7 @@ public enum LDACLI {
     /// Choose a MappingProtection for mapping sidecars: an explicit passphrase,
     /// or a Keychain account derived from the supplied base name with the
     /// "lda-" prefix (legacy mapping-sidecar format, unchanged).
+    /// Do not use for profile files; see profileProtectionFor.
     /// Internal so CLIFill.swift can call it without duplication.
     internal static func protectionFor(
         passphrase: String?,

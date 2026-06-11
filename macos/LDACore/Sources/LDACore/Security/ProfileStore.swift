@@ -111,8 +111,16 @@ public enum ProfileStore {
     /// 2. legacy UI (file name with extension)
     /// 3. legacy CLI ("lda-" prefix)
     /// 4. legacy MCP ("ai.openclaw.lda.mcp.profile." prefix)
+    ///
     /// Call this for every Keychain load so that files saved by any prior
-    /// edge can still be opened. Throws the last error when all four fail.
+    /// edge can still be opened.
+    ///
+    /// Error priority: the FIRST `DocumentIOError.decryptionFailed` or
+    /// `DocumentIOError.corrupt` encountered is remembered and re-thrown once
+    /// all accounts have been tried, overriding any trailing `keychainError`s.
+    /// This ensures that a tampered file under the standard account surfaces
+    /// "decryptionFailed" rather than "item not found" from the later legacy
+    /// attempts. When no high-priority error occurred the last error is thrown.
     public static func loadWithAccountFallback(from url: URL) throws -> ClientPortfolio {
         let accounts = [
             standardAccount(for: url),
@@ -121,14 +129,31 @@ public enum ProfileStore {
             legacyMCPAccount(for: url)
         ]
         var lastError: Error = DocumentIOError.keychainError(-1)
+        var firstHighPriorityError: Error?
         for account in accounts {
             do {
                 return try load(from: url, protection: .keychain(account: account))
             } catch {
                 lastError = error
+                if firstHighPriorityError == nil && isHighPriorityError(error) {
+                    firstHighPriorityError = error
+                }
             }
         }
-        throw lastError
+        throw firstHighPriorityError ?? lastError
+    }
+
+    /// Returns true for errors that indicate the file was found and decrypted
+    /// (or attempted) but failed due to content, not a missing Keychain item.
+    /// These take precedence over keychainError("item not found") from later
+    /// fallback accounts.
+    private static func isHighPriorityError(_ error: Error) -> Bool {
+        switch error {
+        case DocumentIOError.decryptionFailed, DocumentIOError.corrupt:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Encoding

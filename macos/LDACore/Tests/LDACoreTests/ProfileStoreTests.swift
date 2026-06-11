@@ -190,6 +190,12 @@ final class ProfileStoreTests: XCTestCase {
         try? ProfileStore.deleteKeychainKey(account: standardAcc)
         try? ProfileStore.deleteKeychainKey(account: legacyAcc)
 
+        // Register cleanup unconditionally so it runs even if save fails or throws.
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        }
+
         // Save using the legacy (extension-included) account directly.
         do {
             try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyAcc))
@@ -197,11 +203,6 @@ final class ProfileStoreTests: XCTestCase {
             try skipIfKeychainUnavailable(status)
             XCTFail("Keychain save failed with status \(status)")
             return
-        }
-
-        defer {
-            try? ProfileStore.deleteKeychainKey(account: standardAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
         }
 
         // Load using the fallback helper: standard account will fail, legacy
@@ -229,17 +230,18 @@ final class ProfileStoreTests: XCTestCase {
         try? ProfileStore.deleteKeychainKey(account: standardAcc)
         try? ProfileStore.deleteKeychainKey(account: legacyAcc)
 
+        // Register cleanup unconditionally so it runs even if save fails or throws.
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        }
+
         do {
             try ProfileStore.save(profile, to: url, protection: .keychain(account: standardAcc))
         } catch let DocumentIOError.keychainError(status) {
             try skipIfKeychainUnavailable(status)
             XCTFail("Keychain save failed with status \(status)")
             return
-        }
-
-        defer {
-            try? ProfileStore.deleteKeychainKey(account: standardAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
         }
 
         let back: ClientPortfolio
@@ -274,6 +276,13 @@ final class ProfileStoreTests: XCTestCase {
         try? ProfileStore.deleteKeychainKey(account: legacyAcc)
         try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
 
+        // Register cleanup unconditionally so it runs even if save fails or throws.
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
+        }
+
         // Save using the legacy CLI account directly.
         do {
             try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyCLIAcc))
@@ -281,12 +290,6 @@ final class ProfileStoreTests: XCTestCase {
             try skipIfKeychainUnavailable(status)
             XCTFail("Keychain save failed with status \(status)")
             return
-        }
-
-        defer {
-            try? ProfileStore.deleteKeychainKey(account: standardAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
         }
 
         let back: ClientPortfolio
@@ -321,6 +324,13 @@ final class ProfileStoreTests: XCTestCase {
         try? ProfileStore.deleteKeychainKey(account: legacyAcc)
         try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
 
+        // Register cleanup unconditionally so it runs even if save fails or throws.
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
+        }
+
         // Save using the legacy MCP account directly.
         do {
             try ProfileStore.save(profile, to: url, protection: .keychain(account: legacyMCPAcc))
@@ -328,12 +338,6 @@ final class ProfileStoreTests: XCTestCase {
             try skipIfKeychainUnavailable(status)
             XCTFail("Keychain save failed with status \(status)")
             return
-        }
-
-        defer {
-            try? ProfileStore.deleteKeychainKey(account: standardAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
-            try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
         }
 
         let back: ClientPortfolio
@@ -346,6 +350,72 @@ final class ProfileStoreTests: XCTestCase {
         }
 
         XCTAssertEqual(back.label, profile.label)
+    }
+
+    // MARK: - Keychain fallback: decryption error takes priority
+
+    /// Saves a profile under the STANDARD Keychain account, tampers the file
+    /// bytes, then calls loadWithAccountFallback. Even though the standard
+    /// account succeeds at the Keychain lookup, the tampered ciphertext causes
+    /// decryptionFailed; the subsequent legacy-account lookups yield keychainError
+    /// ("item not found"). The method must surface decryptionFailed, not the
+    /// trailing keychainError. Skipped when the unsigned test process cannot
+    /// access the Keychain.
+    func testFallbackPrefersDecryptionFailureOverMissingKeys() throws {
+        let url = tempURL()
+        let profile = sampleProfile()
+        let standardAcc = ProfileStore.standardAccount(for: url)
+        let legacyAcc = ProfileStore.legacyAccount(for: url)
+        let legacyCLIAcc = ProfileStore.legacyCLIAccount(for: url)
+        let legacyMCPAcc = ProfileStore.legacyMCPAccount(for: url)
+
+        // Pre-cleanup.
+        try? ProfileStore.deleteKeychainKey(account: standardAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
+        try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
+
+        // Register cleanup unconditionally before any save.
+        defer {
+            try? ProfileStore.deleteKeychainKey(account: standardAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyCLIAcc)
+            try? ProfileStore.deleteKeychainKey(account: legacyMCPAcc)
+        }
+
+        // Save under the standard account.
+        do {
+            try ProfileStore.save(profile, to: url, protection: .keychain(account: standardAcc))
+        } catch let DocumentIOError.keychainError(status) {
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Keychain save failed with status \(status)")
+            return
+        }
+
+        // Tamper the file: flip a byte deep in the ciphertext region so
+        // AES-GCM authentication fails on load.
+        var bytes = try Data(contentsOf: url)
+        let tamperIndex = bytes.count - 4
+        XCTAssertGreaterThan(tamperIndex, 0)
+        bytes[tamperIndex] ^= 0xFF
+        try bytes.write(to: url)
+
+        // loadWithAccountFallback must throw decryptionFailed. The standard
+        // account finds the key but the ciphertext is tampered. The legacy
+        // accounts produce keychainError (item not found). The first
+        // high-priority error wins.
+        do {
+            _ = try ProfileStore.loadWithAccountFallback(from: url)
+            XCTFail("Expected loadWithAccountFallback to throw for a tampered file")
+        } catch let DocumentIOError.keychainError(status) {
+            // If the Keychain itself is unavailable (CI, unsigned process), skip.
+            try skipIfKeychainUnavailable(status)
+            XCTFail("Expected decryptionFailed for tampered file, got keychainError(\(status))")
+        } catch DocumentIOError.decryptionFailed {
+            // Correct: the tampered-file error surfaces, not a keychainError.
+        } catch {
+            XCTFail("Expected decryptionFailed for tampered file, got \(error)")
+        }
     }
 
     // MARK: - Keychain fallback: all accounts fail
