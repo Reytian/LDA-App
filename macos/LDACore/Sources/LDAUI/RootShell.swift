@@ -55,8 +55,9 @@ public struct RootShell: View {
 
     // MARK: - Child models
 
-    /// The review model driving the Anonymize shell.
-    @ObservedObject private var reviewModel: ReviewModel
+    /// The session model driving the Anonymize shell (document tray plus the
+    /// per-document review models).
+    @ObservedObject private var session: SessionModel
 
     /// The fill model driving the Fill shell.
     @ObservedObject private var fillModel: FillModel
@@ -67,8 +68,8 @@ public struct RootShell: View {
 
     // MARK: - Init
 
-    public init(reviewModel: ReviewModel, fillModel: FillModel, modeStore: AppModeStore) {
-        self.reviewModel = reviewModel
+    public init(session: SessionModel, fillModel: FillModel, modeStore: AppModeStore) {
+        self.session = session
         self.fillModel = fillModel
         self.modeStore = modeStore
     }
@@ -82,7 +83,7 @@ public struct RootShell: View {
             // inside it, preventing keyboard events from bleeding through to the
             // hidden subtree. .allowsHitTesting would block pointer input but
             // leave text fields able to receive keyboard events.
-            AppShell(model: reviewModel)
+            AppShell(session: session)
                 .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
                 .disabled(modeStore.activeMode != .anonymize)
 

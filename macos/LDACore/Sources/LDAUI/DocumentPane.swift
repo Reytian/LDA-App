@@ -33,8 +33,10 @@ import LDACore
 
 /// The document review pane. Renders the editable, paper-styled text surface
 /// with entity highlights and sealed token chips, and a drag-and-drop intake
-/// zone before any document is open.
+/// zone before any document is open. Dropping files (or a .zip) at any time
+/// adds them to the session's tray (R19).
 public struct DocumentPane: View {
+    @ObservedObject private var session: SessionModel
     @ObservedObject private var model: ReviewModel
 
     /// True while a draggable document hovers over the drop zone.
@@ -52,7 +54,8 @@ public struct DocumentPane: View {
     /// the window on long documents.
     @State private var styledDocument = AttributedString("")
 
-    public init(model: ReviewModel) {
+    public init(session: SessionModel, model: ReviewModel) {
+        self.session = session
         self.model = model
     }
 
@@ -69,6 +72,13 @@ public struct DocumentPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The whole pane accepts document drops at any time; new files join
+        // the session tray alongside what is already open.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !urls.isEmpty else { return false }
+            openURLs(urls)
+            return true
+        } isTargeted: { _ in }
         .onAppear {
             rebuildBase()
         }
@@ -106,10 +116,11 @@ public struct DocumentPane: View {
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.85))
 
             VStack(spacing: 6) {
-                Text("Drop a document to anonymize")
+                Text("Drop documents to anonymize")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("PDF, Word (.docx), or plain text. Everything stays on this Mac.")
+                Text("PDF, Word (.docx), plain text, or a .zip of them. "
+                    + "Several files become one session. Everything stays on this Mac.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -118,7 +129,7 @@ public struct DocumentPane: View {
             Button {
                 presentOpenPanel()
             } label: {
-                Text("Choose File")
+                Text("Choose Files")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
@@ -149,46 +160,48 @@ public struct DocumentPane: View {
         .contentShape(Rectangle())
         .onTapGesture { presentOpenPanel() }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
-            openURL(url)
+            guard !urls.isEmpty else { return false }
+            openURLs(urls)
             return true
         } isTargeted: { isDropTargeted = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Drop a document to anonymize, or choose a file")
+        .accessibilityLabel("Drop documents to anonymize, or choose files")
         .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Open
 
-    /// Present a native open panel and open the chosen document.
+    /// Present a native open panel and add the chosen documents to the session.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose a .txt, .docx, or .pdf document to anonymize."
+        panel.message = "Choose .txt, .docx, .pdf documents, or a .zip of them. Several files become one session."
         panel.prompt = "Open"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openURL(url)
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        openURLs(panel.urls)
     }
 
-    /// Open a document URL (from a drop or the panel) on the review model.
-    private func openURL(_ url: URL) {
-        let needsScope = url.startAccessingSecurityScopedResource()
+    /// Add document URLs (from a drop or the panel) to the session's tray.
+    private func openURLs(_ urls: [URL]) {
+        let scoped = urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
         Task {
-            // defer releases the sandbox scope even if the Task is cancelled
-            // mid-import; leaking it can make later opens of the same URL fail.
+            // defer releases the sandbox scopes even if the Task is cancelled
+            // mid-import; leaking one can make later opens of the same URL fail.
             defer {
-                if needsScope { url.stopAccessingSecurityScopedResource() }
+                for item in scoped where item.needsScope {
+                    item.url.stopAccessingSecurityScopedResource()
+                }
             }
-            await model.open(url)
+            await session.addDocuments(urls)
         }
     }
 
-    /// The document types accepted for opening: plain text, Word, and PDF.
+    /// The document types accepted for opening: plain text, Word, PDF, and zip.
     private static let openContentTypes: [UTType] = {
-        var types: [UTType] = [.plainText, .text, .pdf]
+        var types: [UTType] = [.plainText, .text, .pdf, .zip]
         if let docx = UTType("org.openxmlformats.wordprocessingml.document") {
             types.append(docx)
         }

@@ -391,6 +391,54 @@ public final class ReviewModel: ObservableObject {
         }
     }
 
+    // MARK: - Add a missed item (R5)
+
+    /// Protect a value the detector missed: find every occurrence of `text` in
+    /// the current document and add each as an accepted manual entity. Ranges
+    /// that overlap an existing entity are skipped so nothing double-tokenizes.
+    ///
+    /// - Returns: how many occurrences were added (0 means the text was not
+    ///   found, or every occurrence was already covered).
+    @discardableResult
+    public func addManualEntity(text: String, type: EntityType) -> Int {
+        let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, !documentText.isEmpty else { return 0 }
+
+        let nsText = documentText as NSString
+        var added = 0
+        var searchStart = 0
+        while searchStart < nsText.length {
+            let range = nsText.range(
+                of: needle,
+                options: [],
+                range: NSRange(location: searchStart, length: nsText.length - searchStart)
+            )
+            guard range.location != NSNotFound else { break }
+
+            let overlapsExisting = entities.contains { entity in
+                range.location < entity.span.end
+                    && range.location + range.length > entity.span.start
+            }
+            if !overlapsExisting {
+                let span = Span(
+                    start: range.location,
+                    end: range.location + range.length,
+                    type: type,
+                    text: needle,
+                    // Priority above the deterministic maximum so a user
+                    // decision survives any later overlap resolution.
+                    source: .manual,
+                    confidence: 1.0,
+                    priority: 110
+                )
+                entities.append(ReviewEntity(span: span, accepted: true))
+                added += 1
+            }
+            searchStart = range.location + max(range.length, 1)
+        }
+        return added
+    }
+
     // MARK: - Groups and the keyboard review loop
 
     /// The fixed type ordering for sidebar sections and keyboard navigation,

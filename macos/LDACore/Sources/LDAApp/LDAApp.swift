@@ -26,8 +26,11 @@ struct LDAApp: App {
     // Both child models and the mode store are hoisted here so the CommandMenu
     // closures can capture and dispatch to the right model at call time.
 
-    /// The single review model for the Anonymize window.
-    @StateObject private var reviewModel = ReviewModel(modelPath: LDAApp.defaultModelPath())
+    /// The session model for the Anonymize window: the document tray plus one
+    /// review model per document (R12/R19).
+    @StateObject private var sessionModel = SessionModel(
+        makeModel: { ReviewModel(modelPath: LDAApp.defaultModelPath()) }
+    )
 
     /// The fill model for the Fill window.
     @StateObject private var fillModel = FillModel(modelPath: LDAApp.defaultModelPath())
@@ -51,27 +54,41 @@ struct LDAApp: App {
 
     var body: some Scene {
         WindowGroup("LDA") {
-            RootShell(reviewModel: reviewModel, fillModel: fillModel, modeStore: modeStore)
+            RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .onAppear {
-                    // Feed the user's custom vocabulary into each anonymize run,
-                    // and let the model learn from each export.
-                    reviewModel.customPatternProvider = { [patternStore] in patternStore.activePatterns }
-                    reviewModel.learningStore = learningStore
+                    // Feed the user's custom vocabulary into every document's
+                    // anonymize run, and let each model learn from its export.
+                    sessionModel.configureNewModel = { [patternStore, learningStore] model in
+                        model.customPatternProvider = { patternStore.activePatterns }
+                        model.learningStore = learningStore
+                    }
                 }
         }
 
         .commands {
             CommandGroup(after: .saveItem) {
+                Button("Copy for AI") {
+                    sessionModel.requestCopyForAI()
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                Button("Restore from AI…") {
+                    sessionModel.requestPasteRestore()
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("Export Redacted Document…") {
-                    reviewModel.requestExport()
+                    sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(!reviewModel.canExport)
+                .disabled(!sessionModel.activeModel.canExport)
 
                 Button("Restore Original…") {
-                    reviewModel.requestRestore()
+                    sessionModel.activeModel.requestRestore()
                 }
                 .keyboardShortcut("r", modifiers: .command)
             }
@@ -84,7 +101,7 @@ struct LDAApp: App {
             CommandMenu(modeStore.activeMode == .anonymize ? "Review" : "Fill") {
                 Button(modeStore.activeMode == .anonymize ? "Next Entity" : "Next Blank") {
                     if modeStore.activeMode == .anonymize {
-                        reviewModel.selectNextGroup()
+                        sessionModel.activeModel.selectNextGroup()
                     } else {
                         fillModel.selectNextBlank()
                     }
@@ -92,13 +109,13 @@ struct LDAApp: App {
                 .keyboardShortcut("j", modifiers: .command)
                 .disabled(
                     modeStore.activeMode == .anonymize
-                        ? reviewModel.entities.isEmpty
+                        ? sessionModel.activeModel.entities.isEmpty
                         : fillModel.blanks.isEmpty
                 )
 
                 Button(modeStore.activeMode == .anonymize ? "Previous Entity" : "Previous Blank") {
                     if modeStore.activeMode == .anonymize {
-                        reviewModel.selectPreviousGroup()
+                        sessionModel.activeModel.selectPreviousGroup()
                     } else {
                         fillModel.selectPreviousBlank()
                     }
@@ -106,7 +123,7 @@ struct LDAApp: App {
                 .keyboardShortcut("j", modifiers: [.command, .shift])
                 .disabled(
                     modeStore.activeMode == .anonymize
-                        ? reviewModel.entities.isEmpty
+                        ? sessionModel.activeModel.entities.isEmpty
                         : fillModel.blanks.isEmpty
                 )
 
@@ -114,7 +131,7 @@ struct LDAApp: App {
 
                 Button(modeStore.activeMode == .anonymize ? "Toggle Redaction" : "Accept Blank") {
                     if modeStore.activeMode == .anonymize {
-                        reviewModel.toggleSelectedGroup()
+                        sessionModel.activeModel.toggleSelectedGroup()
                     } else if let id = fillModel.selectedBlankID {
                         fillModel.acceptBlank(id: id)
                     }
@@ -122,7 +139,7 @@ struct LDAApp: App {
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(
                     modeStore.activeMode == .anonymize
-                        ? reviewModel.selectedGroupID == nil
+                        ? sessionModel.activeModel.selectedGroupID == nil
                         : fillModel.selectedBlankID == nil
                 )
             }

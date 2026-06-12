@@ -19,14 +19,20 @@ import SwiftUI
 import LDACore
 
 /// The entity review sidebar. Lists detections grouped by type and their accept
-/// state, with the ink accent used only for selection and focus.
+/// state, with the ink accent used only for selection and focus. The session's
+/// document tray sits at the top (R19).
 public struct EntitySidebar: View {
+    @ObservedObject private var session: SessionModel
     @ObservedObject private var model: ReviewModel
 
     /// Opens the Settings scene reliably (does not rely on menu wiring).
     @Environment(\.openSettings) private var openSettings
 
-    public init(model: ReviewModel) {
+    /// True while the add-a-missed-term popover is presented.
+    @State private var isAddingTerm = false
+
+    public init(session: SessionModel, model: ReviewModel) {
+        self.session = session
         self.model = model
     }
 
@@ -36,6 +42,39 @@ public struct EntitySidebar: View {
         // natively once the list has focus; Space and Return flip the selected
         // group without touching the mouse.
         List(selection: $model.selectedGroupID) {
+            if session.entries.count > 1 {
+                Section {
+                    ForEach(session.entries) { entry in
+                        DocumentTrayRow(
+                            model: entry.model,
+                            name: entry.name,
+                            isSelected: session.activeEntry?.id == entry.id,
+                            onSelect: { session.selectedID = entry.id },
+                            onRemove: { session.removeDocument(id: entry.id) }
+                        )
+                        .listRowBackground(
+                            session.activeEntry?.id == entry.id
+                                ? CounselTheme.inkAccent.opacity(0.10)
+                                : Color.clear
+                        )
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "tray.full")
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                        Text("Documents")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(CounselTheme.textSecondary)
+                        Spacer(minLength: 8)
+                        Text("\(session.entries.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    .textCase(nil)
+                }
+            }
+
             ForEach(ReviewModel.groupTypeOrder, id: \.self) { type in
                 let groups = model.groups(of: type)
                 if !groups.isEmpty {
@@ -85,7 +124,8 @@ public struct EntitySidebar: View {
 
     // MARK: - Footer
 
-    /// A thin footer pinned to the lower-left with a Settings gear.
+    /// A thin footer pinned to the lower-left with a Settings gear and the
+    /// add-a-missed-term control (R5).
     private var sidebarFooter: some View {
         HStack(spacing: 6) {
             Button {
@@ -102,6 +142,21 @@ public struct EntitySidebar: View {
             .accessibilityLabel(Text("Settings"))
 
             Spacer(minLength: 0)
+
+            Button {
+                isAddingTerm = true
+            } label: {
+                Label("Protect a missed item", systemImage: "plus.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.documentText.isEmpty)
+            .help("Add something the detection missed; every occurrence will be redacted")
+            .accessibilityLabel(Text("Protect a missed item"))
+            .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
+                AddTermPopover(model: model, isPresented: $isAddingTerm)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

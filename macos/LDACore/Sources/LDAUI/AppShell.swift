@@ -22,12 +22,19 @@ import UniformTypeIdentifiers
 import LDACore
 
 /// The Counsel review window shell. Hosts the sidebar and the document pane in a
-/// NavigationSplitView and owns the toolbar that drives import and export.
+/// NavigationSplitView and owns the toolbar that drives the staged round-trip:
+/// bring in, review, hand to AI, bring back and restore, save.
 public struct AppShell: View {
-    @ObservedObject private var model: ReviewModel
+    @ObservedObject private var session: SessionModel
+
+    /// The active document's review model (the session forwards its changes).
+    private var model: ReviewModel { session.activeModel }
 
     /// True while the passphrase sheet is presented, after a directory is chosen.
     @State private var isPromptingPassphrase = false
+
+    /// True while the paste-and-restore sheet is presented.
+    @State private var isPasteRestorePresented = false
 
     /// The directory chosen for export, held while the passphrase is collected.
     @State private var pendingExportDir: URL?
@@ -39,26 +46,29 @@ public struct AppShell: View {
     /// A one-line outcome message shown after an export completes or fails.
     @State private var exportMessage: String?
 
-    public init(model: ReviewModel) {
-        self.model = model
+    public init(session: SessionModel) {
+        self.session = session
     }
 
     public var body: some View {
         NavigationSplitView {
-            EntitySidebar(model: model)
+            EntitySidebar(session: session, model: model)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
         } detail: {
             VStack(spacing: 0) {
                 statusBanner
-                DocumentPane(model: model)
+                DocumentPane(session: session, model: model)
             }
             .background(CounselTheme.paper)
         }
         .background(CounselTheme.appSurface)
-        .navigationTitle(model.documentName ?? "Legal Document Anonymizer")
+        .navigationTitle(windowTitle)
         .toolbar { toolbarContent }
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
+        }
+        .sheet(isPresented: $isPasteRestorePresented) {
+            PasteRestoreSheet(session: session, isPresented: $isPasteRestorePresented)
         }
         .onChange(of: model.exportRequestToken) { _, _ in
             beginExport()
@@ -66,9 +76,23 @@ public struct AppShell: View {
         .onChange(of: model.restoreRequestToken) { _, _ in
             presentRestore()
         }
+        .onChange(of: session.copyForAIRequestToken) { _, _ in
+            runCopyForAI()
+        }
+        .onChange(of: session.pasteRestoreRequestToken) { _, _ in
+            isPasteRestorePresented = true
+        }
         .onChange(of: model.status) { _, status in
             announce(status)
         }
+    }
+
+    /// The window title: the client, the active document, or the product name.
+    private var windowTitle: String {
+        if let client = session.clientLabel {
+            return model.documentName.map { "\(client) \u{00B7} \($0)" } ?? client
+        }
+        return model.documentName ?? "Legal Document Anonymizer"
     }
 
     /// Announce run completion to VoiceOver (status banners are otherwise silent).
@@ -95,7 +119,9 @@ public struct AppShell: View {
             } label: {
                 Label("Open", systemImage: "doc.badge.plus")
             }
-            .help("Open a .txt, .docx, or .pdf document")
+            .help("Add .txt, .docx, .pdf documents or a .zip to the session")
+
+            clientMenu
         }
 
         ToolbarItemGroup(placement: .automatic) {
@@ -111,6 +137,23 @@ public struct AppShell: View {
             .help("Detect sensitive information in the open document")
 
             Button {
+                runCopyForAI()
+            } label: {
+                Label("Copy for AI", systemImage: "arrow.right.doc.on.clipboard")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(!session.entries.contains { $0.model.canExport })
+            .help("Copy the redacted text so you can paste it into any AI tool. Nothing leaves this Mac.")
+
+            Button {
+                isPasteRestorePresented = true
+            } label: {
+                Label("Restore from AI", systemImage: "arrow.left.doc.on.clipboard")
+            }
+            .labelStyle(.titleAndIcon)
+            .help("Paste the AI's answer and restore the real values")
+
+            Button {
                 beginExport()
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
@@ -118,6 +161,92 @@ public struct AppShell: View {
             .labelStyle(.titleAndIcon)
             .disabled(!model.canExport)
             .help("Write the redacted document and its encrypted mapping")
+        }
+    }
+
+    /// The client profile menu (R10): pick a client so this session reuses and
+    /// extends that client's identities, or work without one.
+    private var clientMenu: some View {
+        Menu {
+            Button {
+                session.clientLabel = nil
+            } label: {
+                if session.clientLabel == nil {
+                    Label("No Client", systemImage: "checkmark")
+                } else {
+                    Text("No Client")
+                }
+            }
+
+            let labels = session.clientLabels()
+            if !labels.isEmpty {
+                Divider()
+                ForEach(labels, id: \.self) { label in
+                    Button {
+                        session.clientLabel = label
+                    } label: {
+                        if session.clientLabel == label {
+                            Label(label, systemImage: "checkmark")
+                        } else {
+                            Text(label)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            Button("New Client\u{2026}") {
+                promptNewClient()
+            }
+        } label: {
+            Label(session.clientLabel ?? "No Client", systemImage: "person.crop.square")
+        }
+        .help("Sessions under a client keep the same placeholders for the same values, every time")
+    }
+
+    /// Ask for a new client label with a small input alert and select it.
+    private func promptNewClient() {
+        let alert = NSAlert()
+        alert.messageText = "New client profile"
+        alert.informativeText = "Documents processed under this client keep consistent "
+            + "placeholders across sessions. The mapping stays encrypted on this Mac."
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Client or matter name"
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return }
+        session.clientLabel = label
+    }
+
+    // MARK: - Hand to AI (stage 3)
+
+    /// Build the session's redacted Markdown, put it on the clipboard, and give
+    /// plain next-step guidance in the banner.
+    private func runCopyForAI() {
+        do {
+            let createdAt = ISO8601DateFormatter().string(from: Date())
+            guard let handoff = try session.buildHandToAI(createdAtISO8601: createdAt) else {
+                exportMessage = "Anonymize a document first, then copy it for the AI."
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(handoff.combined, forType: .string)
+
+            var message = "Redacted copy of \(handoff.documentCount) "
+                + (handoff.documentCount == 1 ? "document" : "documents")
+                + " is on the clipboard. Paste it into your AI tool, then bring the answer "
+                + "back with Restore from AI."
+            if handoff.skippedCount > 0 {
+                message += "  \u{00B7}  \(handoff.skippedCount) "
+                    + (handoff.skippedCount == 1 ? "document was" : "documents were")
+                    + " skipped (not anonymized yet)."
+            }
+            exportMessage = message
+        } catch {
+            exportMessage = "Could not prepare the redacted copy. \(error.localizedDescription)"
         }
     }
 
@@ -345,27 +474,29 @@ public struct AppShell: View {
 
     // MARK: - Open flow
 
-    /// Present a native open panel for the source document. NSOpenPanel is used
-    /// instead of SwiftUI .fileImporter because two .fileImporter modifiers on the
-    /// same view conflict and silently fail to present.
+    /// Present a native open panel for the session's documents. NSOpenPanel is
+    /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
+    /// on the same view conflict and silently fail to present.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose a .txt, .docx, or .pdf document to anonymize."
+        panel.message = "Choose .txt, .docx, .pdf documents, or a .zip of them. Several files become one session."
         panel.prompt = "Open"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
-        let needsScope = url.startAccessingSecurityScopedResource()
+        let scoped = panel.urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
         Task {
-            // defer releases the sandbox scope even if the Task is cancelled
-            // mid-import; leaking it can make later opens of the same URL fail.
+            // defer releases the sandbox scopes even if the Task is cancelled
+            // mid-import; leaking one can make later opens of the same URL fail.
             defer {
-                if needsScope { url.stopAccessingSecurityScopedResource() }
+                for item in scoped where item.needsScope {
+                    item.url.stopAccessingSecurityScopedResource()
+                }
             }
-            await model.open(url)
+            await session.addDocuments(scoped.map { $0.url })
         }
     }
 
@@ -553,7 +684,7 @@ public struct AppShell: View {
 
     /// The document types the Open panel accepts: plain text, Word, and PDF.
     private static let openContentTypes: [UTType] = {
-        var types: [UTType] = [.plainText, .text, .pdf]
+        var types: [UTType] = [.plainText, .text, .pdf, .zip]
         if let docx = UTType(
             "org.openxmlformats.wordprocessingml.document"
         ) {
