@@ -1,0 +1,4 @@
+# Build artifacts must NOT be committed (this repo lives in iCloud).
+.build/
+*.xcodeproj
+.DS_Store

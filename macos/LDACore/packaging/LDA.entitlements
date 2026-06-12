@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- App Sandbox on. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- Read and write the documents the user explicitly opens or exports,
+       granted through the open/save panels (powerbox). -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- DELIBERATELY ABSENT: any network entitlement. This app never touches the
+       network. With the sandbox on and no network entitlement, outbound and
+       inbound network access is denied by the OS, which is the core privacy
+       guarantee for privileged documents. Do not add
+       com.apple.security.network.client or .network.server. -->
+
+  <!-- If notarization ever rejects the Metal/ggml binary for memory protection,
+       uncomment the following (allow-jit is the least-privilege option):
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  -->
+</dict>
+</plist>
