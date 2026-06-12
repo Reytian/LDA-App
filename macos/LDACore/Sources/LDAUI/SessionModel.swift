@@ -58,6 +58,14 @@ public final class SessionModel: ObservableObject {
     /// The menu-bar companion's last-action note ("Restored 4 values.").
     @Published public var companionNote: String?
 
+    /// A quiet session-level note for the window banner (for example the
+    /// resumed-parked-session hint).
+    @Published public var sessionNote: String?
+
+    /// The current session's record id (R18), set by the hand-to-AI build so
+    /// later restores append their events to the same record.
+    @Published public private(set) var currentRecordID: UUID?
+
     /// Builds a configured ReviewModel for each added document (wired to the
     /// model path, custom vocabulary, and learning store by the app).
     private let makeModel: () -> ReviewModel
@@ -73,6 +81,38 @@ public final class SessionModel: ObservableObject {
     public var clientProtection: (String) -> MappingProtection = {
         ClientMappingStore.defaultProtection(label: $0)
     }
+
+    /// The session record store (R18). Injectable for tests.
+    public var recordStore: () throws -> SessionRecordStore = { try SessionRecordStore() }
+
+    /// How session records are protected. Injectable for tests; the
+    /// production default is the shared records Keychain key.
+    public var recordProtection: () -> MappingProtection = {
+        SessionRecordStore.defaultProtection()
+    }
+
+    /// Where the awaiting-AI parked mapping lives, so a session survives the
+    /// user quitting while the AI works. Injectable for tests; the production
+    /// default lives under ApplicationSupport/LDA.
+    public var parkedMappingURL: () throws -> URL = {
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let dir = appSupport.appendingPathComponent("LDA", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("parked.ldamap")
+    }
+
+    /// How the parked mapping is protected. Injectable for tests.
+    public var parkedProtection: () -> MappingProtection = {
+        .keychain(account: "lda-parked-session")
+    }
+
+    /// UserDefaults key remembering the parked session's client label.
+    public static let parkedClientLabelKey = "com.haotianyi.LDA.parkedClientLabel"
 
     /// Applied to every newly created document model (custom vocabulary,
     /// learning store). Set by the app after init; applied retroactively to
@@ -268,12 +308,69 @@ public final class SessionModel: ObservableObject {
                 .joined(separator: "\n\n---\n\n")
         }
 
+        // Per-session record (R18): what was protected, value-free. Best
+        // effort: a record failure must not block the handoff itself.
+        let record = SessionRecord(
+            createdAtISO8601: createdAtISO8601,
+            clientLabel: clientLabel,
+            documents: ready.map { entry in
+                SessionRecordDocument(
+                    name: entry.name,
+                    entityCount: entry.model.redactedCount,
+                    entityTypes: distinctTypes(of: entry.model)
+                )
+            },
+            protectedValueCount: result.mapping.entries.count
+        )
+        if let store = try? recordStore() {
+            try? store.save(record, protection: recordProtection())
+            currentRecordID = record.id
+        }
+
+        // Park the session (awaiting-AI state): the mapping survives the user
+        // quitting while the AI works, so the round-trip has no dead end.
+        if let url = try? parkedMappingURL() {
+            try? MappingStore.save(result.mapping, to: url, protection: parkedProtection())
+            UserDefaults.standard.set(clientLabel, forKey: Self.parkedClientLabelKey)
+        }
+
         return HandToAIResult(
             combined: combined,
             perDocument: perDocument,
             documentCount: ready.count,
             skippedCount: entries.count - ready.count
         )
+    }
+
+    /// The distinct accepted entity-type wire strings of one document model.
+    private func distinctTypes(of model: ReviewModel) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for entity in model.entities where entity.accepted {
+            let raw = entity.span.type.rawValue
+            if seen.insert(raw).inserted {
+                ordered.append(raw)
+            }
+        }
+        return ordered
+    }
+
+    /// Resume an awaiting-AI parked session after a relaunch: reload the
+    /// parked mapping (and its client label) so Restore from AI works without
+    /// redoing anything. No-op when nothing is parked.
+    public func resumeParkedSession() {
+        guard sessionMapping == nil,
+              let url = try? parkedMappingURL(),
+              FileManager.default.fileExists(atPath: url.path),
+              let mapping = try? MappingStore.load(from: url, protection: parkedProtection()) else {
+            return
+        }
+        sessionMapping = mapping
+        if clientLabel == nil {
+            clientLabel = UserDefaults.standard.string(forKey: Self.parkedClientLabelKey)
+        }
+        sessionNote = "Resumed your last session. When the AI answer is ready, "
+            + "use Restore from AI to bring the real values back."
     }
 
     // MARK: - Bring back and restore (stage 4)
@@ -290,7 +387,23 @@ public final class SessionModel: ObservableObject {
             )
         }
         guard let mapping else { return nil }
-        return Restorer.restore(text: text, mapping: mapping)
+        let result = Restorer.restore(text: text, mapping: mapping)
+
+        // Append the restore to the session record (R18). Best effort.
+        if let recordID = currentRecordID, let store = try? recordStore() {
+            let event = SessionRestoreEvent(
+                atISO8601: ISO8601DateFormatter().string(from: Date()),
+                restoredCount: result.restoredCount,
+                orphanCount: result.orphanTokens.count,
+                suspectCount: result.suspectPlaceholders.count
+            )
+            try? store.appendRestoreEvent(
+                to: recordID,
+                event: event,
+                protection: recordProtection()
+            )
+        }
+        return result
     }
 
     // MARK: - Menu-bar companion (clipboard round-trip)

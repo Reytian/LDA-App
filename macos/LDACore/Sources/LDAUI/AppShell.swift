@@ -46,6 +46,12 @@ public struct AppShell: View {
     /// A one-line outcome message shown after an export completes or fails.
     @State private var exportMessage: String?
 
+    /// First-run flag: the onboarding sheet shows once (R13/R17).
+    @AppStorage("com.haotianyi.LDA.hasCompletedFirstRun") private var hasCompletedFirstRun = false
+
+    /// True while the onboarding sheet is presented.
+    @State private var isOnboardingPresented = false
+
     public init(session: SessionModel) {
         self.session = session
     }
@@ -69,6 +75,19 @@ public struct AppShell: View {
         }
         .sheet(isPresented: $isPasteRestorePresented) {
             PasteRestoreSheet(session: session, isPresented: $isPasteRestorePresented)
+        }
+        .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
+            OnboardingView(
+                isPresented: $isOnboardingPresented,
+                modelAvailable: model.modelPath.map {
+                    FileManager.default.fileExists(atPath: $0)
+                } == true
+            )
+        }
+        .onAppear {
+            if !hasCompletedFirstRun {
+                isOnboardingPresented = true
+            }
         }
         .onChange(of: model.exportRequestToken) { _, _ in
             beginExport()
@@ -161,6 +180,18 @@ public struct AppShell: View {
             .labelStyle(.titleAndIcon)
             .disabled(!model.canExport)
             .help("Write the redacted document and its encrypted mapping")
+        }
+
+        // The persistent, honest privacy indicator: the app ships without any
+        // network entitlement, so the claim is enforced by the sandbox, not
+        // just asserted here.
+        ToolbarItem(placement: .automatic) {
+            Label("On-device", systemImage: "lock.laptopcomputer")
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .help("Documents, placeholders, and mappings never leave this Mac. "
+                    + "The app has no network access at all.")
+                .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
         }
     }
 
@@ -380,7 +411,7 @@ public struct AppShell: View {
     private var bannerText: String? {
         switch model.status {
         case .idle:
-            return exportMessage
+            return exportMessage ?? session.sessionNote
         case .importing:
             return "Importing document"
         case .imported:

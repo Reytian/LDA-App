@@ -71,6 +71,9 @@ struct LDAApp: App {
                         model.learningStore = learningStore
                         AISettings.apply(to: model, bundledDefault: LDAApp.defaultModelPath())
                     }
+                    // An awaiting-AI session parked before the last quit
+                    // resumes here, so Restore from AI works immediately.
+                    sessionModel.resumeParkedSession()
                 }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()

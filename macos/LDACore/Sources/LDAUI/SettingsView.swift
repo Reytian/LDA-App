@@ -38,9 +38,128 @@ public struct SettingsView: View {
                 .tabItem { Label("Learned", systemImage: "brain") }
             SharingTab(patterns: patterns, learning: learning)
                 .tabItem { Label("Sharing", systemImage: "square.and.arrow.up.on.square") }
+            HistoryTab()
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
         .frame(width: 580, height: 440)
         .background(CounselTheme.appSurface)
+    }
+}
+
+// MARK: - History tab (R18)
+
+/// The per-session records: what was protected and what was restored, so the
+/// user can review and trust each round-trip. Value-free by construction; the
+/// files are encrypted on disk.
+private struct HistoryTab: View {
+    @State private var records: [SessionRecord] = []
+    @State private var loadFailed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Session history")
+                .font(.system(.headline, design: .serif))
+                .foregroundStyle(CounselTheme.textPrimary)
+            Text("Each round-trip records what was protected and what was restored. "
+                + "Records never contain the sensitive values themselves and stay "
+                + "encrypted on this Mac.")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if records.isEmpty {
+                Spacer()
+                Text(loadFailed
+                    ? "The history could not be read."
+                    : "No sessions recorded yet. Records appear after your first Copy for AI.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                Spacer()
+            } else {
+                List(records) { record in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(Self.displayDate(record.createdAtISO8601))
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(CounselTheme.textPrimary)
+                            if let client = record.clientLabel {
+                                Text("\u{00B7}  \(client)")
+                                    .font(.callout)
+                                    .foregroundStyle(CounselTheme.textSecondary)
+                            }
+                            Spacer()
+                            Button {
+                                delete(record)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Delete this record")
+                        }
+                        Text(documentsLine(record))
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                            .lineLimit(2)
+                        Text(restoresLine(record))
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    .padding(.vertical, 3)
+                }
+                .listStyle(.inset)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { reload() }
+    }
+
+    private func reload() {
+        do {
+            records = try SessionRecordStore().list()
+            loadFailed = false
+        } catch {
+            records = []
+            loadFailed = true
+        }
+    }
+
+    private func delete(_ record: SessionRecord) {
+        try? SessionRecordStore().delete(id: record.id)
+        reload()
+    }
+
+    private func documentsLine(_ record: SessionRecord) -> String {
+        let names = record.documents.map { "\($0.name) (\($0.entityCount))" }
+        return "Protected \(record.protectedValueCount) "
+            + (record.protectedValueCount == 1 ? "identity" : "identities")
+            + " across: " + names.joined(separator: ", ")
+    }
+
+    private func restoresLine(_ record: SessionRecord) -> String {
+        guard !record.restoreEvents.isEmpty else {
+            return "Not restored yet."
+        }
+        let flagged = record.restoreEvents.reduce(0) { $0 + $1.orphanCount + $1.suspectCount }
+        let restored = record.restoreEvents.reduce(0) { $0 + $1.restoredCount }
+        var line = "\(record.restoreEvents.count) restore"
+            + (record.restoreEvents.count == 1 ? "" : "s")
+            + ", \(restored) value" + (restored == 1 ? "" : "s") + " put back"
+        if flagged > 0 {
+            line += ", \(flagged) flagged for review"
+        }
+        return line + "."
+    }
+
+    /// Render an ISO-8601 stamp as a readable local date.
+    private static func displayDate(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 
