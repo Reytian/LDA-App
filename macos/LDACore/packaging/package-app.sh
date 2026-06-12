@@ -15,6 +15,9 @@
 #                          --apple-id you@example.com --team-id TEAMID \
 #                          --password APP_SPECIFIC_PASSWORD
 #   MODEL_PATH         path to the GGUF to bundle (default ~/Developer/lda-models/lda-v2-Q4_K_M.gguf)
+#   SCRATCH_PATH       SwiftPM scratch directory. Set it OUTSIDE iCloud when the
+#                      checkout lives in an iCloud-synced folder, or the build
+#                      can fail with "input file was modified during the build".
 #
 # House rules: English only. No em-dash or en-dash-as-separator.
 set -euo pipefail
@@ -24,10 +27,15 @@ DIST="$PKG/dist"
 APP="$DIST/LDA.app"
 MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/lda-v2-Q4_K_M.gguf}"
 
+SCRATCH=()
+if [ -n "${SCRATCH_PATH:-}" ]; then
+  SCRATCH=(--scratch-path "$SCRATCH_PATH")
+fi
+
 echo "==> Building release binary"
 cd "$PKG"
-swift build -c release --product LDAApp >/dev/null
-BIN="$(swift build -c release --product LDAApp --show-bin-path)/LDAApp"
+swift build -c release --product LDAApp "${SCRATCH[@]}" >/dev/null
+BIN="$(swift build -c release --product LDAApp "${SCRATCH[@]}" --show-bin-path)/LDAApp"
 
 echo "==> Assembling $APP"
 rm -rf "$APP"
