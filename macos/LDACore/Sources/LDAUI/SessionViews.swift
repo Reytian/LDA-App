@@ -155,6 +155,95 @@ struct AddTermPopover: View {
     }
 }
 
+// MARK: - Menu-bar companion
+
+/// The menu-bar companion (auxiliary posture): quick clipboard redact and the
+/// no-dead-end "restore the clipboard" for coming back from the AI.
+public struct CompanionMenu: View {
+    @ObservedObject var session: SessionModel
+
+    public init(session: SessionModel) {
+        self.session = session
+    }
+
+    public var body: some View {
+        Button("Redact Clipboard") {
+            redactClipboard()
+        }
+        .help("Replace sensitive values in the clipboard text with placeholders")
+
+        Button("Restore Clipboard") {
+            restoreClipboard()
+        }
+        .help("Restore the real values in the AI output on the clipboard")
+
+        if let note = session.companionNote {
+            Divider()
+            Text(note)
+        }
+
+        Divider()
+
+        if let client = session.clientLabel {
+            Text("Client: \(client)")
+        }
+        Text("On-device. Nothing leaves this Mac.")
+
+        Divider()
+
+        Button("Open LDA") {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func redactClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            session.companionNote = "The clipboard has no text to redact."
+            return
+        }
+        do {
+            let createdAt = ISO8601DateFormatter().string(from: Date())
+            let redacted = try session.redactClipboardText(text, createdAtISO8601: createdAt)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(redacted.text, forType: .string)
+            session.companionNote = redacted.tokenCount == 0
+                ? "No patterned values found; the clipboard is unchanged in content."
+                : "Protected \(redacted.tokenCount) value"
+                    + (redacted.tokenCount == 1 ? "" : "s")
+                    + " on the clipboard (patterns only)."
+        } catch {
+            session.companionNote = "Could not redact: \(error.localizedDescription)"
+        }
+    }
+
+    private func restoreClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            session.companionNote = "The clipboard has no text to restore."
+            return
+        }
+        do {
+            guard let restored = try session.restorePasted(text) else {
+                session.companionNote = "Nothing to restore against yet. Copy for AI first."
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(restored.text, forType: .string)
+            var note = "Restored \(restored.restoredCount) value"
+                + (restored.restoredCount == 1 ? "" : "s")
+                + " on the clipboard."
+            let flagged = restored.orphanTokens.count + restored.suspectPlaceholders.count
+            if flagged > 0 {
+                note += " \(flagged) placeholder"
+                    + (flagged == 1 ? " needs" : "s need")
+                    + " review; use Restore from AI in the app."
+            }
+            session.companionNote = note
+        } catch {
+            session.companionNote = "Could not restore: \(error.localizedDescription)"
+        }
+    }
+}
+
 // MARK: - Paste and restore sheet (stage 4)
 
 /// The bring-back half of the round-trip: paste the AI's output, restore the

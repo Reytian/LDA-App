@@ -217,6 +217,61 @@ final class SessionModelTests: XCTestCase {
         XCTAssertNil(try session.restorePasted("Anything {EMAIL_1} here."))
     }
 
+    // MARK: - Menu-bar companion (clipboard round-trip)
+
+    func testRedactClipboardTextTokenizesAndExtendsSessionMapping() throws {
+        let session = makeSession()
+
+        let redacted = try session.redactClipboardText(
+            "Contact john@acme.com today.",
+            createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertEqual(redacted.text, "Contact {EMAIL_1} today.")
+        XCTAssertEqual(redacted.tokenCount, 1)
+        XCTAssertEqual(session.sessionMapping?.entries.count, 1)
+
+        // The companion's own restore closes the loop.
+        let restored = try XCTUnwrap(session.restorePasted(redacted.text))
+        XCTAssertEqual(restored.text, "Contact john@acme.com today.")
+    }
+
+    func testRedactClipboardTextReusesSessionIdentities() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        _ = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        // The clipboard snippet mentions the same address: same token.
+        let redacted = try session.redactClipboardText(
+            "Remind john@acme.com about the filing.",
+            createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertEqual(redacted.text, "Remind {EMAIL_1} about the filing.")
+    }
+
+    func testRedactClipboardTextPersistsUnderClient() throws {
+        let first = makeSession()
+        first.clientLabel = "Acme Matter"
+        _ = try first.redactClipboardText(
+            "Mail john@acme.com.",
+            createdAtISO8601: Self.createdAt
+        )
+
+        // A fresh session under the same client keeps the identity.
+        let second = makeSession()
+        second.clientLabel = "Acme Matter"
+        let redacted = try second.redactClipboardText(
+            "Ping john@acme.com and mary@beta.io.",
+            createdAtISO8601: Self.createdAt
+        )
+
+        XCTAssertTrue(redacted.text.contains("{EMAIL_1}"))
+        XCTAssertTrue(redacted.text.contains("{EMAIL_2}"))
+    }
+
     func testRestorePastedFallsBackToClientMapping() async throws {
         // Build under a client, then simulate an app relaunch: a fresh session
         // with no in-memory mapping restores via the client's stored mapping.

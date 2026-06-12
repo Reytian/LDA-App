@@ -30,6 +30,8 @@ public struct SettingsView: View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            AITab()
+                .tabItem { Label("AI", systemImage: "cpu") }
             VocabularyTab(store: patterns)
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
             LearnedTab(store: learning)
@@ -39,6 +41,107 @@ public struct SettingsView: View {
         }
         .frame(width: 580, height: 440)
         .background(CounselTheme.appSurface)
+    }
+}
+
+// MARK: - AI tab
+
+/// The detection model and quality/speed settings (R3, R14). The model always
+/// runs fully on this Mac; swapping only changes WHICH local model runs.
+private struct AITab: View {
+    @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
+    @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Detection model")
+                    .font(.system(.headline, design: .serif))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Text(modelDescription)
+                    .font(.callout)
+                    .foregroundStyle(modelMissing ? CounselTheme.danger : CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    chooseModel()
+                } label: {
+                    Label("Choose Model\u{2026}", systemImage: "folder")
+                }
+                .help("Pick another local GGUF model to run instead of the bundled one")
+
+                if !customModelPath.isEmpty {
+                    Button("Use Bundled Model") {
+                        customModelPath = ""
+                    }
+                    .help("Go back to the tuned model that ships with the app")
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Quality and speed")
+                    .font(.system(.headline, design: .serif))
+                    .foregroundStyle(CounselTheme.textPrimary)
+
+                Picker("Detection", selection: $detectionModeRaw) {
+                    ForEach(DetectionMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.label).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+
+                Text("Thorough runs the on-device AI to find people, companies, and addresses, "
+                    + "and takes longer on big documents. Fast is instant but pattern-only: "
+                    + "emails, phones, dates, amounts, and IDs.")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            Label("Every model runs fully on this Mac. Nothing leaves your computer.",
+                  systemImage: "lock.laptopcomputer")
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// What the active model line should say.
+    private var modelDescription: String {
+        if customModelPath.isEmpty {
+            return "Using the bundled tuned model (the default)."
+        }
+        if FileManager.default.fileExists(atPath: customModelPath) {
+            return "Using a custom model: \((customModelPath as NSString).abbreviatingWithTildeInPath)"
+        }
+        return "The chosen model is missing: \((customModelPath as NSString).abbreviatingWithTildeInPath). "
+            + "The bundled model is used instead."
+    }
+
+    private var modelMissing: Bool {
+        !customModelPath.isEmpty && !FileManager.default.fileExists(atPath: customModelPath)
+    }
+
+    private func chooseModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let gguf = UTType(filenameExtension: "gguf") {
+            panel.allowedContentTypes = [gguf]
+        }
+        panel.message = "Choose a local GGUF model. It will run fully on this Mac."
+        panel.prompt = "Use Model"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        customModelPath = url.path
     }
 }
 

@@ -48,6 +48,11 @@ struct LDAApp: App {
     /// The theme preference (System, Light, Dark), shared with Settings.
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
 
+    /// The AI settings (custom model path and detection mode), observed so a
+    /// change in Settings re-applies to every open document model.
+    @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
+    @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
+
     private var colorScheme: ColorScheme? {
         AppearanceMode.from(rawValue: appearanceRaw).colorScheme
     }
@@ -59,11 +64,19 @@ struct LDAApp: App {
                 .preferredColorScheme(colorScheme)
                 .onAppear {
                     // Feed the user's custom vocabulary into every document's
-                    // anonymize run, and let each model learn from its export.
+                    // anonymize run, let each model learn from its export, and
+                    // apply the AI settings (model path, detection mode).
                     sessionModel.configureNewModel = { [patternStore, learningStore] model in
                         model.customPatternProvider = { patternStore.activePatterns }
                         model.learningStore = learningStore
+                        AISettings.apply(to: model, bundledDefault: LDAApp.defaultModelPath())
                     }
+                }
+                .onChange(of: customModelPath) { _, _ in
+                    sessionModel.reapplyConfiguration()
+                }
+                .onChange(of: detectionModeRaw) { _, _ in
+                    sessionModel.reapplyConfiguration()
                 }
         }
 
@@ -148,6 +161,13 @@ struct LDAApp: App {
         Settings {
             SettingsView(patterns: patternStore, learning: learningStore)
                 .preferredColorScheme(colorScheme)
+        }
+
+        // The menu-bar companion (auxiliary posture): the round-trip has no
+        // dead end. Coming back from the AI, the user can restore the
+        // clipboard without raising the main window.
+        MenuBarExtra("LDA", systemImage: "shield.lefthalf.filled") {
+            CompanionMenu(session: sessionModel)
         }
     }
 

@@ -55,6 +55,9 @@ public final class SessionModel: ObservableObject {
     /// Bumped when the Restore from AI menu command fires.
     @Published public var pasteRestoreRequestToken = 0
 
+    /// The menu-bar companion's last-action note ("Restored 4 values.").
+    @Published public var companionNote: String?
+
     /// Builds a configured ReviewModel for each added document (wired to the
     /// model path, custom vocabulary, and learning store by the app).
     private let makeModel: () -> ReviewModel
@@ -103,6 +106,17 @@ public final class SessionModel: ObservableObject {
     private func rebindActiveModel() {
         activeModelForwarder = activeModel.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    /// Re-apply configureNewModel to every model (the empty one and every
+    /// document's). Called when an app-level setting changes (model path,
+    /// detection mode) so open documents pick it up on their next run.
+    public func reapplyConfiguration() {
+        guard let configure = configureNewModel else { return }
+        configure(emptyModel)
+        for entry in entries {
+            configure(entry.model)
+        }
     }
 
     // MARK: - Active model
@@ -277,6 +291,51 @@ public final class SessionModel: ObservableObject {
         }
         guard let mapping else { return nil }
         return Restorer.restore(text: text, mapping: mapping)
+    }
+
+    // MARK: - Menu-bar companion (clipboard round-trip)
+
+    /// Redact a clipboard snippet: deterministic detection (plus the user's
+    /// custom vocabulary), tokenized against the SESSION mapping so the same
+    /// values keep the same placeholders, and the mapping is extended (and
+    /// saved under the client, when one is active) so the snippet restores
+    /// later. The fast path for the menu-bar "redact this" action; it never
+    /// loads the LLM.
+    public func redactClipboardText(
+        _ text: String,
+        createdAtISO8601: String
+    ) throws -> (text: String, tokenCount: Int) {
+        // Seed from the in-memory session mapping, or the client's stored one.
+        var seed = sessionMapping
+        if seed == nil, let clientLabel {
+            seed = try clientStore().load(
+                label: clientLabel,
+                protection: clientProtection(clientLabel)
+            )
+        }
+
+        let deterministic = DeterministicEngine().detect(text)
+            + CustomPatternEngine.detect(text, patterns: emptyModel.customPatternProvider())
+        let spans = SpanMerger.merge(deterministic: deterministic, llm: [])
+
+        let result = Tokenizer.tokenize(
+            text: text,
+            spans: spans,
+            sourceFile: clientLabel ?? "clipboard",
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seed
+        )
+        sessionMapping = result.mapping
+
+        if let clientLabel {
+            try clientStore().save(
+                result.mapping,
+                label: clientLabel,
+                protection: clientProtection(clientLabel)
+            )
+        }
+
+        return (result.tokenizedText, spans.count)
     }
 
     // MARK: - Client profiles
