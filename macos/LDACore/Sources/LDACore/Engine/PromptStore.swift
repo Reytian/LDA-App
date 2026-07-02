@@ -154,13 +154,26 @@ public final class PromptStore {
     {document_segment}
     """
 
-    /// Default system prompt for the v2 single-shot extraction format. This is
-    /// the exact instruction the bundled v2 model was trained on (see the
-    /// original infer.py). Unlike the Pass-1/Pass-2 bodies above, this prompt is
-    /// English because the v2 model was trained on this English instruction.
+    /// Default system prompt for the v2 single-shot extraction format. The
+    /// first two sentences are the exact instruction the bundled v2 model was
+    /// trained on (see the original infer.py) and must stay verbatim. The
+    /// exclusion sentences after them rein in boilerplate over-extraction on
+    /// real contracts (defined terms, role nouns, titles, statutes, tribunals,
+    /// governing-law geography), which both shreds review quality and bloats
+    /// the completion, the dominant per-call latency cost. The engine-side
+    /// LegalBoilerplate filter stays authoritative regardless of what the
+    /// model returns. Unlike the Pass-1/Pass-2 bodies above, this prompt is
+    /// English because the v2 model was trained on an English instruction.
     public static let defaultExtractionSystem: String = """
     You are a legal document anonymizer. Identify every piece of sensitive or personally identifying \
     information and return strict JSON. Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS.
+    Extract only concrete identifying values: real names of specific people, real names of specific \
+    organizations, and street-level addresses.
+    Do NOT extract: contract role labels or defined terms (the Company, Employee, Employer, the Parties, \
+    Third Party, Agreement, Confidential Information); job titles (President, CEO, General Counsel); \
+    generic groups (customers, suppliers, licensors, licensees, collaborators, subsidiaries); statutes, \
+    laws, rules, or codes; courts, arbitration bodies, or government agencies (JAMS, AAA, SEC); or \
+    countries and states cited as governing law (United States, New York, Delaware).
     """
 
     /// The profile-extraction prompt template. Contains an {allowed_keys} slot

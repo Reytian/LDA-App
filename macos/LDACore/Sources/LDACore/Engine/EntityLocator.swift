@@ -42,6 +42,14 @@ public enum EntityLocator {
     /// are UTF-16 code-unit offsets (NSRange-compatible), computed with
     /// NSString.
     ///
+    /// Word boundaries: a match whose edge sits INSIDE a Latin word is
+    /// rejected. A model-reported fragment such as "laint" (clipped from
+    /// "Complaint") must not redact the tail of every "Complaint" in the
+    /// document. A match is accepted only when, at each edge, the adjacent
+    /// haystack character and the edge character are not both Latin word
+    /// characters. CJK is exempt (no word delimiters exist), so CJK values keep
+    /// matching inside CJK runs exactly as before.
+    ///
     /// - Parameters:
     ///   - value: the surface value the model reported.
     ///   - type: the entity type to stamp on each emitted span.
@@ -92,6 +100,15 @@ public enum EntityLocator {
             let start = found.location
             let end = found.location + found.length
 
+            // Reject matches whose edges land inside a Latin word (see the
+            // word-boundary note above). Advance by one code unit, not past the
+            // match: a later, boundary-valid occurrence may begin inside the
+            // rejected range's tail.
+            guard isWordBoundary(in: haystack, start: start, end: end) else {
+                searchStart = start + 1
+                continue
+            }
+
             // Capture the ACTUAL matched substring, not the needle. NSString.range
             // does canonical (NFC/NFD-insensitive) and case-insensitive matching,
             // so the matched slice can differ from the needle in both bytes and
@@ -117,5 +134,30 @@ public enum EntityLocator {
         }
 
         return result
+    }
+
+    // MARK: - Word boundaries
+
+    /// True when the [start, end) match does not begin or end inside a Latin
+    /// word. An edge is inside a word when the characters on both sides of it
+    /// are Latin word characters (letters or digits, ASCII plus Latin-1 and
+    /// Latin Extended). Non-Latin scripts (CJK) never count as word characters,
+    /// so matches in CJK text are always boundary-valid.
+    private static func isWordBoundary(in haystack: NSString, start: Int, end: Int) -> Bool {
+        if start > 0 {
+            let before = haystack.character(at: start - 1)
+            let first = haystack.character(at: start)
+            if SegmentPacker.isLatinWordChar(before) && SegmentPacker.isLatinWordChar(first) {
+                return false
+            }
+        }
+        if end < haystack.length {
+            let last = haystack.character(at: end - 1)
+            let after = haystack.character(at: end)
+            if SegmentPacker.isLatinWordChar(last) && SegmentPacker.isLatinWordChar(after) {
+                return false
+            }
+        }
+        return true
     }
 }
