@@ -199,62 +199,60 @@ def apply_replacements_to_docx(docx_bytes: bytes, replacements: list[tuple[str, 
         if not full_text:
             return
 
-        new_text = _apply_single_pass(full_text, pattern, lookup)
-        if new_text == full_text:
+        # Source of truth for the rewrite is the SAME left-to-right, longest-key
+        # regex pass used by _apply_single_pass, expressed as concrete match
+        # spans over the original joined text. This lets us rewrite only the
+        # <w:t> elements that actually overlap a replaced span.
+        matches = [
+            (m.start(), m.end(), lookup[m.group(0)])
+            for m in pattern.finditer(full_text)
+        ]
+        if not matches:
             return
 
-        # Map the rewritten string back onto the original text-element boundaries.
-        # Each text element keeps its slice of the new string where its slice is
-        # unchanged; the first element overlapping a changed region absorbs the
-        # net difference so no characters are lost. Untouched elements (and thus
-        # their parent runs' formatting) are left exactly as they were.
-        _remap_text(segments, full_text, new_text)
+        _remap_text(segments, full_text, matches)
 
-    def _remap_text(segments, full_text, new_text):
+    def _remap_text(segments, full_text, matches):
         """
-        Distribute new_text back across the original <w:t> elements, preserving
-        the formatting of runs whose text did not change.
+        Redistribute the replaced text back across the original <w:t> elements,
+        preserving the formatting of every run that does not itself overlap a
+        match.
+
+        ``matches`` is the list of (start, end, replacement) spans produced by
+        pattern.finditer over full_text (non-overlapping, left-to-right). For
+        each text element we copy verbatim the characters that fall OUTSIDE any
+        match, and emit a match's replacement string exactly once -- on the first
+        element that contains that match's start. An element lying entirely
+        BETWEEN two separate matches is left byte-for-byte unchanged, so its run
+        formatting (bold/italic/font/color/hyperlink) survives. Only the trailing
+        elements that a SINGLE match physically straddles are emptied, which is
+        unavoidable when one replaced span crosses a run boundary.
         """
-        # Identify the contiguous changed region [lo, hi) in the old string by
-        # trimming the common prefix and suffix shared with the new string.
-        old_len = len(full_text)
-        new_len = len(new_text)
-        prefix = 0
-        max_prefix = min(old_len, new_len)
-        while prefix < max_prefix and full_text[prefix] == new_text[prefix]:
-            prefix += 1
-        suffix = 0
-        max_suffix = min(old_len, new_len) - prefix
-        while suffix < max_suffix and full_text[old_len - 1 - suffix] == new_text[new_len - 1 - suffix]:
-            suffix += 1
+        for t_el, seg_start, original in segments:
+            seg_end = seg_start + len(original)
+            out = []
+            cursor = seg_start
+            for m_start, m_end, repl in matches:
+                if m_end <= seg_start or m_start >= seg_end:
+                    continue  # this match does not overlap the element
+                if m_start > cursor:
+                    # verbatim (unmatched) text before the match, within element
+                    out.append(full_text[cursor:min(m_start, seg_end)])
+                if seg_start <= m_start < seg_end:
+                    # the element owning the match start emits the replacement
+                    out.append(repl)
+                cursor = max(cursor, min(m_end, seg_end))
+            if cursor < seg_end:
+                out.append(full_text[cursor:seg_end])
 
-        change_lo = prefix
-        change_hi = old_len - suffix  # exclusive, in old-string coordinates
-        delta = new_len - old_len
-
-        for t_el, start, original in segments:
-            end = start + len(original)
-            if end <= change_lo or start >= change_hi:
-                # Element lies entirely in an unchanged region: leave it intact.
+            new_el_text = "".join(out)
+            if new_el_text == original:
+                # Untouched element (e.g. a formatted run between two matches):
+                # leave it exactly as it was so its run formatting is preserved.
                 continue
-            # This element overlaps the changed region. Rebuild its text from the
-            # new string: keep the unchanged head (before change_lo) and tail
-            # (after change_hi, shifted by delta), and let the first overlapping
-            # element carry the replaced middle so total content is preserved.
-            # Unchanged head: this element's chars before the changed region.
-            head = original[: max(0, change_lo - start)]
-            # Unchanged tail: this element's chars after the changed region
-            # (in old-string coordinates the tail begins at change_hi).
-            tail = original[max(0, change_hi - start):] if end > change_hi else ""
-
-            middle = ""
-            if start <= change_lo:
-                # First element overlapping the change owns the replaced middle.
-                middle = new_text[change_lo: change_hi + delta]
-
-            t_el.text = head + middle + tail
-            # Ensure whitespace is preserved for elements we touched.
-            if t_el.text != t_el.text.strip():
+            t_el.text = new_el_text
+            # Preserve significant leading/trailing whitespace on touched elements.
+            if new_el_text != new_el_text.strip():
                 t_el.set(qn('xml:space'), 'preserve')
 
     def _replace_in_container(container):
@@ -383,15 +381,25 @@ def build_replacement_pairs(mapping_data: dict, reverse: bool = False) -> list[t
     """
     pairs = {}
     for placeholder, info in mapping_data.get("mappings", {}).items():
-        value = info.get("value", "")
+        # surface_text is the EXACT original string this placeholder replaced
+        # (minted per distinct surface text in execute_replacement). It is the
+        # only value that makes the docx/doc round-trip byte-identical and keeps
+        # this path in agreement with the text path (run_deanonymize, which
+        # restores from replacement_log.original_text). Keying on the canonical
+        # "value" instead (a) collapses two distinct surfaces that share a
+        # canonical onto one placeholder in the forward direction and (b)
+        # restores every alias to the canonical full form in the reverse
+        # direction -- both corrupt the document. Fall back to "value" only for
+        # legacy mappings written before surface_text existed.
+        surface = info.get("surface_text") or info.get("value", "")
+        if not surface:
+            # Never emit an empty key/value pair (a ""->placeholder forward pair
+            # or placeholder->"" reverse pair would delete content).
+            continue
         if reverse:
-            pairs[placeholder] = value
+            pairs[placeholder] = surface
         else:
-            if value:
-                pairs[value] = placeholder
-            for alias in info.get("aliases", []):
-                if alias:
-                    pairs[alias] = placeholder
+            pairs[surface] = placeholder
 
     return sorted(pairs.items(), key=lambda x: len(x[0]), reverse=True)
 

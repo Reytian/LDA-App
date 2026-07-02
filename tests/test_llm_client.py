@@ -373,3 +373,64 @@ def test_markdown_wrapped_array_parses():
     # Assert
     assert isinstance(result, list)
     assert result[0]["text"] == "A"
+
+
+# --- Bug #2: a truncated Pass-2 array must raise, not silently drop entities --
+
+
+def test_truncated_json_array_raises_instead_of_returning_single_dict():
+    # A Pass-2 array cut off mid-output (the model hit num_predict) has no
+    # closing ']' but still has the first object's closing '}'. A naive
+    # object-slice fallback would return ONLY the first entity as a dict and
+    # silently drop the rest, leaking their PII into the "anonymized" output.
+    # The parser must instead raise so run_second_pass records a failed segment.
+    truncated = '[{"text":"Alice Johnson","type":"person"},{"text":"Bob Smithf'
+
+    with pytest.raises(ValueError):
+        llm_client.parse_json_response(truncated)
+
+
+def test_truncated_array_in_prose_also_raises():
+    # Same hazard when the truncated array is wrapped in explanatory prose.
+    truncated = 'Here are the entities:\n[{"text":"Carol","type":"person"},{"te'
+
+    with pytest.raises(ValueError):
+        llm_client.parse_json_response(truncated)
+
+
+def test_complete_pretty_printed_array_still_parses_to_list():
+    # Guard: a complete (multi-line) array must still parse to a list, so the
+    # truncation guard does not over-trigger on valid output.
+    text = '[\n  {"text":"A","type":"person"},\n  {"text":"B","type":"company"}\n]'
+
+    result = llm_client.parse_json_response(text)
+
+    assert isinstance(result, list)
+    assert [e["text"] for e in result] == ["A", "B"]
+
+
+# --- Bug #11: non-integer / blank numeric env vars must not crash the module --
+
+
+def test_int_env_falls_back_to_default_for_missing_blank_or_noninteger(monkeypatch):
+    # A hand-edited .env with a unit suffix, a float, a blank, or a missing key
+    # must degrade to the documented default rather than crashing at import.
+    monkeypatch.delenv("LDA_TEST_INT", raising=False)
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 120
+
+    monkeypatch.setenv("LDA_TEST_INT", "")
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 120
+
+    monkeypatch.setenv("LDA_TEST_INT", "   ")
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 120
+
+    monkeypatch.setenv("LDA_TEST_INT", "120s")
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 120
+
+    monkeypatch.setenv("LDA_TEST_INT", "60.0")
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 120
+
+
+def test_int_env_parses_a_valid_integer(monkeypatch):
+    monkeypatch.setenv("LDA_TEST_INT", "300")
+    assert llm_client._int_env("LDA_TEST_INT", 120) == 300

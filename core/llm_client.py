@@ -25,14 +25,35 @@ DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_NUM_CTX = 32768
 DEFAULT_NUM_PREDICT = 4096
 
+
+def _int_env(name: str, default: int) -> int:
+    """
+    Read an integer environment variable, degrading to ``default`` instead of
+    crashing on a missing, blank, or non-integer value.
+
+    LLM_TIMEOUT / LLM_NUM_CTX / LLM_NUM_PREDICT are hand-editable in .env by
+    non-technical users. A bare int() would raise ValueError at import time on a
+    value like "120s", "60.0", or an empty string, taking the whole app down
+    with an opaque traceback before any UI loads. Falling back to the documented
+    default keeps the app startable and the Settings reload resilient.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 LLM_BACKEND = os.getenv("LLM_BACKEND", DEFAULT_BACKEND)
 LLM_API_BASE = os.getenv("LLM_API_BASE", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_OLLAMA_BASE = os.getenv("LLM_OLLAMA_BASE", DEFAULT_OLLAMA_BASE)
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
-LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", str(DEFAULT_NUM_CTX)))
-LLM_NUM_PREDICT = int(os.getenv("LLM_NUM_PREDICT", str(DEFAULT_NUM_PREDICT)))
+LLM_TIMEOUT = _int_env("LLM_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)
+LLM_NUM_CTX = _int_env("LLM_NUM_CTX", DEFAULT_NUM_CTX)
+LLM_NUM_PREDICT = _int_env("LLM_NUM_PREDICT", DEFAULT_NUM_PREDICT)
 
 # Bounded retry policy for transient failures (timeouts, connection errors,
 # 429, and 5xx). These are the failure modes that benefit from a retry; other
@@ -59,9 +80,9 @@ def reload_config():
     LLM_API_KEY = os.getenv("LLM_API_KEY", "")
     LLM_MODEL = os.getenv("LLM_MODEL", "")
     LLM_OLLAMA_BASE = os.getenv("LLM_OLLAMA_BASE", DEFAULT_OLLAMA_BASE)
-    LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
-    LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", str(DEFAULT_NUM_CTX)))
-    LLM_NUM_PREDICT = int(os.getenv("LLM_NUM_PREDICT", str(DEFAULT_NUM_PREDICT)))
+    LLM_TIMEOUT = _int_env("LLM_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)
+    LLM_NUM_CTX = _int_env("LLM_NUM_CTX", DEFAULT_NUM_CTX)
+    LLM_NUM_PREDICT = _int_env("LLM_NUM_PREDICT", DEFAULT_NUM_PREDICT)
 
 
 def call_llm(messages: list[dict], temperature: float = None) -> str:
@@ -333,6 +354,33 @@ def parse_json_response(text: str) -> dict | list:
     # Earliest-starting slice first; the outer container always begins before
     # anything nested inside it.
     candidates.sort(key=lambda pair: pair[0])
+
+    # Decide whether the intended top-level value was an ARRAY using the raw
+    # positions of the opening brackets -- independent of whether a closing ']'
+    # survived. A Pass-2 array truncated mid-output (the model hit num_predict)
+    # has no ']', so its slice never enters `candidates`, but the first object's
+    # '}' would otherwise let an inner-object slice parse and SILENTLY drop every
+    # remaining entity, leaking their PII (bug #2). When an array was intended we
+    # therefore return a list or raise -- never fall back to a single object.
+    open_arr = text.find("[")
+    open_obj = text.find("{")
+    array_intended = open_arr != -1 and (open_obj == -1 or open_arr < open_obj)
+
+    if array_intended:
+        for _, json_str in candidates:
+            if not json_str.startswith("["):
+                continue
+            try:
+                parsed = json.loads(json_str)
+            except json.JSONDecodeError:
+                break
+            if isinstance(parsed, list):
+                return parsed
+            break
+        raise ValueError(
+            f"Failed to parse JSON array (possibly truncated):\n{text[:500]}"
+        )
+
     for _, json_str in candidates:
         try:
             return json.loads(json_str)

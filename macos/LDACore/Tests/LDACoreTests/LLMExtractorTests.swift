@@ -186,9 +186,9 @@ final class LLMExtractorTests: XCTestCase {
         )
         let extractor = LLMExtractor(completer: completer)
 
-        // Sanity: the fixture really does chunk into more than one window so the
+        // Sanity: the fixture really does split into more than one window so the
         // garbage path is actually exercised.
-        XCTAssertGreaterThan(Chunker.chunk(text).count, 1)
+        XCTAssertGreaterThan(SegmentPacker.segments(of: text).count, 1)
 
         let spans = try extractor.extract(from: text)
 
@@ -200,19 +200,21 @@ final class LLMExtractorTests: XCTestCase {
     // MARK: - A throwing chunk is skipped without failing
 
     func testSkipsChunkWhoseCompletionThrowsWithoutFailing() throws {
-        let firstParagraph = String(repeating: "Beta recital text. ", count: 200)
+        // A unique marker sits at the very head of the document, so exactly the
+        // first window throws while the window carrying "Mary Stone" succeeds.
+        let firstParagraph = "OPENING RECITAL MARKER. " + String(repeating: "Beta recital text. ", count: 200)
         let secondParagraph = "The lender is Globex LLC and the agent is Mary Stone."
         let text = firstParagraph + "\n\n" + secondParagraph
 
         let goodJSON = """
         {"entities":[{"value":"Mary Stone","type":"PERSON"}],"redacted_text":""}
         """
-        // The chunk carrying the recital filler throws; the chunk carrying
+        // The window carrying the head marker throws; the window carrying
         // "Mary Stone" returns valid JSON.
         let completer = MockCompleter(
             defaultOutput: goodJSON,
             routes: [(needle: "Mary Stone", output: goodJSON)],
-            throwOn: ["Beta recital text. Beta recital text."]
+            throwOn: ["OPENING RECITAL MARKER."]
         )
         let extractor = LLMExtractor(completer: completer)
 

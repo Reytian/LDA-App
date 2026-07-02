@@ -21,7 +21,7 @@ from docx import Document
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-from core.file_handler import apply_replacements_to_docx
+from core.file_handler import apply_replacements_to_docx, build_replacement_pairs
 
 
 def _docx_bytes(doc) -> bytes:
@@ -229,3 +229,130 @@ def test_read_doc_txt_path_suffix_only(monkeypatch, tmp_path):
     assert text == "converted text"
     # Cleanup created the file; ensure no leftover.
     assert not os.path.exists(captured["out_path"])
+
+
+# ---------------------------------------------------------------------------
+# Bugs #1/#5/#6: DOCX/DOC restore must use the exact surface_text per
+# placeholder, not the canonical name, so the round-trip is byte-identical.
+# build_replacement_pairs is the single source of truth for the docx/doc
+# anonymize AND restore paths (UI + skill), so both directions must key on
+# surface_text and never collapse two distinct surfaces onto one placeholder.
+# ---------------------------------------------------------------------------
+
+def test_build_replacement_pairs_reverse_uses_surface_text_not_canonical():
+    # Arrange: two placeholders share a canonical ("Acme Corporation") but have
+    # DISTINCT surface texts (the full name and the alias "Acme").
+    mapping = {
+        "mappings": {
+            "{COMPANY_1}": {"value": "Acme Corporation", "surface_text": "Acme Corporation", "aliases": []},
+            "{COMPANY_2}": {"value": "Acme Corporation", "surface_text": "Acme", "aliases": []},
+        }
+    }
+
+    # Act
+    reverse = dict(build_replacement_pairs(mapping, reverse=True))
+
+    # Assert: each placeholder restores to its EXACT original surface, not the
+    # canonical name (the alias placeholder must restore to "Acme").
+    assert reverse["{COMPANY_1}"] == "Acme Corporation"
+    assert reverse["{COMPANY_2}"] == "Acme"
+
+
+def test_build_replacement_pairs_forward_does_not_collapse_distinct_surfaces():
+    # Arrange: same mapping. The forward path must mint a key per distinct
+    # surface and NOT collapse both surfaces onto a single placeholder.
+    mapping = {
+        "mappings": {
+            "{COMPANY_1}": {"value": "Acme Corporation", "surface_text": "Acme Corporation", "aliases": []},
+            "{COMPANY_2}": {"value": "Acme Corporation", "surface_text": "Acme", "aliases": []},
+        }
+    }
+
+    # Act
+    forward = dict(build_replacement_pairs(mapping, reverse=False))
+
+    # Assert: both surfaces map to their own distinct placeholder.
+    assert forward["Acme Corporation"] == "{COMPANY_1}"
+    assert forward["Acme"] == "{COMPANY_2}"
+
+
+def test_build_replacement_pairs_legacy_mapping_without_surface_text_falls_back_to_value():
+    # Backward compatibility: a mapping JSON generated before surface_text
+    # existed must still build usable pairs from "value".
+    mapping = {"mappings": {"{PERSON_1}": {"value": "Jane Roe"}}}
+
+    forward = dict(build_replacement_pairs(mapping, reverse=False))
+    reverse = dict(build_replacement_pairs(mapping, reverse=True))
+
+    assert forward["Jane Roe"] == "{PERSON_1}"
+    assert reverse["{PERSON_1}"] == "Jane Roe"
+
+
+def test_docx_alias_roundtrip_is_byte_identical():
+    # The strongest proof: anonymize a DOCX through the real mapping the UI/skill
+    # build, then restore it, and assert the restored text equals the original.
+    # The alias "Acme" (distinct surface from canonical "Acme Corporation") must
+    # survive the round-trip.
+    from core.anonymizer import execute_replacement
+
+    original = "Acme refused. Acme Corporation signed."
+    entities = [
+        {"text": "Acme", "type": "company", "canonical": "Acme Corporation"},
+        {"text": "Acme Corporation", "type": "company", "canonical": "Acme Corporation"},
+    ]
+    pass1 = {
+        "aliases": [{"canonical": "Acme Corporation", "type": "company", "aliases": ["Acme"]}],
+        "entities": [],
+    }
+    _, mapping = execute_replacement(original, entities, pass1)
+
+    doc = Document()
+    doc.add_paragraph(original)
+
+    # Forward: anonymize the docx using the same pairs the UI/skill use.
+    anon_docx = apply_replacements_to_docx(
+        _docx_bytes(doc), build_replacement_pairs(mapping, reverse=False)
+    )
+    anon_text = _all_text(Document(io.BytesIO(anon_docx)))
+    # No surface PII leaks into the anonymized docx (both surfaces replaced).
+    assert "Acme" not in anon_text
+
+    # Reverse: restore and assert byte-identical to the original.
+    restored_docx = apply_replacements_to_docx(
+        anon_docx, build_replacement_pairs(mapping, reverse=True)
+    )
+    restored_text = _all_text(Document(io.BytesIO(restored_docx))).strip()
+    assert restored_text == original
+
+
+# ---------------------------------------------------------------------------
+# Bug #12: a run carrying distinct formatting that sits BETWEEN two separate
+# replacements must keep its formatting (the single prefix/suffix trim used to
+# collapse everything between the first and last change into one unformatted
+# run).
+# ---------------------------------------------------------------------------
+
+def test_remap_preserves_formatting_of_run_between_two_replacements():
+    # Arrange: three runs, the middle one bold+italic and PII-free, flanked by
+    # two runs that each get replaced.
+    doc = Document()
+    para = doc.add_paragraph()
+    para.add_run("John Smith")
+    mid = para.add_run(" hereby agrees with ")
+    mid.bold = True
+    mid.italic = True
+    para.add_run("Acme Corporation")
+
+    # Act
+    out = apply_replacements_to_docx(
+        _docx_bytes(doc),
+        [("John Smith", "{PERSON_1}"), ("Acme Corporation", "{COMPANY_1}")],
+    )
+
+    # Assert: text correct AND the middle run keeps its bold+italic formatting.
+    p = Document(io.BytesIO(out)).paragraphs[0]
+    assert p.text == "{PERSON_1} hereby agrees with {COMPANY_1}"
+    mid_runs = [r for r in p.runs if "hereby agrees with" in r.text]
+    assert len(mid_runs) == 1
+    assert mid_runs[0].bold is True
+    assert mid_runs[0].italic is True

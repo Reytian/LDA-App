@@ -52,6 +52,38 @@ def _sanitize_type(entity_type: str) -> str:
     return token
 
 
+def safe_doc_type(value: str | None, max_len: int = 40) -> str:
+    """
+    Slugify a (model-supplied) document type into a filesystem-safe, length-
+    capped token suitable for an output filename.
+
+    document_type comes straight from the LLM and may embed party names, a "/",
+    or a newline. Uppercasing and only replacing spaces (the previous behavior)
+    leaked those names into the downloaded filename and produced illegal
+    Content-Disposition values. Collapsing every run of non-word characters to a
+    single "_", capping the length, and falling back to "DOCUMENT" keeps the
+    promised generic filename and removes "/", newlines, and "..".
+
+    Uses the Unicode \\w class (rather than ASCII-only [A-Za-z0-9]) so a
+    non-Latin document type -- this tool also processes Chinese contracts -- is
+    preserved in the filename instead of being flattened to "DOCUMENT". The
+    dangerous characters (path separators, newlines, punctuation) are all
+    non-word characters and are still stripped.
+
+    Args:
+        value: Raw document type string from the model (may be None/empty).
+        max_len: Maximum slug length before the fixed stem fallback.
+
+    Returns:
+        An uppercase [\\w]+ slug, or "DOCUMENT" when nothing usable remains.
+    """
+    if not value:
+        return "DOCUMENT"
+    slug = re.sub(r"[^\w]+", "_", str(value).upper()).strip("_")
+    slug = slug[:max_len].strip("_")
+    return slug or "DOCUMENT"
+
+
 # ============================================================
 # Pass 1: Extract entity definitions and aliases
 # ============================================================
@@ -107,13 +139,21 @@ def _split_into_segments(text: str, max_chars: int = 10000) -> list[str]:
             if current_segment.strip():
                 segments.append(current_segment.strip())
                 current_segment = ""
-            sentences = re.split(r"(?<=[。.！!？?])\s*", paragraph)
+            # Split only at a sentence ender that is FOLLOWED by whitespace, and
+            # CAPTURE that whitespace as its own part so it is re-appended on
+            # rejoin. This keeps dotted tokens (emails, decimal amounts, dotted
+            # registration/account IDs) whole -- their interior '.' is not
+            # followed by whitespace, so a Pass-2 segment never tears an entity
+            # in half and leaks it (bug #8) -- and it never deletes the space
+            # after a sentence, so a company end is not glued to the next name
+            # ("Ltd. Carol" stays "Ltd. Carol", not "Ltd.Carol") (bug #14).
+            parts = re.split(r"(?<=[。.！!？?])(\s+)", paragraph)
             temp = ""
-            for sentence in sentences:
-                if len(temp) + len(sentence) > max_chars and temp:
+            for part in parts:
+                if len(temp) + len(part) > max_chars and temp:
                     segments.append(temp.strip())
                     temp = ""
-                temp += sentence
+                temp += part
             if temp.strip():
                 segments.append(temp.strip())
             continue
@@ -301,6 +341,14 @@ def execute_replacement(
         canonical = alias_group.get("canonical", "")
         if canonical in canonical_groups:
             for alias in alias_group.get("aliases", []):
+                alias = (alias or "").strip()
+                if not alias:
+                    # An empty/whitespace-only alias must never become a surface
+                    # text: "" makes text.find("") return the same index forever
+                    # (unbounded candidate spans -> OOM hang, bug #3), and a
+                    # whitespace-only alias would mint a placeholder that
+                    # overwrites real document spacing (bug #9).
+                    continue
                 canonical_groups[canonical]["texts"].add(alias)
                 canonical_groups[canonical]["aliases"].append(alias)
 
@@ -329,6 +377,11 @@ def execute_replacement(
 
         for surface_text in group_info["texts"]:
             if surface_text in text_to_placeholder:
+                continue
+
+            if not surface_text.strip():
+                # Defense in depth (bugs #3/#9): never mint a placeholder for an
+                # empty or whitespace-only surface text, regardless of source.
                 continue
 
             if type_token not in type_counters:
@@ -432,3 +485,33 @@ def execute_replacement(
     }
 
     return anonymized_text, mapping
+
+
+def count_effective_occurrences(
+    text: str, entities: list[dict], pass1_result: dict
+) -> dict[str, int]:
+    """
+    Return, per entity surface text, the number of replacements that
+    execute_replacement will ACTUALLY make (non-overlapping, longest-match-wins)
+    rather than naive substring frequency.
+
+    str.count over-reports a short entity that is also a substring of a longer
+    one (e.g. "Aaa" inside "Aaa Corp"), overstating redaction coverage in the
+    review UI (bug #15). Deriving the count from the same span resolution
+    execute_replacement performs keeps the displayed number honest. This makes
+    no LLM/network call -- execute_replacement is pure text processing.
+
+    Args:
+        text: Original document text.
+        entities: Full entity list (Pass-2, possibly user-edited).
+        pass1_result: Pass-1 results (alias info).
+
+    Returns:
+        Mapping of surface text -> number of accepted (actually replaced) spans.
+    """
+    _, mapping = execute_replacement(text, entities, pass1_result)
+    counts: dict[str, int] = {}
+    for entry in mapping.get("replacement_log", []):
+        surface = entry.get("original_text", "")
+        counts[surface] = counts.get(surface, 0) + 1
+    return counts

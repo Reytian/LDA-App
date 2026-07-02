@@ -3,11 +3,12 @@
 //  LDACore
 //
 //  Orchestrates the on-device LLM into fuzzy entity spans (PERSON, COMPANY,
-//  ADDRESS) that fill SpanMerger's currently-empty llm input. It chunks the text
-//  (Chunker), runs each chunk through the v2 single-shot extraction prompt
-//  (PromptStore + a TextCompleter), parses the JSON (EntityJSONParser), keeps
-//  only the fuzzy types LDA owns from the LLM, and re-anchors values to spans
-//  (EntityLocator).
+//  ADDRESS) that fill SpanMerger's llm input. It splits the text into
+//  word-aligned extraction windows (SegmentPacker), runs each window through
+//  the v2 single-shot extraction prompt (PromptStore + a TextCompleter), parses
+//  the JSON (EntityJSONParser), keeps only the fuzzy types LDA owns from the
+//  LLM minus legal boilerplate (LegalBoilerplate), and re-anchors values to
+//  word-boundary-valid spans (EntityLocator).
 //
 //  The completer is injected via the TextCompleter protocol so this orchestrator
 //  is unit-testable without loading the 2.7 GB GGUF model. In production the
@@ -104,26 +105,23 @@ public final class LLMExtractor {
         from text: String,
         onProgress: ((Int, Int) -> Void)? = nil
     ) throws -> ExtractionResult {
-        // 1. Split the document into the windows the v2 model was trained to see.
-        let chunks = Chunker.chunk(text)
-
-        // 2. Determine the unique paragraph-delimited segments to send to the
-        //    model. Consecutive chunks overlap, so the overlap tail of chunk N
-        //    re-appears at the head of chunk N+1; deduplicating by content avoids
-        //    re-processing it. Sending each paragraph segment independently
-        //    ensures a throwing segment never suppresses its neighbors.
+        // 1. Split the document into extraction windows. SegmentPacker emits
+        //    word-aligned, structure-aware windows near the size the v2 model
+        //    was trained to see: one window equals one model call. This replaced
+        //    the old Chunker + per-paragraph re-split, which made almost twice
+        //    as many calls, re-scanned the overlap text, and started segments
+        //    mid-word so the model echoed clipped fragments ("laint") as
+        //    entity values.
         //    Precomputing the full list gives a stable total for progress.
         var segmentsToProcess: [String] = []
         var seenSegments = Set<String>()
-        for chunk in chunks {
-            for segment in LLMExtractor.paragraphSegments(of: chunk.text) {
-                let key = segment.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !key.isEmpty, seenSegments.insert(key).inserted else { continue }
-                segmentsToProcess.append(segment)
-            }
+        for window in SegmentPacker.segments(of: text) {
+            let key = window.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, seenSegments.insert(key).inserted else { continue }
+            segmentsToProcess.append(window.text)
         }
 
-        // 3. Run each segment. A segment that fails to complete or returns
+        // 2. Run each segment. A segment that fails to complete or returns
         //    unparseable JSON is skipped, never failing the whole extraction.
         //    EntityLocator always searches the full source text, so entity values
         //    found in any segment are correctly anchored across the whole document.
@@ -145,16 +143,24 @@ public final class LLMExtractor {
             onProgress?(index + 1, total)
         }
 
-        // 4. Keep only the fuzzy types LDA owns from the LLM, and drop any value
-        //    that is a contract role label (a term of art that must never be
-        //    redacted).
+        // 3. Keep only the fuzzy types LDA owns from the LLM, and drop legal
+        //    boilerplate the model over-reports: role labels, defined terms
+        //    ("Company", "Agreement"), titles ("CEO"), statutes, tribunals, and
+        //    governing-law geography. LegalBoilerplate includes the RoleLabels
+        //    check. On top of the static lists, the document's OWN quoted
+        //    defined terms ("Electronic Media Systems" and the like) are
+        //    scanned once and dropped; DefinedTermScanner keeps real-name
+        //    aliases redactable.
+        let documentTerms = DefinedTermScanner.droppableTerms(in: text)
         let kept = rawEntities.filter { entity in
             guard LLMExtractor.keptTypes.contains(entity.type) else { return false }
-            let trimmed = entity.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !RoleLabels.isRoleLabel(trimmed)
+            if LegalBoilerplate.shouldDrop(entity.value, type: entity.type) {
+                return false
+            }
+            return !DefinedTermScanner.covers(entity.value, terms: documentTerms)
         }
 
-        // 5. Canonicalize and dedup by (lowercased value, type) so the same
+        // 4. Canonicalize and dedup by (lowercased value, type) so the same
         //    entity reported in several chunks is located only once. Then anchor
         //    each unique value back to every occurrence in the FULL original
         //    text, deduping identical spans.
@@ -292,18 +298,6 @@ public final class LLMExtractor {
 
     /// The ChatML end-of-turn marker. Generation stops once the model emits it.
     private static let imEndMarker = "<|im_end|>"
-
-    // MARK: - Paragraph splitting
-
-    /// Splits chunk text at double-newline paragraph breaks and returns each
-    /// non-empty segment. A chunk with no paragraph breaks is returned as a
-    /// single-element array. This lets the model-call loop treat each paragraph
-    /// independently so a throwable paragraph does not suppress its neighbours.
-    private static func paragraphSegments(of text: String) -> [String] {
-        // Split at two or more consecutive newlines (paragraph break).
-        let parts = text.components(separatedBy: "\n\n")
-        return parts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
 
     // MARK: - Dedup keys
 

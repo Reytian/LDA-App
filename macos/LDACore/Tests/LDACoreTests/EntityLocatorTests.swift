@@ -194,11 +194,12 @@ final class EntityLocatorTests: XCTestCase {
     // MARK: - Non-overlapping advancement
 
     func testOverlappingPatternEmitsNonOverlappingMatches() {
-        // "aaaa" contains "aa" at offsets 0, 1, 2 if overlaps were allowed. The
+        // "----" contains "--" at offsets 0, 1, 2 if overlaps were allowed. The
         // locator must advance past each match, yielding non-overlapping spans at
-        // offsets 0 and 2 only.
-        let text = "aaaa"
-        let spans = EntityLocator.spans(forValue: "aa", type: .unknown, in: text)
+        // offsets 0 and 2 only. Non-word characters are used so the word-boundary
+        // rule (which only constrains Latin letters and digits) does not apply.
+        let text = "----"
+        let spans = EntityLocator.spans(forValue: "--", type: .unknown, in: text)
 
         XCTAssertEqual(spans.count, 2)
         XCTAssertEqual(spans.map { $0.start }, [0, 2])
@@ -216,12 +217,67 @@ final class EntityLocatorTests: XCTestCase {
     }
 
     func testRepeatedSingleCharacterAdvancesPastEachMatch() {
-        let text = "xxx"
-        let spans = EntityLocator.spans(forValue: "x", type: .unknown, in: text)
+        // Non-word characters: the word-boundary rule does not constrain them,
+        // so every occurrence is emitted and advancement is exercised.
+        let text = "###"
+        let spans = EntityLocator.spans(forValue: "#", type: .unknown, in: text)
 
         XCTAssertEqual(spans.count, 3)
         XCTAssertEqual(spans.map { $0.start }, [0, 1, 2])
         XCTAssertEqual(spans.map { $0.end }, [1, 2, 3])
+    }
+
+    // MARK: - Word boundaries (fragment amplification guard)
+
+    func testFragmentInsideLongerWordIsNotMatched() {
+        // A clipped model value ("laint" out of "Complaint") must not redact
+        // the tails of unrelated words.
+        let text = "The Complaint was filed. Both complaints were dismissed."
+        let spans = EntityLocator.spans(forValue: "laint", type: .person, in: text)
+        XCTAssertTrue(spans.isEmpty)
+    }
+
+    func testWholeWordOccurrencesStillMatchWhenFragmentAlsoExistsInsideWords() {
+        // "Lee" as a standalone surname matches; "Lee" inside "Fleet" does not.
+        let text = "Jordan Lee met the Fleet manager. Lee signed."
+        let spans = EntityLocator.spans(forValue: "Lee", type: .person, in: text)
+        XCTAssertEqual(spans.count, 2)
+        for span in spans {
+            XCTAssertEqual(slice(text, span), "Lee")
+        }
+    }
+
+    func testDigitEdgesRespectWordBoundaries() {
+        // "2023" inside "12023" is not an occurrence of the value.
+        let text = "Case 12023 was opened in 2023."
+        let spans = EntityLocator.spans(forValue: "2023", type: .date, in: text)
+        XCTAssertEqual(spans.count, 1)
+        XCTAssertEqual(spans.first?.start, 25)
+    }
+
+    func testPunctuationAdjacentMatchIsBoundaryValid() {
+        // Parentheses, quotes, and commas around a value are boundaries.
+        let text = "Meridian Works, LLC (\u{201C}Company\u{201D}) and Jordan Lee, employee."
+        let company = EntityLocator.spans(forValue: "Meridian Works, LLC", type: .company, in: text)
+        XCTAssertEqual(company.count, 1)
+        let person = EntityLocator.spans(forValue: "Jordan Lee", type: .person, in: text)
+        XCTAssertEqual(person.count, 1)
+    }
+
+    func testCJKValueStillMatchesInsideCJKRun() {
+        // CJK has no word delimiters; the boundary rule must not suppress CJK
+        // matches embedded in a CJK run.
+        let text = "转让方为张伟明先生所有。"
+        let spans = EntityLocator.spans(forValue: "张伟明", type: .person, in: text)
+        XCTAssertEqual(spans.count, 1)
+    }
+
+    func testLatinValueAdjacentToCJKIsBoundaryValid() {
+        // A Latin name butted against CJK characters (no space) still matches:
+        // CJK neighbors are not Latin word characters.
+        let text = "本协议由Jordan Lee签署。"
+        let spans = EntityLocator.spans(forValue: "Jordan Lee", type: .person, in: text)
+        XCTAssertEqual(spans.count, 1)
     }
 
     // MARK: - NFC/NFD byte identity (offset-unicode-1)
