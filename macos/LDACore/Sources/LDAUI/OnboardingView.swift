@@ -56,8 +56,8 @@ public struct OnboardingView: View {
                     number: "3",
                     icon: "arrow.left.doc.on.clipboard",
                     title: "Bring the answer back",
-                    text: "Restore from AI puts the real values back in the AI's answer, and "
-                        + "flags anything it cannot match with certainty. Save the final "
+                    text: "The De-anonymize tab puts the real values back in the AI's answer, "
+                        + "and flags anything it cannot match with certainty. Save the final "
                         + "document in its original format."
                 )
             }

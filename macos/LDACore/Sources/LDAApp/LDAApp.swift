@@ -57,6 +57,26 @@ struct LDAApp: App {
         AppearanceMode.from(rawValue: appearanceRaw).colorScheme
     }
 
+    /// The Cmd+J navigation loop applies to Anonymize (entities) and Fill
+    /// (blanks); the De-anonymize mode has no list to walk.
+    private var navigationLoopDisabled: Bool {
+        switch modeStore.activeMode {
+        case .anonymize: return sessionModel.activeModel.entities.isEmpty
+        case .fill: return fillModel.blanks.isEmpty
+        case .deanonymize: return true
+        }
+    }
+
+    /// Cmd+Return toggles the selected entity (Anonymize) or accepts the
+    /// selected blank (Fill).
+    private var toggleDisabled: Bool {
+        switch modeStore.activeMode {
+        case .anonymize: return sessionModel.activeModel.selectedGroupID == nil
+        case .fill: return fillModel.selectedBlankID == nil
+        case .deanonymize: return true
+        }
+    }
+
     var body: some Scene {
         WindowGroup("LDA") {
             RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
@@ -90,7 +110,8 @@ struct LDAApp: App {
                 }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
-                Button("Restore from AI…") {
+                Button("Paste from AI…") {
+                    modeStore.activeMode = .deanonymize
                     sessionModel.requestPasteRestore()
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
@@ -103,7 +124,10 @@ struct LDAApp: App {
                 .keyboardShortcut("e", modifiers: .command)
                 .disabled(!sessionModel.activeModel.canExport)
 
-                Button("Restore Original…") {
+                Button("Restore Redacted File…") {
+                    // Land the user in the De-anonymize mode so the flow has
+                    // visible context, then start it.
+                    modeStore.activeMode = .deanonymize
                     sessionModel.activeModel.requestRestore()
                 }
                 .keyboardShortcut("r", modifiers: .command)
@@ -114,50 +138,49 @@ struct LDAApp: App {
             // toggles the selected item in the active mode. The menu title and
             // item labels update when the mode switches so the menu bar tells the
             // truth about what the shortcut does.
-            CommandMenu(modeStore.activeMode == .anonymize ? "Review" : "Fill") {
-                Button(modeStore.activeMode == .anonymize ? "Next Entity" : "Next Blank") {
-                    if modeStore.activeMode == .anonymize {
+            CommandMenu(modeStore.activeMode == .fill ? "Fill" : "Review") {
+                Button(modeStore.activeMode == .fill ? "Next Blank" : "Next Entity") {
+                    switch modeStore.activeMode {
+                    case .anonymize:
                         sessionModel.activeModel.selectNextGroup()
-                    } else {
+                    case .fill:
                         fillModel.selectNextBlank()
+                    case .deanonymize:
+                        break
                     }
                 }
                 .keyboardShortcut("j", modifiers: .command)
-                .disabled(
-                    modeStore.activeMode == .anonymize
-                        ? sessionModel.activeModel.entities.isEmpty
-                        : fillModel.blanks.isEmpty
-                )
+                .disabled(navigationLoopDisabled)
 
-                Button(modeStore.activeMode == .anonymize ? "Previous Entity" : "Previous Blank") {
-                    if modeStore.activeMode == .anonymize {
+                Button(modeStore.activeMode == .fill ? "Previous Blank" : "Previous Entity") {
+                    switch modeStore.activeMode {
+                    case .anonymize:
                         sessionModel.activeModel.selectPreviousGroup()
-                    } else {
+                    case .fill:
                         fillModel.selectPreviousBlank()
+                    case .deanonymize:
+                        break
                     }
                 }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(
-                    modeStore.activeMode == .anonymize
-                        ? sessionModel.activeModel.entities.isEmpty
-                        : fillModel.blanks.isEmpty
-                )
+                .disabled(navigationLoopDisabled)
 
                 Divider()
 
-                Button(modeStore.activeMode == .anonymize ? "Toggle Redaction" : "Accept Blank") {
-                    if modeStore.activeMode == .anonymize {
+                Button(modeStore.activeMode == .fill ? "Accept Blank" : "Toggle Redaction") {
+                    switch modeStore.activeMode {
+                    case .anonymize:
                         sessionModel.activeModel.toggleSelectedGroup()
-                    } else if let id = fillModel.selectedBlankID {
-                        fillModel.acceptBlank(id: id)
+                    case .fill:
+                        if let id = fillModel.selectedBlankID {
+                            fillModel.acceptBlank(id: id)
+                        }
+                    case .deanonymize:
+                        break
                     }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(
-                    modeStore.activeMode == .anonymize
-                        ? sessionModel.activeModel.selectedGroupID == nil
-                        : fillModel.selectedBlankID == nil
-                )
+                .disabled(toggleDisabled)
             }
         }
 
