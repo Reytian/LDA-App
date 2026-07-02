@@ -407,4 +407,158 @@ final class LLMExtractorTests: XCTestCase {
         XCTAssertEqual(spans.count, 2, "both casing variants in the document must be found")
         XCTAssertEqual(Set(spans.map { $0.text }), ["Acme Corp", "ACME CORP"])
     }
+
+    // MARK: - Batched decoding
+
+    /// A batch-capable completer that answers by routing on prompt content,
+    /// recording how prompts arrived (batched vs one by one).
+    private final class MockBatchCompleter: TextCompleter, BatchTextCompleter {
+        var routes: [(needle: String, output: String)] = []
+        var defaultOutput = #"{"entities":[]}"#
+        private(set) var batchCalls: [[String]] = []
+        private(set) var singleCalls: [String] = []
+
+        private func answer(_ prompt: String) -> String {
+            for route in routes where prompt.contains(route.needle) {
+                return route.output
+            }
+            return defaultOutput
+        }
+
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            singleCalls.append(prompt)
+            return answer(prompt)
+        }
+
+        func completeBatch(
+            prompts: [String],
+            maxTokens: Int?,
+            stop: [String],
+            onSequenceDone: ((Int) -> Void)?
+        ) throws -> [String] {
+            batchCalls.append(prompts)
+            return prompts.enumerated().map { index, prompt in
+                let output = answer(prompt)
+                onSequenceDone?(index)
+                return output
+            }
+        }
+    }
+
+    func testBatchCompleterReceivesGroupedWindowsAndEntitiesSurvive() throws {
+        // Three well-separated paragraphs large enough to become three windows.
+        let filler = String(repeating: "Neutral clause text continues here. ", count: 60)
+        let text = "Signer Alice Novak agrees. " + filler + "\n\n"
+            + "Counterparty Bruno Klee agrees. " + filler + "\n\n"
+            + "Witness Clara Odum agrees. " + filler
+
+        let completer = MockBatchCompleter()
+        completer.routes = [
+            ("Alice Novak", #"{"entities":[{"value":"Alice Novak","type":"PERSON"}]}"#),
+            ("Bruno Klee", #"{"entities":[{"value":"Bruno Klee","type":"PERSON"}]}"#),
+            ("Clara Odum", #"{"entities":[{"value":"Clara Odum","type":"PERSON"}]}"#),
+        ]
+        let extractor = LLMExtractor(completer: completer)
+
+        let spans = try extractor.extract(from: text)
+
+        XCTAssertEqual(
+            Set(spans.map { $0.text }),
+            ["Alice Novak", "Bruno Klee", "Clara Odum"],
+            "every window's entities must survive batched decoding"
+        )
+        XCTAssertEqual(
+            completer.batchCalls.count, 1,
+            "ALL windows stream through one continuous-batching call"
+        )
+        XCTAssertEqual(
+            completer.batchCalls[0].count,
+            SegmentPacker.segments(of: text).count,
+            "every window's prompt is in the call"
+        )
+        XCTAssertTrue(completer.singleCalls.isEmpty, "no window should fall back to serial decoding")
+    }
+
+    func testTruncatedWindowInBatchIsRetriedIndividually() throws {
+        let filler = String(repeating: "Boilerplate clause text goes on. ", count: 70)
+        let text = "First window names Dora Ellis. " + filler + "\n\n"
+            + "Second window names Egon Falk. " + filler
+
+        let truncated = #"{"entities":[{"value":"Egon Fa"#
+        let full = #"{"entities":[{"value":"Egon Falk","type":"PERSON"}]}"#
+
+        // The batch pass truncates the second window; the individual retry
+        // (recognizable by its larger token cap) returns the full object.
+        final class RetryAware: TextCompleter, BatchTextCompleter {
+            let truncated: String
+            let full: String
+            init(truncated: String, full: String) {
+                self.truncated = truncated
+                self.full = full
+            }
+            func completeBatch(
+                prompts: [String],
+                maxTokens: Int?,
+                stop: [String],
+                onSequenceDone: ((Int) -> Void)?
+            ) throws -> [String] {
+                return prompts.map { prompt in
+                    prompt.contains("Egon Falk")
+                        ? truncated
+                        : #"{"entities":[{"value":"Dora Ellis","type":"PERSON"}]}"#
+                }
+            }
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                // Only the truncation retry lands here; a larger cap proves it.
+                if let maxTokens, maxTokens > 1024, prompt.contains("Egon Falk") {
+                    return full
+                }
+                return truncated
+            }
+        }
+
+        let extractor = LLMExtractor(completer: RetryAware(truncated: truncated, full: full))
+        let result = try extractor.extractDetailed(from: text)
+
+        XCTAssertTrue(result.fullyCovered, "the retry must recover the truncated window")
+        XCTAssertTrue(result.spans.contains { $0.text == "Egon Falk" })
+        XCTAssertTrue(result.spans.contains { $0.text == "Dora Ellis" })
+    }
+
+    // MARK: - Cancellation
+
+    func testPreCancelledTokenAbortsBeforeAnyModelCall() {
+        let token = ExtractionCancelToken()
+        token.cancel()
+        let completer = MockBatchCompleter()
+        let extractor = LLMExtractor(completer: completer, cancelToken: token)
+
+        XCTAssertThrowsError(try extractor.extract(from: "Some text with Alice Novak.")) { error in
+            XCTAssertTrue(error is ExtractionCancelled)
+        }
+        XCTAssertTrue(completer.batchCalls.isEmpty)
+        XCTAssertTrue(completer.singleCalls.isEmpty)
+    }
+
+    func testCancellationMidRunThrowsInsteadOfReturningPartialResults() throws {
+        // The completer cancels the shared token during the FIRST window's
+        // completion, simulating the user pressing Stop mid-generation.
+        final class CancelDuringFirstCall: TextCompleter, CancelAwareCompleter {
+            var cancelToken: ExtractionCancelToken?
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                cancelToken?.cancel()
+                throw LLMEngine.LLMError.cancelled
+            }
+        }
+
+        let filler = String(repeating: "Some very neutral text keeps going. ", count: 80)
+        let text = "Alpha part with Gina Hollis. " + filler + "\n\n" + "Beta part with Ivan Jarre. " + filler
+
+        let token = ExtractionCancelToken()
+        let extractor = LLMExtractor(completer: CancelDuringFirstCall(), cancelToken: token)
+
+        XCTAssertThrowsError(try extractor.extract(from: text)) { error in
+            XCTAssertTrue(error is ExtractionCancelled, "a user stop surfaces as ExtractionCancelled")
+        }
+    }
 }

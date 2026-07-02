@@ -310,6 +310,17 @@ public struct AppShell: View {
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
+                Button {
+                    model.cancelAnonymize()
+                } label: {
+                    Label("Stop", systemImage: "stop.circle")
+                        .font(.callout)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(CounselTheme.danger)
+                .help("Stop anonymizing. The document stays loaded; no partial results are shown.")
+                .accessibilityIdentifier("stopAnonymize")
             }
         } else if case .ready = model.status {
             reviewSummaryBanner

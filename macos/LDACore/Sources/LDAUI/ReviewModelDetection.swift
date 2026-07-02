@@ -59,6 +59,9 @@ extension ReviewModel {
         /// User-facing explanation when AI was expected but failed or could
         /// not fully scan; nil when AI ran cleanly or was not attempted.
         let aiFailure: String?
+        /// True when the user stopped the pass. The caller discards the
+        /// outcome instead of presenting it as a completed detection.
+        let cancelled: Bool
     }
 
     nonisolated static func detect(
@@ -68,6 +71,7 @@ extension ReviewModel {
         custom: [CustomPattern] = [],
         learnedRedact: [CustomPattern] = [],
         suppressKeys: Set<String> = [],
+        cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> DetectionOutcome {
         if let delay = detectDelayForTesting {
@@ -79,7 +83,19 @@ extension ReviewModel {
         let deterministic = DeterministicEngine().detect(text)
             + CustomPatternEngine.detect(text, patterns: custom)
             + CustomPatternEngine.detect(text, patterns: learnedRedact)
-        let llm = llmSpans(in: text, useLLM: useLLM, modelPath: modelPath, onProgress: onProgress)
+        let llm = llmSpans(
+            in: text,
+            useLLM: useLLM,
+            modelPath: modelPath,
+            cancel: cancel,
+            onProgress: onProgress
+        )
+        if llm.cancelled {
+            return DetectionOutcome(
+                spans: [], learnedApplied: 0, suppressed: 0,
+                aiRan: false, aiFailure: nil, cancelled: true
+            )
+        }
         let merged = SpanMerger.merge(
             deterministic: deterministic,
             llm: llm.spans
@@ -104,7 +120,8 @@ extension ReviewModel {
             learnedApplied: appliedValues.count,
             suppressed: suppressed,
             aiRan: llm.attempted && llm.failure == nil,
-            aiFailure: llm.failure
+            aiFailure: llm.failure,
+            cancelled: false
         )
     }
 
@@ -117,29 +134,33 @@ extension ReviewModel {
         let attempted: Bool
         /// User-facing failure text, nil when the pass ran to full coverage.
         let failure: String?
+        /// True when the user stopped the pass mid-run.
+        let cancelled: Bool
     }
 
     /// Produce the LLM span list. Failures and incomplete coverage degrade to
-    /// the salvaged spans but are reported, never swallowed.
+    /// the salvaged spans but are reported, never swallowed. A user stop is
+    /// reported as cancelled, never disguised as a failure.
     nonisolated static func llmSpans(
         in text: String,
         useLLM: Bool,
         modelPath: String?,
+        cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> LLMPassOutcome {
         guard useLLM, let modelPath else {
-            return LLMPassOutcome(spans: [], attempted: false, failure: nil)
+            return LLMPassOutcome(spans: [], attempted: false, failure: nil, cancelled: false)
         }
         guard FileManager.default.fileExists(atPath: modelPath) else {
-            return LLMPassOutcome(spans: [], attempted: false, failure: nil)
+            return LLMPassOutcome(spans: [], attempted: false, failure: nil, cancelled: false)
         }
         do {
             let extractor: LLMExtractor
             if let factory = llmExtractorFactoryForTesting {
-                extractor = factory(modelPath)
+                extractor = factory(modelPath, cancel)
             } else {
                 let engine = try LLMEngine(config: .init(modelPath: modelPath))
-                extractor = LLMExtractor(completer: engine)
+                extractor = LLMExtractor(completer: engine, cancelToken: cancel)
             }
             let result = try extractor.extractDetailed(from: text, onProgress: onProgress)
             guard result.fullyCovered else {
@@ -148,15 +169,19 @@ extension ReviewModel {
                     attempted: true,
                     failure: "AI could not fully scan \(result.incompleteSegmentCount) "
                         + (result.incompleteSegmentCount == 1 ? "segment" : "segments")
-                        + "; unscanned text may still contain names or companies."
+                        + "; unscanned text may still contain names or companies.",
+                    cancelled: false
                 )
             }
-            return LLMPassOutcome(spans: result.spans, attempted: true, failure: nil)
+            return LLMPassOutcome(spans: result.spans, attempted: true, failure: nil, cancelled: false)
+        } catch is ExtractionCancelled {
+            return LLMPassOutcome(spans: [], attempted: true, failure: nil, cancelled: true)
         } catch {
             return LLMPassOutcome(
                 spans: [],
                 attempted: true,
-                failure: "AI detection failed to run; this pass was pattern matching only."
+                failure: "AI detection failed to run; this pass was pattern matching only.",
+                cancelled: false
             )
         }
     }

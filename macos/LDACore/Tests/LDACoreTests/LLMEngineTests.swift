@@ -149,4 +149,74 @@ final class LLMEngineTests: XCTestCase {
         let partial = Array("你".utf8.prefix(2))
         XCTAssertNil(LLMEngine.trimmingStopSuffix(partial, stop: ["<|im_end|>", "好"]))
     }
+
+    // MARK: - Batched decoding (live)
+
+    /// completeBatch must produce, for each prompt, output that carries the
+    /// same entities as a sequential complete() of that prompt. Exact byte
+    /// equality is not asserted: batched attention can reorder float
+    /// summations, so a greedy tie may resolve differently; the semantic
+    /// content is the contract.
+    func testBatchedCompletionMatchesSequentialEntities() throws {
+        guard let modelPath = resolveModelPath() else {
+            throw XCTSkip("GGUF model not present")
+        }
+        let engine = try LLMEngine(
+            config: .init(modelPath: modelPath, contextLength: 8192, batchSlots: 4)
+        )
+        let system = "You are a legal document anonymizer. Identify every piece of sensitive "
+            + "or personally identifying information and return strict JSON. Entity types: "
+            + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
+        let cases: [(text: String, expect: String)] = [
+            ("This Engagement Letter is between Acme Corporation and John Smith.", "John Smith"),
+            ("The lender is Globex Holdings LLC represented by Mary Stone.", "Mary Stone"),
+            ("Witnessed by Carlos Vega on behalf of Initech Systems Inc.", "Carlos Vega"),
+        ]
+        let prompts = cases.map { item in
+            LLMEngine.buildChatMLPrompt(
+                system: system,
+                user: "Anonymize. Return ONLY JSON with key entities (array of {value,type}).\n\nTEXT:\n"
+                    + item.text
+            )
+        }
+
+        let batched = try engine.completeBatch(prompts: prompts, maxTokens: 300)
+
+        XCTAssertEqual(batched.count, prompts.count)
+        for (index, item) in cases.enumerated() {
+            XCTAssertTrue(
+                batched[index].contains(item.expect),
+                "sequence \(index) lost its entity; got: \(batched[index].prefix(300))"
+            )
+        }
+
+        // The engine stays usable for sequential completion afterwards.
+        let after = try engine.complete(prompt: prompts[0], maxTokens: 300)
+        XCTAssertTrue(after.contains("John Smith"))
+    }
+
+    /// A pre-cancelled token makes completion abort with LLMError.cancelled
+    /// almost immediately, in both sequential and batched paths.
+    func testCancelTokenAbortsCompletion() throws {
+        guard let modelPath = resolveModelPath() else {
+            throw XCTSkip("GGUF model not present")
+        }
+        let engine = try LLMEngine(config: .init(modelPath: modelPath))
+        let token = ExtractionCancelToken()
+        token.cancel()
+        engine.cancelToken = token
+
+        let prompt = LLMEngine.buildChatMLPrompt(
+            system: "You are a helpful assistant.",
+            user: "Count from one to one hundred."
+        )
+        XCTAssertThrowsError(try engine.complete(prompt: prompt, maxTokens: 200)) { error in
+            XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
+        }
+        XCTAssertThrowsError(
+            try engine.completeBatch(prompts: [prompt, prompt], maxTokens: 200)
+        ) { error in
+            XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
+        }
+    }
 }
