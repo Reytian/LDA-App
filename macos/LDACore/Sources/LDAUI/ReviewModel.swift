@@ -194,6 +194,9 @@ public final class ReviewModel: ObservableObject {
     /// When the current anonymize pass started, used to estimate time remaining.
     private var anonymizeStart: Date?
 
+    /// Stop flag for the in-flight anonymize pass; nil when none is running.
+    private var activeCancelToken: ExtractionCancelToken?
+
     /// Monotonic generation for the open document. Every open() bumps it; any
     /// in-flight import or detection captured an older value and must discard
     /// its results instead of landing them on the newer document (showing doc
@@ -210,7 +213,7 @@ public final class ReviewModel: ObservableObject {
     /// Test-only LLM extractor factory so AI-path outcomes (failure,
     /// incomplete coverage) can be exercised without a real GGUF model.
     /// Receives the configured model path. Production leaves this nil.
-    nonisolated(unsafe) internal static var llmExtractorFactoryForTesting: ((String) -> LLMExtractor)?
+    nonisolated(unsafe) internal static var llmExtractorFactoryForTesting: ((String, ExtractionCancelToken?) -> LLMExtractor)?
 
     public init(modelPath: String?) {
         self.modelPath = modelPath
@@ -267,6 +270,12 @@ public final class ReviewModel: ObservableObject {
         let suppress = learningStore?.suppressKeys ?? []
         let expectsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
 
+        // Remember where we came from so a user stop can put the UI back
+        // exactly as it was, entities untouched.
+        let statusBeforeDetecting = status
+        let cancelToken = ExtractionCancelToken()
+        activeCancelToken = cancelToken
+
         status = .detecting
         progress = 0
         etaText = expectsLLM ? "Loading model" : nil
@@ -288,12 +297,23 @@ public final class ReviewModel: ObservableObject {
                 custom: custom,
                 learnedRedact: learnedRedact,
                 suppressKeys: suppress,
+                cancel: cancelToken,
                 onProgress: report
             )
         }.value
 
         // A newer document was opened while this pass ran: discard everything.
         guard generation == sessionGeneration else { return }
+        activeCancelToken = nil
+
+        // The user stopped the pass: restore the prior state and present no
+        // partial detection as if it were a completed one.
+        if outcome.cancelled {
+            progress = 0
+            etaText = nil
+            status = statusBeforeDetecting
+            return
+        }
 
         entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
@@ -305,6 +325,15 @@ public final class ReviewModel: ObservableObject {
         progress = 1
         etaText = nil
         status = .ready
+    }
+
+    /// Stop the in-flight anonymize pass. The engine aborts generation within
+    /// a fraction of a second; anonymize() then restores the prior status
+    /// without presenting partial results. Safe to call when nothing runs.
+    public func cancelAnonymize() {
+        guard activeCancelToken != nil else { return }
+        etaText = "Stopping"
+        activeCancelToken?.cancel()
     }
 
     // MARK: - Restore (de-anonymize)
@@ -345,6 +374,9 @@ public final class ReviewModel: ObservableObject {
     private func applyProgress(done: Int, total: Int, generation: Int) {
         guard generation == sessionGeneration else { return }
         guard case .detecting = status, total > 0 else { return }
+        // A stop is in flight: keep the "Stopping" label instead of letting a
+        // late progress tick overwrite it with a stale ETA.
+        if activeCancelToken?.isCancelled == true { return }
         progress = Double(done) / Double(total)
         guard done > 0, done < total, let start = anonymizeStart else {
             etaText = done == 0 ? etaText : nil

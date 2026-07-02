@@ -437,7 +437,7 @@ final class ReviewModelTests: XCTestCase {
                 return #"{"entities":[{"value":"Acm"#
             }
         }
-        ReviewModel.llmExtractorFactoryForTesting = { _ in
+        ReviewModel.llmExtractorFactoryForTesting = { _, _ in
             LLMExtractor(completer: AlwaysTruncating())
         }
         defer { ReviewModel.llmExtractorFactoryForTesting = nil }
@@ -450,6 +450,58 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertEqual(model.status, .ready)
         XCTAssertFalse(model.aiActive, "an incomplete scan is not a complete AI pass")
         XCTAssertNotNil(model.aiWarning)
+    }
+
+    // MARK: - Stop button (cancellation)
+
+    /// A completer that blocks until the run's cancel token fires, then keeps
+    /// throwing, simulating a long generation the user interrupts.
+    private final class BlockingUntilCancelled: TextCompleter, CancelAwareCompleter {
+        var cancelToken: ExtractionCancelToken?
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            while cancelToken?.isCancelled != true {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            throw LLMEngine.LLMError.cancelled
+        }
+    }
+
+    /// Stopping mid-anonymize must restore the prior status, keep the document
+    /// loaded, and present NO detection outcome (no entities, no AI warning):
+    /// a partial pass shown as complete would be trusted as one.
+    func testCancelAnonymizeRestoresPriorStateWithoutResults() async throws {
+        let url = workDir.appendingPathComponent("stop.txt")
+        try Data("Contact \(Self.email) and Jordan Lee now.".utf8).write(to: url)
+        let dummyModel = workDir.appendingPathComponent("dummy2.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+
+        ReviewModel.llmExtractorFactoryForTesting = { _, cancel in
+            LLMExtractor(completer: BlockingUntilCancelled(), cancelToken: cancel)
+        }
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let model = ReviewModel(modelPath: dummyModel.path)
+        model.useLLM = true
+        await model.open(url)
+        XCTAssertEqual(model.status, .imported)
+
+        let run = Task { await model.anonymize() }
+        // Wait until the pass has actually entered detection, then stop it.
+        var waited = 0
+        while model.status != .detecting && waited < 500 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            waited += 1
+        }
+        XCTAssertEqual(model.status, .detecting, "the pass never started")
+        model.cancelAnonymize()
+        await run.value
+
+        XCTAssertEqual(model.status, .imported, "cancel must restore the pre-anonymize status")
+        XCTAssertTrue(model.entities.isEmpty, "no partial detection may be presented")
+        XCTAssertNil(model.aiWarning, "a user stop is not an AI failure")
+        XCTAssertEqual(model.progress, 0)
+        XCTAssertNil(model.etaText)
+        XCTAssertTrue(model.documentText.contains("Jordan Lee"), "document stays loaded")
     }
 
     // MARK: - Export collision guard

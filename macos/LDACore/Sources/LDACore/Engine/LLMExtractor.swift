@@ -60,14 +60,27 @@ public final class LLMExtractor {
 
     private let completer: TextCompleter
     private let prompts: PromptStore
+    private let cancelToken: ExtractionCancelToken?
 
     /// - Parameters:
     ///   - completer: the text-completion backend (an LLMEngine in production, a
     ///     fake in tests).
     ///   - prompts: the editable prompt store. Defaults to a fresh PromptStore.
-    public init(completer: TextCompleter, prompts: PromptStore = PromptStore()) {
+    ///   - cancelToken: optional stop flag. Checked between windows here and
+    ///     once per generated token inside a CancelAwareCompleter, so a user's
+    ///     stop lands within a fraction of a second. When it fires,
+    ///     extractDetailed throws ExtractionCancelled.
+    public init(
+        completer: TextCompleter,
+        prompts: PromptStore = PromptStore(),
+        cancelToken: ExtractionCancelToken? = nil
+    ) {
         self.completer = completer
         self.prompts = prompts
+        self.cancelToken = cancelToken
+        if let cancellable = completer as? CancelAwareCompleter {
+            cancellable.cancelToken = cancelToken
+        }
     }
 
     /// Extract fuzzy entity spans (PERSON, COMPANY, ADDRESS) from text.
@@ -121,27 +134,37 @@ public final class LLMExtractor {
             segmentsToProcess.append(window.text)
         }
 
-        // 2. Run each segment. A segment that fails to complete or returns
-        //    unparseable JSON is skipped, never failing the whole extraction.
-        //    EntityLocator always searches the full source text, so entity values
-        //    found in any segment are correctly anchored across the whole document.
-        //    A truncated segment is retried with a larger cap and, if still cut
-        //    off, split into smaller sub-segments; complete entities are always
-        //    salvaged and a still-incomplete segment is counted (not silently
-        //    dropped).
+        // 2. Run the segments. When the completer supports batched decoding
+        //    (the production LLMEngine), ALL windows' first attempts stream
+        //    through the engine's parallel slots in ONE call: the shared
+        //    prompt prefix is prefilled once, and a finished window's slot is
+        //    immediately refilled with the next one (continuous batching).
+        //    A segment that fails to complete or returns unparseable JSON is
+        //    skipped, never failing the whole extraction. EntityLocator always
+        //    searches the full source text, so entity values found in any
+        //    segment are correctly anchored across the whole document. A
+        //    truncated segment is retried with a larger cap and, if still cut
+        //    off, split into smaller sub-segments; complete entities are
+        //    always salvaged and a still-incomplete segment is counted (not
+        //    silently dropped). A cancellation throws ExtractionCancelled
+        //    (and the engine aborts mid-generation), so a stop is
+        //    near-immediate.
         let total = segmentsToProcess.count
         onProgress?(0, total)
 
+        let outcomes = try scanAll(segmentsToProcess, onProgress: onProgress)
+
         var rawEntities: [ExtractedEntity] = []
         var incompleteSegmentCount = 0
-        for (index, segment) in segmentsToProcess.enumerated() {
-            let outcome = scanSegment(segment)
+        for outcome in outcomes {
             rawEntities.append(contentsOf: outcome.entities)
             if outcome.incomplete {
                 incompleteSegmentCount += 1
             }
-            onProgress?(index + 1, total)
         }
+        // A stop during the final window must also abort: a cancelled run
+        // never returns results, however far it got.
+        try throwIfCancelled()
 
         // 3. Keep only the fuzzy types LDA owns from the LLM, and drop legal
         //    boilerplate the model over-reports: role labels, defined terms
@@ -200,17 +223,76 @@ public final class LLMExtractor {
         let incomplete: Bool
     }
 
+    /// Throws ExtractionCancelled once the owner's stop flag fires.
+    private func throwIfCancelled() throws {
+        if cancelToken?.isCancelled == true {
+            throw ExtractionCancelled()
+        }
+    }
+
+    /// Scan every segment. When the completer supports batched decoding and
+    /// there is more than one segment, the first attempts for ALL segments
+    /// stream through the engine's slots in one continuous-batching call
+    /// (progress ticks as each finishes); each segment's truncation recovery
+    /// (bigger-cap retry, splitting) then proceeds individually and only
+    /// where needed. A batch backend failure falls back to the per-segment
+    /// path, so batching is purely an optimization.
+    private func scanAll(
+        _ segments: [String],
+        onProgress: ((Int, Int) -> Void)?
+    ) throws -> [SegmentOutcome] {
+        var firstAttempts: [String?] = Array(repeating: nil, count: segments.count)
+        var batchedProgress = false
+
+        if segments.count > 1, let batcher = completer as? BatchTextCompleter {
+            let prompts = segments.map { buildPrompt(for: $0) }
+            var finished = 0
+            let total = segments.count
+            if let outputs = try? batcher.completeBatch(
+                prompts: prompts,
+                maxTokens: LLMExtractor.maxCompletionTokens,
+                stop: [LLMExtractor.imEndMarker],
+                onSequenceDone: { _ in
+                    finished += 1
+                    onProgress?(min(finished, total), total)
+                }
+            ), outputs.count == segments.count {
+                firstAttempts = outputs
+                batchedProgress = true
+            }
+            // A cancellation inside the batch surfaces as a thrown error that
+            // the optional-try above swallows; re-check the flag so a stop is
+            // honored rather than silently retried per segment.
+            try throwIfCancelled()
+        }
+
+        var outcomes: [SegmentOutcome] = []
+        for (index, segment) in segments.enumerated() {
+            try throwIfCancelled()
+            outcomes.append(scanSegment(segment, firstAttempt: firstAttempts[index]))
+            if !batchedProgress {
+                onProgress?(index + 1, segments.count)
+            }
+        }
+        return outcomes
+    }
+
     /// Send one segment to the model, salvage entities, and recover from a
     /// truncated completion.
     ///
-    /// Strategy: complete at the default cap; if the parse signals truncation,
-    /// retry once at a larger cap; if it still truncates, split the segment into
-    /// smaller sub-segments and scan each. The entities recovered before any cut
-    /// are always kept. The segment is reported incomplete only if a leaf attempt
-    /// still truncates with no possibility of finer splitting.
-    private func scanSegment(_ segment: String) -> SegmentOutcome {
-        // First attempt at the default cap.
-        guard let first = complete(segment: segment, maxTokens: LLMExtractor.maxCompletionTokens) else {
+    /// Strategy: complete at the default cap (or consume the batched first
+    /// attempt when the group pass already produced one); if the parse signals
+    /// truncation, retry once at a larger cap; if it still truncates, split
+    /// the segment into smaller sub-segments and scan each. The entities
+    /// recovered before any cut are always kept. The segment is reported
+    /// incomplete only if a leaf attempt still truncates with no possibility
+    /// of finer splitting.
+    private func scanSegment(_ segment: String, firstAttempt: String? = nil) -> SegmentOutcome {
+        // First attempt at the default cap, unless the batched group pass
+        // already produced it.
+        let firstCompletion = firstAttempt
+            ?? complete(segment: segment, maxTokens: LLMExtractor.maxCompletionTokens)
+        guard let first = firstCompletion else {
             // The completer threw. Skip this segment as before; a backend failure
             // is not a truncation we can recover by retrying with a larger cap.
             return SegmentOutcome(entities: [], incomplete: false)
@@ -248,15 +330,19 @@ public final class LLMExtractor {
         return SegmentOutcome(entities: entities, incomplete: anyIncomplete)
     }
 
-    /// Build the prompt for a segment and complete it, returning nil if the
-    /// completer throws (a backend failure, not a truncation).
-    private func complete(segment: String, maxTokens: Int) -> String? {
-        let prompt = LLMEngine.buildChatMLPrompt(
+    /// Render the full ChatML prompt for one segment.
+    private func buildPrompt(for segment: String) -> String {
+        return LLMEngine.buildChatMLPrompt(
             system: prompts.currentExtractionSystem,
             user: prompts.extractionUser(chunk: segment)
         )
+    }
+
+    /// Build the prompt for a segment and complete it, returning nil if the
+    /// completer throws (a backend failure, not a truncation).
+    private func complete(segment: String, maxTokens: Int) -> String? {
         return try? completer.complete(
-            prompt: prompt,
+            prompt: buildPrompt(for: segment),
             maxTokens: maxTokens,
             stop: [LLMExtractor.imEndMarker]
         )
