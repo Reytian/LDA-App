@@ -107,8 +107,14 @@ public struct FillShell: View {
 
     // MARK: - Init
 
-    public init(model: FillModel) {
+    /// Whether this shell is the frontmost mode. Gates the toolbar: RootShell
+    /// keeps every mode's view alive in a ZStack, and SwiftUI merges toolbar
+    /// items from all live layers, so an inactive shell must contribute none.
+    private let isActive: Bool
+
+    public init(model: FillModel, isActive: Bool = true) {
         self.model = model
+        self.isActive = isActive
     }
 
     // MARK: - Body
@@ -194,13 +200,15 @@ public struct FillShell: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        switch model.stage {
-        case .library:
-            libraryToolbar
-        case .idle, .importingSources, .extracting, .profileReady:
-            profileBuilderToolbar
-        case .planning, .reviewing, .applying, .done, .failed:
-            fillReviewToolbar
+        if isActive {
+            switch model.stage {
+            case .library:
+                libraryToolbar
+            case .idle, .importingSources, .extracting, .profileReady:
+                profileBuilderToolbar
+            case .planning, .reviewing, .applying, .done, .failed:
+                fillReviewToolbar
+            }
         }
     }
 

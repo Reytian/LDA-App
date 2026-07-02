@@ -30,11 +30,13 @@ public struct AppShell: View {
     /// The active document's review model (the session forwards its changes).
     private var model: ReviewModel { session.activeModel }
 
+    /// Whether this shell is the frontmost mode. Gates the toolbar: RootShell
+    /// keeps every mode's view alive in a ZStack, and SwiftUI merges toolbar
+    /// items from all live layers, so an inactive shell must contribute none.
+    private let isActive: Bool
+
     /// True while the passphrase sheet is presented, after a directory is chosen.
     @State private var isPromptingPassphrase = false
-
-    /// True while the paste-and-restore sheet is presented.
-    @State private var isPasteRestorePresented = false
 
     /// The directory chosen for export, held while the passphrase is collected.
     @State private var pendingExportDir: URL?
@@ -52,8 +54,9 @@ public struct AppShell: View {
     /// True while the onboarding sheet is presented.
     @State private var isOnboardingPresented = false
 
-    public init(session: SessionModel) {
+    public init(session: SessionModel, isActive: Bool = true) {
         self.session = session
+        self.isActive = isActive
     }
 
     public var body: some View {
@@ -73,9 +76,6 @@ public struct AppShell: View {
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
         }
-        .sheet(isPresented: $isPasteRestorePresented) {
-            PasteRestoreSheet(session: session, isPresented: $isPasteRestorePresented)
-        }
         .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
             OnboardingView(
                 isPresented: $isOnboardingPresented,
@@ -92,14 +92,8 @@ public struct AppShell: View {
         .onChange(of: model.exportRequestToken) { _, _ in
             beginExport()
         }
-        .onChange(of: model.restoreRequestToken) { _, _ in
-            presentRestore()
-        }
         .onChange(of: session.copyForAIRequestToken) { _, _ in
             runCopyForAI()
-        }
-        .onChange(of: session.pasteRestoreRequestToken) { _, _ in
-            isPasteRestorePresented = true
         }
         .onChange(of: model.status) { _, status in
             announce(status)
@@ -132,66 +126,51 @@ public struct AppShell: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            Button {
-                presentOpenPanel()
-            } label: {
-                Label("Open", systemImage: "doc.badge.plus")
+        if isActive {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    presentOpenPanel()
+                } label: {
+                    Label("Open", systemImage: "doc.badge.plus")
+                }
+                .help("Add .txt, .docx, .pdf documents or a .zip to the session")
+
+                clientMenu
             }
-            .help("Add .txt, .docx, .pdf documents or a .zip to the session")
 
-            clientMenu
-        }
+            ToolbarItemGroup(placement: .automatic) {
+                // The primary action of this mode. It DETECTS: nothing is
+                // rewritten until the user reviews and exports or copies, so
+                // the label says what actually happens.
+                Button {
+                    Task { await model.anonymize() }
+                } label: {
+                    Label("Scan for PII", systemImage: "text.magnifyingglass")
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+                .disabled(!canAnonymize)
+                .help("Spot PII in the open document: names, companies, addresses, dates, amounts")
 
-        ToolbarItemGroup(placement: .automatic) {
-            Button {
-                Task { await model.anonymize() }
-            } label: {
-                Label("Anonymize", systemImage: "wand.and.rays")
+                Button {
+                    runCopyForAI()
+                } label: {
+                    Label("Copy for AI", systemImage: "arrow.right.doc.on.clipboard")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(!session.entries.contains { $0.model.canExport })
+                .help("Copy the redacted text so you can paste it into any AI tool. Nothing leaves this Mac.")
+
+                Button {
+                    beginExport()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(!model.canExport)
+                .help("Write the redacted document and its encrypted mapping")
             }
-            .labelStyle(.titleAndIcon)
-            .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccentFill)
-            .disabled(!canAnonymize)
-            .help("Detect sensitive information in the open document")
-
-            Button {
-                runCopyForAI()
-            } label: {
-                Label("Copy for AI", systemImage: "arrow.right.doc.on.clipboard")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(!session.entries.contains { $0.model.canExport })
-            .help("Copy the redacted text so you can paste it into any AI tool. Nothing leaves this Mac.")
-
-            Button {
-                isPasteRestorePresented = true
-            } label: {
-                Label("Restore from AI", systemImage: "arrow.left.doc.on.clipboard")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Paste the AI's answer and restore the real values")
-
-            Button {
-                beginExport()
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(!model.canExport)
-            .help("Write the redacted document and its encrypted mapping")
-        }
-
-        // The persistent, honest privacy indicator: the app ships without any
-        // network entitlement, so the claim is enforced by the sandbox, not
-        // just asserted here.
-        ToolbarItem(placement: .automatic) {
-            Label("On-device", systemImage: "lock.laptopcomputer")
-                .font(.caption)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .help("Documents, placeholders, and mappings never leave this Mac. "
-                    + "The app has no network access at all.")
-                .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
         }
     }
 
@@ -260,7 +239,7 @@ public struct AppShell: View {
         do {
             let createdAt = ISO8601DateFormatter().string(from: Date())
             guard let handoff = try session.buildHandToAI(createdAtISO8601: createdAt) else {
-                exportMessage = "Anonymize a document first, then copy it for the AI."
+                exportMessage = "Scan a document for PII first, then copy it for the AI."
                 return
             }
             NSPasteboard.general.clearContents()
@@ -269,7 +248,7 @@ public struct AppShell: View {
             var message = "Redacted copy of \(handoff.documentCount) "
                 + (handoff.documentCount == 1 ? "document" : "documents")
                 + " is on the clipboard. Paste it into your AI tool, then bring the answer "
-                + "back with Restore from AI."
+                + "back in the De-anonymize tab."
             if handoff.skippedCount > 0 {
                 message += "  \u{00B7}  \(handoff.skippedCount) "
                     + (handoff.skippedCount == 1 ? "document was" : "documents were")
@@ -409,10 +388,10 @@ public struct AppShell: View {
         }
     }
 
-    /// "Anonymizing 42%  ·  about 12s remaining"
+    /// "Spotting PII 42%  ·  about 12s remaining"
     private var detectingLabel: String {
         let pct = Int((model.progress * 100).rounded())
-        var label = "Anonymizing \(pct)%"
+        var label = "Spotting PII \(pct)%"
         if let eta = model.etaText {
             label += "  \u{00B7}  \(eta)"
         }
@@ -426,9 +405,9 @@ public struct AppShell: View {
         case .importing:
             return "Importing document"
         case .imported:
-            return "Document ready. Click Anonymize to detect sensitive information."
+            return "Document ready. Click Scan for PII to spot names, companies, and other personal data."
         case .detecting:
-            return "Detecting entities"
+            return "Spotting PII"
         case .ready:
             if let exportMessage { return exportMessage }
             if let note = model.learningNote { return "Ready for review. \(note)." }
@@ -601,120 +580,8 @@ public struct AppShell: View {
         }
     }
 
-    // MARK: - Restore flow (de-anonymize)
-
-    /// Restore an edited redacted document back to its originals: pick the file,
-    /// locate or pick its .ldamap, ask for the passphrase if any, choose an
-    /// output, run the restore, and report the result (including any tokens that
-    /// could not be restored).
-    private func presentRestore() {
-        let openPanel = NSOpenPanel()
-        openPanel.canChooseFiles = true
-        openPanel.canChooseDirectories = false
-        openPanel.allowsMultipleSelection = false
-        openPanel.allowedContentTypes = Self.openContentTypes
-        openPanel.message = "Choose the edited redacted document to restore."
-        openPanel.prompt = "Choose"
-        guard openPanel.runModal() == .OK, let redacted = openPanel.url else { return }
-
-        guard let mapping = locateMapping(for: redacted) else { return }
-        guard let entered = askRestorePassphrase() else { return }
-        let phrase = entered.isEmpty ? nil : entered
-
-        let savePanel = NSSavePanel()
-        savePanel.message = "Save the restored document."
-        let base = redacted.deletingPathExtension().lastPathComponent
-        let ext = redacted.pathExtension.isEmpty ? "txt" : redacted.pathExtension
-        savePanel.nameFieldStringValue = "\(base)_restored.\(ext)"
-        guard savePanel.runModal() == .OK, let output = savePanel.url else { return }
-
-        do {
-            let report = try model.restore(
-                editedRedacted: redacted,
-                mapping: mapping,
-                passphrase: phrase,
-                output: output
-            )
-            showRestoreResult(report)
-        } catch {
-            showAlert(title: "Restore failed", text: error.localizedDescription, warning: true)
-        }
-    }
-
-    /// Find the sibling <base>.ldamap next to the redacted file, or let the user
-    /// pick it. Returns nil if the user cancels.
-    private func locateMapping(for redacted: URL) -> URL? {
-        let sibling = redacted.deletingPathExtension().appendingPathExtension("ldamap")
-        if FileManager.default.fileExists(atPath: sibling.path) { return sibling }
-
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose the .ldamap mapping that goes with this document."
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
-    }
-
-    /// Ask for the mapping passphrase. Returns the entered string (which may be
-    /// empty, meaning Keychain), or nil if the user cancels.
-    private func askRestorePassphrase() -> String? {
-        let alert = NSAlert()
-        alert.messageText = "Mapping passphrase"
-        alert.informativeText = "If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain."
-        alert.addButton(withTitle: "Restore")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        alert.accessoryView = field
-        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
-    }
-
-    private func showRestoreResult(_ report: RestoreReport) {
-        if report.orphanTokens.isEmpty && report.suspectPlaceholders.isEmpty {
-            showAlert(
-                title: "Document restored",
-                text: "Restored \(report.restoredCount) value"
-                    + (report.restoredCount == 1 ? "" : "s")
-                    + " to \(report.outputURL.lastPathComponent).",
-                warning: false
-            )
-        } else {
-            var problems: [String] = []
-            if !report.orphanTokens.isEmpty {
-                let sample = report.orphanTokens.prefix(5).joined(separator: ", ")
-                problems.append(
-                    "\(report.orphanTokens.count) placeholder"
-                        + (report.orphanTokens.count == 1 ? "" : "s")
-                        + " could not be matched: \(sample)."
-                )
-            }
-            if !report.suspectPlaceholders.isEmpty {
-                let sample = report.suspectPlaceholders.prefix(5).joined(separator: ", ")
-                problems.append(
-                    "\(report.suspectPlaceholders.count) placeholder"
-                        + (report.suspectPlaceholders.count == 1 ? " looks" : "s look")
-                        + " damaged by editing: \(sample)."
-                )
-            }
-            showAlert(
-                title: "Restored with warnings",
-                text: "Restored \(report.restoredCount) values. "
-                    + problems.joined(separator: " ")
-                    + " Nothing was guessed; please review these in "
-                    + "\(report.outputURL.lastPathComponent) and fix them by hand.",
-                warning: true
-            )
-        }
-    }
-
-    private func showAlert(title: String, text: String, warning: Bool) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = text
-        alert.alertStyle = warning ? .warning : .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
+    // The de-anonymize flows (paste-back sheet and file-based restore) live in
+    // DeanonymizeShell; the sheet presentation is window-level in RootShell.
 
     /// True when the directory lives inside iCloud Drive (any app container or
     /// the Desktop and Documents sync surface).

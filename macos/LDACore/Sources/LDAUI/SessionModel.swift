@@ -370,7 +370,7 @@ public final class SessionModel: ObservableObject {
             clientLabel = UserDefaults.standard.string(forKey: Self.parkedClientLabelKey)
         }
         sessionNote = "Resumed your last session. When the AI answer is ready, "
-            + "use Restore from AI to bring the real values back."
+            + "use the De-anonymize tab to bring the real values back."
     }
 
     // MARK: - Bring back and restore (stage 4)

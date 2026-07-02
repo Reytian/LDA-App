@@ -2,23 +2,30 @@
 //  RootShell.swift
 //  LDAUI
 //
-//  The top-level mode switcher. Two modes: "Anonymize" (the existing AppShell
-//  review window) and "Fill" (the new FillShell). Both child views are kept
-//  alive at all times in a ZStack so switching modes does not tear down in-
-//  progress work; only the active shell is visible (opacity 1) and interactive
-//  (allowsHitTesting true). The inactive shell is hidden and hit-test blocked.
+//  The top-level mode switcher. Three modes mirror the product's actual
+//  round trip:
+//    Anonymize     bring documents in, spot PII, review, copy or export
+//    De-anonymize  bring the work back: paste an AI reply, or restore a
+//                  redacted file via its mapping
+//    Fill          fill a form draft from a stored client profile
 //
-//  Mode selection lives in a segmented Picker placed in the toolbar at the
-//  center. The Picker matches the Counsel chrome: no extra decoration, just
-//  the two labels.
+//  All child views are kept alive at all times in a ZStack so switching modes
+//  does not tear down in-progress work; only the active shell is visible
+//  (opacity 1) and interactive. Each shell receives isActive and contributes
+//  its toolbar ONLY while active: SwiftUI merges toolbar items from every
+//  live layer, so without the guard the Anonymize buttons would clutter the
+//  other modes' toolbars (and vice versa).
+//
+//  Window-level chrome owned here, not by any one shell:
+//  - The mode picker (toolbar principal).
+//  - The persistent On-device privacy indicator (trust applies to every mode).
+//  - The paste-and-restore sheet: it can be triggered from the De-anonymize
+//    shell, the Edit menu, or the menu-bar companion, regardless of mode.
 //
 //  AppModeStore is a tiny ObservableObject that owns the active mode. It is
-//  created in LDAApp and passed into RootShell so that the app-level CommandMenu
-//  entries can read the current mode and dispatch keyboard shortcuts to the right
-//  child model. This is the "mode-aware commands" approach: Cmd+J/Cmd+Shift+J
-//  are shared shortcuts; the command reads the active mode and routes to either
-//  ReviewModel.selectNextGroup / selectPreviousGroup (Anonymize) or
-//  FillModel.selectNextBlank / selectPreviousBlank (Fill).
+//  created in LDAApp and passed into RootShell so that the app-level
+//  CommandMenu entries can read the current mode and dispatch keyboard
+//  shortcuts to the right child model (Cmd+J / Cmd+Shift+J / Cmd+Return).
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -28,9 +35,10 @@ import LDACore
 
 // MARK: - AppMode
 
-/// The two top-level application modes.
+/// The top-level application modes, in workflow order.
 public enum AppMode: String, Hashable, CaseIterable {
     case anonymize = "Anonymize"
+    case deanonymize = "De-anonymize"
     case fill = "Fill"
 }
 
@@ -47,16 +55,16 @@ public final class AppModeStore: ObservableObject {
 
 // MARK: - RootShell
 
-/// The top-level window content. Receives both child models and the shared
-/// AppModeStore from the caller (LDAApp) as ObservedObjects. Both models live
-/// for the window's lifetime; switching modes toggles visibility/interactivity
-/// on the ZStack layers without destroying either child session.
+/// The top-level window content. Receives the child models and the shared
+/// AppModeStore from the caller (LDAApp) as ObservedObjects. All models live
+/// for the window's lifetime; switching modes toggles visibility and
+/// interactivity on the ZStack layers without destroying any child session.
 public struct RootShell: View {
 
     // MARK: - Child models
 
-    /// The session model driving the Anonymize shell (document tray plus the
-    /// per-document review models).
+    /// The session model driving the Anonymize and De-anonymize shells (the
+    /// document tray plus the per-document review models).
     @ObservedObject private var session: SessionModel
 
     /// The fill model driving the Fill shell.
@@ -65,6 +73,10 @@ public struct RootShell: View {
     // MARK: - Mode state (shared with LDAApp for command routing)
 
     @ObservedObject private var modeStore: AppModeStore
+
+    /// True while the paste-and-restore sheet is presented. Window-level so
+    /// every mode (and the menu-bar companion) can summon it.
+    @State private var isPasteRestorePresented = false
 
     // MARK: - Init
 
@@ -83,12 +95,21 @@ public struct RootShell: View {
             // inside it, preventing keyboard events from bleeding through to the
             // hidden subtree. .allowsHitTesting would block pointer input but
             // leave text fields able to receive keyboard events.
-            AppShell(session: session)
+            AppShell(session: session, isActive: modeStore.activeMode == .anonymize)
                 .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
                 .disabled(modeStore.activeMode != .anonymize)
 
+            // De-anonymize layer.
+            DeanonymizeShell(
+                session: session,
+                isActive: modeStore.activeMode == .deanonymize,
+                onPasteFromAI: { isPasteRestorePresented = true }
+            )
+            .opacity(modeStore.activeMode == .deanonymize ? 1 : 0)
+            .disabled(modeStore.activeMode != .deanonymize)
+
             // Fill layer.
-            FillShell(model: fillModel)
+            FillShell(model: fillModel, isActive: modeStore.activeMode == .fill)
                 .opacity(modeStore.activeMode == .fill ? 1 : 0)
                 .disabled(modeStore.activeMode != .fill)
         }
@@ -100,9 +121,28 @@ public struct RootShell: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 200)
-                .help("Switch between Anonymize and Fill modes")
+                .frame(width: 320)
+                .help("Anonymize documents, de-anonymize results, or fill a form from a profile")
             }
+
+            // The persistent, honest privacy indicator: the app ships without
+            // any network entitlement, so the claim is enforced by the
+            // sandbox, not just asserted here. Window-level because it is
+            // true in every mode.
+            ToolbarItem(placement: .automatic) {
+                Label("On-device", systemImage: "lock.laptopcomputer")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .help("Documents, placeholders, and mappings never leave this Mac. "
+                        + "The app has no network access at all.")
+                    .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
+            }
+        }
+        .sheet(isPresented: $isPasteRestorePresented) {
+            PasteRestoreSheet(session: session, isPresented: $isPasteRestorePresented)
+        }
+        .onChange(of: session.pasteRestoreRequestToken) { _, _ in
+            isPasteRestorePresented = true
         }
     }
 }
