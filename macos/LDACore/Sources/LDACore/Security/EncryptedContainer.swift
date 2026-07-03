@@ -151,17 +151,26 @@ public struct EncryptedContainer {
     }
 
     /// Removes the stored Keychain key for an account under this container's service.
-    /// A missing item is treated as success (best-effort cleanup).
+    /// A missing item is treated as success (best-effort cleanup). Both stores
+    /// are cleared: the legacy login-keychain item and the data-protection
+    /// item (where user-presence keys live), plus the in-process cache.
     public func deleteKeychainKey(account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account
-        ]
+        Self.keyCacheLock.lock()
+        Self.keyCache[cacheKey(for: account)] = nil
+        Self.keyCacheLock.unlock()
 
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw DocumentIOError.keychainError(status)
+        // Remove both the legacy silent item and the user-presence-protected
+        // copy (kept under the ".userpresence" account).
+        for storedAccount in [account, Self.protectedAccount(account)] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: storedAccount
+            ]
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw DocumentIOError.keychainError(status)
+            }
         }
     }
 
@@ -233,6 +242,17 @@ public struct EncryptedContainer {
 
     // MARK: - Keychain
 
+    /// Process-lifetime cache of fetched keys, so user-presence protection
+    /// costs at most one Touch ID per key per launch instead of one per
+    /// operation. Keys only ever enter the cache after a successful (and,
+    /// under the policy, user-approved) fetch.
+    private static let keyCacheLock = NSLock()
+    private static var keyCache: [String: SymmetricKey] = [:]
+
+    private func cacheKey(for account: String) -> String {
+        "\(keychainService)\u{1F}\(account)"
+    }
+
     /// Fetches an existing Keychain key, or creates and stores a fresh one.
     private func fetchOrCreateKeychainKey(account: String) throws -> SymmetricKey {
         if let existing = try lookupKeychainKey(account: account) {
@@ -241,7 +261,11 @@ public struct EncryptedContainer {
 
         let keyData = Self.randomBytes(count: Self.keyLength)
         try addKeychainKey(account: account, keyData: Data(keyData))
-        return SymmetricKey(data: Data(keyData))
+        let key = SymmetricKey(data: Data(keyData))
+        Self.keyCacheLock.lock()
+        Self.keyCache[cacheKey(for: account)] = key
+        Self.keyCacheLock.unlock()
+        return key
     }
 
     /// Fetches an existing Keychain key, throwing if it is absent.
@@ -254,7 +278,47 @@ public struct EncryptedContainer {
 
     /// Returns the stored key for an account, nil if not found, or throws on a
     /// genuine Keychain error.
+    ///
+    /// Under KeychainAccessPolicy.requireUserPresence the search order is:
+    /// in-memory cache, then the data-protection keychain (Touch ID), then the
+    /// legacy login-keychain item, which is upgraded in place when found.
     private func lookupKeychainKey(account: String) throws -> SymmetricKey? {
+        Self.keyCacheLock.lock()
+        let cached = Self.keyCache[cacheKey(for: account)]
+        Self.keyCacheLock.unlock()
+        if let cached {
+            return cached
+        }
+
+        if KeychainAccessPolicy.requireUserPresence {
+            if let protected = try lookupProtectedKey(account: account) {
+                remember(protected, account: account)
+                return protected
+            }
+            if let legacy = try lookupLegacyKey(account: account) {
+                migrateToUserPresence(account: account, key: legacy)
+                remember(legacy, account: account)
+                return legacy
+            }
+            return nil
+        }
+
+        guard let legacy = try lookupLegacyKey(account: account) else {
+            return nil
+        }
+        remember(legacy, account: account)
+        return legacy
+    }
+
+    private func remember(_ key: SymmetricKey, account: String) {
+        Self.keyCacheLock.lock()
+        Self.keyCache[cacheKey(for: account)] = key
+        Self.keyCacheLock.unlock()
+    }
+
+    /// The original lookup: a silent generic-password item in the login file
+    /// keychain (created by pre-policy versions, headless tools, and tests).
+    private func lookupLegacyKey(account: String) throws -> SymmetricKey? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -279,8 +343,68 @@ public struct EncryptedContainer {
         }
     }
 
-    /// Adds a fresh key to the Keychain for an account.
+    /// Lookup of the access-control-protected item behind user presence.
+    /// Returning from here means the user approved via Touch ID (or the
+    /// password fallback) within the shared context's reuse window.
+    ///
+    /// This uses the traditional macOS file keychain, not the data-protection
+    /// keychain: an ACL item (kSecAttrAccessControl with .userPresence) prompts
+    /// for Touch ID there too, and it needs no keychain-access-group
+    /// entitlement, which a locally signed Developer ID app (no provisioning
+    /// profile) cannot reliably obtain. The item is distinguished from the
+    /// legacy silent item by a distinct account suffix.
+    private func lookupProtectedKey(account: String) throws -> SymmetricKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: Self.protectedAccount(account),
+            kSecUseAuthenticationContext as String: KeychainAccessPolicy.sharedAuthenticationContext,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data, data.count == Self.keyLength else {
+                throw DocumentIOError.keychainError(errSecDecode)
+            }
+            return SymmetricKey(data: data)
+        case errSecItemNotFound:
+            return nil
+        case errSecUserCanceled, errSecAuthFailed:
+            // The user dismissed or failed the Touch ID prompt: surface it as
+            // a keychain error so the caller reports "could not unlock", and
+            // never fall through to the unprotected legacy path.
+            throw DocumentIOError.keychainError(status)
+        default:
+            throw DocumentIOError.keychainError(status)
+        }
+    }
+
+    /// The account name under which the user-presence-protected copy is stored.
+    /// A distinct suffix keeps it separate from the legacy silent item so the
+    /// two never collide during migration.
+    private static func protectedAccount(_ account: String) -> String {
+        "\(account).userpresence"
+    }
+
+    /// Adds a fresh key to the Keychain. Under the policy it is stored as a
+    /// user-presence-protected item (Touch ID on retrieval) under the
+    /// ".userpresence" account; otherwise as the original silent item under the
+    /// bare account.
     private func addKeychainKey(account: String, keyData: Data) throws {
+        if KeychainAccessPolicy.requireUserPresence {
+            try addProtectedKey(account: account, keyData: keyData)
+        } else {
+            try addSilentKey(account: account, keyData: keyData)
+        }
+    }
+
+    /// The original silent generic-password item (no access control).
+    private func addSilentKey(account: String, keyData: Data) throws {
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -288,11 +412,68 @@ public struct EncryptedContainer {
             kSecValueData as String: keyData,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
-
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw DocumentIOError.keychainError(status)
         }
+    }
+
+    /// A user-presence-protected item under the ".userpresence" account. A
+    /// stale copy is removed first so a re-add after a failed migration
+    /// cannot hit errSecDuplicateItem.
+    private func addProtectedKey(account: String, keyData: Data) throws {
+        var accessControlError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.userPresence],
+            &accessControlError
+        ) else {
+            accessControlError?.release()
+            throw DocumentIOError.keychainError(errSecParam)
+        }
+
+        let protectedAccount = Self.protectedAccount(account)
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: protectedAccount
+        ] as CFDictionary)
+
+        let attributes: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: protectedAccount,
+            kSecValueData as String: keyData,
+            kSecAttrAccessControl as String: accessControl,
+            // Do not prompt while merely writing the item; the prompt belongs
+            // on retrieval, driven by the shared LAContext.
+            kSecUseAuthenticationContext as String: KeychainAccessPolicy.sharedAuthenticationContext
+        ]
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw DocumentIOError.keychainError(status)
+        }
+    }
+
+    /// Best-effort upgrade of a legacy silent key to user-presence protection:
+    /// write the protected copy, then remove the silent one only after the
+    /// protected write succeeds. The key bytes are already safely in hand (and
+    /// cached), so a failure mid-way never loses data: if the protected write
+    /// fails the silent item is left intact and the next run retries; the
+    /// silent item is deleted only once its protected replacement exists.
+    private func migrateToUserPresence(account: String, key: SymmetricKey) {
+        let keyData = key.withUnsafeBytes { Data($0) }
+        do {
+            try addProtectedKey(account: account, keyData: keyData)
+        } catch {
+            return
+        }
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account
+        ] as CFDictionary)
     }
 
     // MARK: - Container layout

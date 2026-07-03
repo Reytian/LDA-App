@@ -224,8 +224,8 @@ public struct FillShell: View {
             }
         } message: {
             Text("Your portfolio library is encrypted with a key stored in your macOS "
-                + "Keychain. macOS may ask you to allow LDA to use that key; it never "
-                + "leaves this Mac. You will only see this explanation once.")
+                + "Keychain. macOS will confirm with Touch ID (or your password); the key "
+                + "never leaves this Mac. You will only see this explanation once.")
         }
     }
 
