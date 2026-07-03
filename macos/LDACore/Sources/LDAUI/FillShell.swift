@@ -110,7 +110,19 @@ public struct FillShell: View {
     /// Whether this shell is the frontmost mode. Gates the toolbar: RootShell
     /// keeps every mode's view alive in a ZStack, and SwiftUI merges toolbar
     /// items from all live layers, so an inactive shell must contribute none.
+    /// Also gates library loading: the portfolio library key lives in the
+    /// macOS Keychain, and it must never be touched at app launch, only when
+    /// the user actually enters Fill.
     private let isActive: Bool
+
+    /// One-time flag: the first library unlock shows a short explanation of
+    /// the upcoming macOS Keychain prompt, so the system dialog is expected
+    /// rather than alarming.
+    @AppStorage("com.haotianyi.LDA.hasSeenLibraryKeychainNote")
+    private var hasSeenLibraryKeychainNote = false
+
+    /// True while the first-time Keychain explanation is presented.
+    @State private var isShowingKeychainNote = false
 
     public init(model: FillModel, isActive: Bool = true) {
         self.model = model
@@ -188,11 +200,43 @@ public struct FillShell: View {
         .onChange(of: model.stage) { _, stage in
             announceStage(stage)
         }
-        // Boot from .idle into .library when the shell first appears.
+        // Boot from .idle into .library when the user ENTERS Fill, never at
+        // app launch: refreshing the library decrypts the index with a
+        // Keychain-held key, and a Keychain prompt must always be the result
+        // of a user action.
         .onAppear {
-            if model.stage == .idle {
+            if isActive {
+                activateLibraryIfNeeded()
+            }
+        }
+        .onChange(of: isActive) { _, nowActive in
+            if nowActive {
+                activateLibraryIfNeeded()
+            }
+        }
+        .alert("Unlock your portfolio library?", isPresented: $isShowingKeychainNote) {
+            Button("Continue") {
+                hasSeenLibraryKeychainNote = true
                 Task { await model.refreshLibrary() }
             }
+            Button("Not Now", role: .cancel) {
+                hasSeenLibraryKeychainNote = true
+            }
+        } message: {
+            Text("Your portfolio library is encrypted with a key stored in your macOS "
+                + "Keychain. macOS may ask you to allow LDA to use that key; it never "
+                + "leaves this Mac. You will only see this explanation once.")
+        }
+    }
+
+    /// First activation loads the library; the very first time ever, a short
+    /// note explains the upcoming Keychain permission dialog first.
+    private func activateLibraryIfNeeded() {
+        guard model.stage == .idle else { return }
+        if hasSeenLibraryKeychainNote {
+            Task { await model.refreshLibrary() }
+        } else {
+            isShowingKeychainNote = true
         }
     }
 

@@ -91,9 +91,10 @@ struct LDAApp: App {
                         model.learningStore = learningStore
                         AISettings.apply(to: model, bundledDefault: LDAApp.defaultModelPath())
                     }
-                    // An awaiting-AI session parked before the last quit
-                    // resumes here, so Restore from AI works immediately.
-                    sessionModel.resumeParkedSession()
+                    // NOTE: a parked awaiting-AI session is resumed lazily
+                    // (first paste-restore), NOT here. The parked mapping is
+                    // Keychain-protected, and a Keychain prompt at app launch
+                    // is exactly the kind of surprise dialog users distrust.
                 }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
@@ -105,6 +106,13 @@ struct LDAApp: App {
 
         .commands {
             CommandGroup(after: .saveItem) {
+                Button("Scan for PII") {
+                    modeStore.activeMode = .anonymize
+                    sessionModel.activeModel.requestAnonymize()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!sessionModel.activeModel.canAnonymize)
+
                 Button("Copy for AI") {
                     sessionModel.requestCopyForAI()
                 }

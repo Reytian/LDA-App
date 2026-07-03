@@ -162,6 +162,10 @@ public final class ReviewModel: ObservableObject {
     /// Bumped when the Restore menu command fires.
     @Published public var restoreRequestToken: Int = 0
 
+    /// Bumped when the Scan for PII menu command fires, so the window can
+    /// start the pass (the shell owns the async run).
+    @Published public var anonymizeRequestToken: Int = 0
+
     /// The open document's file name, for the window title.
     public var documentName: String? { sourceURL?.lastPathComponent }
 
@@ -174,6 +178,23 @@ public final class ReviewModel: ObservableObject {
 
     /// Ask the window to begin the restore flow. Used by the File menu command.
     public func requestRestore() { restoreRequestToken += 1 }
+
+    /// True when a Scan for PII pass can start (a document is loaded and no
+    /// pass is running). Shared by the banner button and the menu command.
+    public var canAnonymize: Bool {
+        switch status {
+        case .imported, .ready:
+            return true
+        case .idle, .importing, .detecting, .failed:
+            return false
+        }
+    }
+
+    /// Ask the window to run Scan for PII. Used by the menu command.
+    public func requestAnonymize() {
+        guard canAnonymize else { return }
+        anonymizeRequestToken += 1
+    }
 
     /// True once a document has been anonymized and is ready to export.
     public var canExport: Bool {

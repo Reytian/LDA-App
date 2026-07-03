@@ -92,6 +92,10 @@ public struct AppShell: View {
         .onChange(of: model.exportRequestToken) { _, _ in
             beginExport()
         }
+        .onChange(of: model.anonymizeRequestToken) { _, _ in
+            guard model.canAnonymize else { return }
+            Task { await model.anonymize() }
+        }
         .onChange(of: session.copyForAIRequestToken) { _, _ in
             runCopyForAI()
         }
@@ -139,20 +143,9 @@ public struct AppShell: View {
             }
 
             ToolbarItemGroup(placement: .automatic) {
-                // The primary action of this mode. It DETECTS: nothing is
-                // rewritten until the user reviews and exports or copies, so
-                // the label says what actually happens.
-                Button {
-                    Task { await model.anonymize() }
-                } label: {
-                    Label("Scan for PII", systemImage: "text.magnifyingglass")
-                }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-                .disabled(!canAnonymize)
-                .help("Spot PII in the open document: names, companies, addresses, dates, amounts")
-
+                // The mode's primary action (Scan for PII) lives in the status
+                // banner, not here: toolbar items overflow into the >> menu on
+                // narrow windows, and the primary action must never disappear.
                 Button {
                     runCopyForAI()
                 } label: {
@@ -263,14 +256,7 @@ public struct AppShell: View {
     /// Anonymize is available once a document is imported, and again after a run
     /// (so the user can re-run, for example after toggling AI entities). It is not
     /// available while a pass is in flight.
-    private var canAnonymize: Bool {
-        switch model.status {
-        case .imported, .ready:
-            return true
-        case .idle, .importing, .detecting, .failed:
-            return false
-        }
-    }
+    private var canAnonymize: Bool { model.canAnonymize }
 
     // MARK: - Status banner
 
@@ -315,8 +301,50 @@ public struct AppShell: View {
                         ? CounselTheme.danger
                         : CounselTheme.textSecondary)
                 Spacer(minLength: 0)
+                // The mode's primary action lives IN the banner, next to the
+                // sentence that names it: it can never vanish into toolbar
+                // overflow on a narrow window.
+                if case .imported = model.status {
+                    scanButton(title: "Scan for PII", prominent: true)
+                }
             }
         }
+    }
+
+    /// The primary Scan for PII action, rendered with symmetric padding so the
+    /// pill is visually even.
+    private func scanButton(title: String, prominent: Bool) -> some View {
+        Group {
+            if prominent {
+                Button {
+                    Task { await model.anonymize() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.magnifyingglass")
+                        Text(title)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+            } else {
+                Button {
+                    Task { await model.anonymize() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                        Text(title)
+                    }
+                    .padding(.horizontal, 2)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .disabled(!model.canAnonymize)
+        .help("Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)")
+        .accessibilityIdentifier("scanForPII")
     }
 
     /// The post-anonymize review summary: how many will be redacted, how many the
@@ -368,15 +396,29 @@ public struct AppShell: View {
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(1)
             }
+
+            scanButton(title: "Re-scan", prominent: false)
         }
     }
 
-    /// Shared banner container chrome.
+    /// Shared banner container chrome. Every banner row ends with the labeled
+    /// On-device indicator: the trust claim stays visible in this mode without
+    /// spending toolbar width, and the label explains the lock icon.
     private func bannerChrome<Content: View>(
         @ViewBuilder _ content: () -> Content
     ) -> some View {
         HStack(spacing: 12) {
             content()
+
+            Divider().frame(height: 14)
+
+            Label("On-device", systemImage: "lock.laptopcomputer")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .help("Documents, placeholders, and mappings never leave this Mac. "
+                    + "The app has no network access at all.")
+                .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

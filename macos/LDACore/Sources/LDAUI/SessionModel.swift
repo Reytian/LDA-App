@@ -379,6 +379,9 @@ public final class SessionModel: ObservableObject {
     /// was reopened mid round-trip, the client profile's stored mapping).
     /// Returns nil when there is no mapping to restore against.
     public func restorePasted(_ text: String) throws -> RestoreResult? {
+        // Just-in-time parked-session resume (no-op when a mapping is already
+        // loaded or nothing is parked). Keeps Keychain access user-initiated.
+        resumeParkedSession()
         var mapping = sessionMapping
         if mapping == nil, let clientLabel {
             mapping = try clientStore().load(
@@ -462,5 +465,11 @@ public final class SessionModel: ObservableObject {
     public func requestCopyForAI() { copyForAIRequestToken += 1 }
 
     /// Ask the shell to present the Restore from AI sheet (menu command hook).
-    public func requestPasteRestore() { pasteRestoreRequestToken += 1 }
+    /// Resumes a parked session first (just in time, not at launch): the
+    /// parked mapping is Keychain-protected, and touching the Keychain must
+    /// happen in response to a user action, never as a surprise at startup.
+    public func requestPasteRestore() {
+        resumeParkedSession()
+        pasteRestoreRequestToken += 1
+    }
 }

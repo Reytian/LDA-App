@@ -124,19 +124,10 @@ public struct RootShell: View {
                 .frame(width: 320)
                 .help("Anonymize documents, de-anonymize results, or fill a form from a profile")
             }
-
-            // The persistent, honest privacy indicator: the app ships without
-            // any network entitlement, so the claim is enforced by the
-            // sandbox, not just asserted here. Window-level because it is
-            // true in every mode.
-            ToolbarItem(placement: .automatic) {
-                Label("On-device", systemImage: "lock.laptopcomputer")
-                    .font(.caption)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .help("Documents, placeholders, and mappings never leave this Mac. "
-                        + "The app has no network access at all.")
-                    .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
-            }
+            // The On-device privacy indicator lives in the Anonymize status
+            // banner (labeled, always visible) and in the De-anonymize copy,
+            // NOT here: an icon-only toolbar item reads as a mystery lock and
+            // competes for toolbar width on narrow windows.
         }
         .sheet(isPresented: $isPasteRestorePresented) {
             PasteRestoreSheet(session: session, isPresented: $isPasteRestorePresented)
