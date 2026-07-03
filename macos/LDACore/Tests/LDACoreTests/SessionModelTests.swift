@@ -58,6 +58,13 @@ final class SessionModelTests: XCTestCase {
             clientStore: { try ClientMappingStore(rootDirectory: clientRoot) }
         )
         session.clientProtection = { _ in .passphrase("pw") }
+        // Isolate the parked-session location: restorePasted and
+        // requestPasteRestore resume a parked session just in time, and the
+        // default location is the REAL Application Support directory, which
+        // may carry a parked mapping from the developer's own use of the app.
+        let parkedURL = workDir.appendingPathComponent("parked-test.ldamap")
+        session.parkedMappingURL = { parkedURL }
+        session.parkedProtection = { .passphrase("parked-pw") }
         return session
     }
 
