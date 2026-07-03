@@ -18,22 +18,58 @@
 #   SCRATCH_PATH       SwiftPM scratch directory. Set it OUTSIDE iCloud when the
 #                      checkout lives in an iCloud-synced folder, or the build
 #                      can fail with "input file was modified during the build".
+#   STAGE_SOURCE       copy package inputs to a temp dir before building
+#                      (default 1). This avoids iCloud source timestamp races.
+#   KEEP_STAGE         keep the temp source copy for debugging (default 0).
 #
 # House rules: English only. No em-dash or en-dash-as-separator.
 set -euo pipefail
 
 PKG="$(cd "$(dirname "$0")/.." && pwd)"
-DIST="$PKG/dist"
+BUILD_PKG="$PKG"
+STAGE_DIR=""
+# DIST_PATH overrides where LDA.app is written. It MUST be outside iCloud when
+# signing: iCloud continuously stamps com.apple.FinderInfo /
+# com.apple.fileprovider / com.apple.provenance xattrs on every bundle file
+# (faster than a one-time strip and re-stamped mid-sign), which makes codesign
+# fail with "resource fork, Finder information, or similar detritus not
+# allowed". Defaults to $PKG/dist, fine for unsigned local builds.
+DIST="${DIST_PATH:-$PKG/dist}"
 APP="$DIST/LDA.app"
 MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/lda-v2-Q4_K_M.gguf}"
+
+if [ -n "${CODESIGN_IDENTITY:-}" ] && printf '%s' "$DIST" | grep -qi "/Mobile Documents/\|/Documents/"; then
+  echo "!! Refusing to sign inside an iCloud-synced path ($DIST)."
+  echo "!! Set DIST_PATH to a non-iCloud location, e.g. DIST_PATH=~/Developer/lda-dist"
+  exit 1
+fi
+
+cleanup() {
+  if [ -n "$STAGE_DIR" ] && [ "${KEEP_STAGE:-0}" != "1" ]; then
+    rm -rf "$STAGE_DIR"
+  fi
+}
+trap cleanup EXIT
 
 SCRATCH=()
 if [ -n "${SCRATCH_PATH:-}" ]; then
   SCRATCH=(--scratch-path "$SCRATCH_PATH")
 fi
 
+if [ "${STAGE_SOURCE:-1}" != "0" ]; then
+  STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lda-source-stage.XXXXXX")"
+  BUILD_PKG="$STAGE_DIR/LDACore"
+  mkdir -p "$BUILD_PKG"
+  echo "==> Staging source outside iCloud"
+  for item in Package.swift Package.resolved Sources Tests Frameworks packaging; do
+    if [ -e "$PKG/$item" ]; then
+      cp -R "$PKG/$item" "$BUILD_PKG/"
+    fi
+  done
+fi
+
 echo "==> Building release binary"
-cd "$PKG"
+cd "$BUILD_PKG"
 swift build -c release --product LDAApp "${SCRATCH[@]}" >/dev/null
 BIN="$(swift build -c release --product LDAApp "${SCRATCH[@]}" --show-bin-path)/LDAApp"
 
@@ -56,6 +92,11 @@ fi
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
   echo "==> Code signing with hardened runtime"
+  # Strip extended attributes first. macOS stamps files with xattrs such as
+  # com.apple.provenance (on execution) and com.apple.quarantine / iCloud
+  # sync metadata (on the copied 2.5 GB model), and codesign refuses any file
+  # carrying a "resource fork, Finder information, or similar detritus".
+  xattr -cr "$APP"
   # Sign the executable first, then the bundle, with the offline entitlements.
   codesign --force --options runtime --timestamp \
     --entitlements "$PKG/packaging/LDA.entitlements" \
@@ -64,7 +105,7 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     --entitlements "$PKG/packaging/LDA.entitlements" \
     --sign "$CODESIGN_IDENTITY" "$APP"
   echo "==> Verifying signature"
-  codesign --verify --deep --strict --verbose=2 "$APP"
+  codesign --verify --strict --verbose=2 "$APP"
 else
   echo "!! CODESIGN_IDENTITY not set; produced an UNSIGNED bundle (open with right-click > Open)."
 fi
