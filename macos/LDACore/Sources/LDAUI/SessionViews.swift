@@ -157,10 +157,17 @@ struct AddTermPopover: View {
 
 // MARK: - Menu-bar companion
 
+/// Stable SwiftUI scene identifiers shared by the app entry point and the
+/// menu-bar companion.
+public enum LDAWindowID {
+    public static let main = "main"
+}
+
 /// The menu-bar companion (auxiliary posture): quick clipboard redact and the
 /// no-dead-end "restore the clipboard" for coming back from the AI.
 public struct CompanionMenu: View {
     @ObservedObject var session: SessionModel
+    @Environment(\.openWindow) private var openWindow
 
     public init(session: SessionModel) {
         self.session = session
@@ -192,6 +199,7 @@ public struct CompanionMenu: View {
         Divider()
 
         Button("Open LDA") {
+            openWindow(id: LDAWindowID.main)
             NSApp.activate(ignoringOtherApps: true)
         }
     }

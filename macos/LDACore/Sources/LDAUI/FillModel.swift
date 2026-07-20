@@ -72,6 +72,14 @@ public enum FillStage: Equatable {
     case failed(String)
 }
 
+/// The workflow surface where an operation began. Failure routing records this
+/// explicitly because profile and target data can survive Back navigation.
+enum FillFailureContext: Equatable {
+    case library
+    case profile
+    case review
+}
+
 // MARK: - FillModel
 
 /// Orchestrates LDACore for the fill-from-profile UI. @MainActor so every
@@ -83,7 +91,15 @@ public final class FillModel: ObservableObject {
     // MARK: - Published state
 
     /// The current stage of the fill session.
-    @Published public var stage: FillStage = .idle
+    @Published public var stage: FillStage = .idle {
+        didSet {
+            if case .failed = stage { return }
+            failureContext = nil
+        }
+    }
+
+    /// The surface that should remain visible when stage is .failed.
+    @Published var failureContext: FillFailureContext?
 
     /// The extracted or user-loaded client portfolio. Nil before extraction completes.
     @Published public var profile: ClientPortfolio?
@@ -490,7 +506,7 @@ public final class FillModel: ObservableObject {
             }
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .profile)
         }
     }
 
@@ -559,7 +575,7 @@ public final class FillModel: ObservableObject {
             targetText = nil
             // Planning failed: release the scope; there is nothing to apply.
             stopTargetScope()
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .review)
         }
     }
 
@@ -612,11 +628,19 @@ public final class FillModel: ObservableObject {
             // Apply failed: release the scope so subsequent attempts can re-open
             // it cleanly via a new Open Target flow.
             stopTargetScope()
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .review)
         }
     }
 
     // MARK: - Error rendering
+
+    /// Publish an error together with the surface where the failed operation
+    /// began. Stored workflow data is not a reliable navigation signal because
+    /// it intentionally survives Back navigation.
+    internal func publishFailure(_ error: Error, context: FillFailureContext) {
+        failureContext = context
+        stage = .failed(Self.describe(error))
+    }
 
     /// A user-facing one-line description of an error.
     /// internal for FillModelLibrary.swift

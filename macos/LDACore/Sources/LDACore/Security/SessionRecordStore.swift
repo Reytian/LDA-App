@@ -78,6 +78,16 @@ public struct SessionRecord: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public struct SessionRecordResolution: Equatable, Sendable {
+    public let records: [SessionRecord]
+    public let unreadableCount: Int
+
+    public init(records: [SessionRecord], unreadableCount: Int) {
+        self.records = records
+        self.unreadableCount = unreadableCount
+    }
+}
+
 // MARK: - Store
 
 /// Encrypted per-session record directory.
@@ -161,25 +171,49 @@ public struct SessionRecordStore {
         }
     }
 
-    /// Every record, newest first. A record that fails to decrypt is skipped
-    /// (a damaged record must not hide the readable history).
-    public func list(protection: MappingProtection? = nil) throws -> [SessionRecord] {
+    /// Every readable record, newest first, plus a count of records that could
+    /// not be unlocked or validated.
+    public func resolve(
+        protection: MappingProtection? = nil
+    ) throws -> SessionRecordResolution {
         let contents = try FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: nil
         )
         var records: [SessionRecord] = []
+        var unreadableCount = 0
         for url in contents where url.pathExtension == Self.fileExtension {
-            guard let idString = url.deletingPathExtension().lastPathComponent as String?,
-                  let id = UUID(uuidString: idString),
-                  let record = try? load(id: id, protection: protection) else {
+            let idString = url.deletingPathExtension().lastPathComponent
+            guard let id = UUID(uuidString: idString) else {
+                unreadableCount += 1
                 continue
             }
-            records.append(record)
+            do {
+                if let record = try load(id: id, protection: protection) {
+                    records.append(record)
+                } else {
+                    unreadableCount += 1
+                }
+            } catch {
+                unreadableCount += 1
+            }
         }
-        return records.sorted {
-            ($0.createdAtISO8601, $0.id.uuidString) > ($1.createdAtISO8601, $1.id.uuidString)
+        return SessionRecordResolution(
+            records: records.sorted {
+                ($0.createdAtISO8601, $0.id.uuidString) > ($1.createdAtISO8601, $1.id.uuidString)
+            },
+            unreadableCount: unreadableCount
+        )
+    }
+
+    /// Every record, newest first. A damaged record does not hide readable
+    /// history, but an entirely locked history still surfaces as an error.
+    public func list(protection: MappingProtection? = nil) throws -> [SessionRecord] {
+        let resolution = try resolve(protection: protection)
+        if resolution.records.isEmpty, resolution.unreadableCount > 0 {
+            throw DocumentIOError.corrupt("Session history exists but could not be unlocked.")
         }
+        return resolution.records
     }
 
     /// Append one restore event to an existing record. A missing record is a

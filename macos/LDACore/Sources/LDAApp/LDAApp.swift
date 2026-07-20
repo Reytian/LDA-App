@@ -1,9 +1,9 @@
 //
 //  LDAApp.swift
 //  The SwiftUI app entry point. The window hosts the top-level RootShell from
-//  LDAUI, which provides a segmented mode switcher between the Anonymize shell
-//  (AppShell + ReviewModel) and the Fill shell (FillShell + FillModel). Both
-//  child models are owned by RootShell and kept alive for the window's lifetime.
+//  LDAUI, which provides a segmented switcher for Matters, Anonymize, Restore,
+//  and Fill. The child models are owned by RootShell and kept alive for the
+//  window's lifetime.
 //
 //  Keyboard shortcut design (mode-aware commands, option b):
 //  Cmd+J / Cmd+Shift+J are shared shortcuts for the navigation loop. A single
@@ -74,7 +74,7 @@ struct LDAApp: App {
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.entities.isEmpty
         case .fill: return fillModel.blanks.isEmpty
-        case .deanonymize: return true
+        case .matters, .deanonymize: return true
         }
     }
 
@@ -84,12 +84,12 @@ struct LDAApp: App {
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.selectedGroupID == nil
         case .fill: return fillModel.selectedBlankID == nil
-        case .deanonymize: return true
+        case .matters, .deanonymize: return true
         }
     }
 
     var body: some Scene {
-        WindowGroup("LDA") {
+        Window("LDA", id: LDAWindowID.main) {
             RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
@@ -102,6 +102,7 @@ struct LDAApp: App {
                         model.learningStore = learningStore
                         AISettings.apply(to: model, bundledDefault: LDAApp.defaultModelPath())
                     }
+                    AISettings.apply(to: fillModel, bundledDefault: LDAApp.defaultModelPath())
                     // NOTE: a parked awaiting-AI session is resumed lazily
                     // (first paste-restore), NOT here. The parked mapping is
                     // Keychain-protected, and a Keychain prompt at app launch
@@ -109,6 +110,7 @@ struct LDAApp: App {
                 }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
+                    AISettings.apply(to: fillModel, bundledDefault: LDAApp.defaultModelPath())
                 }
                 .onChange(of: detectionModeRaw) { _, _ in
                     sessionModel.reapplyConfiguration()
@@ -137,7 +139,7 @@ struct LDAApp: App {
 
                 Divider()
 
-                Button("Export Redacted Document…") {
+                Button("Save Redacted Document…") {
                     sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
@@ -164,7 +166,7 @@ struct LDAApp: App {
                         sessionModel.activeModel.selectNextGroup()
                     case .fill:
                         fillModel.selectNextBlank()
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }
@@ -177,7 +179,7 @@ struct LDAApp: App {
                         sessionModel.activeModel.selectPreviousGroup()
                     case .fill:
                         fillModel.selectPreviousBlank()
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }
@@ -194,7 +196,7 @@ struct LDAApp: App {
                         if let id = fillModel.selectedBlankID {
                             fillModel.acceptBlank(id: id)
                         }
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }

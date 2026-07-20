@@ -41,7 +41,14 @@ public struct SettingsView: View {
             HistoryTab()
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
-        .frame(width: 580, height: 440)
+        .frame(
+            minWidth: 580,
+            idealWidth: 700,
+            maxWidth: .infinity,
+            minHeight: 440,
+            idealHeight: 540,
+            maxHeight: .infinity
+        )
         .background(CounselTheme.appSurface)
     }
 }
@@ -170,6 +177,7 @@ private struct HistoryTab: View {
 private struct AITab: View {
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
     @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
+    @State private var modelSelectionError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -193,10 +201,18 @@ private struct AITab: View {
 
                 if !customModelPath.isEmpty {
                     Button("Use Bundled Model") {
+                        AISettings.clearCustomModel()
                         customModelPath = ""
+                        modelSelectionError = nil
                     }
                     .help("Go back to the tuned model that ships with the app")
                 }
+            }
+
+            if let modelSelectionError {
+                Text(modelSelectionError)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
             }
 
             Divider()
@@ -260,7 +276,13 @@ private struct AITab: View {
         panel.message = "Choose a local GGUF model. It will run fully on this Mac."
         panel.prompt = "Use Model"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        customModelPath = url.path
+        do {
+            try AISettings.selectCustomModel(at: url)
+            customModelPath = url.path
+            modelSelectionError = nil
+        } catch {
+            modelSelectionError = "The app could not retain access to that model. Choose it again."
+        }
     }
 }
 

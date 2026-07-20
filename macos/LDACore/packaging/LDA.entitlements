@@ -11,6 +11,10 @@
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 
+  <!-- Persist access to a model the user chooses in Settings. -->
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+
   <!-- DELIBERATELY ABSENT: any network entitlement. This app never touches the
        network. With the sandbox on and no network entitlement, outbound and
        inbound network access is denied by the OS, which is the core privacy

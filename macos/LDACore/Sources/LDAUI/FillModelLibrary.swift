@@ -89,7 +89,7 @@ extension FillModel {
             stage = .library
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .library)
         }
     }
 
@@ -143,7 +143,7 @@ extension FillModel {
             stage = .profileReady
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .library)
         }
     }
 
@@ -190,9 +190,10 @@ extension FillModel {
                 try lib.list()
             }.value
             summaries = refreshed
+            stage = .profileReady
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .profile)
         }
     }
 
@@ -213,11 +214,11 @@ extension FillModel {
 
             if id == currentPortfolioID {
                 currentPortfolioID = nil
-                stage = .library
             }
+            stage = .library
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .library)
         }
     }
 
@@ -254,11 +255,12 @@ extension FillModel {
                 try lib.list()
             }.value
             summaries = refreshed
+            stage = .library
 
             return newID
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .library)
             return nil
         }
     }
@@ -280,11 +282,12 @@ extension FillModel {
                 try lib.list()
             }.value
             summaries = refreshed
+            stage = .library
 
             return newID
 
         } catch {
-            stage = .failed(Self.describe(error))
+            publishFailure(error, context: .library)
             return nil
         }
     }

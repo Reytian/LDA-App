@@ -162,12 +162,16 @@ final class FillModelLibraryTests: XCTestCase {
         }
 
         let model = FillModel(modelPath: nil)
+        model.profile = makeCompanyPortfolio(label: "Retained Profile")
+        model.targetURL = URL(fileURLWithPath: "/tmp/retained-target.pdf")
         await model.refreshLibrary()
 
         guard case .failed = model.stage else {
             XCTFail("stage must be .failed when library list() throws; got \(model.stage)")
             return
         }
+        XCTAssertEqual(model.failureContext, .library,
+            "a library failure must stay in the library despite retained workflow data")
     }
 
     // MARK: - Library: libraryNotice set when reconciliation happened
@@ -329,6 +333,19 @@ final class FillModelLibraryTests: XCTestCase {
             "summaries must be empty after deleting the only portfolio")
     }
 
+    func testSuccessfulDeleteRetryClearsPriorLibraryFailure() async throws {
+        let lib = try makeLibrarySeam()
+        let id = try lib.create(makeCompanyPortfolio(label: "Retry Delete"))
+        let model = FillModel(modelPath: nil)
+        model.failureContext = .library
+        model.stage = .failed("Transient library error")
+
+        await model.deletePortfolio(id: id)
+
+        XCTAssertEqual(model.stage, .library)
+        XCTAssertNil(model.failureContext)
+    }
+
     // MARK: - Library: openForEdit loads the saved portfolio
 
     func testOpenForEditLoadsTheSavedPortfolio() async throws {
@@ -371,10 +388,14 @@ final class FillModelLibraryTests: XCTestCase {
 
         // Delete the original and import from the export file.
         try lib.delete(id: id)
+        model.failureContext = .library
+        model.stage = .failed("Transient import error")
         let importedID = await model.importPortfolio(from: exportURL, protection: .passphrase("test-pass"))
 
         XCTAssertNotNil(importedID, "importPortfolio must return the new UUID")
         XCTAssertNotEqual(importedID, id, "imported portfolio must have a new UUID")
+        XCTAssertEqual(model.stage, .library)
+        XCTAssertNil(model.failureContext)
 
         // Verify summaries were refreshed.
         XCTAssertEqual(model.summaries.count, 1)
@@ -535,6 +556,7 @@ final class FillModelLibraryTests: XCTestCase {
             createdAtISO8601: "2026-06-11T00:00:00Z"
         )
         model.addField(key: .companyName, value: "Save Fail Holdings")
+        model.targetURL = URL(fileURLWithPath: "/tmp/retained-target.pdf")
         XCTAssertTrue(model.profileDirty, "precondition: dirty before save attempt")
 
         await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T01:00:00Z")
@@ -543,7 +565,19 @@ final class FillModelLibraryTests: XCTestCase {
             XCTFail("stage must be .failed when saveToLibrary throws; got \(model.stage)")
             return
         }
+        XCTAssertEqual(model.failureContext, .profile,
+            "a save failure must stay in the editor even when a prior target is retained")
         XCTAssertTrue(model.profileDirty,
             "profileDirty must remain true after a failed save (nav guard: shell must not call backToLibrary)")
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o755)],
+            ofItemAtPath: workDir.path
+        )
+        await model.saveToLibrary(modifiedAtISO8601: "2026-06-11T02:00:00Z")
+
+        XCTAssertEqual(model.stage, .profileReady)
+        XCTAssertNil(model.failureContext)
+        XCTAssertFalse(model.profileDirty)
     }
 }

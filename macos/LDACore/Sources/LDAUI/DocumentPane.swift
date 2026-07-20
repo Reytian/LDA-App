@@ -4,7 +4,8 @@
 //
 //  The paper-forward document pane: the serif edit surface where the imported
 //  text is shown with faint entity tint highlights and colored underlines, and
-//  accepted entities render as sealed mono-token chips.
+//  accepted entities are highlighted for review. A Safe Preview mode renders
+//  the actual tokenized body text before the user copies or saves it.
 //
 //  Rendering model:
 //  - The full document text is shown as a serif body on the paper surface,
@@ -13,9 +14,8 @@
 //  - Each entity's span is visually marked by building one AttributedString from
 //    the document text and applying, over each span's UTF-16 range, a faint tint
 //    background plus a colored underline in the entity's Counsel hue.
-//  - An ACCEPTED entity instead reads as a sealed token: a stronger background in
-//    the entity hue at low opacity and a monospaced face, so it looks like a
-//    filled chip carrying its mono token, for example [PERSON_1].
+//  - Safe Preview replaces accepted values with opaque placeholders and leaves
+//    rejected values visible, using the same tokenization rules as export.
 //  - Spans are applied from the end of the document toward the start so that the
 //    UTF-16 to AttributedString index mapping stays valid as attributes are set.
 //
@@ -54,6 +54,12 @@ public struct DocumentPane: View {
     /// the window on long documents.
     @State private var styledDocument = AttributedString("")
 
+    /// The tokenized body shown by Safe Preview, rebuilt with the entity list.
+    @State private var safePreviewDocument = AttributedString("")
+
+    /// Original review surface or the protected text that will be shared.
+    @State private var previewMode: DocumentPreviewMode = .original
+
     public init(session: SessionModel, model: ReviewModel) {
         self.session = session
         self.model = model
@@ -88,6 +94,16 @@ public struct DocumentPane: View {
         .onChange(of: model.entities) { _, newEntities in
             restyle(entities: newEntities)
         }
+        .onChange(of: model.status) { _, status in
+            switch status {
+            case .ready:
+                previewMode = .safePreview
+            case .idle, .importing, .imported:
+                previewMode = .original
+            case .detecting, .failed:
+                break
+            }
+        }
     }
 
     /// Re-parse the document text and re-apply the current entity styling.
@@ -103,6 +119,11 @@ public struct DocumentPane: View {
             text: model.documentText,
             entities: entities
         )
+        let preview = ReviewModel.redactedPreviewText(
+            text: model.documentText,
+            entities: entities
+        )
+        safePreviewDocument = Self.styleTokenLiterals(in: preview)
     }
 
     // MARK: - Drop zone (empty state)
@@ -210,19 +231,64 @@ public struct DocumentPane: View {
 
     // MARK: - Reading column
 
-    /// The scrolling, width-capped serif reading column on the paper surface.
+    /// The preview switch plus a scrolling, width-capped reading column.
     private var readingColumn: some View {
-        ScrollView(.vertical) {
-            Text(styledDocument)
-                .font(.system(.body, design: .serif))
-                .foregroundStyle(CounselTheme.textPrimary)
-                .textSelection(.enabled)
-                .lineSpacing(Layout.lineSpacing)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: Layout.columnWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, Layout.gutter)
-                .padding(.vertical, Layout.columnVerticalInset)
+        VStack(spacing: 0) {
+            previewHeader
+
+            ScrollView(.vertical) {
+                Text(previewMode == .original ? styledDocument : safePreviewDocument)
+                    .font(.system(.body, design: .serif))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                    .modifier(PreviewTextSelection(
+                        enabled: previewMode.allowsTextSelection
+                    ))
+                    .lineSpacing(Layout.lineSpacing)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: Layout.columnWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, Layout.gutter)
+                    .padding(.vertical, Layout.columnVerticalInset)
+            }
+        }
+    }
+
+    private var previewHeader: some View {
+        HStack(spacing: 14) {
+            Picker("Document preview", selection: $previewMode) {
+                ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 250)
+
+            if previewMode == .safePreview {
+                if model.visibleCount > 0 {
+                    Label(
+                        "\(model.visibleCount) kept visible",
+                        systemImage: "eye.trianglebadge.exclamationmark"
+                    )
+                    .foregroundStyle(CounselTheme.danger)
+                    .help("Items you rejected remain readable in this preview and in the saved document")
+                } else {
+                    Label("Accepted findings replaced", systemImage: "checkmark.shield")
+                        .foregroundStyle(CounselTheme.textSecondary)
+                }
+            } else {
+                Text("Original text with review highlights")
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .font(.callout)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
     }
 
@@ -293,6 +359,33 @@ public struct DocumentPane: View {
             apply(entity: entity, to: &attributed, range: range)
         }
 
+        return attributed
+    }
+
+    /// Style placeholder literals in the protected preview without changing
+    /// its text. Token detection uses the same grammar as restore.
+    private static func styleTokenLiterals(in text: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard let regex = try? NSRegularExpression(
+            pattern: TokenGrammar.placeholderPattern
+        ) else { return attributed }
+
+        let nsText = text as NSString
+        let matches = regex.matches(
+            in: text,
+            range: NSRange(location: 0, length: nsText.length)
+        )
+        for match in matches {
+            guard let range = attributedRange(
+                start: match.range.location,
+                end: match.range.location + match.range.length,
+                in: text,
+                attributed: attributed
+            ) else { continue }
+            attributed[range].font = .system(.body, design: .monospaced)
+            attributed[range].foregroundColor = CounselTheme.textPrimary
+            attributed[range].backgroundColor = CounselTheme.inkAccent.opacity(0.14)
+        }
         return attributed
     }
 
@@ -375,5 +468,25 @@ public struct DocumentPane: View {
         static let sealedFillOpacity: Double = 0.20
         /// Foreground opacity for sealed token text, keeping it legible.
         static let sealedTextOpacity: Double = 0.95
+    }
+}
+
+enum DocumentPreviewMode: String, CaseIterable {
+    case original = "Original"
+    case safePreview = "Safe Preview"
+
+    var allowsTextSelection: Bool { self == .original }
+}
+
+private struct PreviewTextSelection: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.textSelection(.enabled)
+        } else {
+            content.textSelection(.disabled)
+        }
     }
 }

@@ -25,16 +25,17 @@ public struct OnboardingView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Use AI on confidential documents, safely")
-                    .font(.system(.title2, design: .serif).weight(.semibold))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                Text("LDA protects client information before it reaches an AI tool, "
-                    + "and puts it back afterwards. Three steps:")
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Use AI on confidential documents, safely")
+                        .font(.system(.title2, design: .serif).weight(.semibold))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text("LDA protects client information before it reaches an AI tool, "
+                        + "and puts it back afterwards. Three steps:")
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                }
 
             VStack(alignment: .leading, spacing: 14) {
                 step(
@@ -56,7 +57,7 @@ public struct OnboardingView: View {
                     number: "3",
                     icon: "arrow.left.doc.on.clipboard",
                     title: "Bring the answer back",
-                    text: "The De-anonymize tab puts the real values back in the AI's answer, "
+                    text: "The Restore tab puts the real values back in the AI's answer, "
                         + "and flags anything it cannot match with certainty. Save the final "
                         + "document in its original format."
                 )
@@ -101,18 +102,26 @@ public struct OnboardingView: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
-            HStack {
-                Spacer()
-                Button("Get Started") {
-                    isPresented = false
+                HStack {
+                    Spacer()
+                    Button("Get Started") {
+                        isPresented = false
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
             }
+            .padding(28)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .padding(28)
-        .frame(width: 560)
+        .frame(
+            minWidth: 520,
+            idealWidth: 620,
+            minHeight: 500,
+            idealHeight: 620
+        )
         .background(CounselTheme.raised)
     }
 

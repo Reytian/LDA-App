@@ -35,6 +35,12 @@ public struct AppShell: View {
     /// items from all live layers, so an inactive shell must contribute none.
     private let isActive: Bool
 
+    /// Switches the window to Restore after a copy or export handoff.
+    private let onOpenRestore: () -> Void
+
+    /// Opens the guided Matters workspace for choosing an existing matter.
+    private let onOpenMatters: () -> Void
+
     /// True while the passphrase sheet is presented, after a directory is chosen.
     @State private var isPromptingPassphrase = false
 
@@ -48,15 +54,34 @@ public struct AppShell: View {
     /// A one-line outcome message shown after an export completes or fails.
     @State private var exportMessage: String?
 
+    /// The most recent successful copy or save handoff, shown as a recovery
+    /// card with the exact next action instead of a truncated banner sentence.
+    @State private var handoffCompletion: HandoffCompletion?
+
+    /// Tracks whether this document reached the Share step independently from
+    /// whether the dismissible completion card is still visible.
+    @State private var hasSharedOutput = false
+
     /// First-run flag: the onboarding sheet shows once (R13/R17).
     @AppStorage("com.haotianyi.LDA.hasCompletedFirstRun") private var hasCompletedFirstRun = false
 
     /// True while the onboarding sheet is presented.
     @State private var isOnboardingPresented = false
 
-    public init(session: SessionModel, isActive: Bool = true) {
+    /// A requested client change that must first close the current documents
+    /// so one matter's live content cannot be relabeled as another matter.
+    @State private var pendingClientSelection: PendingClientSelection?
+
+    public init(
+        session: SessionModel,
+        isActive: Bool = true,
+        onOpenRestore: @escaping () -> Void = {},
+        onOpenMatters: @escaping () -> Void = {}
+    ) {
         self.session = session
         self.isActive = isActive
+        self.onOpenRestore = onOpenRestore
+        self.onOpenMatters = onOpenMatters
     }
 
     public var body: some View {
@@ -65,7 +90,11 @@ public struct AppShell: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
         } detail: {
             VStack(spacing: 0) {
+                workflowProgressHeader
                 statusBanner
+                if let handoffCompletion {
+                    handoffCompletionCard(handoffCompletion)
+                }
                 DocumentPane(session: session, model: model)
             }
             .background(CounselTheme.paper)
@@ -84,6 +113,25 @@ public struct AppShell: View {
                 } == true
             )
         }
+        .confirmationDialog(
+            "Close current work?",
+            isPresented: Binding(
+                get: { pendingClientSelection != nil },
+                set: { if !$0 { pendingClientSelection = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pendingClientSelection {
+                Button("Close Active Work and Switch", role: .destructive) {
+                    completeClientSelection(pendingClientSelection.label)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingClientSelection = nil
+            }
+        } message: {
+            Text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
+        }
         .onAppear {
             if !hasCompletedFirstRun {
                 isOnboardingPresented = true
@@ -101,6 +149,26 @@ public struct AppShell: View {
         }
         .onChange(of: model.status) { _, status in
             announce(status)
+            if case .detecting = status {
+                handoffCompletion = nil
+                hasSharedOutput = false
+            }
+        }
+        .onChange(of: model.entities.map(\.accepted)) { oldValue, newValue in
+            if oldValue != newValue {
+                handoffCompletion = nil
+                hasSharedOutput = false
+            }
+        }
+        .onChange(of: session.selectedID) { _, _ in
+            exportMessage = nil
+            handoffCompletion = nil
+            hasSharedOutput = false
+        }
+        .onChange(of: session.clientLabel) { _, _ in
+            exportMessage = nil
+            handoffCompletion = nil
+            hasSharedOutput = false
         }
     }
 
@@ -158,11 +226,11 @@ public struct AppShell: View {
                 Button {
                     beginExport()
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                    Label("Save Redacted", systemImage: "square.and.arrow.up")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
-                .help("Write the redacted document and its encrypted mapping")
+                .help("Save a redacted document plus the encrypted mapping needed to restore it")
             }
         }
     }
@@ -172,46 +240,36 @@ public struct AppShell: View {
     private var clientMenu: some View {
         Menu {
             Button {
-                session.clientLabel = nil
+                requestClientSelection(nil)
             } label: {
                 if session.clientLabel == nil {
-                    Label("No Client", systemImage: "checkmark")
+                    Label("No Matter", systemImage: "checkmark")
                 } else {
-                    Text("No Client")
-                }
-            }
-
-            let labels = session.clientLabels()
-            if !labels.isEmpty {
-                Divider()
-                ForEach(labels, id: \.self) { label in
-                    Button {
-                        session.clientLabel = label
-                    } label: {
-                        if session.clientLabel == label {
-                            Label(label, systemImage: "checkmark")
-                        } else {
-                            Text(label)
-                        }
-                    }
+                    Text("No Matter")
                 }
             }
 
             Divider()
-            Button("New Client\u{2026}") {
+            Button {
+                onOpenMatters()
+            } label: {
+                Label("Choose Saved Matter\u{2026}", systemImage: "briefcase")
+            }
+
+            Button("New Matter\u{2026}") {
                 promptNewClient()
             }
         } label: {
-            Label(session.clientLabel ?? "No Client", systemImage: "person.crop.square")
+            Label(session.clientLabel ?? "No Matter", systemImage: "person.crop.square")
         }
-        .help("Sessions under a client keep the same placeholders for the same values, every time")
+        .help("Work under a matter keeps the same placeholders for the same values, every time")
     }
 
     /// Ask for a new client label with a small input alert and select it.
     private func promptNewClient() {
         let alert = NSAlert()
-        alert.messageText = "New client profile"
-        alert.informativeText = "Documents processed under this client keep consistent "
+        alert.messageText = "New matter"
+        alert.informativeText = "Documents processed under this matter keep consistent "
             + "placeholders across sessions. The mapping stays encrypted on this Mac."
         alert.addButton(withTitle: "Create")
         alert.addButton(withTitle: "Cancel")
@@ -221,7 +279,26 @@ public struct AppShell: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty else { return }
-        session.clientLabel = label
+        requestClientSelection(label)
+    }
+
+    private func requestClientSelection(_ label: String?) {
+        do {
+            if try session.selectMatter(label) == false {
+                pendingClientSelection = PendingClientSelection(label: label)
+            }
+        } catch {
+            exportMessage = error.localizedDescription
+        }
+    }
+
+    private func completeClientSelection(_ label: String?) {
+        do {
+            _ = try session.selectMatter(label, discardingDocuments: true)
+        } catch {
+            exportMessage = error.localizedDescription
+        }
+        pendingClientSelection = nil
     }
 
     // MARK: - Hand to AI (stage 3)
@@ -238,16 +315,15 @@ public struct AppShell: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(handoff.combined, forType: .string)
 
-            var message = "Redacted copy of \(handoff.documentCount) "
-                + (handoff.documentCount == 1 ? "document" : "documents")
-                + " is on the clipboard. Paste it into your AI tool, then bring the answer "
-                + "back in the De-anonymize tab."
-            if handoff.skippedCount > 0 {
-                message += "  \u{00B7}  \(handoff.skippedCount) "
-                    + (handoff.skippedCount == 1 ? "document was" : "documents were")
-                    + " skipped (not anonymized yet)."
-            }
-            exportMessage = message
+            exportMessage = nil
+            handoffCompletion = .copied(
+                documentCount: handoff.documentCount,
+                skippedCount: handoff.skippedCount
+            )
+            hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
+                activeDocumentID: session.selectedID,
+                includedDocumentIDs: Set(handoff.perDocument.keys)
+            )
         } catch {
             exportMessage = "Could not prepare the redacted copy. \(error.localizedDescription)"
         }
@@ -257,6 +333,164 @@ public struct AppShell: View {
     /// (so the user can re-run, for example after toggling AI entities). It is not
     /// available while a pass is in flight.
     private var canAnonymize: Bool { model.canAnonymize }
+
+    // MARK: - Guided workflow
+
+    private var workflowProgressHeader: some View {
+        let current = AnonymizeWorkflowPresentation.currentStep(
+            status: model.status,
+            hasDocument: !model.documentText.isEmpty,
+            hasSharedOutput: hasSharedOutput
+        )
+
+        return HStack(spacing: 0) {
+            ForEach(Array(AnonymizeWorkflowStep.allCases.enumerated()), id: \.element) { index, step in
+                workflowStep(step, current: current)
+
+                if index < AnonymizeWorkflowStep.allCases.count - 1 {
+                    Rectangle()
+                        .fill(step.rawValue < current.rawValue
+                            ? CounselTheme.inkAccent.opacity(0.55)
+                            : CounselTheme.hairline)
+                        .frame(height: 1)
+                        .frame(maxWidth: 72)
+                        .padding(.horizontal, 8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 9)
+        .background(CounselTheme.appSurface)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Anonymize workflow, current step \(current.title)")
+    }
+
+    private func workflowStep(
+        _ step: AnonymizeWorkflowStep,
+        current: AnonymizeWorkflowStep
+    ) -> some View {
+        let completed = step.rawValue < current.rawValue
+        let active = step == current
+
+        return HStack(spacing: 6) {
+            Image(systemName: completed ? "checkmark.circle.fill" : step.systemImage)
+                .font(.system(size: 13, weight: active ? .semibold : .regular))
+                .foregroundStyle(active || completed
+                    ? CounselTheme.inkAccent
+                    : CounselTheme.textSecondary)
+            Text(step.title)
+                .font(.caption.weight(active ? .semibold : .regular))
+                .foregroundStyle(active
+                    ? CounselTheme.textPrimary
+                    : CounselTheme.textSecondary)
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func handoffCompletionCard(_ completion: HandoffCompletion) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(CounselTheme.inkAccent)
+
+            switch completion {
+            case .copied(let documentCount, let skippedCount):
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Safe text copied")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text(copyCompletionDetail(documentCount: documentCount, skippedCount: skippedCount))
+                        .font(.caption)
+                        .foregroundStyle(skippedCount > 0
+                            ? CounselTheme.danger
+                            : CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+            case .exported(let result, let protection):
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Redacted document saved")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text("Document: \(result.redactedURL.lastPathComponent)")
+                        .font(.caption)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(result.redactedURL.lastPathComponent)
+                    Text("Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)")
+                        .font(.caption)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help("\(result.mappingURL.lastPathComponent), \(protection)")
+                    if result.embeddedMediaCount > 0 {
+                        Text("Warning: \(result.embeddedMediaCount) embedded image"
+                            + (result.embeddedMediaCount == 1 ? " was" : "s were")
+                            + " copied without scanning.")
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.danger)
+                    }
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            if case .exported(let result, _) = completion {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([
+                        result.redactedURL,
+                        result.mappingURL
+                    ])
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize()
+            }
+
+            Button("Go to Restore") {
+                onOpenRestore()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(CounselTheme.inkAccentFill)
+            .fixedSize()
+
+            Button {
+                handoffCompletion = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss completion")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+    }
+
+    private func copyCompletionDetail(documentCount: Int, skippedCount: Int) -> String {
+        var detail = "\(documentCount) redacted "
+            + (documentCount == 1 ? "document is" : "documents are")
+            + " ready to paste into an AI tool. Bring the answer back in Restore."
+        if skippedCount > 0 {
+            detail += " \(skippedCount) unscanned "
+                + (skippedCount == 1 ? "document was" : "documents were")
+                + " not copied."
+        }
+        return detail
+    }
 
     // MARK: - Status banner
 
@@ -550,6 +784,8 @@ public struct AppShell: View {
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
+        handoffCompletion = nil
+        hasSharedOutput = false
         let scoped = panel.urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
         Task {
             // defer releases the sandbox scopes even if the Task is cancelled
@@ -592,6 +828,7 @@ public struct AppShell: View {
         guard let dir = pendingExportDir else { return }
 
         let phrase = passphrase.isEmpty ? nil : passphrase
+        let protection = passphrase.isEmpty ? "Mac Keychain" : "Passphrase protected"
         let createdAt = ISO8601DateFormatter().string(from: Date())
         pendingExportDir = nil
         passphrase = ""
@@ -607,15 +844,12 @@ public struct AppShell: View {
                     passphrase: phrase,
                     createdAtISO8601: createdAt
                 )
-                var message = "Exported \(outcome.tokenCount) "
-                    + (outcome.tokenCount == 1 ? "token to " : "tokens to ")
-                    + outcome.redactedURL.lastPathComponent
-                if outcome.embeddedMediaCount > 0 {
-                    message += "  \u{00B7}  Warning: \(outcome.embeddedMediaCount) embedded "
-                        + (outcome.embeddedMediaCount == 1 ? "image was" : "images were")
-                        + " copied unscanned (signatures or stamps may remain)."
-                }
-                exportMessage = message
+                exportMessage = nil
+                handoffCompletion = .exported(
+                    result: outcome,
+                    protection: protection
+                )
+                hasSharedOutput = true
             } catch {
                 exportMessage = "Export failed. \(error.localizedDescription)"
             }
@@ -645,3 +879,11 @@ public struct AppShell: View {
     }()
 }
 
+private enum HandoffCompletion: Equatable {
+    case copied(documentCount: Int, skippedCount: Int)
+    case exported(result: ExportResult, protection: String)
+}
+
+private struct PendingClientSelection {
+    let label: String?
+}

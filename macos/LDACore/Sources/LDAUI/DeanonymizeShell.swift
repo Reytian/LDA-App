@@ -95,7 +95,7 @@ public struct DeanonymizeShell: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            Text("De-anonymize")
+            Text("Restore")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             Text("Bring the real values back. Both paths run entirely on this Mac.")

@@ -167,7 +167,7 @@ struct BlankSidebar: View {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(CounselTheme.textSecondary)
-                    .frame(width: 26, height: 22)
+                    .frame(width: 30, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)

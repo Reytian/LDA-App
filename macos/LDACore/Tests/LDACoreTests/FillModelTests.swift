@@ -472,6 +472,7 @@ final class FillModelTests: XCTestCase {
             return
         }
         XCTAssertFalse(msg.isEmpty, "failure message must not be empty")
+        XCTAssertEqual(model.failureContext, .profile)
     }
 
     // MARK: - extractProfile: dirty after extraction with fields (fix 1a)
@@ -634,6 +635,7 @@ final class FillModelTests: XCTestCase {
             XCTFail("stage must be .failed after apply error")
             return
         }
+        XCTAssertEqual(model.failureContext, .review)
     }
 
     // MARK: - I1: planFill seam receives the live profile
@@ -734,4 +736,3 @@ final class FillModelTests: XCTestCase {
     }
 
 }
-

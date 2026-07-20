@@ -13,27 +13,36 @@ SRC="${1:-$HOME/Developer/llama.cpp}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 XCF="$REPO_ROOT/Frameworks/llama.xcframework"
 STAGE="$(mktemp -d)"
+BUILD_DIR="${LLAMA_BUILD_DIR:-$SRC/build-lda-macos}"
+DEPLOYMENT_TARGET="14.0"
 
 echo "llama.cpp source: $SRC"
-
-if [ ! -d "$SRC/build" ] || [ ! -f "$SRC/build/src/libllama.a" ]; then
-  echo "Configuring and building static libraries (Metal embedded)..."
-  cmake -S "$SRC" -B "$SRC/build" -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON \
-    -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF \
-    -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF >/dev/null
-  cmake --build "$SRC/build" --config Release -j8 \
-    --target llama ggml ggml-base ggml-cpu ggml-metal ggml-blas
-fi
+echo "Configuring static libraries for macOS $DEPLOYMENT_TARGET (Metal embedded)..."
+cmake -S "$SRC" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
+  -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON \
+  -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF \
+  -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_CURL=OFF >/dev/null
+cmake --build "$BUILD_DIR" --config Release -j8 \
+  --target llama ggml ggml-base ggml-cpu ggml-metal ggml-blas
 
 echo "Merging static archives (core C API only)..."
 libtool -static -o "$STAGE/libllama_combined.a" \
-  "$SRC/build/src/libllama.a" \
-  "$SRC/build/ggml/src/libggml.a" \
-  "$SRC/build/ggml/src/libggml-base.a" \
-  "$SRC/build/ggml/src/libggml-cpu.a" \
-  "$SRC/build/ggml/src/ggml-metal/libggml-metal.a" \
-  "$SRC/build/ggml/src/ggml-blas/libggml-blas.a"
+  "$BUILD_DIR/src/libllama.a" \
+  "$BUILD_DIR/ggml/src/libggml.a" \
+  "$BUILD_DIR/ggml/src/libggml-base.a" \
+  "$BUILD_DIR/ggml/src/libggml-cpu.a" \
+  "$BUILD_DIR/ggml/src/ggml-metal/libggml-metal.a" \
+  "$BUILD_DIR/ggml/src/ggml-blas/libggml-blas.a"
+
+FOUND_TARGETS="$(otool -l "$STAGE/libllama_combined.a" \
+  | awk '$1 == "minos" { print $2 }' | sort -u)"
+if [ "$FOUND_TARGETS" != "$DEPLOYMENT_TARGET" ]; then
+  echo "Deployment-target validation failed. Expected $DEPLOYMENT_TARGET, found:"
+  echo "$FOUND_TARGETS"
+  exit 1
+fi
 
 echo "Assembling xcframework by hand (xcodebuild -create-xcframework is flaky here)..."
 rm -rf "$XCF"

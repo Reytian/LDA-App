@@ -1,15 +1,17 @@
 #!/bin/bash
 #
 # Build LDA.app as a distributable macOS bundle, optionally code-signed and
-# notarized. The unsigned bundle is always produced (runnable locally). Signing
-# and notarization happen only when the matching environment variables are set.
+# notarized. Every bundle is signed so the App Sandbox and offline entitlements
+# are active. Local builds use an ad hoc signature; distribution builds use the
+# Developer ID identity supplied by the caller.
 #
 # Always builds:
 #   - Release LDAApp binary via SwiftPM
 #   - LDA.app bundle (Info.plist + the static-linked binary + bundled GGUF model)
 #
 # Optional (set to enable):
-#   CODESIGN_IDENTITY  e.g. "Developer ID Application: Your Name (TEAMID)"
+#   CODESIGN_IDENTITY  optional Developer ID identity for distribution, e.g.
+#                      "Developer ID Application: Your Name (TEAMID)"
 #   NOTARY_PROFILE     a notarytool keychain profile name created with:
 #                        xcrun notarytool store-credentials NOTARY_PROFILE \
 #                          --apple-id you@example.com --team-id TEAMID \
@@ -28,21 +30,28 @@ set -euo pipefail
 PKG="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_PKG="$PKG"
 STAGE_DIR=""
-# DIST_PATH overrides where LDA.app is written. It MUST be outside iCloud when
-# signing: iCloud continuously stamps com.apple.FinderInfo /
+# DIST_PATH overrides where LDA.app is written. It MUST be outside iCloud because
+# every build is signed. iCloud continuously stamps com.apple.FinderInfo /
 # com.apple.fileprovider / com.apple.provenance xattrs on every bundle file
 # (faster than a one-time strip and re-stamped mid-sign), which makes codesign
 # fail with "resource fork, Finder information, or similar detritus not
-# allowed". Defaults to $PKG/dist, fine for unsigned local builds.
-DIST="${DIST_PATH:-$PKG/dist}"
+# allowed". An iCloud checkout therefore defaults to ~/Developer/lda-dist;
+# other checkouts default to the package-local dist directory.
+DEFAULT_DIST="$PKG/dist"
+case "$PKG" in
+  *"/Mobile Documents/"*|*"/Documents/"*) DEFAULT_DIST="$HOME/Developer/lda-dist" ;;
+esac
+DIST="${DIST_PATH:-$DEFAULT_DIST}"
 APP="$DIST/LDA.app"
 MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/lda-v2-Q4_K_M.gguf}"
 
-if [ -n "${CODESIGN_IDENTITY:-}" ] && printf '%s' "$DIST" | grep -qi "/Mobile Documents/\|/Documents/"; then
+case "$DIST" in
+*"/Mobile Documents/"*|*"/Documents/"*)
   echo "!! Refusing to sign inside an iCloud-synced path ($DIST)."
   echo "!! Set DIST_PATH to a non-iCloud location, e.g. DIST_PATH=~/Developer/lda-dist"
   exit 1
-fi
+  ;;
+esac
 
 cleanup() {
   if [ -n "$STAGE_DIR" ] && [ "${KEEP_STAGE:-0}" != "1" ]; then
@@ -50,11 +59,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-
-SCRATCH=()
-if [ -n "${SCRATCH_PATH:-}" ]; then
-  SCRATCH=(--scratch-path "$SCRATCH_PATH")
-fi
 
 if [ "${STAGE_SOURCE:-1}" != "0" ]; then
   STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lda-source-stage.XXXXXX")"
@@ -70,8 +74,13 @@ fi
 
 echo "==> Building release binary"
 cd "$BUILD_PKG"
-swift build -c release --product LDAApp "${SCRATCH[@]}" >/dev/null
-BIN="$(swift build -c release --product LDAApp "${SCRATCH[@]}" --show-bin-path)/LDAApp"
+if [ -n "${SCRATCH_PATH:-}" ]; then
+  swift build -c release --product LDAApp --scratch-path "$SCRATCH_PATH" >/dev/null
+  BIN="$(swift build -c release --product LDAApp --scratch-path "$SCRATCH_PATH" --show-bin-path)/LDAApp"
+else
+  swift build -c release --product LDAApp >/dev/null
+  BIN="$(swift build -c release --product LDAApp --show-bin-path)/LDAApp"
+fi
 
 echo "==> Assembling $APP"
 rm -rf "$APP"
@@ -90,25 +99,30 @@ else
   echo "!! Model not found at $MODEL_PATH; bundling without it (app runs deterministic-only)."
 fi
 
+# Strip extended attributes first. macOS stamps files with xattrs such as
+# com.apple.provenance (on execution) and com.apple.quarantine / iCloud
+# sync metadata (on the copied 2.5 GB model), and codesign refuses any file
+# carrying a "resource fork, Finder information, or similar detritus".
+xattr -cr "$APP"
+
+SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+TIMESTAMP_ARGS=(--timestamp=none)
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
-  echo "==> Code signing with hardened runtime"
-  # Strip extended attributes first. macOS stamps files with xattrs such as
-  # com.apple.provenance (on execution) and com.apple.quarantine / iCloud
-  # sync metadata (on the copied 2.5 GB model), and codesign refuses any file
-  # carrying a "resource fork, Finder information, or similar detritus".
-  xattr -cr "$APP"
-  # Sign the executable first, then the bundle, with the offline entitlements.
-  codesign --force --options runtime --timestamp \
-    --entitlements "$PKG/packaging/LDA.entitlements" \
-    --sign "$CODESIGN_IDENTITY" "$APP/Contents/MacOS/LDAApp"
-  codesign --force --options runtime --timestamp \
-    --entitlements "$PKG/packaging/LDA.entitlements" \
-    --sign "$CODESIGN_IDENTITY" "$APP"
-  echo "==> Verifying signature"
-  codesign --verify --strict --verbose=2 "$APP"
+  echo "==> Developer ID signing with hardened runtime"
+  TIMESTAMP_ARGS=(--timestamp)
 else
-  echo "!! CODESIGN_IDENTITY not set; produced an UNSIGNED bundle (open with right-click > Open)."
+  echo "==> Ad hoc signing for local use with App Sandbox enabled"
 fi
+
+# Sign the executable first, then the bundle, with the offline entitlements.
+codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
+  --entitlements "$PKG/packaging/LDA.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/LDAApp"
+codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
+  --entitlements "$PKG/packaging/LDA.entitlements" \
+  --sign "$SIGN_IDENTITY" "$APP"
+echo "==> Verifying signature and sandbox entitlements"
+codesign --verify --strict --verbose=2 "$APP"
 
 if [ -n "${NOTARY_PROFILE:-}" ] && [ -n "${CODESIGN_IDENTITY:-}" ]; then
   echo "==> Notarizing"
@@ -120,7 +134,7 @@ if [ -n "${NOTARY_PROFILE:-}" ] && [ -n "${CODESIGN_IDENTITY:-}" ]; then
   xcrun stapler validate "$APP"
   rm -f "$ZIP"
 else
-  echo "!! NOTARY_PROFILE not set (or unsigned); skipping notarization."
+  echo "!! NOTARY_PROFILE not set (or no Developer ID identity); skipping notarization."
 fi
 
 echo "==> Done: $APP"
