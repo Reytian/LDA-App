@@ -15,6 +15,12 @@ metadata improvements, regression coverage, and hardened packaging. See the
 [judge-ready submission draft](docs/hackathon/SUBMISSION.md), and
 [demo script](docs/hackathon/DEMO_SCRIPT.md).
 
+Codex, using GPT-5.6, was the primary engineering and product-design
+collaborator for the Build Week extension. It supported codebase tracing,
+implementation, test design, review, workflow polish, and release hardening.
+The detailed contribution record and session ID are in the Build Week evidence
+linked above.
+
 ### Judge quick start
 
 Requirements: Apple Silicon Mac running macOS 14 or later.
