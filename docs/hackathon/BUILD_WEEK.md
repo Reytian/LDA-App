@@ -42,10 +42,11 @@ rename and archive before broader matter-management features.
 | Submission-period commit | `047b30d` |
 | Commit date | July 20, 2026 |
 | Commit title | `feat: add guided matter workspace and harden app workflows` |
-| Submission package commit | `48cf600` |
+| Submission package commit | `c920aff` |
 | Automated tests | 808 passing |
 | Codex session ID | `019f7514-8c99-7cc2-aeb6-42d52061ab7d` |
-| Apple notarization submission | `23e11759-a747-41a7-abb1-60e2e2dce8ad` |
+| Apple notarization submission | `5d8bda2b-0a65-4490-8497-abff30e7f1ef` |
+| Judge archive SHA-256 | `7ad6a3926a32a3ffb990052ea7db6124f62c8113d113d03e877681cf1d32b0b4` |
 
 ## GPT-5.6 and Codex
 
