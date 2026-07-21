@@ -53,8 +53,7 @@ accelerated codebase tracing, implementation, test design, code review, and the
 notarized release workflow. The entrant made the key product and privacy
 decisions and verified the resulting behavior.
 
-Model wording to confirm before submission: GPT-5.6 was the selected Codex
-model for the Build Week extension.
+GPT-5.6 was the selected Codex model for the Build Week extension.
 
 ## Challenges
 
@@ -93,7 +92,7 @@ client content.
 ## Built with
 
 Swift, SwiftUI, Swift Package Manager, llama.cpp, Metal, PDFKit, CryptoKit,
-macOS Keychain, App Sandbox, Codex, GPT-5.6 (pending entrant confirmation)
+macOS Keychain, App Sandbox, Codex, GPT-5.6
 
 ## Testing instructions
 

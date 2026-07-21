@@ -6,20 +6,20 @@
 //  macOS Keychain.
 //
 //  When requireUserPresence is true (the GUI app turns it on at launch),
-//  container keys are created in the DATA PROTECTION keychain behind a
-//  SecAccessControl requiring user presence: retrieval triggers Touch ID,
-//  with the login password as the system-provided fallback. A shared
-//  LAContext with a reuse window plus a process-lifetime key cache keep the
-//  experience to roughly one Touch ID per launch, not one per operation.
+//  container keys first use SecAccessControl requiring user presence:
+//  retrieval triggers Touch ID, with the login password as the system-provided
+//  fallback. A shared LAContext with a reuse window plus a process-lifetime key
+//  cache keep the experience to roughly one Touch ID per launch.
 //
 //  When false (the default: CLI, MCP server, and unit tests), behavior is the
-//  original silent file-keychain item. This matters beyond UX: biometry items
-//  need the data-protection keychain, which requires a signed app with an
-//  application identifier; unsigned headless binaries cannot create them.
+//  original silent file-keychain item. Direct Developer ID sandbox builds do
+//  not have a provisioned application identifier, so macOS may reject the
+//  user-presence item with errSecMissingEntitlement. In that case the GUI
+//  falls back to the traditional login Keychain while keeping the app sandbox.
 //
 //  Migration: keys created before this policy existed live in the login file
-//  keychain without access control. Lookup searches the data-protection
-//  keychain first, then falls back to the legacy item and upgrades it in
+//  keychain without access control. Lookup searches the user-presence item
+//  first, then falls back to the legacy item and upgrades it in
 //  place (delete + re-add behind user presence, with a best-effort restore
 //  if the re-add fails, so a key is never lost).
 //

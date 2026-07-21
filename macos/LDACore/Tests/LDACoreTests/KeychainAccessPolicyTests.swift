@@ -65,11 +65,11 @@ final class KeychainAccessPolicyTests: XCTestCase {
         XCTAssertFalse(KeychainAccessPolicy.requireUserPresence)
     }
 
-    /// With the policy ON, a save must either succeed (signed host + present
-    /// user) or fail with a tolerated Keychain status; it must NEVER silently
-    /// write an unprotected key. In the unsigned test process this exercises
-    /// the graceful-degradation branch without asserting a biometric prompt.
-    func testProtectedSaveEitherSucceedsOrFailsCleanly() throws {
+    /// A direct Developer ID build has no provisioned application identifier.
+    /// If user-presence storage returns errSecMissingEntitlement, saving must
+    /// fall back to the traditional login Keychain instead of breaking the
+    /// protected-copy workflow.
+    func testProtectedSaveFallsBackWhenEntitlementIsUnavailable() throws {
         KeychainAccessPolicy.requireUserPresence = true
         let container = EncryptedContainer(
             magic: Array("LDATEST".utf8),
@@ -91,7 +91,7 @@ final class KeychainAccessPolicyTests: XCTestCase {
             // load may prompt, so we do not force it here.
         } catch let DocumentIOError.keychainError(status) {
             let acceptable: Set<OSStatus> = [
-                errSecParam, errSecMissingEntitlement, errSecNotAvailable,
+                errSecParam, errSecNotAvailable,
                 errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled
             ]
             XCTAssertTrue(

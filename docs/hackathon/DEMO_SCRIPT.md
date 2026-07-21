@@ -1,99 +1,50 @@
 # Demo video script
 
-Target length: 2 minutes 40 seconds. Keep the final upload under 3 minutes.
-Use only the included fictional sample document. Do not show real client data,
-Keychain prompts, personal browser tabs, or private repository settings.
+Rendered length: 2 minutes 1 second. The final upload is below the 3-minute
+limit. The video uses only the included fictional sample document and contains
+no client data, Keychain prompts, personal browser tabs, or private repository
+settings.
 
-## 0:00 to 0:18: The problem
+The exact narration is available in `DEMO_NARRATION.txt`.
 
-### Screen
+## 0:00 to 0:16: The problem
 
-Show the LDA welcome screen, then the sample legal document.
+Show the title card and LDA welcome screen. Explain that LDA creates a privacy
+boundary on the lawyer's Mac before a confidential document reaches a cloud
+service.
 
-### Narration
+## 0:16 to 0:28: Guided workflow
 
-"Legal teams want to use AI, but contracts contain client names, financial
-terms, addresses, signatures, and personal data. LDA creates a privacy boundary
-on the lawyer's Mac before any document reaches a cloud service."
+Show the fictional acquisition agreement loaded into Anonymize. Explain that
+the workflow begins with the user's task: anonymize, restore, fill, or return to
+a matter.
 
-## 0:18 to 0:42: Guided workflow
+## 0:28 to 0:55: Local detection and review
 
-### Screen
+Show the reviewed Safe Preview with twelve detected values. Explain that
+deterministic detection and the bundled local model run on-device through
+llama.cpp and Metal, with no macOS network entitlement.
 
-Show the guided home screen and choose Anonymize. Import
-`docs/hackathon/sample-matter.txt`.
+## 0:55 to 1:11: Matter workspace and archive
 
-### Narration
+Show the `Meridian Closing` matter workspace, the archive confirmation, and the
+Archived filter. Explain that matters can be renamed, archived, restored, and
+resumed while protected values stay out of ordinary preferences and logs.
 
-"The guided workflow starts with the task, not technical settings. I can
-anonymize a document, restore a protected result, fill a draft from an encrypted
-profile, or return to a saved matter."
+## 1:11 to 1:26: Restore
 
-## 0:42 to 1:15: Local detection and review
+Show the protected text restored locally, including the `12 values restored`
+status. Explain that the original values never need to be sent to the external
+AI service.
 
-### Screen
+## 1:26 to 1:53: Codex and GPT-5.6
 
-Run detection, show the entity review sidebar, deselect one non-sensitive item,
-then create the protected output.
+Show the Build Week evidence card. Explain that Codex with GPT-5.6 supported
+architecture tracing, the guided matter workspace, rename and archive flows,
+regression testing, privacy review, signing, and notarization. State that the
+extension changed 43 files and the final suite passes 808 tests.
 
-### Narration
+## 1:53 to 2:01: Close
 
-"LDA combines deterministic detection with a bundled local language model.
-Everything runs on-device through llama.cpp and Metal. The app has no macOS
-network entitlement. I review every proposed entity before LDA replaces it with
-typed placeholders and stores the mapping in an encrypted container."
-
-## 1:15 to 1:40: Matter rename and archive
-
-### Screen
-
-Open Matters. Rename the matter to `Meridian acquisition demo`, archive it,
-show the Archived filter, then restore it.
-
-### Narration
-
-"Build Week added a privacy-safe matter workspace. Matters can be renamed,
-archived, restored, and reopened without placing document contents in ordinary
-preferences or logs. Interrupted work is parked safely for recovery."
-
-## 1:40 to 2:03: Restore
-
-### Screen
-
-Open the protected output and encrypted mapping in Restore. Show the restored
-text next to the original.
-
-### Narration
-
-"After an external AI workflow, Restore reverses the placeholders locally. The
-original values never need to be sent to the external service. LDA also fills
-draft DOCX files and PDF forms from encrypted profiles."
-
-## 2:03 to 2:30: Codex and GPT-5.6
-
-### Screen
-
-Show the Build Week commit summary, the test result, and the notarized app
-verification. Do not show terminal secrets or Apple account details.
-
-### Narration
-
-"During Build Week, I used Codex with GPT-5.6 [confirm before recording] to
-turn an existing native engine into this guided product. Codex helped trace the
-architecture, implement the matter workspace and rename/archive flows, design
-regression tests, review privacy edge cases, and automate signing and
-notarization. I made the product decisions and kept the app review-first and
-fully offline. The extension changed 43 files and the final suite passes 808
-tests."
-
-## 2:30 to 2:40: Close
-
-### Screen
-
-Return to the LDA home screen and show the Offline badge.
-
-### Narration
-
-"LDA gives legal professionals a practical way to use modern AI while reducing
-unnecessary disclosure of confidential information. Your documents stay local;
-your workflow stays useful."
+Return to the privacy-boundary message and close with the value proposition:
+documents stay local, and the workflow stays useful.

@@ -42,12 +42,13 @@ rename and archive before broader matter-management features.
 | Submission-period commit | `047b30d` |
 | Commit date | July 20, 2026 |
 | Commit title | `feat: add guided matter workspace and harden app workflows` |
+| Submission package commit | `48cf600` |
 | Automated tests | 808 passing |
 | Codex session ID | `019f7514-8c99-7cc2-aeb6-42d52061ab7d` |
-| Apple notarization submission | `1a861114-8c51-4b36-ab68-49bde095a599` |
+| Apple notarization submission | `23e11759-a747-41a7-abb1-60e2e2dce8ad` |
 
-## GPT-5.6 confirmation
+## GPT-5.6 and Codex
 
-Before submission, confirm that GPT-5.6 was the selected Codex model for the
-Build Week extension. The Devpost description and demo narration should only
-state this after the model selection is confirmed by the entrant.
+The recorded Codex session metadata confirms that GPT-5.6 was selected for the
+Build Week extension, including the July 20 product work and submission
+preparation.

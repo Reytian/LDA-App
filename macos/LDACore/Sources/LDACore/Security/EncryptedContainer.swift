@@ -280,8 +280,8 @@ public struct EncryptedContainer {
     /// genuine Keychain error.
     ///
     /// Under KeychainAccessPolicy.requireUserPresence the search order is:
-    /// in-memory cache, then the data-protection keychain (Touch ID), then the
-    /// legacy login-keychain item, which is upgraded in place when found.
+    /// in-memory cache, then the user-presence item (Touch ID), then the
+    /// traditional login-Keychain item, which is upgraded when supported.
     private func lookupKeychainKey(account: String) throws -> SymmetricKey? {
         Self.keyCacheLock.lock()
         let cached = Self.keyCache[cacheKey(for: account)]
@@ -291,9 +291,16 @@ public struct EncryptedContainer {
         }
 
         if KeychainAccessPolicy.requireUserPresence {
-            if let protected = try lookupProtectedKey(account: account) {
-                remember(protected, account: account)
-                return protected
+            do {
+                if let protected = try lookupProtectedKey(account: account) {
+                    remember(protected, account: account)
+                    return protected
+                }
+            } catch let DocumentIOError.keychainError(status)
+                where status == errSecMissingEntitlement {
+                // Direct Developer ID sandbox builds do not carry the
+                // provisioned application identifier required by this access
+                // control path. Continue with the traditional login Keychain.
             }
             if let legacy = try lookupLegacyKey(account: account) {
                 migrateToUserPresence(account: account, key: legacy)
@@ -397,10 +404,17 @@ public struct EncryptedContainer {
     /// bare account.
     private func addKeychainKey(account: String, keyData: Data) throws {
         if KeychainAccessPolicy.requireUserPresence {
-            try addProtectedKey(account: account, keyData: keyData)
-        } else {
-            try addSilentKey(account: account, keyData: keyData)
+            do {
+                try addProtectedKey(account: account, keyData: keyData)
+                return
+            } catch let DocumentIOError.keychainError(status)
+                where status == errSecMissingEntitlement {
+                // Keep direct Developer ID releases working without weakening
+                // the app sandbox. The generated AES key still stays in the
+                // user's traditional macOS login Keychain.
+            }
         }
+        try addSilentKey(account: account, keyData: keyData)
     }
 
     /// The original silent generic-password item (no access control).

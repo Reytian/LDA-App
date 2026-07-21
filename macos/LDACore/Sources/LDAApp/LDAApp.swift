@@ -27,11 +27,11 @@ struct LDAApp: App {
 
     init() {
         // Container keys are protected by Touch ID (login password fallback)
-        // in the GUI app: retrieval goes through the data-protection keychain
-        // behind a user-presence access control, with existing silent keys
-        // upgraded in place on first use. Headless surfaces (lda CLI, MCP
-        // server, tests) leave this off; biometry prompts require a signed
-        // app and an interactive user.
+        // in the GUI app: retrieval first uses a user-presence access control,
+        // with existing silent keys upgraded in place when supported. Direct
+        // Developer ID sandbox builds fall back to the traditional login
+        // Keychain if macOS rejects the biometric path for lack of a provisioned
+        // application identifier. Headless surfaces leave this policy off.
         KeychainAccessPolicy.requireUserPresence = true
     }
     // Both child models and the mode store are hoisted here so the CommandMenu

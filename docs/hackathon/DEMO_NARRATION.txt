@@ -1,0 +1,13 @@
+Legal teams want to use AI, but contracts contain client names, financial terms, addresses, account numbers, and personal data. LDA creates a privacy boundary on the lawyer's Mac before any document reaches a cloud service.
+
+The guided workflow starts with the task, not technical settings. A user can anonymize a document, restore an AI result, fill a draft from an encrypted profile, or return to a saved matter.
+
+Here, LDA scans a fictional acquisition agreement. Deterministic detection and a bundled local language model identify twelve sensitive values. Everything runs on-device through llama.cpp and Metal, and the app has no macOS network entitlement. The user reviews each proposed value before LDA replaces it with a typed placeholder and protects the local mapping.
+
+Build Week added a privacy-safe matter workspace. A protected handoff can be reopened in context, and matters can be renamed, archived, restored, and resumed. Document contents and protected values are never stored in ordinary preferences or logs.
+
+After an external AI workflow, Restore reverses the placeholders locally. The original values never need to be sent to the external service. LDA can also fill draft DOCX files and PDF forms from encrypted profiles.
+
+During Build Week, I used Codex with GPT-5.6 to turn an existing native engine into this guided product. Codex helped trace the architecture, implement the matter workspace and rename and archive flows, design regression tests, review privacy edge cases, and automate signing and notarization. I made the product decisions and kept the app review-first and fully offline. The extension changed forty-three files, and the final suite passes eight hundred and eight tests.
+
+LDA gives legal professionals a practical way to use modern AI while reducing unnecessary disclosure of confidential information. Documents stay local, and the workflow stays useful.
