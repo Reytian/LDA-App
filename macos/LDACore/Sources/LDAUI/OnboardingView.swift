@@ -4,8 +4,7 @@
 //
 //  The first-run sheet (R13): what the app does (the round-trip in three
 //  steps), the honest privacy promise, the model status, and plain-language
-//  guidance past the unsigned-build Gatekeeper warning (R17). Zero technical
-//  setup: dismissing the sheet leaves the user at the drop zone.
+//  setup guidance. Dismissing the sheet leaves the user at the drop zone.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -88,18 +87,6 @@ public struct OnboardingView: View {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(CounselTheme.danger)
                 }
-            }
-
-            Label {
-                Text("If macOS warned you the first time you opened the app (it is not yet "
-                    + "notarized), close the warning, right-click LDA in Finder, choose Open, "
-                    + "then Open again. macOS remembers your choice afterwards.")
-                    .font(.caption)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "hand.raised")
-                    .foregroundStyle(CounselTheme.textSecondary)
             }
 
                 HStack {
