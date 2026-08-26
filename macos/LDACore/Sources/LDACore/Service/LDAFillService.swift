@@ -43,11 +43,37 @@ extension LDAService {
 
     // MARK: - Test seam for ProfileExtractor
 
-    /// Test-only override for building the TextCompleter used by extractProfile.
-    /// Production leaves this nil and loads a real LLMEngine from modelPath.
-    /// Tests set it to inject a fake TextCompleter so extractProfile can be
-    /// exercised without the 2.7 GB GGUF model. Mirrors makeExtractorForTesting.
-    internal static var makeCompleterForTesting: (() -> TextCompleter)?
+#if DEBUG
+    /// Debug-only override for building the TextCompleter used by extractProfile
+    /// and by the fill planner's model pass. Production loads a real LLMEngine
+    /// from modelPath. Tests install a factory returning a fake TextCompleter so
+    /// these paths can be exercised without the 2.7 GB GGUF model.
+    ///
+    /// Compiled out of release builds and lock guarded; see TestSeam. Mirrors
+    /// makeExtractorForTesting.
+    internal static let completerSeam = TestSeam<() -> TextCompleter>()
+
+    internal static var makeCompleterForTesting: (() -> TextCompleter)? {
+        get { completerSeam.value }
+        set { completerSeam.value = newValue }
+    }
+#endif
+
+    /// Build the TextCompleter for a model-backed pass: the debug seam when a
+    /// test installed one, otherwise a real LLMEngine loaded from modelPath.
+    ///
+    /// One helper for all three call sites (extractProfile and the two
+    /// planFill model passes) so the seam-versus-engine decision cannot drift
+    /// between them. An engine load failure propagates: a bad model path should
+    /// be loud, never a silent degradation to synonym-only matching.
+    static func makeCompleter(modelPath: String) throws -> TextCompleter {
+#if DEBUG
+        if let factory = makeCompleterForTesting {
+            return factory()
+        }
+#endif
+        return try LLMEngine(config: .init(modelPath: modelPath))
+    }
 
     // MARK: - extractProfile
 
@@ -114,14 +140,9 @@ extension LDAService {
         // Build the completer: test seam first, then real LLMEngine.
         // When the seam is absent, construction errors are surfaced to the caller
         // rather than silently producing an empty profile.
-        let completer: TextCompleter
-        if let factory = makeCompleterForTesting {
-            completer = factory()
-        } else {
-            // LLMEngine(config:) throws on load failure. Propagate to caller
-            // rather than swallowing the error.
-            completer = try LLMEngine(config: .init(modelPath: modelPath))
-        }
+        // LLMEngine(config:) throws on load failure. Propagate to caller
+        // rather than swallowing the error.
+        let completer: TextCompleter = try makeCompleter(modelPath: modelPath)
 
         let extractor = ProfileExtractor(completer: completer)
         let result = try extractor.extract(sources: readable, kind: kind, onProgress: onProgress)
@@ -192,12 +213,7 @@ extension LDAService {
             // deterministic-only and does not reach this branch.
             if planned.contains(where: { $0.status == .unmatched }),
                let modelPath {
-                let completer: TextCompleter
-                if let factory = makeCompleterForTesting {
-                    completer = factory()
-                } else {
-                    completer = try LLMEngine(config: .init(modelPath: modelPath))
-                }
+                let completer = try makeCompleter(modelPath: modelPath)
                 planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
             }
 
@@ -241,12 +257,7 @@ extension LDAService {
             // path should be loud, not a silent synonym-only fallback.
             if planned.contains(where: { $0.status == .unmatched }),
                let modelPath {
-                let completer: TextCompleter
-                if let factory = makeCompleterForTesting {
-                    completer = factory()
-                } else {
-                    completer = try LLMEngine(config: .init(modelPath: modelPath))
-                }
+                let completer = try makeCompleter(modelPath: modelPath)
                 planned = FillPlanner.plan(blanks: planned, profile: profile, completer: completer)
             }
 

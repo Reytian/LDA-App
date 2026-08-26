@@ -216,35 +216,119 @@ public final class FillModel: ObservableObject {
 
     // MARK: - Test seams
 
+    // Every seam below is DEBUG only and lock guarded (see TestSeam). These
+    // three replace whole facade operations, so in a release build they would
+    // be standing overrides for what the app does with a client's documents;
+    // the shipped binary does not compile them at all. Each has a matching
+    // `effective...` accessor that is unconditionally nil in release, so the
+    // production call sites need no conditional compilation of their own.
+
+#if DEBUG
     /// Replaces LDAService.extractProfile in tests. Receives (sources, label,
     /// kind, createdAtISO8601, onProgress) and returns an ExtractProfileResult
     /// or throws. The onProgress closure mirrors the production signature so
     /// fakes can fire progress callbacks to drive the importingSources ->
-    /// extracting transition. Nil in production. Mirrors the ReviewModel /
-    /// LDAFillService static-var seam pattern.
-    nonisolated(unsafe) internal static var extractProfileForTesting: (([URL], String, PortfolioKind, String, (Int, Int) -> Void) throws -> ExtractProfileResult)?
+    /// extracting transition.
+    nonisolated internal static let extractProfileSeam =
+        TestSeam<([URL], String, PortfolioKind, String, (Int, Int) -> Void) throws -> ExtractProfileResult>()
+
+    nonisolated internal static var extractProfileForTesting: (([URL], String, PortfolioKind, String, (Int, Int) -> Void) throws -> ExtractProfileResult)? {
+        get { extractProfileSeam.value }
+        set { extractProfileSeam.value = newValue }
+    }
 
     /// Replaces LDAService.planFill in tests. Receives (target, profile) and
     /// returns a FillPlan or throws. The live profile is passed at the call site
-    /// so tests can assert the hand-off. Nil in production.
-    nonisolated(unsafe) internal static var planFillForTesting: ((URL, ClientPortfolio) throws -> FillPlan)?
+    /// so tests can assert the hand-off.
+    nonisolated internal static let planFillSeam = TestSeam<(URL, ClientPortfolio) throws -> FillPlan>()
+
+    nonisolated internal static var planFillForTesting: ((URL, ClientPortfolio) throws -> FillPlan)? {
+        get { planFillSeam.value }
+        set { planFillSeam.value = newValue }
+    }
 
     /// Replaces LDAService.applyFill in tests. Receives (plan, target, outputDir)
-    /// and returns a FillReport or throws. Nil in production.
-    nonisolated(unsafe) internal static var applyFillForTesting: ((FillPlan, URL, URL) throws -> FillReport)?
+    /// and returns a FillReport or throws.
+    nonisolated internal static let applyFillSeam = TestSeam<(FillPlan, URL, URL) throws -> FillReport>()
+
+    nonisolated internal static var applyFillForTesting: ((FillPlan, URL, URL) throws -> FillReport)? {
+        get { applyFillSeam.value }
+        set { applyFillSeam.value = newValue }
+    }
+#endif
+
+    nonisolated static var effectiveExtractProfileOverride: (([URL], String, PortfolioKind, String, (Int, Int) -> Void) throws -> ExtractProfileResult)? {
+#if DEBUG
+        return extractProfileForTesting
+#else
+        return nil
+#endif
+    }
+
+    nonisolated static var effectivePlanFillOverride: ((URL, ClientPortfolio) throws -> FillPlan)? {
+#if DEBUG
+        return planFillForTesting
+#else
+        return nil
+#endif
+    }
+
+    nonisolated static var effectiveApplyFillOverride: ((FillPlan, URL, URL) throws -> FillReport)? {
+#if DEBUG
+        return applyFillForTesting
+#else
+        return nil
+#endif
+    }
 
     /// Replaces the production PortfolioLibrary in tests. When non-nil, all
     /// library intents use this instance instead of constructing the default
     /// (Application Support / LDA / Portfolios) root. Nil in production. Tests
     /// supply a PortfolioLibrary over a temp directory so Keychain-gated I/O runs
     /// against a hermetic on-disk store.
-    nonisolated(unsafe) internal static var libraryForTesting: PortfolioLibrary?
+    ///
+    /// Both library seams below are debug only and lock guarded (see TestSeam):
+    /// in a release build neither the injected library nor the root override
+    /// exists, so nothing in the shipped app can redirect where client
+    /// portfolios are read from or written to.
+#if DEBUG
+    nonisolated internal static let librarySeam = TestSeam<PortfolioLibrary>()
+
+    nonisolated internal static var libraryForTesting: PortfolioLibrary? {
+        get { librarySeam.value }
+        set { librarySeam.value = newValue }
+    }
 
     /// Overrides the root URL used to construct the production PortfolioLibrary.
     /// Consulted only when libraryForTesting is nil. Allows tests to exercise the
     /// cached-instance path (resolveLibrary() constructs once and reuses) without
-    /// touching the real Application Support directory. Nil in production.
-    nonisolated(unsafe) internal static var libraryRootForTesting: URL?
+    /// touching the real Application Support directory.
+    nonisolated internal static let libraryRootSeam = TestSeam<URL>()
+
+    nonisolated internal static var libraryRootForTesting: URL? {
+        get { libraryRootSeam.value }
+        set { libraryRootSeam.value = newValue }
+    }
+#endif
+
+    /// The injected library, or nil in release builds.
+    nonisolated static var effectiveLibraryOverride: PortfolioLibrary? {
+#if DEBUG
+        return libraryForTesting
+#else
+        return nil
+#endif
+    }
+
+    /// The overridden library root, or nil in release builds (so
+    /// PortfolioLibrary uses its Application Support default).
+    nonisolated static var effectiveLibraryRoot: URL? {
+#if DEBUG
+        return libraryRootForTesting
+#else
+        return nil
+#endif
+    }
 
     // MARK: - Library instance cache
 
@@ -445,7 +529,7 @@ public final class FillModel: ObservableObject {
         sourceWarnings = []
 
         let path = modelPath ?? ""
-        let seam = Self.extractProfileForTesting
+        let seam = Self.effectiveExtractProfileOverride
 
         let progressCallback: @Sendable (Int, Int) -> Void = { [weak self] done, total in
             DispatchQueue.main.async {
@@ -516,7 +600,7 @@ public final class FillModel: ObservableObject {
         // when applyFill runs inside the sandboxed .app).
         startTargetScope(target)
 
-        let seam = Self.planFillForTesting
+        let seam = Self.effectivePlanFillOverride
         let path = modelPath
         let isDocx = target.pathExtension.lowercased() == "docx"
 
@@ -587,7 +671,7 @@ public final class FillModel: ObservableObject {
             manualWidgetNames: manualWidgetNames
         )
 
-        let seam = Self.applyFillForTesting
+        let seam = Self.effectiveApplyFillOverride
 
         do {
             let report = try await Task.detached(priority: .userInitiated) {
@@ -636,6 +720,8 @@ public final class FillModel: ObservableObject {
                 return "The document could not be decrypted."
             case .keychainError(let status):
                 return "A Keychain error occurred (status \(status))."
+            case .tooLarge(let detail):
+                return "That file is too large to open. \(detail)"
             }
         case let svcError as LDAServiceError:
             switch svcError {

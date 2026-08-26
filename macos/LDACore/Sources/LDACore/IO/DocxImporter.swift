@@ -37,6 +37,7 @@ public struct DocxImporter: DocumentImporter {
     /// Import the document and also return the internal DocxLayout, which holds
     /// the parsed runs and the offset map needed by DocxRedactor.
     func importDocxLayout(_ url: URL) throws -> (ImportedDocument, DocxLayout) {
+        try ImportLimits.enforceDocumentSize(at: url)
         let data = try DocxZip.readEntry(docxMainPartPath, from: url)
         let layout = try DocxDocumentXML.parse(data)
         let imported = ImportedDocument(

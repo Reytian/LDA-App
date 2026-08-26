@@ -139,6 +139,136 @@ lda fill --portfolio "Meridian Pacific" --input agreement.docx \
   report; they are not auto-filled.
 - One profile per run. Multi-party fills require separate runs.
 
+## Security posture
+
+### At rest
+
+Everything the app persists goes through `EncryptedContainer`: mapping
+sidecars, client mappings, profiles, the portfolio library, session records,
+and the audit log. Each store has its own magic bytes and its own Keychain
+service, so a container of one kind can never be opened as another.
+
+Container format version 2:
+
+- AES-256-GCM via CryptoKit.
+- The **entire plaintext header** (magic, version, protection tag, salt length,
+  salt, iteration count) is bound as additional authenticated data, so editing
+  any header byte makes the tag fail rather than merely failing a downstream
+  sanity check.
+- The **PBKDF2 iteration count is stored in the header**. New containers use
+  600,000 iterations (current OWASP guidance for PBKDF2-HMAC-SHA256); the count
+  can be raised again later without a format change.
+- Version 1 containers, written before either change, still open: their
+  implicit 200,000 iterations and absence of AAD are selected by the version
+  byte rather than guessed at with a retry.
+
+Keys held in the Keychain use `WhenUnlockedThisDeviceOnly`. In the GUI app they
+are additionally behind a user-presence access control, so retrieval prompts
+for Touch ID with the login password as the system fallback. The in-process key
+cache that keeps this to about one prompt per key is **bounded**: at most 16
+keys, each expiring 15 minutes after its last use, and the whole cache is
+purged when the Keychain policy changes.
+
+If a pre-existing unprotected key cannot be upgraded to user presence, which
+happens on a locally signed Developer ID build with no provisioning profile,
+the app **says so** in the status bar and in Settings rather than continuing to
+imply a Touch ID gate that is not there.
+
+### Audit trail
+
+The GUI app keeps a local, encrypted, append-only log of security-relevant
+operations at
+`~/Library/Application Support/LDA/security-events.ldaaudit`: container seals
+and opens, Keychain key creation and retrieval, denied Touch ID prompts, failed
+user-presence upgrades, and key-cache purges.
+
+It records a timestamp, the operation, the store kind, success or failure, and
+a truncated digest of the Keychain account. It records **no** document text, no
+entity values, no file paths, and no client or matter labels (account names
+embed client labels, which is why only their digest is stored). The log is off
+by default; headless surfaces (CLI, MCP) do not write one.
+
+### Import ceilings
+
+Applied by every importer, not only by the service facade, so a caller that
+reaches for an importer directly hits the same limit:
+
+| Limit | Value |
+|-------|-------|
+| Single document | 200 MB |
+| Archive uncompressed payload | 500 MB |
+| Archive entries | 1,000 |
+
+Archive limits are spent against each entry's **declared** uncompressed size,
+before anything is written, so a zip bomb is refused rather than unpacked.
+
+### Temporary files
+
+Expanding a `.zip` writes the user's original, un-redacted documents into a
+temporary directory. Those expansions are tracked and deleted at a session
+boundary: the end of a CLI command, the end of an MCP request, an emptied
+document tray, or window close. A rejected or failed expansion is cleaned up
+immediately.
+
+### Clipboard
+
+The companion's **Restore** puts de-anonymized text on the system clipboard.
+That write is marked concealed and transient (the nspasteboard.org convention
+that clipboard managers read to skip archiving a secret) and clears itself
+after 30 seconds, but only if nothing else has been copied since, so it never
+destroys the user's own clipboard. The user is told the window in the same
+message that reports the restore.
+
+Note that concealed and transient are a convention honored by well-behaved
+apps, not an OS guarantee. Pasting promptly is still the right habit.
+
+### Prompt injection
+
+Document text reaches the model verbatim, so a document can try to address the
+model directly. The classic payload tells it to report no entities, which in
+this app means PII passing through as clean. Untrusted text is therefore fenced
+with explicit begin and end markers, any copy of those markers inside the text
+is neutralized so a document cannot close its own fence, and the task is
+restated **after** the document to counter recency. The fine-tuned v2
+instruction prefix is preserved byte for byte.
+
+## Known limitations
+
+### CLI passphrase exposure
+
+`--passphrase` on any `lda` subcommand takes its value from the command line,
+where it is visible to `ps` for the lifetime of the process and is written to
+your shell history. This affects the CLI only; the GUI app never puts a
+passphrase on a command line.
+
+Prefer omitting `--passphrase` entirely. Without it the store is protected by a
+per-document key held in the macOS Keychain, which is both safer and less to
+remember. Use `--passphrase` only when you specifically need a portable file
+that opens on another Mac, and in that case prefer a shell that does not record
+the command (a leading space with `HISTCONTROL=ignorespace` in bash, or
+`setopt HIST_IGNORE_SPACE` in zsh).
+
+A Keychain-only path that reads the passphrase from an interactive prompt
+instead of a flag is planned; the four `TODO` markers in `Sources/LDACLI/`
+track it.
+
+### Other limitations
+
+- **arm64 only.** `llama.xcframework` is built for Apple silicon; there is no
+  Intel Mac support.
+- **MCP host trust.** The MCP server reads and writes only inside the user's
+  home directory and the system temporary directory. Set
+  `LDA_MCP_ALLOWED_ROOTS` (colon separated) when launching the server to allow
+  additional locations. This is an environment variable set by whoever launches
+  the server, not a value a request can supply: a policy a request can widen is
+  not a policy. The GGUF model path is deliberately exempt, since a distributed
+  build reads its model from inside the `.app` bundle.
+- **Review PDF coverage.** For PDF input, a value that is tokenized in the edit
+  surface but whose position could not be established on the page is counted in
+  `unboxedTokenCount` rather than being given an invented box. A non-zero count
+  means the review PDF still shows those values and must be surfaced to the
+  user.
+
 ## House rules
 
 All code comments, docstrings, and strings are in English. No em-dash and no

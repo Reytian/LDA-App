@@ -46,12 +46,12 @@ extension MCPServer {
         else {
             throw MCPFillToolError.missingOrEmptyArgument("sources")
         }
-        let sources = rawSources.map { URL(fileURLWithPath: $0) }
+        let sources = try rawSources.map { try allowedURL($0, key: "sources") }
 
         let label = try requireStringArgument(arguments, key: "label")
         let outPath = try requireStringArgument(arguments, key: "out")
         let modelPath = try requireStringArgument(arguments, key: "model")
-        let out = URL(fileURLWithPath: outPath)
+        let out = try allowedURL(outPath, key: "out")
 
         let passphrase = arguments["passphrase"] as? String
         let protection = profileProtectionMode(
@@ -142,20 +142,20 @@ extension MCPServer {
         }
 
         let inputPath = try requireStringArgument(arguments, key: "input")
-        let inputURL = URL(fileURLWithPath: inputPath)
+        let inputURL = try allowedURL(inputPath, key: "input")
         let modelPath = (arguments["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 
         let profile: ClientPortfolio
         if hasPortfolio, let nameOrID = portfolioName {
             // Load from library via name or UUID.
-            let library = try PortfolioLibrary(rootDirectory: MCPServer.libraryRootForTesting)
+            let library = try PortfolioLibrary(rootDirectory: MCPServer.effectiveLibraryRoot)
             let summaries = try library.list()
             let (id, _) = try PortfolioLibrary.resolve(nameOrID: nameOrID, from: summaries)
             profile = try library.load(id: id)
         } else {
             // Load from explicit profile file path.
             let profilePath = try requireStringArgument(arguments, key: "profile")
-            let profileURL = URL(fileURLWithPath: profilePath)
+            let profileURL = try allowedURL(profilePath, key: "profile")
             if let passphrase, !passphrase.isEmpty {
                 profile = try ProfileStore.load(from: profileURL, protection: .passphrase(passphrase))
             } else {
@@ -179,7 +179,7 @@ extension MCPServer {
             return try callFillApply(
                 inputURL: inputURL,
                 profile: profile,
-                outputDir: URL(fileURLWithPath: outputDirString),
+                outputDir: try allowedURL(outputDirString, key: "output_dir"),
                 modelPath: modelPath
             )
         }

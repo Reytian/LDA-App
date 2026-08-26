@@ -54,6 +54,11 @@ public struct AppShell: View {
     /// True while the onboarding sheet is presented.
     @State private var isOnboardingPresented = false
 
+    /// Whether Touch ID protection actually took effect. Shown next to the
+    /// On-device badge when it did not, so the trust claim in the UI matches
+    /// what the Keychain is really doing.
+    @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+
     public init(session: SessionModel, isActive: Bool = true) {
         self.session = session
         self.isActive = isActive
@@ -419,6 +424,18 @@ public struct AppShell: View {
                 .help("Documents, placeholders, and mappings never leave this Mac. "
                     + "The app has no network access at all.")
                 .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
+
+            // When the user-presence upgrade failed, say so here rather than
+            // letting the On-device badge imply a Touch ID gate that is not
+            // there. See KeychainAdvisoryStore.
+            if let advisory = keychainAdvisory.advisory {
+                Label("Touch ID inactive", systemImage: "exclamationmark.triangle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
+                    .help(advisory)
+                    .accessibilityLabel(Text(advisory))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

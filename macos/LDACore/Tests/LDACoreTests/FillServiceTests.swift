@@ -28,6 +28,8 @@ final class FillServiceTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Fail here if an earlier suite leaked a process-wide test seam.
+        assertNoTestSeamsInstalled()
         workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FillServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(

@@ -294,7 +294,7 @@ struct ExtractProfile: ParsableCommand {
     var out: String
 
     // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
-    @Option(name: .long, help: "Passphrase to protect the profile. Optional.")
+    @Option(name: .long, help: "Passphrase to protect the profile. Optional. WARNING: a value passed on the command line is visible in ps output and saved in your shell history; omit it to use the Keychain instead.")
     var passphrase: String?
 
     @Option(name: .long, help: "Path to the v2 GGUF model. Required for extraction.")
@@ -370,7 +370,7 @@ struct Fill: ParsableCommand {
     var portfolio: String?
 
     // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
-    @Option(name: .long, help: "Passphrase protecting the .ldaprofile (only valid with --profile).")
+    @Option(name: .long, help: "Passphrase protecting the .ldaprofile (only valid with --profile). WARNING: a value passed on the command line is visible in ps output and saved in your shell history; omit it to use the Keychain instead.")
     var passphrase: String?
 
     @Option(name: .long, help: "Path to the fill target (.docx or .pdf).")

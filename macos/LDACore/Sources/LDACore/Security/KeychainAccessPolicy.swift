@@ -51,9 +51,25 @@ public enum KeychainAccessPolicy {
         }
         set {
             lock.lock()
-            defer { lock.unlock() }
+            let changed = _requireUserPresence != newValue
             _requireUserPresence = newValue
+            lock.unlock()
+            // Keys already in the process cache were obtained under the OLD
+            // policy, so they must not satisfy reads under the new one: turning
+            // protection ON would otherwise serve pre-policy keys with no
+            // prompt. The purge happens AFTER releasing this lock so the two
+            // locks are never held at once, whichever order a caller uses.
+            if changed {
+                EncryptedContainer.purgeKeyCache()
+            }
         }
+    }
+
+    /// Forget every cached key so the next access re-reads the Keychain, and
+    /// under this policy re-prompts for Touch ID. Exposed for a host that wants
+    /// to lock its data without quitting (for example on screen lock).
+    public static func forgetCachedKeys() {
+        EncryptedContainer.purgeKeyCache()
     }
 
     /// A shared authentication context so one successful Touch ID covers the

@@ -171,6 +171,9 @@ private struct AITab: View {
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
     @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
 
+    /// Whether Touch ID protection actually took effect on this build.
+    @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
@@ -228,6 +231,16 @@ private struct AITab: View {
                   systemImage: "lock.laptopcomputer")
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
+
+            // Settings is where a user comes to check how their data is
+            // protected, so an inactive Touch ID gate has to be stated here,
+            // not only implied by its absence.
+            if let advisory = keychainAdvisory.advisory {
+                Label(advisory, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

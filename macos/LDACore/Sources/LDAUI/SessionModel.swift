@@ -181,11 +181,15 @@ public final class SessionModel: ObservableObject {
     /// documents. Each document gets its own configured ReviewModel and is
     /// imported immediately; the last added document becomes selected.
     public func addDocuments(_ urls: [URL]) async {
+        // A .zip expands into a temp directory whose files stay readable for
+        // as long as the tray holds them (re-scan and export both re-read the
+        // source), so the expansion is cleaned when the tray empties and at
+        // termination, not here. See discardExpandedArchives().
         var resolved: [URL] = []
         for url in urls {
             if ZipImporter.isZip(url) {
                 if let expanded = try? ZipImporter.expand(url) {
-                    resolved.append(contentsOf: expanded)
+                    resolved.append(contentsOf: expanded.documents)
                 }
             } else {
                 resolved.append(url)
@@ -203,11 +207,29 @@ public final class SessionModel: ObservableObject {
     }
 
     /// Remove a document from the tray.
+    ///
+    /// Emptying the tray also discards any .zip expansion: at that point no
+    /// document references the temp directory, so the user's original files
+    /// should not remain unpacked on disk.
     public func removeDocument(id: UUID) {
         entries.removeAll { $0.id == id }
         if selectedID == id {
             selectedID = entries.first?.id
         }
+        if entries.isEmpty {
+            discardExpandedArchives()
+        }
+    }
+
+    /// Delete the temporary directories holding documents unpacked from a .zip.
+    ///
+    /// Safe to call whenever the tray no longer references them: at that point
+    /// they are un-redacted client documents sitting in the system temp
+    /// directory with nothing left to read them. Also called at app
+    /// termination, since a session that ends with the window closing should
+    /// leave nothing behind either.
+    public func discardExpandedArchives() {
+        ZipImporter.cleanUpAllExpansions()
     }
 
     /// Detect entities in every document that has not run yet, sequentially so

@@ -22,6 +22,7 @@
 //
 
 import Foundation
+import Security
 import ArgumentParser
 import LDACore
 
@@ -85,6 +86,10 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// Embedded media files copied into the redacted DOCX without PII scanning
     /// (signature images, stamps). Non-zero is a warning for the user.
     public let embeddedMediaCount: Int
+    /// Tokenized values with no redaction box in the review PDF. Non-zero means
+    /// the review PDF still SHOWS those values, so it is a warning for the user
+    /// even though the edit surface and mapping are correct.
+    public let unboxedTokenCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -93,6 +98,7 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.entityCount = result.entityCount
         self.imageRedactionCount = result.imageRedactionCount
         self.embeddedMediaCount = result.embeddedMediaCount
+        self.unboxedTokenCount = result.unboxedTokenCount
     }
 }
 
@@ -134,9 +140,17 @@ public enum LDACLI {
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> AnonymizeResult {
         try requireExists(input)
+        // Key the Keychain account on the MAPPING file's base name, which is the
+        // one name anonymize and restore both see. Deriving it from each
+        // command's own `input` looked symmetrical but was not: anonymize's
+        // input is the SOURCE document ("doc") while restore's is the EDITED
+        // REDACTED file ("doc_redacted"), so the key was written under one
+        // account and looked up under another and every keychain-protected
+        // restore failed with errSecItemNotFound. The MCP server already keyed
+        // on the mapping name; the CLI now matches it.
         let protection = protectionFor(
             passphrase: passphrase,
-            derivedAccount: input.deletingPathExtension().lastPathComponent
+            derivedAccount: mappingBaseName(forInput: input)
         )
         return try LDAService.anonymize(
             input: input,
@@ -158,17 +172,55 @@ public enum LDACLI {
     ) throws -> RestoreReport {
         try requireExists(input)
         try requireExists(mapping)
-        let protection = protectionFor(
-            passphrase: passphrase,
-            derivedAccount: input.deletingPathExtension().lastPathComponent
-        )
-        return try LDAService.restore(
-            editedRedacted: input,
-            mapping: mapping,
-            protection: protection,
-            output: output
-        )
+        let mappingBase = mapping.deletingPathExtension().lastPathComponent
+        let protection = protectionFor(passphrase: passphrase, derivedAccount: mappingBase)
+
+        do {
+            return try LDAService.restore(
+                editedRedacted: input,
+                mapping: mapping,
+                protection: protection,
+                output: output
+            )
+        } catch DocumentIOError.keychainError(errSecItemNotFound) {
+            // Sidecars written by earlier builds have their key under the SOURCE
+            // base name rather than the mapping base name, so retry once with
+            // the legacy account. ONLY on a missing key: a decryption failure
+            // (wrong passphrase, tampered sidecar) must surface as itself rather
+            // than being replaced by whatever a second attempt fails with.
+            guard case .keychain = protection,
+                  let legacyBase = Self.legacyAccountBase(forMappingBaseName: mappingBase)
+            else {
+                throw DocumentIOError.keychainError(errSecItemNotFound)
+            }
+            return try LDAService.restore(
+                editedRedacted: input,
+                mapping: mapping,
+                protection: protectionFor(passphrase: nil, derivedAccount: legacyBase),
+                output: output
+            )
+        }
     }
+
+    /// The mapping sidecar's base name for a given source document.
+    ///
+    /// LDAService.anonymize writes the sidecar as
+    /// "<source base>_redacted.ldamap", so this mirrors that naming. Internal so
+    /// the account derivation is testable and cannot silently drift from the
+    /// service's file naming.
+    internal static func mappingBaseName(forInput input: URL) -> String {
+        input.deletingPathExtension().lastPathComponent + Self.redactedSuffix
+    }
+
+    /// The pre-fix account base for a mapping base name, or nil when the name
+    /// does not carry the suffix (so there is no legacy account to try).
+    internal static func legacyAccountBase(forMappingBaseName base: String) -> String? {
+        guard base.hasSuffix(Self.redactedSuffix) else { return nil }
+        return String(base.dropLast(Self.redactedSuffix.count))
+    }
+
+    /// The suffix LDAService.anonymize appends to the source base name.
+    private static let redactedSuffix = "_redacted"
 
     /// Detect core: validate the input exists and run LDAService.detect.
     public static func runDetect(input: URL, llmModelPath: String? = nil) throws -> [Span] {
@@ -198,7 +250,13 @@ public enum LDACLI {
         if let passphrase, !passphrase.isEmpty {
             return .passphrase(passphrase)
         }
-        return .keychain(account: "lda-\(derivedAccount)")
+        return .keychain(account: keychainAccount(forMappingBaseName: derivedAccount))
+    }
+
+    /// The Keychain account for a mapping base name. One function so the write
+    /// side and the read side cannot disagree about the prefix.
+    internal static func keychainAccount(forMappingBaseName base: String) -> String {
+        "lda-\(base)"
     }
 
     /// Choose a MappingProtection for profile files (.ldaprofile): an explicit
@@ -262,7 +320,7 @@ struct Anonymize: ParsableCommand {
     var outputDir: String
 
     // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
-    @Option(name: .long, help: "Passphrase to protect the mapping. Optional.")
+    @Option(name: .long, help: "Passphrase to protect the mapping. Optional. WARNING: a value passed on the command line is visible in ps output and saved in your shell history; omit it to use the Keychain instead.")
     var passphrase: String?
 
     @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
@@ -273,6 +331,10 @@ struct Anonymize: ParsableCommand {
 
     func run() throws {
         do {
+            // A .zip input expands into a temp directory holding the user's
+            // original documents. Remove it once the run is over, whether it
+            // succeeded or threw.
+            defer { ZipImporter.cleanUpAllExpansions() }
             let inputs = try LDACLI.resolveSessionInputs(input.map { URL(fileURLWithPath: $0) })
             // One plain document keeps the original single-document behavior
             // (format-specific edit surface). Several documents, a .zip, or a
@@ -317,7 +379,7 @@ struct Restore: ParsableCommand {
     var output: String
 
     // TODO: passphrase appears in ps output and shell history; move to a Keychain-only path in a future release.
-    @Option(name: .long, help: "Passphrase that protects the mapping. Optional.")
+    @Option(name: .long, help: "Passphrase that protects the mapping. Optional. WARNING: a value passed on the command line is visible in ps output and saved in your shell history; omit it to use the Keychain instead.")
     var passphrase: String?
 
     func run() throws {

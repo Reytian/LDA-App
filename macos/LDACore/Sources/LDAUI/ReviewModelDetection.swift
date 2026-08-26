@@ -74,7 +74,7 @@ extension ReviewModel {
         cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> DetectionOutcome {
-        if let delay = detectDelayForTesting {
+        if let delay = effectiveDetectDelay {
             Thread.sleep(forTimeInterval: delay)
         }
         // Custom vocabulary and learned redactions join the deterministic list
@@ -156,7 +156,7 @@ extension ReviewModel {
         }
         do {
             let extractor: LLMExtractor
-            if let factory = llmExtractorFactoryForTesting {
+            if let factory = effectiveLLMExtractorFactory {
                 extractor = factory(modelPath, cancel)
             } else {
                 let engine = try LLMEngine(config: .init(modelPath: modelPath))
@@ -350,6 +350,8 @@ extension ReviewModel {
                 return "The document could not be decrypted."
             case .keychainError(let status):
                 return "A Keychain error occurred (status \(status))."
+            case .tooLarge(let detail):
+                return "That file is too large to open. \(detail)"
             }
         default:
             return error.localizedDescription

@@ -42,6 +42,16 @@ public struct AnonymizeResult: Sendable {
     /// and stamps live there; a non-zero count must be surfaced to the user as
     /// a warning. Always 0 for non-DOCX input.
     public var embeddedMediaCount: Int
+    /// How many tokenized values could not be given a redaction box in the
+    /// review PDF. Always 0 for non-PDF input.
+    ///
+    /// A non-zero count MUST be surfaced to the user as a warning, for the same
+    /// reason as embeddedMediaCount: the value IS tokenized in the edit surface
+    /// and the mapping, so the round trip is correct, but the review PDF still
+    /// shows it. A lawyer who forwards that PDF believing it redacted is the
+    /// failure this count exists to prevent. Flag, never guess: no box is
+    /// invented for a value whose position could not be established.
+    public var unboxedTokenCount: Int
 
     public init(
         redactedFileURL: URL,
@@ -50,7 +60,8 @@ public struct AnonymizeResult: Sendable {
         entityCount: Int,
         entities: [Span],
         imageRedactionCount: Int = 0,
-        embeddedMediaCount: Int = 0
+        embeddedMediaCount: Int = 0,
+        unboxedTokenCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
@@ -59,6 +70,7 @@ public struct AnonymizeResult: Sendable {
         self.entities = entities
         self.imageRedactionCount = imageRedactionCount
         self.embeddedMediaCount = embeddedMediaCount
+        self.unboxedTokenCount = unboxedTokenCount
     }
 }
 
@@ -122,12 +134,23 @@ public enum LDAService {
 
     // MARK: - Test seam
 
-    /// Test-only override for building the LLM extractor. Production leaves this
-    /// nil and loads an LLMEngine from the model path. Tests set it to inject a
-    /// fake TextCompleter so the truncation/incompleteness handling can be
-    /// exercised without the 2.7 GB GGUF model. The closure receives the resolved
-    /// model path and returns an extractor, or nil to fall back to deterministic.
-    internal static var makeExtractorForTesting: ((String) -> LLMExtractor?)?
+#if DEBUG
+    /// Debug-only override for building the LLM extractor. Production loads an
+    /// LLMEngine from the model path. Tests install a factory returning a fake
+    /// TextCompleter so the truncation and incompleteness handling can be
+    /// exercised without the 2.7 GB GGUF model. The closure receives the
+    /// resolved model path and returns an extractor, or nil to fall back to
+    /// deterministic detection.
+    ///
+    /// The seam is compiled out of release builds and its storage is lock
+    /// guarded; see TestSeam.
+    internal static let extractorSeam = TestSeam<(String) -> LLMExtractor?>()
+
+    internal static var makeExtractorForTesting: ((String) -> LLMExtractor?)? {
+        get { extractorSeam.value }
+        set { extractorSeam.value = newValue }
+    }
+#endif
     /// Import (by extension; PDF with no text layer falls back to Vision OCR),
     /// run deterministic detection, merge with an empty llm list, tokenize,
     /// write the redacted edit surface (DocxRedactor.redact for .docx,
@@ -188,6 +211,7 @@ public enum LDAService {
         var visualPdfURL: URL?
         var imageRedactionCount = 0
         var embeddedMediaCount = 0
+        var unboxedTokenCount = 0
 
         switch ext {
         case "docx":
@@ -267,6 +291,16 @@ public enum LDAService {
                 }
             }
 
+            // Any text-layer value that ended up with NO box is reported, not
+            // papered over. The text search (including the whitespace-normalized
+            // fallback) and the OCR channel have both run by this point, so a
+            // token still missing from `boxes` is genuinely unlocated in the
+            // page geometry and the review PDF will still show it.
+            let boxedTokens = Set(boxes.map(\.token))
+            unboxedTokenCount = pairs.reduce(into: Set<String>()) { unboxed, pair in
+                if !boxedTokens.contains(pair.token) { unboxed.insert(pair.token) }
+            }.count
+
             let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
             try PdfRedactor.renderRedactedPDF(original: input, boxes: boxes, to: reviewURL)
             visualPdfURL = reviewURL
@@ -291,7 +325,8 @@ public enum LDAService {
             entityCount: spans.count,
             entities: spans,
             imageRedactionCount: imageRedactionCount,
-            embeddedMediaCount: embeddedMediaCount
+            embeddedMediaCount: embeddedMediaCount,
+            unboxedTokenCount: unboxedTokenCount
         )
     }
 
@@ -415,14 +450,18 @@ public enum LDAService {
     /// LDASessionService.swift can reuse it.
     internal static func makeDetector(modelPath: String?) -> Detector {
         let extractor: LLMExtractor? = {
-            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else {
-                // No real model. In tests an extractor may still be injected via
-                // makeExtractorForTesting using the (bogus) path so the
-                // incompleteness handling can be exercised without a GGUF.
-                return makeExtractorForTesting?(modelPath ?? "")
-            }
+#if DEBUG
+            // An installed seam OWNS extractor construction, including the
+            // decision to return nil (which means "run deterministic-only").
+            // It therefore wins whether or not the model path resolves, which
+            // is what lets a test drive the LLM paths with a bogus path. This
+            // whole branch is absent from release builds.
             if let factory = makeExtractorForTesting {
-                return factory(modelPath)
+                return factory(modelPath ?? "")
+            }
+#endif
+            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else {
+                return nil
             }
             guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else { return nil }
             return LLMExtractor(completer: engine)

@@ -37,12 +37,17 @@ extension LDACLI {
     /// Resolve the raw --input URLs into session inputs: every .zip expands
     /// into its supported documents; everything else must exist and passes
     /// through unchanged.
+    /// Expanded archives are registered with ZipImporter, so the CALLER must
+    /// call ZipImporter.cleanUpAllExpansions() once the session has finished
+    /// with the returned URLs. The expansion holds the user's original,
+    /// un-redacted documents; it cannot be cleaned here because the caller has
+    /// not read them yet.
     public static func resolveSessionInputs(_ raw: [URL]) throws -> [URL] {
         var resolved: [URL] = []
         for url in raw {
             try requireExists(url)
             if ZipImporter.isZip(url) {
-                resolved.append(contentsOf: try ZipImporter.expand(url))
+                resolved.append(contentsOf: try ZipImporter.expand(url).documents)
             } else {
                 resolved.append(url)
             }

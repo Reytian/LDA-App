@@ -226,11 +226,15 @@ public struct CompanionMenu: View {
                 session.companionNote = "Nothing to restore against yet. Copy for AI first."
                 return
             }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(restored.text, forType: .string)
+            // Restored text is DE-ANONYMIZED client material. It goes on the
+            // clipboard marked concealed and transient, and clears itself
+            // shortly after, so a forgotten clipboard is not an open-ended
+            // exposure to every app on the Mac. See SensitiveClipboard.
+            SensitiveClipboard.write(restored.text)
             var note = "Restored \(restored.restoredCount) value"
                 + (restored.restoredCount == 1 ? "" : "s")
-                + " on the clipboard."
+                + " on the clipboard. "
+                + SensitiveClipboard.expiryNote
             let flagged = restored.orphanTokens.count + restored.suspectPlaceholders.count
             if flagged > 0 {
                 note += " \(flagged) placeholder"

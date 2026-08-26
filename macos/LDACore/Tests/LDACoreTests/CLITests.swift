@@ -27,6 +27,8 @@ final class CLITests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Fail here if an earlier suite leaked a process-wide test seam.
+        assertNoTestSeamsInstalled()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("CLITests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(

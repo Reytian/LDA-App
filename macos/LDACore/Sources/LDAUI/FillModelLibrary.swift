@@ -304,13 +304,13 @@ extension FillModel {
     ///
     /// internal for FillModelLibrary.swift
     internal func resolveLibrary() async throws -> PortfolioLibrary {
-        if let seam = Self.libraryForTesting {
+        if let seam = Self.effectiveLibraryOverride {
             return seam
         }
         if let cached = _library {
             return cached
         }
-        let root = Self.libraryRootForTesting
+        let root = Self.effectiveLibraryRoot
         let constructed = try await Task.detached(priority: .userInitiated) {
             if let root {
                 return try PortfolioLibrary(rootDirectory: root)

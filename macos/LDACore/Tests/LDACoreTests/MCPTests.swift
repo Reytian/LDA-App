@@ -116,7 +116,11 @@ final class MCPTests: XCTestCase {
 
         let serverInfo = try XCTUnwrap(result["serverInfo"] as? [String: Any])
         XCTAssertEqual(serverInfo["name"] as? String, "lda-mcp")
-        XCTAssertEqual(serverInfo["version"] as? String, "0.1.0")
+        // The advertised version must match the constant AND be a released
+        // version. A shipping server that still announces 0.1.0 tells every host
+        // it is a prototype.
+        XCTAssertEqual(serverInfo["version"] as? String, MCPServer.serverVersion)
+        XCTAssertEqual(serverInfo["version"] as? String, "1.0.0")
 
         // capabilities.tools must be present (an empty object is valid).
         let capabilities = try XCTUnwrap(result["capabilities"] as? [String: Any])

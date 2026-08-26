@@ -59,6 +59,7 @@ public struct PdfOCRImporter: DocumentImporter {
     /// DocumentIOError.ocrUnavailable when Vision is unavailable or recognition
     /// fails on any page.
     public func importDocument(_ url: URL) throws -> ImportedDocument {
+        try ImportLimits.enforceDocumentSize(at: url)
         guard let document = PDFDocument(url: url) else {
             throw DocumentIOError.unreadable(
                 "PDFDocument could not open file at \(url.path)"
@@ -105,6 +106,7 @@ public struct PdfOCRImporter: DocumentImporter {
     /// entirely, which must surface as an error rather than a clean result.
     public static func pageTexts(in url: URL, pages: [Int]) throws -> [Int: String] {
         guard !pages.isEmpty else { return [:] }
+        try ImportLimits.enforceDocumentSize(at: url)
         guard let document = PDFDocument(url: url) else {
             throw DocumentIOError.unreadable(
                 "PDFDocument could not open file at \(url.path)"

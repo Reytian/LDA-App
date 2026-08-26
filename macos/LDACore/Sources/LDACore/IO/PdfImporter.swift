@@ -67,6 +67,7 @@ public struct PdfImporter: DocumentImporter {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw DocumentIOError.unreadable("File not found at \(url.path)")
         }
+        try ImportLimits.enforceDocumentSize(at: url)
 
         guard let document = PDFDocument(url: url) else {
             throw DocumentIOError.corrupt("PDFKit could not open the document at \(url.path)")
@@ -123,6 +124,7 @@ public struct PdfImporter: DocumentImporter {
                 continue
             }
 
+            var boxesForEntry: [RedactionBox] = []
             let selections = document.findString(needle, withOptions: .caseInsensitive)
             for selection in selections {
                 for page in selection.pages {
@@ -131,13 +133,168 @@ public struct PdfImporter: DocumentImporter {
                     if rect.isNull || rect.isEmpty {
                         continue
                     }
-                    boxes.append(
+                    boxesForEntry.append(
                         RedactionBox(pageIndex: pageIndex, rect: rect, token: entry.token)
                     )
                 }
             }
+
+            // Fallback for visually split PII. PDFDocument.findString matches the
+            // needle only as a contiguous run in the text layer, so a name broken
+            // across two lines of a table cell, or across a column break, is
+            // detected in the extracted text (where the layout is already
+            // flattened) but produces NO selection here. The consequence is a
+            // review PDF that still SHOWS a value the app reports as redacted,
+            // which is the worst kind of miss in this app.
+            //
+            // The fallback searches each page with whitespace normalized on both
+            // sides, then converts the matched character range into one box PER
+            // LINE, so a two-line name gets two boxes that actually cover it
+            // rather than one rect spanning the gap between them.
+            if boxesForEntry.isEmpty {
+                boxesForEntry = normalizedSearchBoxes(
+                    needle: needle,
+                    token: entry.token,
+                    in: document
+                )
+            }
+
+            boxes.append(contentsOf: boxesForEntry)
         }
 
         return boxes
+    }
+
+    // MARK: - Whitespace-normalized fallback search
+
+    /// Find `needle` on every page with whitespace normalized, and return one
+    /// box per line of each match.
+    ///
+    /// Internal rather than private so the cross-line behavior is directly
+    /// testable; the production entry point is redactionBoxes(in:surfaceTexts:).
+    static func normalizedSearchBoxes(
+        needle: String,
+        token: String,
+        in document: PDFDocument
+    ) -> [RedactionBox] {
+        let normalizedNeedle = normalizeWhitespace(needle).text.lowercased()
+        guard !normalizedNeedle.isEmpty else { return [] }
+
+        var boxes: [RedactionBox] = []
+        for pageIndex in 0 ..< document.pageCount {
+            guard let page = document.page(at: pageIndex), let pageText = page.string else {
+                continue
+            }
+            let normalized = normalizeWhitespace(pageText)
+            guard !normalized.text.isEmpty else { continue }
+
+            let haystack = normalized.text.lowercased()
+            var searchStart = haystack.startIndex
+            while let found = haystack.range(
+                of: normalizedNeedle,
+                options: [],
+                range: searchStart ..< haystack.endIndex
+            ) {
+                let from = haystack.distance(from: haystack.startIndex, to: found.lowerBound)
+                let count = haystack.distance(from: found.lowerBound, to: found.upperBound)
+                let originalIndexes = Array(normalized.originalIndexes[from ..< from + count])
+                boxes.append(
+                    contentsOf: lineBoxes(
+                        for: originalIndexes,
+                        on: page,
+                        pageIndex: pageIndex,
+                        token: token
+                    )
+                )
+                searchStart = found.upperBound
+            }
+        }
+        return boxes
+    }
+
+    /// A whitespace-normalized copy of text plus, for each normalized character,
+    /// the UTF-16 index it came from in the original.
+    ///
+    /// Normalization collapses every run of whitespace to a single space and
+    /// trims the ends. The index map is what makes the result usable for
+    /// geometry: a match found in normalized space is converted straight back
+    /// into original character positions.
+    static func normalizeWhitespace(_ text: String) -> (text: String, originalIndexes: [Int]) {
+        let source = text as NSString
+        var output = ""
+        var indexes: [Int] = []
+        var previousWasSpace = true // leading whitespace is dropped
+
+        for index in 0 ..< source.length {
+            let unit = source.character(at: index)
+            guard let scalar = Unicode.Scalar(unit) else { continue }
+            let character = Character(scalar)
+            if character.isWhitespace {
+                if !previousWasSpace {
+                    output.append(" ")
+                    indexes.append(index)
+                    previousWasSpace = true
+                }
+                continue
+            }
+            output.append(character)
+            indexes.append(index)
+            previousWasSpace = false
+        }
+
+        // Drop a trailing collapsed space so a match at the end is not padded.
+        if output.hasSuffix(" ") {
+            output.removeLast()
+            indexes.removeLast()
+        }
+        return (output, indexes)
+    }
+
+    /// Convert a run of original character indexes into one rect per visual line.
+    ///
+    /// A new line starts when the next character's rect does not overlap the
+    /// current run vertically. Emitting per-line rects is the point: a single
+    /// union rect over a two-line match would paint a band across whatever sits
+    /// between the two lines, and a bounding rect of the two lines' extremes can
+    /// still leave the actual glyphs partly uncovered.
+    private static func lineBoxes(
+        for originalIndexes: [Int],
+        on page: PDFPage,
+        pageIndex: Int,
+        token: String
+    ) -> [RedactionBox] {
+        let characterCount = page.numberOfCharacters
+        var boxes: [RedactionBox] = []
+        var current: CGRect?
+
+        for index in originalIndexes {
+            guard index >= 0, index < characterCount else { continue }
+            let rect = page.characterBounds(at: index)
+            if rect.isNull || rect.isEmpty { continue }
+
+            guard let running = current else {
+                current = rect
+                continue
+            }
+            if verticallyOverlaps(running, rect) {
+                current = running.union(rect)
+            } else {
+                boxes.append(RedactionBox(pageIndex: pageIndex, rect: running, token: token))
+                current = rect
+            }
+        }
+        if let running = current {
+            boxes.append(RedactionBox(pageIndex: pageIndex, rect: running, token: token))
+        }
+        return boxes
+    }
+
+    /// True when two glyph rects share enough vertical extent to be the same
+    /// line of text. Compared against the shorter rect's height so a tall glyph
+    /// does not swallow the line below it.
+    private static func verticallyOverlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let overlap = min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY)
+        guard overlap > 0 else { return false }
+        return overlap >= min(lhs.height, rhs.height) * 0.5
     }
 }

@@ -12,6 +12,17 @@
 //  source text, NSRange-compatible, so located spans can be mapped back to the
 //  original document without re-scanning. See CoreTypes.swift for the convention.
 //
+//  WHO USES THIS (read before deleting it). Chunker is LIVE code. The 2026-08-26
+//  pre-launch review listed it as unused on the grounds that SegmentPacker
+//  replaced it; that is true only of the ANONYMIZATION path. ProfileExtractor
+//  still calls Chunker.chunk to split each source document for profile and
+//  portfolio extraction (the fill-from-source feature), because that pass wants
+//  overlapping chunks: a company number or a registered office split across a
+//  chunk boundary must survive whole in at least one chunk, and the overlap is
+//  what guarantees that. SegmentPacker deliberately has no overlap, which is why
+//  it is right for anonymization (no duplicate spans to merge) and wrong here.
+//  Removing Chunker would break profile extraction.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //

@@ -227,14 +227,49 @@ public final class ReviewModel: ObservableObject {
 
     // MARK: - Test seams
 
-    /// Test-only artificial delay inside the detection pass, used to stage the
-    /// stale-result race deterministically. Production never sets it.
-    nonisolated(unsafe) internal static var detectDelayForTesting: TimeInterval?
+    // Both seams are DEBUG only and lock guarded (see TestSeam). The extractor
+    // factory in particular would, if present in a release build, be a standing
+    // override for the entire PII detection pass; the shipped binary does not
+    // compile it. The `effective...` accessors are unconditionally nil in
+    // release so the detection code needs no conditional compilation.
 
-    /// Test-only LLM extractor factory so AI-path outcomes (failure,
-    /// incomplete coverage) can be exercised without a real GGUF model.
-    /// Receives the configured model path. Production leaves this nil.
-    nonisolated(unsafe) internal static var llmExtractorFactoryForTesting: ((String, ExtractionCancelToken?) -> LLMExtractor)?
+#if DEBUG
+    /// Test-only artificial delay inside the detection pass, used to stage the
+    /// stale-result race deterministically.
+    nonisolated internal static let detectDelaySeam = TestSeam<TimeInterval>()
+
+    nonisolated internal static var detectDelayForTesting: TimeInterval? {
+        get { detectDelaySeam.value }
+        set { detectDelaySeam.value = newValue }
+    }
+
+    /// Test-only LLM extractor factory so AI-path outcomes (failure, incomplete
+    /// coverage) can be exercised without a real GGUF model. Receives the
+    /// configured model path and the cancel token.
+    nonisolated internal static let llmExtractorSeam =
+        TestSeam<(String, ExtractionCancelToken?) -> LLMExtractor>()
+
+    nonisolated internal static var llmExtractorFactoryForTesting: ((String, ExtractionCancelToken?) -> LLMExtractor)? {
+        get { llmExtractorSeam.value }
+        set { llmExtractorSeam.value = newValue }
+    }
+#endif
+
+    nonisolated static var effectiveDetectDelay: TimeInterval? {
+#if DEBUG
+        return detectDelayForTesting
+#else
+        return nil
+#endif
+    }
+
+    nonisolated static var effectiveLLMExtractorFactory: ((String, ExtractionCancelToken?) -> LLMExtractor)? {
+#if DEBUG
+        return llmExtractorFactoryForTesting
+#else
+        return nil
+#endif
+    }
 
     public init(modelPath: String?) {
         self.modelPath = modelPath
