@@ -64,6 +64,10 @@ public struct OnboardingView: View {
 
             Divider()
 
+            // The promise. Kept alone under the lock mark: this is the app's
+            // reassurance signal (the same icon and accent as the On-device
+            // status indicator), and filing a caution beneath it would dress a
+            // caveat up as part of the guarantee.
             Label {
                 Text("Everything runs on this Mac. The app has no network access at all: "
                     + "documents, placeholders, and the encrypted mapping never leave your computer.")
@@ -73,6 +77,32 @@ public struct OnboardingView: View {
             } icon: {
                 Image(systemName: "lock.laptopcomputer")
                     .foregroundStyle(CounselTheme.inkAccent)
+            }
+
+            // The cautions, visually separate from the promise and with their
+            // own icon.
+            //
+            // The clipboard sentence is scoped to the MENU-BAR companion on
+            // purpose. It is the only path in the app that puts real values on
+            // the clipboard; Restore's own paste-back and file flows write a
+            // file and never touch it. An unscoped version told every user that
+            // the flow this sheet just taught them produces something that
+            // evaporates, which is both untrue and needlessly alarming. It also
+            // avoids promising the clearing outright, because quitting the app
+            // inside the window defeats the timer.
+            Label {
+                Text("Anything you choose to keep visible stays visible in the exported "
+                    + "document.\n"
+                    + "Restore Clipboard, in the menu-bar icon, is the one action that puts "
+                    + "real values on your clipboard; it tries to clear them again about "
+                    + "\(Int(CompanionMenu.clipboardClearDelay)) seconds later, so paste "
+                    + "promptly and do not rely on the clearing.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "hand.raised")
+                    .foregroundStyle(CounselTheme.textSecondary)
             }
 
             if !modelAvailable {

@@ -6,7 +6,7 @@
 //  round trip and the local matter workspace:
 //    Matters       resume work and review value-free activity records
 //    Anonymize     bring documents in, spot PII, review, copy or export
-//    De-anonymize  bring the work back: paste an AI reply, or restore a
+//    Restore       bring the work back: paste an AI reply, or restore a
 //                  redacted file via its mapping
 //    Fill          fill a form draft from a stored client profile
 //
@@ -20,7 +20,7 @@
 //  Window-level chrome owned here, not by any one shell:
 //  - The mode picker (toolbar principal).
 //  - The persistent On-device privacy indicator (trust applies to every mode).
-//  - The paste-and-restore sheet: it can be triggered from the De-anonymize
+//  - The paste-and-restore sheet: it can be triggered from the Restore
 //    shell, the Edit menu, or the menu-bar companion, regardless of mode.
 //
 //  AppModeStore is a tiny ObservableObject that owns the active mode. It is
@@ -65,7 +65,7 @@ public struct RootShell: View {
 
     // MARK: - Child models
 
-    /// The session model driving the Anonymize and De-anonymize shells (the
+    /// The session model driving the Anonymize and Restore shells (the
     /// document tray plus the per-document review models).
     @ObservedObject private var session: SessionModel
 
@@ -120,7 +120,7 @@ public struct RootShell: View {
                 .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
                 .disabled(modeStore.activeMode != .anonymize)
 
-            // De-anonymize layer.
+            // Restore layer.
             DeanonymizeShell(
                 session: session,
                 isActive: modeStore.activeMode == .deanonymize,
@@ -146,7 +146,7 @@ public struct RootShell: View {
                 .help("Review matters, anonymize documents, restore protected values, or fill a form")
             }
             // The On-device privacy indicator lives in the Anonymize status
-            // banner (labeled, always visible) and in the De-anonymize copy,
+            // banner (labeled, always visible) and in the Restore copy,
             // NOT here: an icon-only toolbar item reads as a mystery lock and
             // competes for toolbar width on narrow windows.
         }

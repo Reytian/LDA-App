@@ -84,6 +84,9 @@ public final class SessionModel: ObservableObject {
     /// Bumped when the Restore from AI menu command fires.
     @Published public var pasteRestoreRequestToken = 0
 
+    /// Bumped when the File > Open menu command fires.
+    @Published public var openRequestToken = 0
+
     /// The menu-bar companion's last-action note ("Restored 4 values.").
     @Published public var companionNote: String?
 
@@ -915,6 +918,15 @@ public final class SessionModel: ObservableObject {
 
     /// Ask the shell to run the Copy for AI flow (menu command hook).
     public func requestCopyForAI() { copyForAIRequestToken += 1 }
+
+    /// Ask the shell to present the document open panel (menu command hook).
+    ///
+    /// This is the keyboard path to the ONLY recovery from a failed import.
+    /// The document pane already offers it prominently as "Choose Files", but
+    /// until now there was no menu item and no shortcut for it at all, so a
+    /// keyboard-only user genuinely had no way out of a failed import. That,
+    /// not the Scan for PII gate, was the real dead end behind audit item F2.
+    public func requestOpen() { openRequestToken += 1 }
 
     /// Ask the shell to present the Restore from AI sheet (menu command hook).
     /// Resumes a parked session first (just in time, not at launch): the

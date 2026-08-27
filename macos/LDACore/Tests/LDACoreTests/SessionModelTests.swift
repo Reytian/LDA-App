@@ -819,4 +819,19 @@ final class SimpleDocxWriterTests: XCTestCase {
         let imported = try DocxImporter().importDocument(url)
         XCTAssertEqual(imported.text, text)
     }
+    // MARK: - File > Open command hook (audit F2)
+
+    @MainActor
+    func testRequestOpenBumpsTheOpenToken() {
+        // The keyboard path to the only recovery from a failed import. Before
+        // this existed, "Choose Files" in the document pane was reachable by
+        // pointer only: there was no File > Open item and no shortcut.
+        let session = SessionModel(makeModel: { ReviewModel(modelPath: nil) })
+        let before = session.openRequestToken
+
+        session.requestOpen()
+
+        XCTAssertEqual(session.openRequestToken, before + 1)
+    }
+
 }

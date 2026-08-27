@@ -147,6 +147,9 @@ public struct AppShell: View {
         .onChange(of: session.copyForAIRequestToken) { _, _ in
             runCopyForAI()
         }
+        .onChange(of: session.openRequestToken) { _, _ in
+            presentOpenPanel()
+        }
         .onChange(of: model.status) { _, status in
             announce(status)
             if case .detecting = status {
@@ -221,7 +224,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.entries.contains { $0.model.canExport })
-                .help("Copy the redacted text so you can paste it into any AI tool. Nothing leaves this Mac.")
+                .help(copyForAIHelp)
 
                 Button {
                     beginExport()
@@ -691,6 +694,30 @@ public struct AppShell: View {
         case .failed(let detail):
             return detail
         }
+    }
+
+    /// The Copy for AI tooltip, enriched with how many of the session's
+    /// documents are ready so a multi-document user is not silently handed a
+    /// partial session (F5, partially: a tooltip is hover-only, so this cannot
+    /// be the whole answer. See the audit doc.)
+    private var copyForAIHelp: String {
+        let base = "so you can paste it into any AI tool. Nothing leaves this Mac."
+        let ready = session.entries.filter { $0.model.canExport }.count
+        // A failed import can never become ready, so counting it in the
+        // denominator reads as "you are about to leave that document out" when
+        // there is in fact nothing in it to leave out.
+        let candidates = session.entries.filter {
+            if case .failed = $0.model.status { return false }
+            return true
+        }.count
+        guard candidates > 1 else {
+            return "Copy the redacted text " + base
+        }
+        // Phrased so the noun's number never has to agree with the numerator:
+        // "from 1 of 4 documents" reads correctly for every combination, where
+        // "1 of 4 ready document" did not.
+        return "Copy the redacted text from \(ready) of \(candidates) documents "
+            + "(only the ones already scanned are included) " + base
     }
 
     private var bannerIsError: Bool {

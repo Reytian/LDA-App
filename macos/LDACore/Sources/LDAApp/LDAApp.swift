@@ -118,6 +118,18 @@ struct LDAApp: App {
         }
 
         .commands {
+            // File > Open. This is audit item F2's real closure: the document
+            // pane has always offered a prominent "Choose Files", but there was
+            // no menu item and no shortcut for it, so after a failed import a
+            // keyboard-only user had no way to recover at all.
+            CommandGroup(after: .newItem) {
+                Button("Open Documents...") {
+                    modeStore.activeMode = .anonymize
+                    sessionModel.requestOpen()
+                }
+                .keyboardShortcut("o", modifiers: .command)
+            }
+
             CommandGroup(after: .saveItem) {
                 Button("Scan for PII") {
                     modeStore.activeMode = .anonymize
