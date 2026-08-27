@@ -197,7 +197,7 @@ public struct MCPServer {
         // The edge owns the clock: stamp createdAt with an ISO-8601 timestamp now.
         let createdAt = MCPServer.iso8601Now()
 
-        let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let modelPath = try allowedModelPath(arguments, key: "modelPath")
         let result = try LDAService.anonymize(
             input: input,
             outputDir: outputDir,
@@ -283,7 +283,7 @@ public struct MCPServer {
     /// detect_entities: run LDAService.detect and summarize the detected spans.
     private func callDetect(_ arguments: [String: Any]) throws -> [String: Any] {
         let input = try requireURL(arguments, key: "input")
-        let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let modelPath = try allowedModelPath(arguments, key: "modelPath")
         let spans = try LDAService.detect(input: input, llmModelPath: modelPath)
 
         let entities: [[String: Any]] = spans.map { span in
@@ -316,11 +316,9 @@ public struct MCPServer {
     /// Build a file URL from a path argument and enforce the path allow-list.
     ///
     /// Every path a REQUEST supplies for a document, a mapping, a profile, or an
-    /// output goes through here. The one deliberate exception is the GGUF model
-    /// path: a distributed build reads its model from inside the .app bundle in
-    /// /Applications, which is outside the allow-list by design, and a model
-    /// path is handed to llama.cpp rather than read back into a response, so it
-    /// is not a route for reading a file the user did not name.
+    /// output goes through here. GGUF model paths go through allowedModelPath
+    /// instead, whose allow-list adds the app bundle's Resources directory for
+    /// distributed builds that read the model from inside the .app.
     ///
     /// Internal so the fill, session, and portfolio tool extensions use the same
     /// gate instead of constructing URLs directly.
@@ -328,6 +326,23 @@ public struct MCPServer {
         let url = URL(fileURLWithPath: path)
         try MCPPathPolicy.enforce(url, argumentKey: key)
         return url
+    }
+
+    /// Read an optional GGUF model path argument and enforce the model
+    /// allow-list on it. Returns nil when the argument is absent or empty; a
+    /// tool that requires the argument keeps its own missing-argument error.
+    ///
+    /// A model path is handed to llama.cpp rather than read back into a
+    /// response, but a prompt-steered host could still stage a malicious GGUF
+    /// in any writable location and point the engine at it, so model paths are
+    /// enforced like every other path (with the bundle Resources directory as
+    /// the one extra root).
+    func allowedModelPath(_ arguments: [String: Any], key: String) throws -> String? {
+        guard let value = arguments[key] as? String, !value.isEmpty else {
+            return nil
+        }
+        try MCPPathPolicy.enforceModelPath(URL(fileURLWithPath: value), argumentKey: key)
+        return value
     }
 
     /// Choose the mapping protection mode from the arguments. A passphrase, when

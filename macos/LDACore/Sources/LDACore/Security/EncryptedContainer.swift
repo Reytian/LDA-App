@@ -907,7 +907,10 @@ public struct EncryptedContainer {
         succeeded: Bool = true,
         detail: String? = nil
     ) {
-        guard auditing else { return }
+        // The enabled check runs here, not only inside record(): the digest is
+        // keyed by a per-install Keychain key, and a disabled log (every
+        // headless tool) must not pay for or create that key per operation.
+        guard auditing, SecurityEventLog.shared.isEnabled else { return }
         var digest: String?
         if case .keychain(let account) = protection {
             digest = SecurityEventLog.subjectDigest(
@@ -931,7 +934,9 @@ public struct EncryptedContainer {
         succeeded: Bool = true,
         detail: String? = nil
     ) {
-        guard auditing else { return }
+        // Same rule as audit(): never compute a keyed digest for a log that
+        // will drop the event anyway.
+        guard auditing, SecurityEventLog.shared.isEnabled else { return }
         SecurityEventLog.shared.record(
             kind: kind,
             scope: containerDescription,

@@ -25,6 +25,7 @@ final class MCPTests: XCTestCase {
 
     private var workDir: URL!
     private let server = MCPServer()
+    private var createdAccounts: [String] = []
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -34,9 +35,15 @@ final class MCPTests: XCTestCase {
             at: workDir,
             withIntermediateDirectories: true
         )
+        createdAccounts = []
     }
 
     override func tearDownWithError() throws {
+        // The Keychain outlives the process: every per-document key a test
+        // creates must go, or each run leaves another orphan account behind.
+        for account in createdAccounts {
+            try? MappingStore.deleteKeychainKey(account: account)
+        }
         if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
             try? FileManager.default.removeItem(at: workDir)
         }
@@ -349,6 +356,7 @@ final class MCPTests: XCTestCase {
                 forMappingBaseName: URL(fileURLWithPath: mappingPath)
                     .deletingPathExtension().lastPathComponent
             )
+            createdAccounts.append(account)
             XCTAssertNoThrow(
                 try MappingStore.load(
                     from: URL(fileURLWithPath: mappingPath),

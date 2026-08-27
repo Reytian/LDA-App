@@ -67,6 +67,7 @@ enum TestSeamRegistry {
         // Infrastructure seams
         if ImportLimits.archiveBudgetSeam.isInstalled { names.append("ImportLimits.archiveBudgetSeam") }
         if EncryptedContainer.clockSeam.isInstalled { names.append("EncryptedContainer.clockSeam") }
+        if SecurityEventLog.digestKeySeam.isInstalled { names.append("SecurityEventLog.digestKeySeam") }
         return names
     }
 
@@ -83,6 +84,7 @@ enum TestSeamRegistry {
         ReviewModel.llmExtractorSeam.clear()
         ImportLimits.archiveBudgetSeam.clear()
         EncryptedContainer.clockSeam.clear()
+        SecurityEventLog.digestKeySeam.clear()
     }
 }
 

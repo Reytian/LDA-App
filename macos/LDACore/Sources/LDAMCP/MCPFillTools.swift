@@ -50,7 +50,9 @@ extension MCPServer {
 
         let label = try requireStringArgument(arguments, key: "label")
         let outPath = try requireStringArgument(arguments, key: "out")
-        let modelPath = try requireStringArgument(arguments, key: "model")
+        guard let modelPath = try allowedModelPath(arguments, key: "model") else {
+            throw MCPFillToolError.missingOrEmptyArgument("model")
+        }
         let out = try allowedURL(outPath, key: "out")
 
         let passphrase = arguments["passphrase"] as? String
@@ -143,7 +145,7 @@ extension MCPServer {
 
         let inputPath = try requireStringArgument(arguments, key: "input")
         let inputURL = try allowedURL(inputPath, key: "input")
-        let modelPath = (arguments["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let modelPath = try allowedModelPath(arguments, key: "model")
 
         let profile: ClientPortfolio
         if hasPortfolio, let nameOrID = portfolioName {
