@@ -201,6 +201,49 @@ final class CLIKeychainRoundTripTests: XCTestCase {
         XCTAssertGreaterThan(report.restoredCount, 0)
     }
 
+    func testAMissingKeyOnBothAccountsReportsBothFailures() throws {
+        // When the per-document key is gone AND the legacy fallback fails too,
+        // the user must see both facts. Reporting only the second attempt hides
+        // that a silent retry ran, the same masking the MCP edge was fixed for.
+        let input = try writeSample(named: "bothgone.txt")
+        let anonymized: AnonymizeResult
+        do {
+            anonymized = try LDACLI.runAnonymize(
+                input: input,
+                outputDir: tempDir,
+                passphrase: nil,
+                timestamp: { "2026-08-27T00:00:00Z" }
+            )
+        } catch DocumentIOError.keychainError {
+            throw XCTSkip("Keychain unavailable in this environment")
+        }
+        let mappingBase = anonymized.mappingFileURL.deletingPathExtension().lastPathComponent
+        // Remove the per-document key and make sure no legacy key exists either.
+        try? MappingStore.deleteKeychainKey(
+            account: LDACLI.keychainAccount(forMappingBaseName: mappingBase)
+        )
+        try? MappingStore.deleteKeychainKey(
+            account: LDACLI.keychainAccount(forMappingBaseName: "bothgone")
+        )
+
+        XCTAssertThrowsError(
+            try LDACLI.runRestore(
+                input: anonymized.redactedFileURL,
+                mapping: anonymized.mappingFileURL,
+                output: tempDir.appendingPathComponent("nope2.txt"),
+                passphrase: nil
+            )
+        ) { error in
+            guard case CLIError.restoreFailedAfterLegacyRetry = error else {
+                XCTFail("Expected the both-failures report, got \(error)")
+                return
+            }
+            let message = String(describing: error)
+            XCTAssertTrue(message.contains("Per-document key"), "got: \(message)")
+            XCTAssertTrue(message.contains("Legacy account"), "got: \(message)")
+        }
+    }
+
     func testAGenuinelyMissingKeyStillFails() throws {
         // The legacy fallback must not turn a missing key into a silent success
         // or an unrelated error.

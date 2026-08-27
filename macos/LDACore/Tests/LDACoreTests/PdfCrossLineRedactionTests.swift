@@ -104,6 +104,92 @@ final class PdfCrossLineRedactionTests: XCTestCase {
         XCTAssertTrue(indexes.isEmpty)
     }
 
+    // MARK: - Index-space integrity (grapheme vs UTF-16)
+
+    func testTheIndexMapIsPerUTF16UnitWithDecomposedAccents() {
+        // "Jose" + combining acute: 5 graphemes but 6 UTF-16 units. The map
+        // must carry one entry per UNIT; a per-grapheme map shifts every later
+        // match and paints boxes over the wrong glyphs, which the review PDF
+        // then presents as covered.
+        let decomposed = "Jose\u{0301} met Smith"
+        let (text, indexes) = PdfImporter.normalizeWhitespace(decomposed)
+
+        XCTAssertEqual(
+            indexes.count, text.utf16.count,
+            "one index entry per UTF-16 unit is the invariant every search relies on"
+        )
+        // The combining mark keeps its own entry pointing at its own original
+        // offset (unit 4 in the source).
+        XCTAssertEqual(indexes[4], 4)
+        // "Smith" sits after the accent: its mapped offset must reflect the
+        // UTF-16 layout of the original, not a grapheme count.
+        let smithRange = (text as NSString).range(of: "Smith")
+        XCTAssertNotEqual(smithRange.location, NSNotFound)
+        XCTAssertEqual(indexes[smithRange.location], 10)
+    }
+
+    func testTheIndexMapSurvivesSurrogatePairs() {
+        // A supplementary-plane character (here MATHEMATICAL DOUBLE-STRUCK A,
+        // U+1D538) occupies two UTF-16 units; both need entries or every later
+        // offset is off by one.
+        let text = "\u{1D538} Smith"
+        let (normalized, indexes) = PdfImporter.normalizeWhitespace(text)
+
+        XCTAssertEqual(indexes.count, normalized.utf16.count)
+        let smithRange = (normalized as NSString).range(of: "Smith")
+        XCTAssertNotEqual(smithRange.location, NSNotFound)
+        XCTAssertEqual(
+            indexes[smithRange.location], 3,
+            "the pair contributes two units, so Smith starts at original unit 3"
+        )
+    }
+
+    func testCaseInsensitiveMatchingSurvivesWithoutLowercasingTheHaystack() throws {
+        // Lowercasing can change UTF-16 length (Turkish dotted I), so the
+        // search must match case-insensitively without transforming either
+        // string. Mixed case in the page must still produce boxes.
+        let url = tempDir.appendingPathComponent("case.pdf")
+        try makePDF(at: url, pages: [["Client: JANE Aoife", "smith of Acme."]])
+
+        let boxes = PdfImporter.redactionBoxes(
+            in: url,
+            surfaceTexts: [(text: "Jane Aoife Smith", token: "{PERSON_1}")]
+        )
+
+        XCTAssertEqual(boxes.count, 2, "case differences must not defeat the fallback")
+    }
+
+    func testDecomposedAccentsBeforeTheMatchDoNotShiftTheBoxes() throws {
+        // The regression this guards: decomposed accents EARLIER in the page
+        // text shifted the box mapping for every later match. Draw an accented
+        // prefix (decomposed form) on the same line, then verify the fallback
+        // boxes for the split name land where the glyphs really are.
+        let url = tempDir.appendingPathComponent("accents.pdf")
+        try makePDF(at: url, pages: [["Re\u{0301}: Jane Aoife", "Smith signed."]])
+
+        let boxes = PdfImporter.redactionBoxes(
+            in: url,
+            surfaceTexts: [(text: "Jane Aoife Smith", token: "{PERSON_1}")]
+        )
+        XCTAssertEqual(boxes.count, 2, "the split name must still get its two per-line boxes")
+
+        // Anchor the first box against the TRUE glyph geometry: find "Jane" in
+        // the page's own text layer and compare against its character bounds.
+        let document = try XCTUnwrap(PDFDocument(url: url))
+        let page = try XCTUnwrap(document.page(at: 0))
+        let pageText = try XCTUnwrap(page.string) as NSString
+        let janeRange = pageText.range(of: "Jane")
+        guard janeRange.location != NSNotFound else {
+            throw XCTSkip("PDFKit rewrote the text layer; geometry anchor unavailable")
+        }
+        let janeRect = page.characterBounds(at: janeRange.location)
+        let firstLineBox = try XCTUnwrap(boxes.max(by: { $0.rect.midY < $1.rect.midY }))
+        XCTAssertEqual(
+            firstLineBox.rect.minX, janeRect.minX, accuracy: 3.0,
+            "boxes must cover the real glyphs, not a position shifted by the accent"
+        )
+    }
+
     // MARK: - Cross-line coverage
 
     func testANameSplitAcrossTwoLinesGetsBoxes() throws {

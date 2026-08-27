@@ -26,8 +26,9 @@ final class ZipImporterTests: XCTestCase {
 
     override func tearDownWithError() throws {
         // Expansions are process-wide until a host clears them; never leak one
-        // into another suite.
+        // into another suite. Same for the budget override.
         ZipImporter.cleanUpAllExpansions()
+        ImportLimits.archiveBudgetSeam.clear()
         try? FileManager.default.removeItem(at: workDir)
     }
 
@@ -127,13 +128,16 @@ final class ZipImporterTests: XCTestCase {
     // MARK: - Temp-directory cleanup
 
     func testExpansionIsRegisteredUntilCleanedUp() throws {
+        // Delta-based, not absolute: the registry is process-wide, so an
+        // absolute count would break the moment any other suite holds a live
+        // expansion when this one runs.
         let zipURL = try makeZip(entries: [("contract.txt", "Acme Corp agrees.")])
-        XCTAssertEqual(ZipImporter.liveExpansionCount, 0)
+        let before = ZipImporter.liveExpansionCount
 
         let expansion = try ZipImporter.expand(zipURL)
 
         XCTAssertEqual(
-            ZipImporter.liveExpansionCount, 1,
+            ZipImporter.liveExpansionCount, before + 1,
             "an expansion must be tracked so a host can clear it at a session boundary"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: expansion.directory.path))
@@ -176,11 +180,13 @@ final class ZipImporterTests: XCTestCase {
             provider: { position, size in data.subdata(in: Int(position)..<Int(position) + size) }
         )
         let expansionB = try ZipImporter.expand(secondPath)
-        XCTAssertEqual(ZipImporter.liveExpansionCount, 2)
+        XCTAssertGreaterThanOrEqual(ZipImporter.liveExpansionCount, 2)
 
         let removed = ZipImporter.cleanUpAllExpansions()
 
-        XCTAssertEqual(removed, 2)
+        // At least the two created here; a leaked expansion from an earlier
+        // suite would also be swept, which is this API's job, not a failure.
+        XCTAssertGreaterThanOrEqual(removed, 2)
         XCTAssertEqual(ZipImporter.liveExpansionCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: expansionA.directory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: expansionB.directory.path))
@@ -222,6 +228,113 @@ final class ZipImporterTests: XCTestCase {
         ])
         let expansion = try ZipImporter.expand(zipURL)
         XCTAssertEqual(expansion.documents.count, 2)
+    }
+
+    // MARK: - Lying declared sizes (the real zip-bomb shape)
+
+    /// Build a zip whose entry REALLY inflates to `actualBytes` but whose
+    /// declared uncompressed size (local file header AND central directory) is
+    /// patched down to `declaredBytes`. This is the shape of a genuine zip
+    /// bomb: the central directory is attacker-controlled, and the inflater
+    /// runs to end-of-stream regardless of what it says.
+    private func makeLyingZip(actualBytes: Int, declaredBytes: UInt32) throws -> URL {
+        let zipURL = workDir.appendingPathComponent("lying.zip")
+        let archive = try Archive(url: zipURL, accessMode: .create)
+        let payload = Data(repeating: 0x41, count: actualBytes)
+        // DEFLATE, not the store default: a stored entry is read by its
+        // compressed size, so it cannot lie about its inflated size. Real
+        // bombs are deflate streams, whose inflater runs to end-of-stream.
+        try archive.addEntry(
+            with: "payload.txt",
+            type: .file,
+            uncompressedSize: Int64(actualBytes),
+            compressionMethod: .deflate,
+            provider: { position, size in
+                payload.subdata(in: Int(position) ..< Int(position) + size)
+            }
+        )
+
+        var bytes = [UInt8](try Data(contentsOf: zipURL))
+        let honest = withUnsafeBytes(of: UInt32(actualBytes).littleEndian) { [UInt8]($0) }
+        let lying = withUnsafeBytes(of: declaredBytes.littleEndian) { [UInt8]($0) }
+
+        // Patch every occurrence of the honest 4-byte size. It must appear
+        // exactly twice: once in the local file header, once in the central
+        // directory. More or fewer means the fixture assumption broke.
+        var patched = 0
+        var index = 0
+        while index <= bytes.count - 4 {
+            if Array(bytes[index ..< index + 4]) == honest {
+                bytes.replaceSubrange(index ..< index + 4, with: lying)
+                patched += 1
+                index += 4
+            } else {
+                index += 1
+            }
+        }
+        XCTAssertEqual(
+            patched, 2,
+            "expected the size in exactly the local header and the central directory"
+        )
+        try Data(bytes).write(to: zipURL)
+        return zipURL
+    }
+
+    func testAnArchiveLyingAboutItsSizeIsStoppedByActualBytes() throws {
+        // Arrange: entry declares 1 KB but really inflates to 200 KB; budget
+        // is 64 KB. The declared-size pre-check passes (that is the attack),
+        // so only actual-bytes metering can stop it.
+        ImportLimits.archiveBudgetSeam.value = 64 * 1024
+        let zipURL = try makeLyingZip(actualBytes: 200 * 1024, declaredBytes: 1024)
+        let liveBefore = ZipImporter.liveExpansionCount
+
+        // Act + Assert
+        XCTAssertThrowsError(try ZipImporter.expand(zipURL)) { error in
+            guard case DocumentIOError.tooLarge = error else {
+                XCTFail("Expected tooLarge from actual-bytes metering, got \(error)")
+                return
+            }
+        }
+        // Delta-based: the registry is process-wide, so compare against the
+        // count before the attempt rather than absolute zero.
+        XCTAssertEqual(
+            ZipImporter.liveExpansionCount, liveBefore,
+            "the partially inflated bomb must not be left registered on disk"
+        )
+    }
+
+    func testAnHonestArchiveStillExpandsUnderTheMeteredBudget() throws {
+        // The metering must not tax the normal case: real content within the
+        // budget expands exactly as before.
+        ImportLimits.archiveBudgetSeam.value = 64 * 1024
+        let zipURL = try makeZip(entries: [
+            ("a.txt", String(repeating: "a", count: 8 * 1024)),
+            ("b.txt", String(repeating: "b", count: 8 * 1024))
+        ])
+
+        let expansion = try ZipImporter.expand(zipURL)
+
+        XCTAssertEqual(expansion.documents.count, 2)
+        let contents = try String(
+            contentsOf: expansion.documents[0], encoding: .utf8
+        )
+        XCTAssertEqual(contents.count, 8 * 1024, "metered extraction must write intact bytes")
+    }
+
+    func testAZip64SizedDeclarationDoesNotTrap() throws {
+        // A crafted ZIP64 entry can declare a size above Int.max; the budget
+        // arithmetic stays in UInt64, so this must REJECT, never trap. The
+        // declared size here is the largest the 4-byte field can carry; the
+        // UInt64 comparison path is shared with true ZIP64 sizes.
+        ImportLimits.archiveBudgetSeam.value = 64 * 1024
+        let zipURL = try makeLyingZip(actualBytes: 8 * 1024, declaredBytes: UInt32.max)
+
+        XCTAssertThrowsError(try ZipImporter.expand(zipURL)) { error in
+            guard case DocumentIOError.tooLarge = error else {
+                XCTFail("Expected tooLarge from the declared-size pre-check, got \(error)")
+                return
+            }
+        }
     }
 
     func testArchiveWithTooManyEntriesIsRejected() throws {

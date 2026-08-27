@@ -40,6 +40,7 @@ final class KeyCacheEvictionTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        EncryptedContainer.clockSeam.clear()
         for account in createdAccounts {
             try? container.deleteKeychainKey(account: account)
         }
@@ -152,6 +153,53 @@ final class KeyCacheEvictionTests: XCTestCase {
         }
         KeychainAccessPolicy.forgetCachedKeys()
         XCTAssertEqual(EncryptedContainer.cachedKeyCount, 0)
+    }
+
+    func testACachedKeyExpiresAfterTheTTL() throws {
+        // The TTL exists so an idle session re-establishes the Touch ID prompt
+        // instead of trusting one approval forever. The clock is injected here
+        // because the production clock is sleep-inclusive monotonic time, which
+        // a test cannot fast-forward.
+        var fakeNow: UInt64 = 7_000_000_000_000
+        EncryptedContainer.clockSeam.value = { fakeNow }
+
+        guard try saveUnderNewAccount(0) else {
+            throw XCTSkip("Keychain unavailable in this environment")
+        }
+        XCTAssertEqual(EncryptedContainer.cachedKeyCount, 1)
+
+        // One nanosecond past the TTL: the key must no longer be served.
+        fakeNow += UInt64(EncryptedContainer.keyCacheTTL * 1_000_000_000) + 1
+
+        XCTAssertEqual(
+            EncryptedContainer.cachedKeyCount, 0,
+            "an idle key must expire; a paused clock would keep it fresh forever"
+        )
+    }
+
+    func testAKeyReadWithinTheTTLStaysCachedAndRefreshes() throws {
+        var fakeNow: UInt64 = 9_000_000_000_000
+        EncryptedContainer.clockSeam.value = { fakeNow }
+
+        let account = "cache-ttl-refresh-\(UUID().uuidString)"
+        let url = workDir.appendingPathComponent("ttl.bin")
+        do {
+            try container.save(Data("x".utf8), to: url, protection: .keychain(account: account))
+        } catch DocumentIOError.keychainError {
+            throw XCTSkip("Keychain unavailable in this environment")
+        }
+        createdAccounts.append(account)
+
+        // Advance to just short of expiry, then USE the key: the read must
+        // refresh its recency so steady use never re-prompts.
+        fakeNow += UInt64((EncryptedContainer.keyCacheTTL - 1) * 1_000_000_000)
+        _ = try container.load(from: url, protection: .keychain(account: account))
+        fakeNow += UInt64((EncryptedContainer.keyCacheTTL - 1) * 1_000_000_000)
+
+        XCTAssertEqual(
+            EncryptedContainer.cachedKeyCount, 1,
+            "a key in steady use must not expire between reads"
+        )
     }
 
     func testTheCacheHasABoundedLifetime() {

@@ -84,6 +84,38 @@ final class ContainerV2Tests: XCTestCase {
         )
     }
 
+    func testImplausibleIterationCountIsRefusedBeforeDeriving() throws {
+        // The count must be USED to derive the key before the header AAD can be
+        // verified, so without a cap a hostile container declaring UInt32.max
+        // pins a core for half an hour per open attempt. The cap rejects it as
+        // corrupt before any derivation work happens.
+        let target = url("hostile-iterations.bin")
+        try container.save(Data("x".utf8), to: target, protection: .passphrase("pass phrase"))
+
+        var bytes = [UInt8](try Data(contentsOf: target))
+        let iterationOffset = magic.count + 3 + 16
+        bytes.replaceSubrange(
+            iterationOffset ..< iterationOffset + 4,
+            with: [0xFF, 0xFF, 0xFF, 0xFF]
+        )
+        try Data(bytes).write(to: target)
+
+        // Must return promptly: the guard fires before PBKDF2 runs.
+        let started = Date()
+        XCTAssertThrowsError(
+            try container.load(from: target, protection: .passphrase("pass phrase"))
+        ) { error in
+            guard case DocumentIOError.corrupt = error else {
+                XCTFail("Expected corrupt for an implausible iteration count, got \(error)")
+                return
+            }
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), 2,
+            "the refusal must happen before deriving, not after minutes of PBKDF2"
+        )
+    }
+
     func testTamperedIterationCountFailsAuthentication() throws {
         let target = url()
         try container.save(Data("x".utf8), to: target, protection: .passphrase("pass phrase"))

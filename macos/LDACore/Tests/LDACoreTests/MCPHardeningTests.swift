@@ -15,6 +15,7 @@
 //
 
 import XCTest
+import Security
 @testable import LDACore
 @testable import LDAMCP
 
@@ -127,6 +128,36 @@ final class MCPHardeningTests: XCTestCase {
         )
     }
 
+    // MARK: - Keychain snapshot helpers
+
+    /// The raw key bytes stored for a generic-password item, or nil when absent.
+    private static func snapshotKeychainKey(service: String, account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess else {
+            return nil
+        }
+        return item as? Data
+    }
+
+    /// Re-add a silent generic-password item with the snapshotted key bytes.
+    private static func restoreKeychainKey(service: String, account: String, data: Data) {
+        let attributes: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        SecItemAdd(attributes as CFDictionary, nil)
+    }
+
     func testADecryptionFailureIsNotMaskedByTheLegacyRetry() throws {
         // Arrange: a sidecar protected by a PASSPHRASE, restored without one.
         // The container's protection tag will not match, which is a decryption
@@ -187,12 +218,33 @@ final class MCPHardeningTests: XCTestCase {
         let redacted = try XCTUnwrap(summary["redactedFile"] as? String)
         let mappingURL = URL(fileURLWithPath: mappingPath)
 
-        // Delete the per-document key so the first attempt reports errSecItemNotFound.
+        // Delete the per-document key so the first attempt reports
+        // errSecItemNotFound. The per-document account is derived from this
+        // test's own fixture name, so deleting it destroys nothing real.
         let account = MCPServer.keychainAccount(
             forMappingBaseName: mappingURL.deletingPathExtension().lastPathComponent
         )
         try? MappingStore.deleteKeychainKey(account: account)
+
+        // The LEGACY account is the production shared account: on a developer
+        // machine that still has real pre-per-document sidecars, its key is
+        // the only thing that can open them, and deleting it here would
+        // destroy that permanently. Snapshot the key bytes, delete for the
+        // test, and restore whatever was there afterward.
+        let legacySnapshot = Self.snapshotKeychainKey(
+            service: "ai.openclaw.lda.mappingkey",
+            account: MCPServer.defaultKeychainAccount
+        )
         try? MappingStore.deleteKeychainKey(account: MCPServer.defaultKeychainAccount)
+        addTeardownBlock {
+            if let legacySnapshot {
+                Self.restoreKeychainKey(
+                    service: "ai.openclaw.lda.mappingkey",
+                    account: MCPServer.defaultKeychainAccount,
+                    data: legacySnapshot
+                )
+            }
+        }
 
         // Act
         let restore = try callText(tool: "restore_document", arguments: [

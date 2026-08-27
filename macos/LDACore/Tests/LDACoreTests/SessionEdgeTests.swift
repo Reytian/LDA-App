@@ -92,6 +92,10 @@ final class SessionEdgeTests: XCTestCase {
         )
         let plain = try write("plain.txt", "Nothing here.")
 
+        // resolveSessionInputs registers the zip expansion process-wide; the
+        // CALLER owns cleanup (in production the CLI command's defer). Clean it
+        // here so the leaked expansion cannot poison another suite's counts.
+        defer { ZipImporter.cleanUpAllExpansions() }
         let resolved = try LDACLI.resolveSessionInputs([plain, zipURL])
 
         XCTAssertEqual(resolved.count, 2)

@@ -108,6 +108,13 @@ public struct EncryptedContainer {
     /// Required to open files written before the count became explicit.
     private static let legacyPBKDF2Iterations: UInt32 = 200_000
 
+    /// Largest iteration count accepted when OPENING a container. The header
+    /// is authenticated (v2 AAD), but the count must be USED to derive the key
+    /// before that authentication can run, so without a cap a hostile sidecar
+    /// declaring UInt32.max pins a core for half an hour per open attempt.
+    /// 10M leaves generous headroom above the 600k we write.
+    static let maxAcceptedPBKDF2Iterations: UInt32 = 10_000_000
+
     /// Width of the iteration-count field in the version 2 header.
     private static let iterationFieldLength = 4
 
@@ -316,6 +323,12 @@ public struct EncryptedContainer {
                 "\(containerDescription) declares a zero PBKDF2 iteration count"
             )
         }
+        guard iterations <= Self.maxAcceptedPBKDF2Iterations else {
+            throw DocumentIOError.corrupt(
+                "\(containerDescription) declares an implausible PBKDF2 iteration "
+                    + "count (\(iterations)); refusing to derive"
+            )
+        }
         let passwordData = Data(passphrase.utf8)
         var derived = [UInt8](repeating: 0, count: Self.keyLength)
 
@@ -372,7 +385,7 @@ public struct EncryptedContainer {
     static let keyCacheTTL: TimeInterval = 900
 
     /// A cached key plus the monotonic timestamp of its last use. The clock is
-    /// deliberately monotonic (uptime, not wall clock) so a system clock change
+    /// deliberately monotonic (never the wall clock) so a system clock change
     /// cannot extend a key's lifetime.
     private struct CachedKey {
         let key: SymmetricKey
@@ -382,9 +395,27 @@ public struct EncryptedContainer {
     private static let keyCacheLock = NSLock()
     private static var keyCache: [String: CachedKey] = [:]
 
-    /// Monotonic nanoseconds since boot.
+#if DEBUG
+    /// Debug-only clock override so the TTL rule is testable without waiting
+    /// out 15 real minutes. Lock guarded and compiled out of release; see
+    /// TestSeam.
+    static let clockSeam = TestSeam<() -> UInt64>()
+#endif
+
+    /// Monotonic nanoseconds, INCLUDING time the machine spends asleep.
+    ///
+    /// Darwin's CLOCK_MONOTONIC keeps advancing through sleep, unlike
+    /// DispatchTime/mach_absolute_time, which pause. The distinction is the
+    /// point of the TTL: close the lid on Friday with keys cached and a paused
+    /// clock would still call them fresh on Monday, keeping the idle-timeout
+    /// promise only for a machine that never sleeps.
     private static func uptimeNanos() -> UInt64 {
-        DispatchTime.now().uptimeNanoseconds
+#if DEBUG
+        if let clock = clockSeam.value {
+            return clock()
+        }
+#endif
+        return clock_gettime_nsec_np(CLOCK_MONOTONIC)
     }
 
     private static func isExpired(_ entry: CachedKey, now: UInt64) -> Bool {

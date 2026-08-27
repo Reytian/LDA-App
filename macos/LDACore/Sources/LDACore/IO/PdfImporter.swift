@@ -177,7 +177,7 @@ public struct PdfImporter: DocumentImporter {
         token: String,
         in document: PDFDocument
     ) -> [RedactionBox] {
-        let normalizedNeedle = normalizeWhitespace(needle).text.lowercased()
+        let normalizedNeedle = normalizeWhitespace(needle).text
         guard !normalizedNeedle.isEmpty else { return [] }
 
         var boxes: [RedactionBox] = []
@@ -188,16 +188,30 @@ public struct PdfImporter: DocumentImporter {
             let normalized = normalizeWhitespace(pageText)
             guard !normalized.text.isEmpty else { continue }
 
-            let haystack = normalized.text.lowercased()
-            var searchStart = haystack.startIndex
-            while let found = haystack.range(
-                of: normalizedNeedle,
-                options: [],
-                range: searchStart ..< haystack.endIndex
-            ) {
-                let from = haystack.distance(from: haystack.startIndex, to: found.lowerBound)
-                let count = haystack.distance(from: found.lowerBound, to: found.upperBound)
-                let originalIndexes = Array(normalized.originalIndexes[from ..< from + count])
+            // Search and index in ONE space: UTF-16 code units. NSString's
+            // case-insensitive search returns UTF-16 offsets directly, and
+            // originalIndexes carries one entry per UTF-16 unit of the
+            // normalized text, so the two line up by construction. The earlier
+            // version mixed spaces: it indexed the map with Character
+            // (grapheme) distances, so any decomposed accent in the page text
+            // (Jose + combining acute, which PDF ToUnicode maps do produce)
+            // shifted every later match and painted boxes over the WRONG
+            // glyphs while unboxedTokenCount stayed zero. Lowercasing the
+            // haystack was part of the same trap: lowercasing can change
+            // UTF-16 length (Turkish dotted I), so the search uses the
+            // caseInsensitive option instead of transforming either string.
+            let haystack = normalized.text as NSString
+            var searchStart = 0
+            while searchStart < haystack.length {
+                let found = haystack.range(
+                    of: normalizedNeedle,
+                    options: [.caseInsensitive],
+                    range: NSRange(location: searchStart, length: haystack.length - searchStart)
+                )
+                guard found.location != NSNotFound, found.length > 0 else { break }
+                let originalIndexes = Array(
+                    normalized.originalIndexes[found.location ..< found.location + found.length]
+                )
                 boxes.append(
                     contentsOf: lineBoxes(
                         for: originalIndexes,
@@ -206,40 +220,72 @@ public struct PdfImporter: DocumentImporter {
                         token: token
                     )
                 )
-                searchStart = found.upperBound
+                searchStart = found.location + found.length
             }
         }
         return boxes
     }
 
-    /// A whitespace-normalized copy of text plus, for each normalized character,
-    /// the UTF-16 index it came from in the original.
+    /// A whitespace-normalized copy of text plus, for each UTF-16 code unit of
+    /// the normalized text, the UTF-16 index it came from in the original.
     ///
     /// Normalization collapses every run of whitespace to a single space and
-    /// trims the ends. The index map is what makes the result usable for
-    /// geometry: a match found in normalized space is converted straight back
-    /// into original character positions.
+    /// trims the ends. INVARIANT: originalIndexes.count == text.utf16.count,
+    /// one entry per unit, so a UTF-16 search range over `text` indexes the map
+    /// directly. Keeping the map per-unit (not per-character) is what makes
+    /// decomposed accents and surrogate pairs safe: a combining mark is its own
+    /// unit with its own entry, and a supplementary-plane character contributes
+    /// two units and two entries.
     static func normalizeWhitespace(_ text: String) -> (text: String, originalIndexes: [Int]) {
         let source = text as NSString
         var output = ""
         var indexes: [Int] = []
         var previousWasSpace = true // leading whitespace is dropped
 
-        for index in 0 ..< source.length {
+        var index = 0
+        while index < source.length {
             let unit = source.character(at: index)
-            guard let scalar = Unicode.Scalar(unit) else { continue }
-            let character = Character(scalar)
-            if character.isWhitespace {
+
+            // Assemble a surrogate pair into its scalar so supplementary-plane
+            // characters survive normalization; both of the pair's units get an
+            // index entry to preserve the per-unit invariant. A lone surrogate
+            // (malformed text layer) is dropped, which keeps the map aligned.
+            let scalar: Unicode.Scalar
+            var unitWidth = 1
+            if UTF16.isLeadSurrogate(unit), index + 1 < source.length,
+               UTF16.isTrailSurrogate(source.character(at: index + 1)) {
+                // Combine the pair arithmetically (U+10000 plus the two 10-bit
+                // halves); both halves are range-checked above, so the scalar
+                // initializer cannot fail.
+                let high = UInt32(unit - 0xD800)
+                let low = UInt32(source.character(at: index + 1) - 0xDC00)
+                scalar = Unicode.Scalar(0x10000 + (high << 10) + low)!
+                unitWidth = 2
+            } else if let simple = Unicode.Scalar(unit), !UTF16.isLeadSurrogate(unit),
+                      !UTF16.isTrailSurrogate(unit) {
+                scalar = simple
+            } else {
+                index += 1
+                continue
+            }
+
+            if Character(scalar).isWhitespace {
                 if !previousWasSpace {
                     output.append(" ")
                     indexes.append(index)
                     previousWasSpace = true
                 }
+                index += unitWidth
                 continue
             }
-            output.append(character)
+
+            output.unicodeScalars.append(scalar)
             indexes.append(index)
+            if unitWidth == 2 {
+                indexes.append(index + 1)
+            }
             previousWasSpace = false
+            index += unitWidth
         }
 
         // Drop a trailing collapsed space so a match at the end is not padded.

@@ -18,10 +18,11 @@
 //  application identifier; unsigned headless binaries cannot create them.
 //
 //  Migration: keys created before this policy existed live in the login file
-//  keychain without access control. Lookup searches the data-protection
-//  keychain first, then falls back to the legacy item and upgrades it in
-//  place (delete + re-add behind user presence, with a best-effort restore
-//  if the re-add fails, so a key is never lost).
+//  keychain without access control. Lookup searches the protected item first,
+//  then falls back to the legacy silent item and upgrades it: the protected
+//  copy is ADDED FIRST and the silent original deleted only after that add
+//  succeeds, so a failure mid-way leaves the original intact and a key is
+//  never lost. A failed upgrade is surfaced via KeychainProtectionAdvisory.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.

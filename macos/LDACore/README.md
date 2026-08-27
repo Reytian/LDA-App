@@ -252,6 +252,15 @@ A Keychain-only path that reads the passphrase from an interactive prompt
 instead of a flag is planned; the four `TODO` markers in `Sources/LDACLI/`
 track it.
 
+### Keychain accounts are per edge
+
+The CLI and the MCP server derive their per-document Keychain accounts under
+different namespaces (`lda-<mapping base>` vs `ai.openclaw.lda.mcp.<mapping
+base>`), so a sidecar protected by the Keychain on one edge does not restore on
+the other. This is deliberate isolation, not a bug, but it surprises people:
+anonymize and restore through the same edge, or pass `--passphrase` when a
+sidecar must travel between tools or machines.
+
 ### Other limitations
 
 - **arm64 only.** `llama.xcframework` is built for Apple silicon; there is no

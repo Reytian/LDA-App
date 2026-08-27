@@ -37,6 +37,24 @@ public enum ImportLimits {
     /// Largest total UNCOMPRESSED payload accepted from one archive (500 MB).
     public static let maxArchiveUncompressedBytes: Int = 500 * 1024 * 1024
 
+#if DEBUG
+    /// Debug-only override of the archive budget, so the actual-bytes metering
+    /// can be exercised with kilobyte fixtures instead of writing 500 MB in a
+    /// unit test. Lock guarded and compiled out of release; see TestSeam.
+    static let archiveBudgetSeam = TestSeam<Int>()
+#endif
+
+    /// The archive budget in force: the debug override when a test installed
+    /// one, otherwise maxArchiveUncompressedBytes. Release builds always return
+    /// the constant.
+    static var effectiveArchiveUncompressedBytes: Int {
+#if DEBUG
+        return archiveBudgetSeam.value ?? maxArchiveUncompressedBytes
+#else
+        return maxArchiveUncompressedBytes
+#endif
+    }
+
     /// Largest number of entries examined in one archive.
     public static let maxArchiveEntries: Int = 1_000
 

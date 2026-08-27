@@ -19,9 +19,13 @@
 //     Expanded files must stay readable for as long as the session holds them,
 //     so cleanup cannot be a defer inside expand().
 //
-//  2. CEILINGS. An archive declares each entry's uncompressed size, so a zip
-//     bomb is caught by spending a budget against the DECLARED sizes before
-//     writing anything, plus a cap on how many entries are examined at all.
+//  2. CEILINGS. The uncompressed-size budget is charged for bytes ACTUALLY
+//     inflated, streamed through a counting consumer, because the declared
+//     uncompressedSize in the central directory is attacker controlled and
+//     the inflater runs to end-of-stream regardless of it: a bomb can declare
+//     one byte and expand to gigabytes. The declared size still serves as a
+//     fast pre-check so an honestly-declared oversize archive fails before
+//     any I/O, but enforcement never trusts it. Entry count is capped too.
 //     See ImportLimits.
 //
 //  House rules: all comments and strings in English. No em-dash and no
@@ -161,7 +165,12 @@ public enum ZipImporter {
 
         var extracted: [(entryPath: String, url: URL)] = []
         var examinedEntries = 0
-        var uncompressedBudget = ImportLimits.maxArchiveUncompressedBytes
+        // The budget is UInt64 and every comparison stays in UInt64: a crafted
+        // ZIP64 entry can declare a size above Int.max, and a non-truncating
+        // Int conversion of that value would trap before any guard ran.
+        var remainingBudget = UInt64(ImportLimits.effectiveArchiveUncompressedBytes)
+        let budgetMessage = "\(zipURL.lastPathComponent) expands to more than "
+            + "\(ImportLimits.describe(bytes: ImportLimits.effectiveArchiveUncompressedBytes))."
 
         do {
             for entry in archive {
@@ -174,19 +183,16 @@ public enum ZipImporter {
                 }
                 guard entry.type == .file else { continue }
 
-                // Spend the budget against the DECLARED uncompressed size, for
-                // every file entry rather than only the supported ones: a bomb
-                // does not have to name its payload ".docx".
-                uncompressedBudget -= Int(entry.uncompressedSize)
-                guard uncompressedBudget >= 0 else {
-                    throw DocumentIOError.tooLarge(
-                        "\(zipURL.lastPathComponent) expands to more than "
-                            + "\(ImportLimits.describe(bytes: ImportLimits.maxArchiveUncompressedBytes))."
-                    )
-                }
-
                 let entryPath = entry.path
                 guard isSupportedEntryPath(entryPath) else { continue }
+
+                // Fast pre-check on the DECLARED size so an honestly-labeled
+                // oversize archive fails before any I/O. This is an
+                // optimization, not the defense: the declared size is attacker
+                // controlled, so the enforcement below meters actual bytes.
+                guard entry.uncompressedSize <= remainingBudget else {
+                    throw DocumentIOError.tooLarge(budgetMessage)
+                }
 
                 let target = destination.appendingPathComponent(entryPath)
                 // Zip-slip guard: the normalized target must stay inside the
@@ -198,7 +204,20 @@ public enum ZipImporter {
                     at: target.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                _ = try archive.extract(entry, to: target)
+
+                // Stream the entry through a counting consumer and charge the
+                // budget for what the inflater ACTUALLY produces. ZIPFoundation
+                // inflates to end-of-stream without consulting the declared
+                // size, so this mid-stream abort is the only place a
+                // lying-declaration bomb can be stopped; the write cost before
+                // the abort is bounded by the remaining budget.
+                remainingBudget = try extractMetered(
+                    entry,
+                    from: archive,
+                    to: target,
+                    remainingBudget: remainingBudget,
+                    budgetMessage: budgetMessage
+                )
                 extracted.append((entryPath, target))
             }
         } catch {
@@ -215,6 +234,36 @@ public enum ZipImporter {
                 .sorted { $0.entryPath < $1.entryPath }
                 .map { $0.url }
         )
+    }
+
+    /// Extract one entry to `target`, charging `remainingBudget` for each
+    /// inflated chunk and aborting with tooLarge the moment the budget runs
+    /// out. Returns the budget left after the entry.
+    private static func extractMetered(
+        _ entry: Entry,
+        from archive: Archive,
+        to target: URL,
+        remainingBudget: UInt64,
+        budgetMessage: String
+    ) throws -> UInt64 {
+        guard FileManager.default.createFile(atPath: target.path, contents: nil) else {
+            throw DocumentIOError.unreadable(
+                "Could not create \(target.lastPathComponent) in the expansion directory."
+            )
+        }
+        let handle = try FileHandle(forWritingTo: target)
+        defer { try? handle.close() }
+
+        var budget = remainingBudget
+        _ = try archive.extract(entry) { chunk in
+            let produced = UInt64(chunk.count)
+            guard produced <= budget else {
+                throw DocumentIOError.tooLarge(budgetMessage)
+            }
+            budget -= produced
+            try handle.write(contentsOf: chunk)
+        }
+        return budget
     }
 
     /// True when an archive entry path denotes a supported, non-junk document.

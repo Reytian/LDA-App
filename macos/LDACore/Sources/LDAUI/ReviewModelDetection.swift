@@ -10,8 +10,9 @@
 //
 //  Stored properties (@Published state, test seams) STAY in ReviewModel.swift
 //  because stored properties cannot live in extensions. The methods here are
-//  all nonisolated static; they access test-seam properties declared
-//  nonisolated(unsafe) in ReviewModel.swift.
+//  all nonisolated static; they reach the test seams through the nonisolated
+//  effective* accessors in ReviewModel.swift, which are DEBUG-only TestSeam
+//  slots there and unconditionally nil in release builds.
 //
 //  Access-level note: DetectionOutcome, LLMPassOutcome, and describe are
 //  declared internal (not private) because private is file-scoped in Swift;

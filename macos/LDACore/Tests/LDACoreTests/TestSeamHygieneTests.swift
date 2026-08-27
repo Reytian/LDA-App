@@ -64,6 +64,9 @@ enum TestSeamRegistry {
         // Review view model
         if ReviewModel.detectDelaySeam.isInstalled { names.append("ReviewModel.detectDelayForTesting") }
         if ReviewModel.llmExtractorSeam.isInstalled { names.append("ReviewModel.llmExtractorFactoryForTesting") }
+        // Infrastructure seams
+        if ImportLimits.archiveBudgetSeam.isInstalled { names.append("ImportLimits.archiveBudgetSeam") }
+        if EncryptedContainer.clockSeam.isInstalled { names.append("EncryptedContainer.clockSeam") }
         return names
     }
 
@@ -78,6 +81,8 @@ enum TestSeamRegistry {
         FillModel.libraryRootSeam.clear()
         ReviewModel.detectDelaySeam.clear()
         ReviewModel.llmExtractorSeam.clear()
+        ImportLimits.archiveBudgetSeam.clear()
+        EncryptedContainer.clockSeam.clear()
     }
 }
 

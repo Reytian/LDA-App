@@ -21,9 +21,11 @@
 //  Purity at the seam: createdAtISO8601 / modifiedAtISO8601 are supplied by the
 //  caller so the model never reads the clock directly.
 //
-//  Test seams: four nonisolated(unsafe) internal static vars shadow the real
-//  LDAService / PortfolioLibrary calls. Tests set them to fakes and nil them out
-//  in tearDown, mirroring the ReviewModel / LDAFillService static-var seam pattern.
+//  Test seams: five DEBUG-only, lock-guarded TestSeam slots shadow the real
+//  LDAService / PortfolioLibrary calls (extractProfile, planFill, applyFill,
+//  library instance, library root). Tests install fakes and nil them out in
+//  tearDown; release builds compile no seam at all. Mirrors the ReviewModel /
+//  LDAFillService pattern.
 //
 //  Library production default: PortfolioLibrary() is constructed once, lazily,
 //  the first time a library intent runs. The instance is cached in _library and

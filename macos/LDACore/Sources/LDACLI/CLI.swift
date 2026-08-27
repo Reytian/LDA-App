@@ -45,11 +45,20 @@ public let defaultTimestampProvider: TimestampProvider = {
 public enum CLIError: Error, CustomStringConvertible {
     /// The input file does not exist at the given path.
     case inputNotFound(String)
+    /// The per-document Keychain key was absent and the legacy source-name
+    /// account did not work either. Carries both descriptions so the user sees
+    /// the real cause, not just whatever the second attempt failed with. This
+    /// mirrors MCPToolError.restoreFailedAfterLegacyRetry: the two edges must
+    /// not diverge in how honestly they report the same failure.
+    case restoreFailedAfterLegacyRetry(original: String, retry: String)
 
     public var description: String {
         switch self {
         case .inputNotFound(let path):
             return "Input file not found at \(path)"
+        case .restoreFailedAfterLegacyRetry(let original, let retry):
+            return "Restore failed. Per-document key: \(original). "
+                + "Legacy account: \(retry)."
         }
     }
 }
@@ -193,12 +202,24 @@ public enum LDACLI {
             else {
                 throw DocumentIOError.keychainError(errSecItemNotFound)
             }
-            return try LDAService.restore(
-                editedRedacted: input,
-                mapping: mapping,
-                protection: protectionFor(passphrase: nil, derivedAccount: legacyBase),
-                output: output
-            )
+            do {
+                return try LDAService.restore(
+                    editedRedacted: input,
+                    mapping: mapping,
+                    protection: protectionFor(passphrase: nil, derivedAccount: legacyBase),
+                    output: output
+                )
+            } catch let legacyError {
+                // Report BOTH attempts. A stale legacy key from an older
+                // same-named document would otherwise fail alone as "could not
+                // decrypt", hiding that the per-document key was missing and a
+                // silent retry ran.
+                throw CLIError.restoreFailedAfterLegacyRetry(
+                    original: "Keychain operation failed with status "
+                        + "\(errSecItemNotFound) (key not found).",
+                    retry: String(describing: legacyError)
+                )
+            }
         }
     }
 
