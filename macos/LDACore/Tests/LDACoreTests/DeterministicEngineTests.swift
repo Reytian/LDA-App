@@ -537,6 +537,24 @@ final class DeterministicEngineTests: XCTestCase {
         }
     }
 
+    /// MOP and RUB read as ordinary English verbs, exactly the property that
+    /// kept ALL/TRY/TOP and the rest out of the code list, so they are excluded
+    /// too. A cleaning clause must not be redacted as a payment.
+    func testVerbLikeCurrencyCodesAreNotAmounts() {
+        for text in [
+            "The contractor shall mop 3 floors before handover.",
+            "The janitorial contract requires MOP 2 units per floor.",
+            "Please rub 500 times on the affected area.",
+        ] {
+            let spans = engine.detect(text)
+            let amounts = spans.filter { $0.type == .amount }
+            XCTAssertTrue(
+                amounts.isEmpty,
+                "Expected no AMOUNT in \"\(text)\"; got \(amounts.map { $0.text })"
+            )
+        }
+    }
+
     /// Guard: a code embedded in a longer token (BUSD, USDT) is not a currency
     /// prefix.
     func testCurrencyCodeInsideLongerTokenIsNotAnAmount() {
@@ -665,6 +683,105 @@ final class DeterministicEngineTests: XCTestCase {
 
         assertHasSpan(spans, type: .address, text: "天津市和平区和平路120号")
         assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A digit or a Latin letter between the last administrative marker and the
+    /// road used to drop the ENTIRE address, not just the connecting phrase:
+    /// the backward scan stopped at the first non-CJK character, so it never
+    /// reached a marker and rejected the core outright. "Near metro line N" and
+    /// a building letter are both ordinary ways to write a Chinese address, so
+    /// this lost the road and street number in cleartext.
+    /// The interrupted text is not a place name, so the span is the core alone,
+    /// and it starts at the road rather than reaching back across the number or
+    /// unit word that interrupted it.
+    func testAddressSurvivesAnInterruptedAdministrativePrefix() {
+        for (text, expected) in [
+            ("上海市浦东新区地铁2号线碧波路690号出口", "碧波路690号"),
+            ("北京市朝阳区A座建国路88号", "建国路88号"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+
+        // A parcel reference interrupts with prose rather than a marker, so the
+        // left edge is less tidy. What matters is that the road and street
+        // number are covered rather than left in cleartext.
+        let parcel = "上海市浦东新区张江镇1号地块碧波路690号"
+        let spans = engine.detect(parcel)
+        let addresses = spans.filter { $0.type == .address }
+        XCTAssertTrue(
+            addresses.contains { $0.text.hasSuffix("碧波路690号") },
+            "the road and number must not stay in cleartext; got \(addresses.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: parcel)
+    }
+
+    /// Administrative context must not be borrowed from arbitrarily far away, or
+    /// one city mention would turn every later number into an address.
+    func testAddressContextDoesNotReachAcrossUnrelatedText() {
+        let text = "上海市有关规定如下。" + String(repeating: "本条款适用于全部情形。", count: 6)
+            + "建国路88号方向前进。"
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .address },
+            "a distant city mention must not supply context; got \(spans.filter { $0.type == .address }.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Generic ways are not streets. A facilities or maintenance line
+    /// (人行道12号, 机动车道90号车位) must not be redacted as an address, while
+    /// real road types that merely end in the same character (华夏大道1号) must
+    /// still be caught.
+    func testGenericWayWordsAreNotStreetAddresses() {
+        for text in [
+            "上海市浦东新区人行道12号护栏损坏待修。",
+            "上海市浦东新区地下停车库机动车道90号车位。",
+            "上海市浦东新区隧道3号出口。",
+            "北京市朝阳区管道2号阀门检修。",
+        ] {
+            let spans = engine.detect(text)
+            let addresses = spans.filter { $0.type == .address }
+            XCTAssertTrue(
+                addresses.isEmpty,
+                "a generic way is not an address in \"\(text)\"; got \(addresses.map { $0.text })"
+            )
+        }
+
+        // Real road types must survive the filter.
+        for (text, expected) in [
+            ("地址：郑州航空港经济综合实验区华夏大道1号。", "郑州航空港经济综合实验区华夏大道1号"),
+            ("住址为上海市浦东新区沪南公路2000号。", "上海市浦东新区沪南公路2000号"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+        }
+    }
+
+    /// A bare 甲/乙 building suffix (690号甲, the Chinese convention for
+    /// No. 690-A) must be inside the span, or one disambiguating character sits
+    /// in cleartext right after the redaction. It must NOT be taken when it
+    /// starts a party label, since 甲方/乙方 are everywhere in Chinese
+    /// contracts and eating the 甲 would mangle the sentence.
+    func testBareBuildingLetterSuffix() {
+        let withSuffix = "住址为上海市浦东新区碧波路690号甲。"
+        assertHasSpan(
+            engine.detect(withSuffix), type: .address, text: "上海市浦东新区碧波路690号甲")
+
+        let partyLabel = "住址为上海市浦东新区碧波路690号甲方应当履行义务。"
+        assertHasSpan(
+            engine.detect(partyLabel), type: .address, text: "上海市浦东新区碧波路690号")
+
+        // A letter plus a building word must still be captured as a unit tail.
+        let building = "住址为上海市浦东新区碧波路690号甲栋。"
+        assertHasSpan(
+            engine.detect(building), type: .address, text: "上海市浦东新区碧波路690号甲栋")
+
+        for text in [withSuffix, partyLabel, building] {
+            assertOffsetsSliceBack(engine.detect(text), in: text)
+        }
     }
 
     /// An autonomous region carries the longest administrative prefixes.

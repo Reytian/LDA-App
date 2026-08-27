@@ -382,25 +382,12 @@ public struct DeterministicEngine: Sendable {
     ///   - Building tails must be led by digits or A-Z/甲乙丙丁, so the pattern
     ///     never swallows following prose through a loose 楼/室 suffix.
     private func detectChineseAddress(_ ns: NSString, _ range: NSRange) -> [Span] {
-        let digit = #"[0-9０-９]"#
-
-        // Road name characters: CJK, minus the boundary characters and minus the
-        // prose connectors. Excluding boundary characters keeps the core match
-        // from starting inside administrative text.
-        let roadName = #"(?:(?!["# + Self.segmentBoundaryCharacters
-            + Self.nameStopCharacters + #"])[一-龥])"#
-
-        let road = roadName + "{0,12}" + #"(?:路|街|道|巷)"#
-
-        // A lane with an optional street number, or a bare street number. One of
-        // the two is required.
-        let number = "(?:" + digit + "{1,5}弄(?:" + digit + "{1,5}号)?|" + digit + "{1,5}号)"
-        let units = "(?:[0-9０-９A-Za-z甲乙丙丁]{1,5}(?:号楼|单元|栋|幢|座|楼|层|室))*"
-
-        let corePattern = road + number + units
-
         var out: [Span] = []
-        enumerate(corePattern, in: ns, range: range) { match in
+        enumerate(Self.chineseAddressCorePattern, in: ns, range: range) { match in
+            guard !self.isGenericWay(ns, roadRange: match.range(at: 1)) else {
+                // A footpath or a tunnel is not a street address.
+                return
+            }
             guard let start = self.addressPrefixStart(ns, coreStart: match.range.location) else {
                 // A core with no administrative context is not an address.
                 return
@@ -434,24 +421,98 @@ public struct DeterministicEngine: Sendable {
     /// Chinese (注册地址为, 住所, 位于, 系).
     private static let nameStopCharacters = "为于在是的系址所住处至及之等从由"
 
+    /// Number and unit markers. A road name never contains one, so excluding
+    /// them stops a greedy road name from reaching back across a preceding
+    /// number or unit word.
+    private static let structuralMarkerCharacters = "号弄线座楼室栋幢层"
+
+    /// The unambiguous core of a Chinese street address: the road, then a lane
+    /// or a street number, then any unit tail. Built once, because detect runs
+    /// per chunk.
+    ///
+    /// The road is a capture group so the generic-way filter can inspect it.
+    /// Its name characters are CJK minus the boundary characters (which keeps
+    /// the match from starting inside administrative text), minus the prose
+    /// connectors, and minus the structural markers (which keeps a greedy name
+    /// from reaching back across a preceding number or unit word, so
+    /// 地铁2号线碧波路690号 starts the span at 碧波路 rather than at 号线). The
+    /// name may be empty, because a road marker often follows a boundary
+    /// character directly (小湾村路).
+    ///
+    /// The trailing bare building letter (690号甲, the convention for No. 690-A)
+    /// is taken only when it does not start a party label, since 甲方 and 乙方
+    /// are everywhere in Chinese contracts. It sits after the unit tail so a
+    /// letter belonging to a unit (甲栋) is still read as one.
+    private static let chineseAddressCorePattern: String = {
+        let digit = #"[0-9０-９]"#
+        let roadName = #"(?:(?!["# + segmentBoundaryCharacters
+            + nameStopCharacters + structuralMarkerCharacters + #"])[一-龥])"#
+        let road = "(" + roadName + "{0,12}" + #"(?:路|街|道|巷))"#
+        let number = "(?:" + digit + "{1,5}弄(?:" + digit + "{1,5}号)?|" + digit + "{1,5}号)"
+        let units = "(?:[0-9０-９A-Za-z甲乙丙丁]{1,5}(?:号楼|单元|栋|幢|座|楼|层|室))*"
+        let buildingLetter = #"(?:[甲乙丙丁](?!方))?"#
+        return road + number + units + buildingLetter
+    }()
+
     /// How far left the walk may reach. Real administrative prefixes run long
     /// (内蒙古自治区呼和浩特市赛罕区 is 13 characters, 郑州航空港经济综合实验区
     /// is 12), and this also bounds how much prose can be absorbed when nothing
     /// separates the address from the sentence around it.
     private static let maxAddressPrefixLength = 30
 
+    /// How far left to look for administrative context when the contiguous walk
+    /// is interrupted. Larger than the walk bound because it only decides
+    /// whether the core is an address, never where the span starts.
+    private static let maxAddressContextLength = 40
+
+    /// Generic ways: a road token ending in one of these is infrastructure or a
+    /// facility, not a street address. Real road types that end in the same
+    /// character (大道, 公路 as in the Shanghai address 沪南公路2000号) are
+    /// deliberately absent, and so is 街道, which is also an administrative
+    /// unit and can carry a street number.
+    private static let genericWayWords = [
+        "人行道", "车行道", "机动车道", "非机动车道", "车道", "隧道", "通道", "甬道",
+        "跑道", "河道", "轨道", "便道", "匝道", "引道", "坡道", "廊道", "管道",
+        "渠道", "步道", "过道", "走道",
+    ]
+
+    /// True when the matched road token names a generic way rather than a
+    /// street. The check is a suffix match because the road name is greedy and
+    /// absorbs whatever precedes it (地下停车库机动车道).
+    private func isGenericWay(_ ns: NSString, roadRange: NSRange) -> Bool {
+        guard roadRange.location != NSNotFound else { return false }
+        let token = ns.substring(with: roadRange)
+        return Self.genericWayWords.contains { token.hasSuffix($0) }
+    }
+
     /// Walk backwards from a core match to the start of the address, returning
-    /// nil when there is no administrative context.
+    /// nil when there is no administrative context anywhere nearby.
     ///
-    /// The scan takes every preceding character that can belong to a Chinese
-    /// address and stops at the first one that cannot: any non-CJK character
-    /// (punctuation, a space, a Latin letter, a digit) or a prose connector.
-    /// Work is bounded by maxAddressPrefixLength regardless of input, which is
-    /// what keeps detection linear.
+    /// Two questions are answered separately, and conflating them was a bug that
+    /// dropped whole addresses. Where the span STARTS is decided by a contiguous
+    /// scan: it takes every preceding character that can belong to a Chinese
+    /// address and stops at the first one that cannot, which is any non-CJK
+    /// character (punctuation, a space, a Latin letter, a digit) or a prose
+    /// connector. WHETHER the core is an address is decided by looking for an
+    /// administrative marker, and that look is allowed to cross the interruption
+    /// the contiguous scan stopped at, because a digit or a letter routinely
+    /// sits between the district and the road (地铁2号线碧波路690号, A座建国路88号)
+    /// and demanding an unbroken run there left the road and street number in
+    /// cleartext.
     ///
-    /// A supplementary-plane character ends the walk rather than being consumed:
-    /// Unicode.Scalar of a lone surrogate code unit is nil, so the boundary can
-    /// never land inside a surrogate pair and break offset integrity.
+    /// When the marker is only reachable across an interruption, the span is the
+    /// core alone. The interrupted text is not a place name, so absorbing it
+    /// would redact prose, and the road with its street number is the
+    /// identifying part.
+    ///
+    /// Both scans are bounded by a constant, which is what keeps detection
+    /// linear. A newline stops the context look so an address never borrows
+    /// context from another paragraph.
+    ///
+    /// A supplementary-plane character ends the contiguous scan rather than
+    /// being consumed: Unicode.Scalar of a lone surrogate code unit is nil, so
+    /// the boundary can never land inside a surrogate pair and break offset
+    /// integrity.
     private func addressPrefixStart(_ ns: NSString, coreStart: Int) -> Int? {
         var left = coreStart
         var sawAdminMarker = false
@@ -469,7 +530,26 @@ public struct DeterministicEngine: Sendable {
             sawAdminMarker = sawAdminMarker || Self.adminMarkers.contains(character)
         }
 
-        return sawAdminMarker ? left : nil
+        if sawAdminMarker {
+            return left
+        }
+        return hasAdminContext(ns, before: coreStart) ? coreStart : nil
+    }
+
+    /// Look for an administrative marker to the left of a core match, crossing
+    /// characters the contiguous scan would stop at. Bounded by
+    /// maxAddressContextLength and by the start of the line.
+    private func hasAdminContext(_ ns: NSString, before coreStart: Int) -> Bool {
+        let lowerBound = max(0, coreStart - Self.maxAddressContextLength)
+        var index = coreStart
+
+        while index > lowerBound {
+            index -= 1
+            guard let scalar = Unicode.Scalar(ns.character(at: index)) else { continue }
+            if scalar == "\n" || scalar == "\r" { return false }
+            if Self.adminMarkers.contains(Character(scalar)) { return true }
+        }
+        return false
     }
 
     // MARK: - BANK_ACCOUNT
@@ -574,9 +654,10 @@ public struct DeterministicEngine: Sendable {
     ///
     /// Precision choices, each covered by a test:
     ///   - ISO codes that read as English words in prose (ALL, TRY, TOP, CUP,
-    ///     PEN, COP, GEL, SAR, PHP, RON) are deliberately omitted because the
-    ///     pattern runs case-insensitively; including them would redact phrases
-    ///     like "TRY 3 times" or "PHP 8.1".
+    ///     PEN, COP, GEL, SAR, PHP, RON, and the verbs MOP and RUB) are
+    ///     deliberately omitted because the pattern runs case-insensitively;
+    ///     including them would redact phrases like "TRY 3 times", "PHP 8.1",
+    ///     or "mop 3 floors".
     ///   - A letter must not immediately precede a code, so USD never anchors
     ///     inside a longer token such as BUSD.
     private func detectAmount(_ ns: NSString, _ range: NSRange) -> [Span] {
@@ -585,7 +666,7 @@ public struct DeterministicEngine: Sendable {
         // Currency designators. Symbols take no boundary (US$ is a valid
         // prefix); code words require a non-letter on their left.
         let symbols = #"[¥￥$€£]"#
-        let codes = #"(?<![A-Za-z])(?:人民币|RMB|USD|EUR|GBP|CNY|JPY|HKD|TWD|SGD|MYR|THB|IDR|VND|INR|KRW|AUD|NZD|CAD|CHF|SEK|NOK|DKK|PLN|CZK|HUF|BGN|RUB|UAH|ILS|AED|QAR|KWD|BHD|OMR|JOD|EGP|ZAR|NGN|KES|BRL|MXN|CLP|MOP)"#
+        let codes = #"(?<![A-Za-z])(?:人民币|RMB|USD|EUR|GBP|CNY|JPY|HKD|TWD|SGD|MYR|THB|IDR|VND|INR|KRW|AUD|NZD|CAD|CHF|SEK|NOK|DKK|PLN|CZK|HUF|BGN|UAH|ILS|AED|QAR|KWD|BHD|OMR|JOD|EGP|ZAR|NGN|KES|BRL|MXN|CLP)"#
         let currency = "(?:" + symbols + "|" + codes + ")"
 
         // A formatted number: comma-grouped thousands with optional decimal
