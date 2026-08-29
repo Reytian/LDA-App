@@ -172,13 +172,17 @@ public struct ModelCatalog: Sendable {
         if let explicit { return [explicit] }
         var found: [Bundle] = []
         let name = "LDACore_LDAUI.bundle"
-        // Same location the generated accessor prefers.
-        if let b = Bundle(path: Bundle.main.bundleURL.appendingPathComponent(name).path) {
-            found.append(b)
-        }
-        // A packaged app may instead place it in Contents/Resources.
+        // Where the packaged app puts it. codesign rejects loose files at the
+        // .app root ("unsealed contents present in the bundle root"), so the
+        // manifest cannot live where the generated Bundle.module accessor
+        // looks; package-app.sh copies it here instead.
         if let res = Bundle.main.resourceURL,
            let b = Bundle(path: res.appendingPathComponent(name).path) {
+            found.append(b)
+        }
+        // The location the generated accessor prefers, kept for unpackaged dev
+        // layouts that do sit next to the executable.
+        if let b = Bundle(path: Bundle.main.bundleURL.appendingPathComponent(name).path) {
             found.append(b)
         }
         // Alongside the code bundle. This is where SwiftPM puts it for unit

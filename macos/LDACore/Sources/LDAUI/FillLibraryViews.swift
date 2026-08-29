@@ -55,6 +55,10 @@ struct PortalLibraryBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if case .failed(let detail) = model.stage {
+                libraryFailureBanner(detail)
+            }
+
             // Library notice banner (one-time; dismissable).
             if let notice = model.libraryNotice, !libraryNoticeDismissed {
                 libraryNoticeBanner(notice)
@@ -192,6 +196,29 @@ struct PortalLibraryBody: View {
     }
 
     // MARK: - Notice banners
+
+    private func libraryFailureBanner(_ detail: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(CounselTheme.danger)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(CounselTheme.danger)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+            Button("Retry") {
+                Task { await model.refreshLibrary() }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+    }
 
     private func libraryNoticeBanner(_ notice: String) -> some View {
         HStack(spacing: 10) {

@@ -181,6 +181,30 @@ public enum AISettings {
         }
     }
 
+    /// Persist a user-selected model and keep its sandbox access active.
+    ///
+    /// Kept from feat/lda-macos-core, which solved the security-scope bug
+    /// independently and in parallel. Both designs held the scope for the life
+    /// of the selection; this one throws when the bookmark cannot be made,
+    /// which is the more honest signal, so the API is preserved and delegates
+    /// to the shared implementation rather than duplicating it.
+    @MainActor
+    public static func selectCustomModel(
+        at url: URL,
+        defaults: UserDefaults = .standard
+    ) throws {
+        // Surface a bookmark failure instead of silently degrading to a bare
+        // path that will stop resolving after the next launch.
+        _ = try url.bookmarkData(options: [.withSecurityScope])
+        setCustomModel(url: url, defaults: defaults)
+    }
+
+    /// Return to the tier model and release any custom-model file access.
+    @MainActor
+    public static func clearCustomModel(defaults: UserDefaults = .standard) {
+        setCustomModel(url: nil, defaults: defaults)
+    }
+
     // MARK: Level
 
     /// The selected rung, after migrating a legacy `detectionMode` when needed.
@@ -394,6 +418,19 @@ public enum AISettings {
         return resolveModelPath(
             defaults: defaults, catalog: catalog, fileManager: fileManager
         ) == nil
+    }
+
+    /// Apply the current settings to the Fill window's model.
+    ///
+    /// From feat/lda-macos-core: the fill flow runs the same local model, so it
+    /// has to follow the same setting. FillModel has no useLLM of its own, so
+    /// only the path is synced.
+    @MainActor
+    public static func apply(
+        to model: FillModel,
+        defaults: UserDefaults = .standard
+    ) {
+        model.modelPath = resolveModelPath(defaults: defaults)
     }
 
     /// Apply the current settings to one document model.

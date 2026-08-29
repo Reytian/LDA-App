@@ -3,7 +3,15 @@
 **Date**: 2026-08-29
 **Type**: PRD / functional specification
 **Owner**: Product
-**Status**: Ready for engineering
+**Status**: Superseded in part by `model-management-prd.md`
+
+> This spec was written for a build with **no** network entitlement, so it
+> routes model acquisition through a manual copy-the-link sheet and
+> instructs engineering not to add `com.apple.security.network.client`.
+> That decision was reversed: the app now has that one entitlement and an
+> in-app model manager. Where the two specs disagree about the network,
+> `model-management-prd.md` governs. The tier definitions, memory gate, and
+> detection ladder below are still current.
 **Applies to**: `macos/LDACore` (LDAUI, LDACore, LDAApp, packaging)
 
 ---

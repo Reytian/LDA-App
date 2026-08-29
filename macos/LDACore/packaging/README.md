@@ -32,13 +32,14 @@ You need an Apple Developer account.
 
 ## What is in the bundle
 
-- `Contents/MacOS/LDAApp` — the app (statically links llama.cpp with Metal embedded).
-- `LDACore_LDAUI.bundle` and `ZIPFoundation_ZIPFoundation.bundle` — SwiftPM resource
+- `Contents/MacOS/LDAApp` : the app (statically links llama.cpp with Metal embedded).
+- `LDACore_LDAUI.bundle` and `ZIPFoundation_ZIPFoundation.bundle` : SwiftPM resource
   bundles, at the bundle ROOT rather than in `Contents/Resources`, because that is
   where the generated resource accessor looks. `LDACore_LDAUI.bundle/Models.json`
-  is the detection tier manifest and the app reads it during startup, so a build
-  without it traps on launch. `package-app.sh` fails rather than shipping one.
-- `Contents/Info.plist` — bundle id `com.haotianyi.LDA` (change as needed).
+  is the detection tier manifest. Without it the app degrades to an empty
+  catalog: the ladder collapses to Patterns only and Manage Models is empty.
+  `package-app.sh` exits non-zero rather than shipping such a build.
+- `Contents/Info.plist` : bundle id `com.haotianyi.LDA` (change as needed).
 
 **Only the Quick model is bundled** (`Contents/Resources/Qwen3.5-4B-Q4_K_M.gguf`,
 about 2.7 GB, so the .app is roughly 3.2 GB). Quick peaks at 3.1 GB, which fits

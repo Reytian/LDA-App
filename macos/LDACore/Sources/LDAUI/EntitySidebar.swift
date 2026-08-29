@@ -107,6 +107,11 @@ public struct EntitySidebar: View {
         .tint(CounselTheme.inkAccent)
         .scrollContentBackground(.hidden)
         .background(CounselTheme.appSurface)
+        .overlay {
+            if session.entries.count <= 1, model.entities.isEmpty {
+                sidebarEmptyState
+            }
+        }
         .onKeyPress(.space) {
             guard model.selectedGroupID != nil else { return .ignored }
             model.toggleSelectedGroup()
@@ -134,7 +139,7 @@ public struct EntitySidebar: View {
                 Image(systemName: "gearshape")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(CounselTheme.textSecondary)
-                    .frame(width: 26, height: 22)
+                    .frame(width: 30, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
@@ -143,19 +148,20 @@ public struct EntitySidebar: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                isAddingTerm = true
-            } label: {
-                Label("Protect a missed item", systemImage: "plus.circle")
-                    .font(.system(size: 12))
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
-            .buttonStyle(.borderless)
-            .disabled(model.documentText.isEmpty)
-            .help("Add something the detection missed; every occurrence will be redacted")
-            .accessibilityLabel(Text("Protect a missed item"))
-            .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
-                AddTermPopover(model: model, isPresented: $isAddingTerm)
+            if !model.documentText.isEmpty {
+                Button {
+                    isAddingTerm = true
+                } label: {
+                    Label("Protect a missed item", systemImage: "plus.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(CounselTheme.textSecondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Add something the detection missed; every occurrence will be redacted")
+                .accessibilityLabel(Text("Protect a missed item"))
+                .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
+                    AddTermPopover(model: model, isPresented: $isAddingTerm)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -163,6 +169,58 @@ public struct EntitySidebar: View {
         .background(CounselTheme.appSurface)
         .overlay(alignment: .top) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+    }
+
+    private var sidebarEmptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: emptyStateIcon)
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(CounselTheme.textSecondary)
+            Text(emptyStateTitle)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            Text(emptyStateDetail)
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(24)
+        .frame(maxWidth: 250)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var emptyStateTitle: String {
+        switch model.status {
+        case .detecting: return "Scanning on this Mac"
+        case .ready: return "No findings detected"
+        case .failed: return "Findings unavailable"
+        case .idle, .importing, .imported: return "Findings appear here"
+        }
+    }
+
+    private var emptyStateDetail: String {
+        switch model.status {
+        case .idle, .importing:
+            return "Add a document to begin."
+        case .imported:
+            return "Scan the document, then accept or keep each detected item."
+        case .detecting:
+            return "Detected names and other sensitive items will appear as they are ready for review."
+        case .ready:
+            return "Review the document and use Protect a missed item if you spot something sensitive."
+        case .failed(let detail):
+            return detail
+        }
+    }
+
+    private var emptyStateIcon: String {
+        switch model.status {
+        case .detecting: return "text.magnifyingglass"
+        case .ready: return "checkmark.shield"
+        case .failed: return "exclamationmark.triangle"
+        case .idle, .importing, .imported: return "sidebar.left"
         }
     }
 

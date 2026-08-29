@@ -4,8 +4,7 @@
 //
 //  The first-run sheet (R13): what the app does (the round-trip in three
 //  steps), the honest privacy promise, the model status, and plain-language
-//  guidance past the unsigned-build Gatekeeper warning (R17). Zero technical
-//  setup: dismissing the sheet leaves the user at the drop zone.
+//  setup guidance. Dismissing the sheet leaves the user at the drop zone.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -27,16 +26,17 @@ public struct OnboardingView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Use AI on confidential documents, safely")
-                    .font(.system(.title2, design: .serif).weight(.semibold))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                Text("LDA protects client information before it reaches an AI tool, "
-                    + "and puts it back afterwards. Three steps:")
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Use AI on confidential documents, safely")
+                        .font(.system(.title2, design: .serif).weight(.semibold))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text("LDA protects client information before it reaches an AI tool, "
+                        + "and puts it back afterwards. Three steps:")
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                }
 
             VStack(alignment: .leading, spacing: 14) {
                 step(
@@ -58,7 +58,7 @@ public struct OnboardingView: View {
                     number: "3",
                     icon: "arrow.left.doc.on.clipboard",
                     title: "Bring the answer back",
-                    text: "The De-anonymize tab puts the real values back in the AI's answer, "
+                    text: "The Restore tab puts the real values back in the AI's answer, "
                         + "and flags anything it cannot match with certainty. Save the final "
                         + "document in its original format."
                 )
@@ -66,6 +66,10 @@ public struct OnboardingView: View {
 
             Divider()
 
+            // The promise. Kept alone under the lock mark: this is the app's
+            // reassurance signal (the same icon and accent as the On-device
+            // status indicator), and filing a caution beneath it would dress a
+            // caveat up as part of the guarantee.
             Label {
                 Text("Your documents never leave this Mac. Detection, redaction, and the "
                     + "encrypted mapping all run here, and nothing about a document is ever "
@@ -77,6 +81,32 @@ public struct OnboardingView: View {
             } icon: {
                 Image(systemName: "lock.laptopcomputer")
                     .foregroundStyle(CounselTheme.inkAccent)
+            }
+
+            // The cautions, visually separate from the promise and with their
+            // own icon.
+            //
+            // The clipboard sentence is scoped to the MENU-BAR companion on
+            // purpose. It is the only path in the app that puts real values on
+            // the clipboard; Restore's own paste-back and file flows write a
+            // file and never touch it. An unscoped version told every user that
+            // the flow this sheet just taught them produces something that
+            // evaporates, which is both untrue and needlessly alarming. It also
+            // avoids promising the clearing outright, because quitting the app
+            // inside the window defeats the timer.
+            Label {
+                Text("Anything you choose to keep visible stays visible in the exported "
+                    + "document.\n"
+                    + "Restore Clipboard, in the menu-bar icon, is the one action that puts "
+                    + "real values on your clipboard; it tries to clear them again about "
+                    + "\(Int(CompanionMenu.clipboardClearDelay)) seconds later, so paste "
+                    + "promptly and do not rely on the clearing.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "hand.raised")
+                    .foregroundStyle(CounselTheme.textSecondary)
             }
 
             if !modelAvailable {
@@ -94,30 +124,26 @@ public struct OnboardingView: View {
                 }
             }
 
-            Label {
-                Text("If macOS warned you the first time you opened the app (it is not yet "
-                    + "notarized), close the warning, right-click LDA in Finder, choose Open, "
-                    + "then Open again. macOS remembers your choice afterwards.")
-                    .font(.caption)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "hand.raised")
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
-
-            HStack {
-                Spacer()
-                Button("Get Started") {
-                    isPresented = false
+                HStack {
+                    Spacer()
+                    Button("Get Started") {
+                        isPresented = false
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
             }
+            .padding(28)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .padding(28)
-        .frame(width: 560)
+        .frame(
+            minWidth: 520,
+            idealWidth: 620,
+            minHeight: 500,
+            idealHeight: 620
+        )
         .background(CounselTheme.raised)
     }
 

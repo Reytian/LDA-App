@@ -39,6 +39,12 @@ import Combine
 import UniformTypeIdentifiers
 import LDACore
 
+enum FillShellSurface: Equatable {
+    case library
+    case profile
+    case review
+}
+
 // MARK: - FillShell
 
 /// The top-level view for the Fill mode. Delegates body layout to the active
@@ -133,16 +139,16 @@ public struct FillShell: View {
 
     public var body: some View {
         Group {
-            switch model.stage {
+            switch activeSurface {
             case .library:
                 PortalLibraryBody(
                     model: model,
                     onExport: { summary in beginExportFromLibrary(summary) },
                     onImport: { beginImportProfile() }
                 )
-            case .idle, .importingSources, .extracting, .profileReady:
+            case .profile:
                 profileBuilderView
-            case .planning, .reviewing, .applying, .done, .failed:
+            case .review:
                 fillReviewView
             }
         }
@@ -245,13 +251,40 @@ public struct FillShell: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if isActive {
-            switch model.stage {
+            switch activeSurface {
             case .library:
                 libraryToolbar
-            case .idle, .importingSources, .extracting, .profileReady:
+            case .profile:
                 profileBuilderToolbar
-            case .planning, .reviewing, .applying, .done, .failed:
+            case .review:
                 fillReviewToolbar
+            }
+        }
+    }
+
+    private var activeSurface: FillShellSurface {
+        Self.surface(
+            for: model.stage,
+            failureContext: model.failureContext
+        )
+    }
+
+    static func surface(
+        for stage: FillStage,
+        failureContext: FillFailureContext?
+    ) -> FillShellSurface {
+        switch stage {
+        case .library:
+            return .library
+        case .idle, .importingSources, .extracting, .profileReady:
+            return .profile
+        case .planning, .reviewing, .applying, .done:
+            return .review
+        case .failed:
+            switch failureContext {
+            case .library, nil: return .library
+            case .profile: return .profile
+            case .review: return .review
             }
         }
     }
@@ -285,74 +318,65 @@ public struct FillShell: View {
             .help("Add source documents to extract profile fields from (PDF, Word, or plain text)")
         }
 
-        // Automatic group: Extract, Save, Add Field, Open Target
+        // One primary next action plus a More menu keeps the workflow legible
+        // on narrow windows while retaining every advanced command.
         ToolbarItemGroup(placement: .automatic) {
-            Button {
-                let created = nowISO8601()
-                let label = model.profile?.label
-                    ?? model.sourcePaths.first?.deletingPathExtension().lastPathComponent
-                    ?? "Profile"
-                let kind = model.profile?.kind ?? .company
-                Task {
-                    await model.extractProfile(
-                        sources: model.sourcePaths,
-                        label: label,
-                        createdAtISO8601: created,
-                        kind: kind
-                    )
-                }
-            } label: {
-                Label("Extract", systemImage: "text.magnifyingglass")
+            Button(action: runProfilePrimaryAction) {
+                Label(profilePrimaryActionLabel, systemImage: profilePrimaryActionIcon)
             }
             .labelStyle(.titleAndIcon)
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
-            .disabled(!canExtract)
-            .help(extractDisabledReason)
+            .disabled(!canRunProfilePrimaryAction)
+            .help(profilePrimaryActionHelp)
 
-            Button {
-                isAddingField = true
-            } label: {
-                Label("Add Field", systemImage: "plus.circle")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.profile == nil)
-            .help("Add a field manually to this portfolio")
+            Menu {
+                Button {
+                    isAddingField = true
+                } label: {
+                    Label("Add Field", systemImage: "plus.circle")
+                }
+                .disabled(model.profile == nil)
 
-            Button {
-                Task { await model.saveToLibrary(modifiedAtISO8601: nowISO8601()) }
-            } label: {
-                Label("Save", systemImage: "checkmark.circle")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(!canSaveToLibrary)
-            .help("Save this portfolio to the library")
+                Button {
+                    Task { await model.saveToLibrary(modifiedAtISO8601: nowISO8601()) }
+                } label: {
+                    Label("Save to Library", systemImage: "checkmark.circle")
+                }
+                .disabled(!canSaveToLibrary)
 
-            Button {
-                beginSaveProfile()
-            } label: {
-                Label("Export Profile", systemImage: "tray.and.arrow.up")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(!canSaveProfile)
-            .help("Export the current profile as an encrypted .ldaprofile file")
+                if FillProfilePrimaryAction.offersUnsavedTargetOption(
+                    hasProfile: model.profile != nil,
+                    needsSave: profileNeedsSave
+                ) {
+                    Button(action: presentOpenTarget) {
+                        Label("Choose Target Without Saving", systemImage: "doc.text")
+                    }
+                    .disabled(!canOpenTarget)
+                    .help("Use this profile for the current fill without adding it to the library")
+                }
 
-            Button {
-                beginLoadProfile()
-            } label: {
-                Label("Load Profile", systemImage: "tray.and.arrow.down")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Load a previously saved .ldaprofile file")
+                if !model.sourcePaths.isEmpty, model.profile != nil {
+                    Button(action: extractProfileFromSources) {
+                        Label("Re-extract from Sources", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!canExtract)
+                }
 
-            Button {
-                presentOpenTarget()
+                Divider()
+
+                Button(action: beginSaveProfile) {
+                    Label("Export Profile", systemImage: "tray.and.arrow.up")
+                }
+                .disabled(!canSaveProfile)
+
+                Button(action: beginLoadProfile) {
+                    Label("Load Profile", systemImage: "tray.and.arrow.down")
+                }
             } label: {
-                Label("Open Target", systemImage: "doc.text")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .labelStyle(.titleAndIcon)
-            .disabled(!canOpenTarget)
-            .help("Open the Word or PDF document to fill (requires a loaded profile)")
+            .help("More profile actions")
         }
     }
 
@@ -360,23 +384,16 @@ public struct FillShell: View {
     private var fillReviewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             Button {
-                presentOpenTarget()
+                model.backToProfile()
+                applyMessage = nil
             } label: {
-                Label("Open Target", systemImage: "doc.text")
+                Label("Back to Profile", systemImage: "arrow.backward")
             }
-            .help("Open the Word or PDF document to fill")
+            .help("Return to the profile builder")
         }
 
         ToolbarItemGroup(placement: .automatic) {
-            // Accept all proposed blanks in one click
             if case .reviewing = model.stage {
-                Button {
-                    model.acceptAllProposed()
-                } label: {
-                    Label("Accept All", systemImage: "checkmark.circle")
-                }
-                .help("Accept all proposed blank fills at once")
-
                 Button {
                     beginApplyFill()
                 } label: {
@@ -388,14 +405,23 @@ public struct FillShell: View {
                 .help("Apply confirmed fills and write the output document")
             }
 
-            // Let the user go back to the profile builder from any fill-review stage
-            Button {
-                model.backToProfile()
-                applyMessage = nil
+            Menu {
+                if case .reviewing = model.stage {
+                    Button {
+                        model.acceptAllProposed()
+                    } label: {
+                        Label("Accept All Proposed", systemImage: "checkmark.circle")
+                    }
+                }
+
+                Button(action: presentOpenTarget) {
+                    Label("Choose Another Target", systemImage: "doc.text")
+                }
+                .disabled(model.stage == .planning || model.stage == .applying)
             } label: {
-                Label("Back to Profile", systemImage: "arrow.backward")
+                Label("More", systemImage: "ellipsis.circle")
             }
-            .help("Return to the profile builder")
+            .help("More fill actions")
         }
     }
 
@@ -467,6 +493,16 @@ public struct FillShell: View {
                 Text("Add source documents, then click Extract to build a profile.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
+                Spacer(minLength: 0)
+            }
+        } else if case .failed(let detail) = model.stage {
+            bannerChrome {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(CounselTheme.danger)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
+                    .lineLimit(2)
                 Spacer(minLength: 0)
             }
         }
@@ -620,12 +656,103 @@ public struct FillShell: View {
     private var canSaveToLibrary: Bool {
         guard let profile = model.profile else { return false }
         guard profile.conflictedKeys.isEmpty else { return false }
+        guard FillProfilePrimaryAction.allowsProfilePersistence(during: model.stage) else {
+            return false
+        }
         return model.profileDirty || model.currentPortfolioID == nil
     }
 
     private var canOpenTarget: Bool {
-        model.profile != nil
+        model.profile.map { $0.conflictedKeys.isEmpty } == true
             && !(model.stage == .importingSources || model.stage == .extracting)
+    }
+
+    private var profileNeedsSave: Bool {
+        model.profile != nil
+            && (model.profileDirty || model.currentPortfolioID == nil)
+    }
+
+    private var profilePrimaryAction: FillProfilePrimaryAction {
+        FillProfilePrimaryAction.resolve(
+            hasProfile: model.profile != nil,
+            hasSources: !model.sourcePaths.isEmpty,
+            needsSave: profileNeedsSave
+        )
+    }
+
+    private var profilePrimaryActionLabel: String {
+        switch profilePrimaryAction {
+        case .addSources: return "Add Sources"
+        case .extract: return "Extract Profile"
+        case .saveAndChooseTarget: return "Save & Choose Target"
+        case .chooseTarget: return "Choose Target"
+        }
+    }
+
+    private var profilePrimaryActionIcon: String {
+        switch profilePrimaryAction {
+        case .addSources: return "doc.badge.plus"
+        case .extract: return "text.magnifyingglass"
+        case .saveAndChooseTarget: return "arrow.right.doc.on.clipboard"
+        case .chooseTarget: return "doc.text"
+        }
+    }
+
+    private var canRunProfilePrimaryAction: Bool {
+        switch profilePrimaryAction {
+        case .addSources: return true
+        case .extract: return canExtract
+        case .saveAndChooseTarget: return canSaveToLibrary
+        case .chooseTarget: return canOpenTarget
+        }
+    }
+
+    private var profilePrimaryActionHelp: String {
+        switch profilePrimaryAction {
+        case .addSources:
+            return "Add source documents to build a client profile"
+        case .extract:
+            return extractDisabledReason
+        case .saveAndChooseTarget:
+            return "Save this portfolio, then choose the Word or PDF document to fill"
+        case .chooseTarget:
+            return "Choose the Word or PDF document to fill"
+        }
+    }
+
+    private func runProfilePrimaryAction() {
+        switch profilePrimaryAction {
+        case .addSources:
+            presentAddSources()
+        case .extract:
+            extractProfileFromSources()
+        case .saveAndChooseTarget:
+            Task {
+                await model.saveToLibrary(modifiedAtISO8601: nowISO8601())
+                guard case .profileReady = model.stage,
+                      !model.profileDirty,
+                      model.currentPortfolioID != nil else { return }
+                presentOpenTarget()
+            }
+        case .chooseTarget:
+            presentOpenTarget()
+        }
+    }
+
+    private func extractProfileFromSources() {
+        let created = nowISO8601()
+        let label = model.profile?.label
+            ?? model.sourcePaths.first?.deletingPathExtension().lastPathComponent
+            ?? "Profile"
+        let kind = model.profile?.kind ?? .company
+        Task {
+            await model.extractProfile(
+                sources: model.sourcePaths,
+                label: label,
+                createdAtISO8601: created,
+                kind: kind
+            )
+        }
     }
 
     private var extractingLabel: String {

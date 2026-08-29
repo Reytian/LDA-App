@@ -87,6 +87,25 @@ final class SessionRecordStoreTests: XCTestCase {
         XCTAssertNil(try store.load(id: record.id, protection: .passphrase("pw")))
         XCTAssertTrue(try store.list(protection: .passphrase("pw")).isEmpty)
     }
+
+    func testListThrowsWhenRecordFilesExistButNoneCanBeUnlocked() throws {
+        let record = makeRecord()
+        try store.save(record, protection: .passphrase("other-password"))
+
+        XCTAssertThrowsError(try store.list(protection: .passphrase("pw")))
+    }
+
+    func testResolveKeepsReadableHistoryAndReportsLockedRecords() throws {
+        let readable = makeRecord(createdAt: "2026-06-12T00:00:00Z")
+        let locked = makeRecord(createdAt: "2026-06-11T00:00:00Z")
+        try store.save(readable, protection: .passphrase("pw"))
+        try store.save(locked, protection: .passphrase("other-password"))
+
+        let resolution = try store.resolve(protection: .passphrase("pw"))
+
+        XCTAssertEqual(resolution.records.map(\.id), [readable.id])
+        XCTAssertEqual(resolution.unreadableCount, 1)
+    }
 }
 
 // MARK: - Session integration

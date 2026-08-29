@@ -1,9 +1,9 @@
 //
 //  LDAApp.swift
 //  The SwiftUI app entry point. The window hosts the top-level RootShell from
-//  LDAUI, which provides a segmented mode switcher between the Anonymize shell
-//  (AppShell + ReviewModel) and the Fill shell (FillShell + FillModel). Both
-//  child models are owned by RootShell and kept alive for the window's lifetime.
+//  LDAUI, which provides a segmented switcher for Matters, Anonymize, Restore,
+//  and Fill. The child models are owned by RootShell and kept alive for the
+//  window's lifetime.
 //
 //  Keyboard shortcut design (mode-aware commands, option b):
 //  Cmd+J / Cmd+Shift+J are shared shortcuts for the navigation loop. A single
@@ -27,11 +27,11 @@ struct LDAApp: App {
 
     init() {
         // Container keys are protected by Touch ID (login password fallback)
-        // in the GUI app: retrieval goes through the data-protection keychain
-        // behind a user-presence access control, with existing silent keys
-        // upgraded in place on first use. Headless surfaces (lda CLI, MCP
-        // server, tests) leave this off; biometry prompts require a signed
-        // app and an interactive user.
+        // in the GUI app: retrieval first uses a user-presence access control,
+        // with existing silent keys upgraded in place when supported. Direct
+        // Developer ID sandbox builds fall back to the traditional login
+        // Keychain if macOS rejects the biometric path for lack of a provisioned
+        // application identifier. Headless surfaces leave this policy off.
         KeychainAccessPolicy.requireUserPresence = true
     }
     // Both child models and the mode store are hoisted here so the CommandMenu
@@ -80,7 +80,7 @@ struct LDAApp: App {
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.entities.isEmpty
         case .fill: return fillModel.blanks.isEmpty
-        case .deanonymize: return true
+        case .matters, .deanonymize: return true
         }
     }
 
@@ -90,12 +90,12 @@ struct LDAApp: App {
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.selectedGroupID == nil
         case .fill: return fillModel.selectedBlankID == nil
-        case .deanonymize: return true
+        case .matters, .deanonymize: return true
         }
     }
 
     var body: some Scene {
-        WindowGroup("LDA") {
+        Window("LDA", id: LDAWindowID.main) {
             RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
@@ -108,6 +108,7 @@ struct LDAApp: App {
                         model.learningStore = learningStore
                         AISettings.apply(to: model)
                     }
+                    AISettings.apply(to: fillModel)
                     // NOTE: a parked awaiting-AI session is resumed lazily
                     // (first paste-restore), NOT here. The parked mapping is
                     // Keychain-protected, and a Keychain prompt at app launch
@@ -115,6 +116,7 @@ struct LDAApp: App {
                 }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
+                    AISettings.apply(to: fillModel)
                 }
                 .onChange(of: detectionLevelRaw) { _, _ in
                     sessionModel.reapplyConfiguration()
@@ -122,6 +124,18 @@ struct LDAApp: App {
         }
 
         .commands {
+            // File > Open. This is audit item F2's real closure: the document
+            // pane has always offered a prominent "Choose Files", but there was
+            // no menu item and no shortcut for it, so after a failed import a
+            // keyboard-only user had no way to recover at all.
+            CommandGroup(after: .newItem) {
+                Button("Open Documents...") {
+                    modeStore.activeMode = .anonymize
+                    sessionModel.requestOpen()
+                }
+                .keyboardShortcut("o", modifiers: .command)
+            }
+
             CommandGroup(after: .saveItem) {
                 Button("Scan for PII") {
                     modeStore.activeMode = .anonymize
@@ -143,7 +157,7 @@ struct LDAApp: App {
 
                 Divider()
 
-                Button("Export Redacted Document…") {
+                Button("Save Redacted Document…") {
                     sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
@@ -170,7 +184,7 @@ struct LDAApp: App {
                         sessionModel.activeModel.selectNextGroup()
                     case .fill:
                         fillModel.selectNextBlank()
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }
@@ -183,7 +197,7 @@ struct LDAApp: App {
                         sessionModel.activeModel.selectPreviousGroup()
                     case .fill:
                         fillModel.selectPreviousBlank()
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }
@@ -200,7 +214,7 @@ struct LDAApp: App {
                         if let id = fillModel.selectedBlankID {
                             fillModel.acceptBlank(id: id)
                         }
-                    case .deanonymize:
+                    case .matters, .deanonymize:
                         break
                     }
                 }

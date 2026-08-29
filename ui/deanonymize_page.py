@@ -23,7 +23,15 @@ from core.file_handler import (
 def render():
     """Render the de-anonymize page."""
 
-    st.header("De-anonymize / Restore")
+    # "Restore" is the product term (it is the mode name in the macOS app);
+    # "De-anonymize" is retired user-facing vocabulary.
+    st.header("Restore")
+
+    # Sticky error surface (F7), page-scoped and cleared when a new restoration
+    # attempt starts, so the banner always describes the latest attempt and an
+    # anonymize-page failure never shows up here.
+    if st.session_state.get("ui_error_deanonymize"):
+        st.error(st.session_state["ui_error_deanonymize"])
 
     st.info(
         "Upload the AI-modified anonymized file and its mapping table. "
@@ -101,6 +109,10 @@ def render():
     result_key = (anonymized_file.name, mapping_file.name, len(file_bytes), len(anonymized_text))
     if st.session_state.get("deanon_result_key") != result_key:
         st.session_state.pop("deanon_results", None)
+        # New inputs are a new attempt, so the previous attempt's error must go
+        # with the previous attempt's results. Leaving it would describe the old
+        # mapping file while the user looks at a freshly uploaded one.
+        st.session_state.pop("ui_error_deanonymize", None)
         st.session_state.deanon_result_key = result_key
 
     # Execute restoration. On click we compute results and persist them to
@@ -108,12 +120,19 @@ def render():
     # conditional. Otherwise clicking the download button (which triggers a
     # full rerun where the button is False) would wipe the entire results view.
     if st.button("Execute Restoration", type="primary"):
+        st.session_state.pop("ui_error_deanonymize", None)
         with st.spinner("Running 3-step restoration..."):
             try:
                 restored_text, stats = run_deanonymize(anonymized_text, mapping_data)
             except Exception as e:
-                st.error(f"Restoration failed: {e}")
-                return
+                # Record the failure and rerun so the sticky banner at the top
+                # of the page is the SINGLE thing that renders it. Rendering an
+                # inline st.error here as well produced two red banners at once
+                # (the top one still showing the previous attempt, this one the
+                # new failure). The rerun cannot loop: on the next run the
+                # button reads False, so this handler is not re-entered.
+                st.session_state["ui_error_deanonymize"] = f"Restoration failed: {e}"
+                st.rerun()
 
         # Generate same-format output for doc/docx
         restored_file_bytes = None

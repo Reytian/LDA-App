@@ -52,7 +52,17 @@ public struct SettingsView: View {
             HistoryTab()
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
-        .frame(width: 580, height: 440)
+        // Resizable, from the UI/UX audit on feat/lda-macos-core. Kept through
+        // the merge: the model ladder makes this panel taller, so a fixed
+        // 440pt height would clip the lowest rung.
+        .frame(
+            minWidth: 580,
+            idealWidth: 700,
+            maxWidth: .infinity,
+            minHeight: 440,
+            idealHeight: 540,
+            maxHeight: .infinity
+        )
         .background(CounselTheme.appSurface)
     }
 }

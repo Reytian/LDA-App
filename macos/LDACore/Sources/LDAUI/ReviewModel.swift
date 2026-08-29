@@ -181,6 +181,23 @@ public final class ReviewModel: ObservableObject {
 
     /// True when a Scan for PII pass can start (a document is loaded and no
     /// pass is running). Shared by the banner button and the menu command.
+    /// `.failed` is deliberately NOT scannable. Do not "fix" this by allowing a
+    /// retry when documentText is non-empty; that was tried and was wrong twice
+    /// over:
+    ///
+    ///  - It is unreachable. `.failed` is set in exactly one place, open(_:)'s
+    ///    catch, which is an IMPORT failure that leaves documentText empty.
+    ///    anonymize() never fails: detection ends at .ready, and an LLM problem
+    ///    surfaces through aiWarning rather than a failed status, on purpose, so
+    ///    a degraded pass warns instead of looking clean.
+    ///  - If it ever did become reachable by reusing a model across documents,
+    ///    it would be unsafe: open(_:) sets the NEW sourceURL before importing,
+    ///    so scanning retained text would attribute one document's PII to
+    ///    another's name. The catch now clears documentText for the same reason.
+    ///
+    /// Recovery from an import failure is re-opening the file, which the
+    /// document pane already offers prominently (DocumentPane's drop zone) and
+    /// which File > Open (Cmd+O) reaches from the keyboard.
     public var canAnonymize: Bool {
         switch status {
         case .imported, .ready:
@@ -271,6 +288,14 @@ public final class ReviewModel: ObservableObject {
         } catch {
             guard generation == sessionGeneration else { return }
             entities = []
+            // Drop any text from a PREVIOUS document. sourceURL was already
+            // updated to the new file above, so retaining the old text would
+            // leave the model describing document A's contents under document
+            // B's name, and every downstream label (window title, tray row,
+            // export file name, mapping sourceFile) would take the new name.
+            // Production never reuses a model across documents, but the
+            // invariant is now enforced here rather than assumed.
+            documentText = ""
             status = .failed(Self.describe(error))
         }
     }

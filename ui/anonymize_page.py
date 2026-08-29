@@ -36,6 +36,15 @@ def render():
 
     st.header("Document Anonymization")
 
+    # Sticky error surface (F7): surface the last failure at the top of the page
+    # so a mid-workflow exception is never lost when the user scrolls or reruns.
+    # The key is PAGE-SCOPED (an anonymize failure must not haunt the restore
+    # page) and is cleared whenever a new attempt starts (new upload, Pass 1,
+    # Pass 2, or the execute step), so the banner always describes the LATEST
+    # attempt instead of a failure the user already recovered from.
+    if st.session_state.get("ui_error_anonymize"):
+        st.error(st.session_state["ui_error_anonymize"])
+
     # Initialize session_state
     for key, default in [
         ("uploaded_text", None),
@@ -80,6 +89,8 @@ def render():
             # (added / deleted / edited rows) do not bleed onto the new file.
             st.session_state.pop("alias_editor", None)
             st.session_state.pop("entity_editor", None)
+            # A new document is a new attempt: drop the previous file's error.
+            st.session_state.pop("ui_error_anonymize", None)
 
         with st.expander("File preview", expanded=False):
             text = st.session_state.uploaded_text
@@ -95,13 +106,22 @@ def render():
 
     if st.session_state.pass1_result is None:
         if st.button("Start Pass 1 Scan", type="primary"):
+            st.session_state.pop("ui_error_anonymize", None)
             with st.spinner("Scanning key sections for entity definitions..."):
                 try:
                     result = run_first_pass(st.session_state.uploaded_text)
                     st.session_state.pass1_result = result
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Pass 1 scan failed: {e}")
+                    # Record and rerun so the sticky banner at the top of the
+                    # page is the SINGLE renderer. Rendering inline here too
+                    # showed two red banners at once: the top one still held the
+                    # PREVIOUS attempt's message (it rendered before this
+                    # handler cleared the key) while this one showed the new
+                    # failure. The rerun cannot loop: the button reads False on
+                    # the next run, so this handler is not re-entered.
+                    st.session_state["ui_error_anonymize"] = f"Pass 1 scan failed: {e}"
+                    st.rerun()
         return
 
     # Editable entity definition table
@@ -165,6 +185,7 @@ def render():
 
     if st.session_state.pass2_result is None:
         if st.button("Start Pass 2 Scan", type="primary"):
+            st.session_state.pop("ui_error_anonymize", None)
             progress_bar = st.progress(0, text="Scanning document segments...")
 
             def update_progress(current, total):
@@ -183,7 +204,10 @@ def render():
                 progress_bar.progress(1.0, text="Scan complete!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Pass 2 scan failed: {e}")
+                # See the Pass 1 handler: sticky key plus a rerun, so exactly
+                # one banner renders the current failure.
+                st.session_state["ui_error_anonymize"] = f"Pass 2 scan failed: {e}"
+                st.rerun()
         return
 
     # Editable full entity list
@@ -248,7 +272,13 @@ def render():
     # ---- Step 4: Execute anonymization ----
     st.subheader("Step 4: Execute Anonymization")
 
+    # This step is NOT button-gated: it runs on every rerun while
+    # anonymized_text is nil, so it retries by itself and re-renders its own
+    # error each run. It therefore uses the inline st.error only, with no sticky
+    # key and no rerun: a sticky copy would duplicate an already-current
+    # message, and a rerun here would loop forever on a persistent failure.
     if st.session_state.anonymized_text is None:
+        st.session_state.pop("ui_error_anonymize", None)
         with st.spinner("Executing anonymization..."):
             try:
                 anonymized_text, mapping = execute_replacement(

@@ -81,35 +81,203 @@ final class ClientMappingStoreTests: XCTestCase {
 
     // MARK: - Listing and deletion
 
-    func testListReturnsSavedLabelsSorted() throws {
+    func testListReturnsOpaqueRandomIdentifiersWithoutLabelLeakage() throws {
         try store.save(mapping(label: "Zeta", entries: []), label: "Zeta", protection: .passphrase("pw"))
         try store.save(mapping(label: "Alpha", entries: []), label: "Alpha", protection: .passphrase("pw"))
 
-        XCTAssertEqual(try store.list(), ["Alpha", "Zeta"])
+        let identifiers = try store.list()
+        XCTAssertEqual(identifiers.count, 2)
+        XCTAssertTrue(identifiers.allSatisfy { UUID(uuidString: $0) != nil })
+        XCTAssertFalse(identifiers.contains { $0.contains("Alpha") || $0.contains("Zeta") })
+    }
+
+    func testResolvedListReadsExactLabelsFromEncryptedMappings() throws {
+        try store.save(
+            mapping(label: "Garcia: Deal", entries: []),
+            label: "Garcia: Deal",
+            protection: .passphrase("pw")
+        )
+
+        let result = try store.listResolvedLabels { _ in .passphrase("pw") }
+
+        XCTAssertEqual(result.labels, ["Garcia: Deal"])
+        XCTAssertEqual(result.unreadableCount, 0)
+    }
+
+    func testResolvedListKeepsReadableLabelsWhenOneMappingCannotUnlock() throws {
+        try store.save(
+            mapping(label: "Alpha", entries: []),
+            label: "Alpha",
+            protection: .passphrase("pw")
+        )
+        try MappingStore.save(
+            mapping(label: "Broken", entries: []),
+            to: root.appendingPathComponent("\(UUID().uuidString).ldaclient"),
+            protection: .passphrase("other")
+        )
+
+        let result = try store.listResolvedLabels { _ in .passphrase("pw") }
+
+        XCTAssertEqual(result.labels, ["Alpha"])
+        XCTAssertEqual(result.unreadableCount, 1)
+    }
+
+    func testUnreadableOpaqueMappingBlocksLoadAndSaveInsteadOfResettingIdentity() throws {
+        try store.save(
+            mapping(label: "Locked Matter", entries: []),
+            label: "Locked Matter",
+            protection: .passphrase("original-password")
+        )
+
+        XCTAssertThrowsError(
+            try store.load(label: "New Matter", protection: .passphrase("wrong-password"))
+        )
+        XCTAssertThrowsError(
+            try store.save(
+                mapping(label: "New Matter", entries: []),
+                label: "New Matter",
+                protection: .passphrase("wrong-password")
+            )
+        )
+        XCTAssertEqual(try store.list().count, 1)
     }
 
     func testDeleteRemovesClient() throws {
         try store.save(mapping(label: "Gone", entries: []), label: "Gone", protection: .passphrase("pw"))
-        try store.delete(label: "Gone")
+        try store.delete(label: "Gone", protection: .passphrase("pw"))
 
         XCTAssertEqual(try store.list(), [])
         XCTAssertNil(try store.load(label: "Gone", protection: .passphrase("pw")))
     }
 
+    func testRenameMovesTheEncryptedMappingAndPreservesEntries() throws {
+        let saved = mapping(
+            label: "Acme Matter",
+            entries: [entry("{COMPANY_1}", "Acme Corp", .company)]
+        )
+        try store.save(saved, label: "Acme Matter", protection: .passphrase("pw"))
+
+        let renamed = try store.rename(
+            from: "Acme Matter",
+            to: "Acme Transaction",
+            oldProtection: .passphrase("pw"),
+            newProtection: .passphrase("pw")
+        )
+
+        XCTAssertTrue(renamed)
+        XCTAssertNil(try store.load(label: "Acme Matter", protection: .passphrase("pw")))
+        let loaded = try XCTUnwrap(
+            try store.load(label: "Acme Transaction", protection: .passphrase("pw"))
+        )
+        XCTAssertEqual(loaded.entries, saved.entries)
+        XCTAssertEqual(loaded.sourceFile, "Acme Transaction")
+    }
+
+    func testRenameSupportsDifferentExactLabelsWithTheSameFileSlug() throws {
+        try store.save(
+            mapping(label: "Garcia Deal", entries: []),
+            label: "Garcia Deal",
+            protection: .passphrase("pw")
+        )
+
+        XCTAssertTrue(
+            try store.rename(
+                from: "Garcia Deal",
+                to: "Garcia: Deal",
+                oldProtection: .passphrase("pw"),
+                newProtection: .passphrase("pw")
+            )
+        )
+
+        let resolution = try store.listResolvedLabels { _ in .passphrase("pw") }
+        XCTAssertEqual(resolution.labels, ["Garcia: Deal"])
+    }
+
+    func testRenameMigratesALegacySlugFileToAnOpaqueIdentifier() throws {
+        let legacyURL = root.appendingPathComponent("Legacy Matter.ldaclient")
+        try MappingStore.save(
+            mapping(label: "Legacy Matter", entries: []),
+            to: legacyURL,
+            protection: .passphrase("pw")
+        )
+
+        XCTAssertTrue(
+            try store.rename(
+                from: "Legacy Matter",
+                to: "Current Matter",
+                oldProtection: .passphrase("pw"),
+                newProtection: .passphrase("pw")
+            )
+        )
+
+        let identifiers = try store.list()
+        XCTAssertEqual(identifiers.count, 1)
+        XCTAssertNotNil(UUID(uuidString: try XCTUnwrap(identifiers.first)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertNotNil(
+            try store.load(label: "Current Matter", protection: .passphrase("pw"))
+        )
+    }
+
+    func testRenameRejectsAnOccupiedDestination() throws {
+        try store.save(mapping(label: "Alpha", entries: []), label: "Alpha", protection: .passphrase("pw"))
+        try store.save(mapping(label: "Beta", entries: []), label: "Beta", protection: .passphrase("pw"))
+
+        XCTAssertThrowsError(
+            try store.rename(
+                from: "Alpha",
+                to: "Beta",
+                oldProtection: .passphrase("pw"),
+                newProtection: .passphrase("pw")
+            )
+        )
+        XCTAssertNotNil(try store.load(label: "Alpha", protection: .passphrase("pw")))
+        XCTAssertNotNil(try store.load(label: "Beta", protection: .passphrase("pw")))
+    }
+
+    func testRenameOfMatterWithoutMappingIsANoOp() throws {
+        XCTAssertFalse(
+            try store.rename(
+                from: "Missing",
+                to: "Renamed",
+                oldProtection: .passphrase("pw"),
+                newProtection: .passphrase("pw")
+            )
+        )
+    }
+
     // MARK: - Label safety
 
-    func testSlugCollisionIsDetectedNotSilentlyMerged() throws {
-        // "Acme/Inc" and "Acme:Inc" sanitize to the same file name. Loading the
-        // second label must fail loudly rather than hand one client's mapping
-        // to another (cross-client identity bleed).
+    func testPunctuationAndCaseDifferencesRemainSeparateMappings() throws {
         try store.save(
             mapping(label: "Acme/Inc", entries: [entry("{COMPANY_1}", "Acme", .company)]),
             label: "Acme/Inc",
             protection: .passphrase("pw")
         )
+        try store.save(
+            mapping(label: "Acme:Inc", entries: [entry("{COMPANY_1}", "Acme Colon", .company)]),
+            label: "Acme:Inc",
+            protection: .passphrase("pw")
+        )
+        try store.save(
+            mapping(label: "acme/inc", entries: [entry("{COMPANY_1}", "Lowercase", .company)]),
+            label: "acme/inc",
+            protection: .passphrase("pw")
+        )
 
-        XCTAssertThrowsError(
-            try store.load(label: "Acme:Inc", protection: .passphrase("pw"))
+        XCTAssertEqual(
+            try store.listResolvedLabels { _ in .passphrase("pw") }.labels,
+            ["Acme/Inc", "Acme:Inc", "acme/inc"]
+        )
+        XCTAssertEqual(
+            try store.load(label: "Acme/Inc", protection: .passphrase("pw"))?
+                .entries["{COMPANY_1}"]?.value,
+            "Acme"
+        )
+        XCTAssertEqual(
+            try store.load(label: "Acme:Inc", protection: .passphrase("pw"))?
+                .entries["{COMPANY_1}"]?.value,
+            "Acme Colon"
         )
     }
 
@@ -152,10 +320,10 @@ final class ClientMappingStoreTests: XCTestCase {
 
     // MARK: - Keychain account derivation (pure)
 
-    func testKeychainAccountIsStablePerLabel() {
+    func testKeychainAccountIsSharedAndDoesNotExposeTheLabel() {
         let account = ClientMappingStore.keychainAccount(label: "Garcia Matter")
-        XCTAssertEqual(account, ClientMappingStore.keychainAccount(label: "Garcia Matter"))
-        XCTAssertTrue(account.hasPrefix("lda-client-"))
-        XCTAssertNotEqual(account, ClientMappingStore.keychainAccount(label: "Other"))
+        XCTAssertEqual(account, ClientMappingStore.keychainAccount(label: "Other"))
+        XCTAssertEqual(account, "lda-client-mappings")
+        XCTAssertFalse(account.localizedCaseInsensitiveContains("Garcia"))
     }
 }

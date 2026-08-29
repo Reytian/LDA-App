@@ -132,9 +132,10 @@ def render():
     # Show current config status
     st.divider()
     st.subheader("Current Configuration")
+    key_display = "(not set)" if not llm_client.LLM_API_KEY else "\u2022" * 12
     st.code(
         f"API Base: {llm_client.LLM_API_BASE or '(not set)'}\n"
-        f"API Key:  {'*' * 8 + llm_client.LLM_API_KEY[-4:] if len(llm_client.LLM_API_KEY) > 4 else '(not set)'}\n"
+        f"API Key:  {key_display}\n"
         f"Model:    {llm_client.LLM_MODEL or '(not set)'}",
         language=None,
     )

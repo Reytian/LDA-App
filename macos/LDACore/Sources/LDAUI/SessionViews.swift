@@ -157,10 +157,17 @@ struct AddTermPopover: View {
 
 // MARK: - Menu-bar companion
 
+/// Stable SwiftUI scene identifiers shared by the app entry point and the
+/// menu-bar companion.
+public enum LDAWindowID {
+    public static let main = "main"
+}
+
 /// The menu-bar companion (auxiliary posture): quick clipboard redact and the
 /// no-dead-end "restore the clipboard" for coming back from the AI.
 public struct CompanionMenu: View {
     @ObservedObject var session: SessionModel
+    @Environment(\.openWindow) private var openWindow
 
     public init(session: SessionModel) {
         self.session = session
@@ -192,6 +199,7 @@ public struct CompanionMenu: View {
         Divider()
 
         Button("Open LDA") {
+            openWindow(id: LDAWindowID.main)
             NSApp.activate(ignoringOtherApps: true)
         }
     }
@@ -228,6 +236,7 @@ public struct CompanionMenu: View {
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(restored.text, forType: .string)
+            scheduleClipboardClear(restored.text)
             var note = "Restored \(restored.restoredCount) value"
                 + (restored.restoredCount == 1 ? "" : "s")
                 + " on the clipboard."
@@ -237,10 +246,53 @@ public struct CompanionMenu: View {
                     + (flagged == 1 ? " needs" : "s need")
                     + " review; use Restore from AI in the app."
             }
+            note += " The restored values clear from the clipboard in "
+                + "\(Int(Self.clipboardClearDelay))s."
             session.companionNote = note
         } catch {
             session.companionNote = "Could not restore: \(error.localizedDescription)"
         }
+    }
+
+    /// How long restored values stay on the clipboard before being cleared.
+    /// One constant, referenced by the timer AND by every sentence that quotes
+    /// the number, so the copy can never drift from the behavior.
+    public static let clipboardClearDelay: TimeInterval = 30
+
+    /// Auto-clear the clipboard after clipboardClearDelay, but only if the user
+    /// has not copied something else in the meantime. Restored client PII must
+    /// not linger where other apps, clipboard managers, or cloud sync can read
+    /// it (F1, pre-launch audit item #6). The pasteboard is read on the main
+    /// thread; the companion note is mutated on the main actor.
+    ///
+    /// KNOWN LIMITS, deliberately not papered over in the copy: the timer is
+    /// bound to the process, so quitting inside the window leaves the value on
+    /// the clipboard, and a clipboard manager has already archived it at t=0.
+    /// The prelaunch branch's SensitiveClipboard (changeCount guard plus
+    /// org.nspasteboard concealed/transient markers) supersedes this mechanism
+    /// at merge; do not invest further here.
+    private func scheduleClipboardClear(_ restoredText: String) {
+        let clear = DispatchWorkItem { [weak session] in
+            let current = NSPasteboard.general.string(forType: .string)
+            guard current == restoredText else { return }
+            NSPasteboard.general.clearContents()
+            Task { @MainActor in
+                guard let session else { return }
+                // APPEND, never assign. companionNote has exactly one render
+                // site (this menu), so it is also the only channel carrying the
+                // "N placeholders need review" warning from the restore that
+                // just happened. Overwriting it wholesale destroyed the single
+                // signal that a restore was INCOMPLETE, and by then the lawyer
+                // may already have pasted that text into a filing.
+                let cleared = "Cleared the restored values from the clipboard."
+                if let existing = session.companionNote, !existing.isEmpty {
+                    session.companionNote = existing + "\n\n" + cleared
+                } else {
+                    session.companionNote = cleared
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.clipboardClearDelay, execute: clear)
     }
 }
 

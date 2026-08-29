@@ -18,6 +18,35 @@ import LDACore
 
 // MARK: - SessionModel
 
+public enum MatterManagementError: LocalizedError, Sendable {
+    case emptyLabel
+    case incompleteWorkspace
+    case labelInUse(String)
+    case reservedAlias(String, currentLabel: String)
+    case archivedMatter(String)
+    case renameRecoveryRequired
+    case archiveRecoveryRequired
+
+    public var errorDescription: String? {
+        switch self {
+        case .emptyLabel:
+            return "Enter a client or matter name."
+        case .incompleteWorkspace:
+            return "Some matter data could not be unlocked. Try again before changing matter names."
+        case .labelInUse(let label):
+            return "A different matter already uses \"\(label)\"."
+        case .reservedAlias(let alias, let currentLabel):
+            return "\"\(alias)\" is a previous name for \"\(currentLabel)\". Open the current matter instead."
+        case .archivedMatter(let label):
+            return "\"\(label)\" is archived. Restore it from Matters before opening it."
+        case .renameRecoveryRequired:
+            return "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue."
+        case .archiveRecoveryRequired:
+            return "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue."
+        }
+    }
+}
+
 /// Owns the session's documents and the shared session mapping. @MainActor so
 /// every published change is main-actor isolated.
 @MainActor
@@ -43,7 +72,7 @@ public final class SessionModel: ObservableObject {
     }
 
     /// The active client profile label, or nil for a one-off session (R10).
-    @Published public var clientLabel: String?
+    @Published public private(set) var clientLabel: String?
 
     /// The shared session mapping after the most recent hand-to-AI build.
     /// Restore-from-paste runs against this.
@@ -54,6 +83,9 @@ public final class SessionModel: ObservableObject {
 
     /// Bumped when the Restore from AI menu command fires.
     @Published public var pasteRestoreRequestToken = 0
+
+    /// Bumped when the File > Open menu command fires.
+    @Published public var openRequestToken = 0
 
     /// The menu-bar companion's last-action note ("Restored 4 values.").
     @Published public var companionNote: String?
@@ -70,11 +102,25 @@ public final class SessionModel: ObservableObject {
     /// model path, custom vocabulary, and learning store by the app).
     private let makeModel: () -> ReviewModel
 
+    /// Opens one imported document. Injectable so import cancellation can be
+    /// tested at the suspension boundary.
+    public var openDocument: (ReviewModel, URL) async -> Void = { model, url in
+        await model.open(url)
+    }
+
     /// Shown while the tray is empty so the shell always has a model to bind.
     public let emptyModel: ReviewModel
 
     /// The client mapping store. Injectable for tests.
     private let clientStore: () throws -> ClientMappingStore
+
+    /// Distinguishes a cold launch from an explicit No Client selection. A
+    /// cold launch may resume the most recent parked round trip; an explicit
+    /// selection must remain a privacy boundary.
+    private var hasExplicitClientSelection = false
+
+    /// Changes whenever a document discard invalidates an in-flight import.
+    private var documentImportGeneration = 0
 
     /// How a client's stored mapping is protected. Injectable for tests; the
     /// production default is the client's derived Keychain account.
@@ -89,6 +135,16 @@ public final class SessionModel: ObservableObject {
     /// production default is the shared records Keychain key.
     public var recordProtection: () -> MappingProtection = {
         SessionRecordStore.defaultProtection()
+    }
+
+    /// Encrypted matter names, aliases, and archive state for the workspace.
+    /// Access is user-initiated from Matters so Keychain prompts do not appear
+    /// during an ordinary app launch.
+    public var matterStore: () throws -> MatterMetadataStore = { try MatterMetadataStore() }
+
+    /// Protection for workspace metadata. Injectable for hermetic tests.
+    public var matterProtection: () -> MappingProtection = {
+        MatterMetadataStore.defaultProtection()
     }
 
     /// Where the awaiting-AI parked mapping lives, so a session survives the
@@ -111,7 +167,18 @@ public final class SessionModel: ObservableObject {
         .keychain(account: "lda-parked-session")
     }
 
-    /// UserDefaults key remembering the parked session's client label.
+    /// Writes encrypted parked state. Injectable so failure paths remain
+    /// deterministic in tests.
+    public var saveParkedSession: (
+        ParkedSessionState,
+        URL,
+        MappingProtection
+    ) throws -> Void = { state, url, protection in
+        try ParkedSessionStore.save(state, to: url, protection: protection)
+    }
+
+    /// Legacy UserDefaults key used only to migrate parked sessions created by
+    /// older app versions. New parked matter labels stay encrypted.
     public static let parkedClientLabelKey = "com.haotianyi.LDA.parkedClientLabel"
 
     /// Applied to every newly created document model (custom vocabulary,
@@ -175,12 +242,19 @@ public final class SessionModel: ObservableObject {
         return entries.first
     }
 
+    /// Whether switching or archiving would close documents or an in-progress
+    /// round trip that still holds a live mapping or activity record.
+    public var hasActiveMatterWork: Bool {
+        !entries.isEmpty || sessionMapping != nil || currentRecordID != nil
+    }
+
     // MARK: - Tray management (R19)
 
     /// Add documents to the session. A .zip expands into its supported
     /// documents. Each document gets its own configured ReviewModel and is
     /// imported immediately; the last added document becomes selected.
     public func addDocuments(_ urls: [URL]) async {
+        let importGeneration = documentImportGeneration
         var resolved: [URL] = []
         for url in urls {
             if ZipImporter.isZip(url) {
@@ -193,12 +267,14 @@ public final class SessionModel: ObservableObject {
         }
 
         for url in resolved {
+            guard importGeneration == documentImportGeneration else { return }
             let model = makeModel()
             configureNewModel?(model)
             let entry = DocumentEntry(id: UUID(), url: url, model: model)
             entries.append(entry)
             selectedID = entry.id
-            await model.open(url)
+            await openDocument(model, url)
+            guard importGeneration == documentImportGeneration else { return }
         }
     }
 
@@ -304,7 +380,10 @@ public final class SessionModel: ObservableObject {
             combined = result.documents[0].tokenizedText
         } else {
             combined = result.documents
-                .map { "# Document: \($0.name)\n\n\($0.tokenizedText)" }
+                .enumerated()
+                .map { index, document in
+                    "# Document \(index + 1)\n\n\(document.tokenizedText)"
+                }
                 .joined(separator: "\n\n---\n\n")
         }
 
@@ -329,10 +408,13 @@ public final class SessionModel: ObservableObject {
 
         // Park the session (awaiting-AI state): the mapping survives the user
         // quitting while the AI works, so the round-trip has no dead end.
-        if let url = try? parkedMappingURL() {
-            try? MappingStore.save(result.mapping, to: url, protection: parkedProtection())
-            UserDefaults.standard.set(clientLabel, forKey: Self.parkedClientLabelKey)
-        }
+        let parkedURL = try parkedMappingURL()
+        let parked = ParkedSessionState(
+            mapping: result.mapping,
+            clientLabel: clientLabel
+        )
+        try saveParkedSession(parked, parkedURL, parkedProtection())
+        UserDefaults.standard.removeObject(forKey: Self.parkedClientLabelKey)
 
         return HandToAIResult(
             combined: combined,
@@ -362,15 +444,117 @@ public final class SessionModel: ObservableObject {
         guard sessionMapping == nil,
               let url = try? parkedMappingURL(),
               FileManager.default.fileExists(atPath: url.path),
-              let mapping = try? MappingStore.load(from: url, protection: parkedProtection()) else {
+              let loaded = loadParkedSession(from: url),
+              let parked = canonicalizedParkedSession(loaded, at: url) else {
             return
         }
-        sessionMapping = mapping
+        if hasExplicitClientSelection, clientLabel != parked.clientLabel {
+            return
+        }
+        if let selectedClient = clientLabel, selectedClient != parked.clientLabel {
+            return
+        }
+        sessionMapping = parked.mapping
         if clientLabel == nil {
-            clientLabel = UserDefaults.standard.string(forKey: Self.parkedClientLabelKey)
+            clientLabel = parked.clientLabel
         }
         sessionNote = "Resumed your last session. When the AI answer is ready, "
-            + "use the De-anonymize tab to bring the real values back."
+            + "use Restore to bring the real values back."
+    }
+
+    /// Load the current encrypted parked format, or migrate the legacy mapping
+    /// plus UserDefaults label in place after a successful unlock.
+    private func loadParkedSession(from url: URL) -> ParkedSessionState? {
+        let protection = parkedProtection()
+        if let parked = try? ParkedSessionStore.load(from: url, protection: protection) {
+            return parked
+        }
+        guard let mapping = try? MappingStore.load(from: url, protection: protection) else {
+            return nil
+        }
+        let parked = ParkedSessionState(
+            mapping: mapping,
+            clientLabel: UserDefaults.standard.string(forKey: Self.parkedClientLabelKey)
+        )
+        if (try? ParkedSessionStore.save(parked, to: url, protection: protection)) != nil {
+            UserDefaults.standard.removeObject(forKey: Self.parkedClientLabelKey)
+        }
+        return parked
+    }
+
+    /// Resolve a parked label through encrypted rename aliases and refuse to
+    /// reactivate archived matters. Canonical rewrites are best effort because
+    /// the in-memory session can still use the validated current label safely.
+    private func canonicalizedParkedSession(
+        _ parked: ParkedSessionState,
+        at url: URL,
+        allowArchived: Bool = false
+    ) -> ParkedSessionState? {
+        guard let label = parked.clientLabel else { return parked }
+        guard let resolution = try? matterMetadata(), resolution.unreadableCount == 0 else {
+            return nil
+        }
+        guard let owner = resolution.metadata.first(where: {
+            $0.label == label || $0.aliases.contains(label)
+        }) else {
+            return parked
+        }
+        guard allowArchived || !owner.isArchived else { return nil }
+        guard owner.label != label else { return parked }
+
+        var canonical = parked
+        canonical.clientLabel = owner.label
+        if canonical.mapping.sourceFile == label {
+            canonical.mapping.sourceFile = owner.label
+        }
+        try? saveParkedSession(canonical, url, parkedProtection())
+        return canonical
+    }
+
+    /// Whether an encrypted parked round trip belongs to the named matter.
+    /// Unreadable state fails closed because its encrypted label is unknown.
+    public func hasParkedMatterWork(_ candidate: String) throws -> Bool {
+        let label = try validatedMatterLabel(candidate)
+        return try workspaceParkedSession()?.state.clientLabel == label
+    }
+
+    /// Load parked work for a user-initiated workspace action. The encrypted
+    /// owner, not the current in-memory selection, controls any discard.
+    private func workspaceParkedSession() throws -> (
+        url: URL,
+        state: ParkedSessionState
+    )? {
+        let url = try parkedMappingURL()
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let loaded = loadParkedSession(from: url),
+              let parked = canonicalizedParkedSession(
+                loaded,
+                at: url,
+                allowArchived: true
+              ) else {
+            throw MatterManagementError.incompleteWorkspace
+        }
+        return (url, parked)
+    }
+
+    private func discardParkedSession(
+        _ context: (url: URL, state: ParkedSessionState)
+    ) throws {
+        do {
+            try FileManager.default.removeItem(at: context.url)
+        } catch {
+            throw DocumentIOError.unreadable(
+                "Failed to close the parked session: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// Delete only parked work that can be proven to belong to the outgoing
+    /// matter. A confirmed discard never guesses across encrypted boundaries.
+    private func discardParkedSession(matching label: String?) throws {
+        guard let context = try workspaceParkedSession(),
+              context.state.clientLabel == label else { return }
+        try discardParkedSession(context)
     }
 
     // MARK: - Bring back and restore (stage 4)
@@ -456,13 +640,293 @@ public final class SessionModel: ObservableObject {
 
     // MARK: - Client profiles
 
-    /// The labels of every stored client profile.
-    public func clientLabels() -> [String] {
-        (try? clientStore().list()) ?? []
+    /// Select a client without carrying another client's live mapping or
+    /// assigned preview tokens into the new matter. Accepted redaction choices
+    /// remain intact, but the next handoff rebuilds them against the selected
+    /// client's encrypted mapping.
+    @discardableResult
+    func selectClient(
+        _ label: String?,
+        discardingDocuments: Bool = false
+    ) -> Bool {
+        hasExplicitClientSelection = true
+        guard clientLabel != label else { return true }
+        guard !hasActiveMatterWork || discardingDocuments else { return false }
+
+        let openModels = entries.map(\.model)
+        if discardingDocuments {
+            documentImportGeneration += 1
+            entries.removeAll()
+            selectedID = nil
+        }
+
+        clientLabel = label
+        sessionMapping = nil
+        currentRecordID = nil
+        sessionNote = nil
+
+        for index in emptyModel.entities.indices {
+            emptyModel.entities[index].token = nil
+        }
+        for model in openModels {
+            for index in model.entities.indices {
+                model.entities[index].token = nil
+            }
+        }
+        return true
+    }
+
+    /// Validate a user-facing matter selection against encrypted aliases and
+    /// archive state before applying the low-level client boundary change.
+    @discardableResult
+    public func selectMatter(
+        _ candidate: String?,
+        discardingDocuments: Bool = false
+    ) throws -> Bool {
+        guard let candidate else {
+            if let parked = try workspaceParkedSession(),
+               parked.state.clientLabel != nil {
+                guard discardingDocuments else { return false }
+                try discardParkedSession(parked)
+            }
+            return selectClient(nil, discardingDocuments: discardingDocuments)
+        }
+        let label = try validatedMatterLabel(candidate)
+        let clientResolution = try resolvedClientLabels()
+        let recordResolution = try recordStore().resolve(protection: recordProtection())
+        let metadataResolution = try matterMetadata()
+        guard clientResolution.unreadableCount == 0,
+              recordResolution.unreadableCount == 0,
+              metadataResolution.unreadableCount == 0 else {
+            throw MatterManagementError.incompleteWorkspace
+        }
+
+        if let owner = metadataResolution.metadata.first(where: {
+            $0.aliases.contains(label) && $0.label != label
+        }) {
+            throw MatterManagementError.reservedAlias(label, currentLabel: owner.label)
+        }
+        if metadataResolution.metadata.first(where: { $0.label == label })?.isArchived == true {
+            throw MatterManagementError.archivedMatter(label)
+        }
+        if let parked = try workspaceParkedSession(),
+           parked.state.clientLabel != label {
+            guard discardingDocuments else { return false }
+            try discardParkedSession(parked)
+        }
+        return selectClient(label, discardingDocuments: discardingDocuments)
+    }
+
+    /// Exact decrypted client labels for the explicit Matters workspace.
+    /// This is never called at launch because it may require user presence.
+    public func resolvedClientLabels() throws -> ClientLabelResolution {
+        try clientStore().listResolvedLabels { identifier in
+            clientProtection(identifier)
+        }
+    }
+
+    /// Exact encrypted rename aliases and archive state for Matters.
+    public func matterMetadata() throws -> MatterMetadataResolution {
+        try matterStore().list(protection: matterProtection())
+    }
+
+    /// Rename one matter without rewriting historical records. The encrypted
+    /// client mapping moves to the new exact label, while encrypted metadata
+    /// retains the old label as an alias so prior activity stays grouped.
+    public func renameMatter(from oldLabel: String, to newLabel: String) throws {
+        let oldLabel = try validatedMatterLabel(oldLabel)
+        let newLabel = try validatedMatterLabel(newLabel)
+        guard oldLabel != newLabel else { return }
+
+        let clientResolution = try resolvedClientLabels()
+        let recordResolution = try recordStore().resolve(protection: recordProtection())
+        let metadataResolution = try matterMetadata()
+        guard clientResolution.unreadableCount == 0,
+              recordResolution.unreadableCount == 0,
+              metadataResolution.unreadableCount == 0 else {
+            throw MatterManagementError.incompleteWorkspace
+        }
+
+        let sourceMetadata = metadataResolution.metadata.first {
+            $0.label == oldLabel || $0.aliases.contains(oldLabel)
+        }
+        var ownedLabels = Set([oldLabel])
+        if let sourceMetadata {
+            ownedLabels.insert(sourceMetadata.label)
+            ownedLabels.formUnion(sourceMetadata.aliases)
+        }
+
+        var occupiedLabels = Set(clientResolution.labels)
+        occupiedLabels.formUnion(
+            recordResolution.records.compactMap { record in
+                record.clientLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        )
+        for item in metadataResolution.metadata {
+            occupiedLabels.insert(item.label)
+            occupiedLabels.formUnion(item.aliases)
+        }
+        if occupiedLabels.contains(newLabel), !ownedLabels.contains(newLabel) {
+            throw MatterManagementError.labelInUse(newLabel)
+        }
+
+        let parkedURL = try parkedMappingURL()
+        var parkedRewrite: (url: URL, original: ParkedSessionState)?
+        if FileManager.default.fileExists(atPath: parkedURL.path) {
+            guard let loaded = loadParkedSession(from: parkedURL),
+                  let parked = canonicalizedParkedSession(
+                    loaded,
+                    at: parkedURL,
+                    allowArchived: true
+                  ) else {
+                throw MatterManagementError.incompleteWorkspace
+            }
+            if parked.clientLabel == oldLabel {
+                var renamedParked = parked
+                renamedParked.clientLabel = newLabel
+                if renamedParked.mapping.sourceFile == oldLabel {
+                    renamedParked.mapping.sourceFile = newLabel
+                }
+                try saveParkedSession(
+                    renamedParked,
+                    parkedURL,
+                    parkedProtection()
+                )
+                parkedRewrite = (parkedURL, parked)
+            }
+        }
+
+        let rollbackParkedRewrite: () -> Bool = {
+            guard let parkedRewrite else { return true }
+            do {
+                try self.saveParkedSession(
+                    parkedRewrite.original,
+                    parkedRewrite.url,
+                    self.parkedProtection()
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
+
+        let store = try clientStore()
+        let mappingRenamed: Bool
+        do {
+            mappingRenamed = try store.rename(
+                from: oldLabel,
+                to: newLabel,
+                oldProtection: clientProtection(oldLabel),
+                newProtection: clientProtection(newLabel)
+            )
+        } catch let mappingError {
+            guard rollbackParkedRewrite() else {
+                throw MatterManagementError.renameRecoveryRequired
+            }
+            throw mappingError
+        }
+        do {
+            try matterStore().rename(
+                from: oldLabel,
+                to: newLabel,
+                protection: matterProtection()
+            )
+        } catch let metadataError {
+            var rollbackSucceeded = true
+            if mappingRenamed {
+                do {
+                    let restored = try store.rename(
+                        from: newLabel,
+                        to: oldLabel,
+                        oldProtection: clientProtection(newLabel),
+                        newProtection: clientProtection(oldLabel)
+                    )
+                    guard restored else {
+                        rollbackSucceeded = false
+                        throw MatterManagementError.renameRecoveryRequired
+                    }
+                } catch {
+                    rollbackSucceeded = false
+                }
+            }
+            if !rollbackParkedRewrite() {
+                rollbackSucceeded = false
+            }
+            guard rollbackSucceeded else {
+                throw MatterManagementError.renameRecoveryRequired
+            }
+            throw metadataError
+        }
+
+        if clientLabel == oldLabel {
+            clientLabel = newLabel
+            sessionMapping?.sourceFile = newLabel
+        }
+    }
+
+    /// Archive or restore a matter. Archiving the active matter requires an
+    /// explicit document-discard confirmation and clears the active client so
+    /// later work does not silently continue inside an archived workspace.
+    @discardableResult
+    public func setMatterArchived(
+        _ label: String,
+        isArchived: Bool,
+        discardingDocuments: Bool = false
+    ) throws -> Bool {
+        let label = try validatedMatterLabel(label)
+        let hasParkedWork = isArchived ? try hasParkedMatterWork(label) : false
+        let closesLiveWork = clientLabel == label && hasActiveMatterWork
+        if isArchived,
+           (closesLiveWork || hasParkedWork),
+           !discardingDocuments {
+            return false
+        }
+
+        try matterStore().setArchived(
+            label: label,
+            isArchived: isArchived,
+            protection: matterProtection()
+        )
+        do {
+            if isArchived, hasParkedWork {
+                try discardParkedSession(matching: label)
+            }
+            if isArchived, clientLabel == label {
+                return selectClient(nil, discardingDocuments: discardingDocuments)
+            }
+        } catch let archiveError {
+            do {
+                try matterStore().setArchived(
+                    label: label,
+                    isArchived: false,
+                    protection: matterProtection()
+                )
+            } catch {
+                throw MatterManagementError.archiveRecoveryRequired
+            }
+            throw archiveError
+        }
+        return true
+    }
+
+    private func validatedMatterLabel(_ candidate: String) throws -> String {
+        guard let cleaned = MatterWorkspacePresentation.cleanedLabel(candidate) else {
+            throw MatterManagementError.emptyLabel
+        }
+        return cleaned
     }
 
     /// Ask the shell to run the Copy for AI flow (menu command hook).
     public func requestCopyForAI() { copyForAIRequestToken += 1 }
+
+    /// Ask the shell to present the document open panel (menu command hook).
+    ///
+    /// This is the keyboard path to the ONLY recovery from a failed import.
+    /// The document pane already offers it prominently as "Choose Files", but
+    /// until now there was no menu item and no shortcut for it at all, so a
+    /// keyboard-only user genuinely had no way out of a failed import. That,
+    /// not the Scan for PII gate, was the real dead end behind audit item F2.
+    public func requestOpen() { openRequestToken += 1 }
 
     /// Ask the shell to present the Restore from AI sheet (menu command hook).
     /// Resumes a parked session first (just in time, not at launch): the

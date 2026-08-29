@@ -2,7 +2,7 @@
 //  DeanonymizeShell.swift
 //  LDAUI
 //
-//  The De-anonymize mode: everything that brings REAL values back after work
+//  The Restore mode: everything that brings REAL values back after work
 //  was done on redacted text. Two paths, presented as two cards:
 //
 //  1. Paste back an AI reply. The counterpart of "Copy for AI" in the
@@ -30,7 +30,7 @@ import LDACore
 
 // MARK: - DeanonymizeShell
 
-/// The De-anonymize mode surface.
+/// The Restore mode surface.
 public struct DeanonymizeShell: View {
     @ObservedObject private var session: SessionModel
 
@@ -95,7 +95,7 @@ public struct DeanonymizeShell: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            Text("De-anonymize")
+            Text("Restore")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             Text("Bring the real values back. Both paths run entirely on this Mac.")

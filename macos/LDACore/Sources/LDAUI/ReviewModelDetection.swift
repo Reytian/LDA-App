@@ -342,11 +342,17 @@ extension ReviewModel {
         }
     }
 
-    /// surfaceText -> token, keeping the first token seen for a given surface.
+    /// Known surface form -> token, keeping the first token seen for a value.
+    /// Client mappings can include aliases, so every form must be indexed when
+    /// tokens are assigned back onto detected entities after a handoff.
     nonisolated static func tokenBySurface(mapping: Mapping) -> [String: String] {
         var result: [String: String] = [:]
-        for entry in mapping.entries.values where result[entry.surfaceText] == nil {
-            result[entry.surfaceText] = entry.token
+        for token in mapping.entries.keys.sorted() {
+            guard let entry = mapping.entries[token] else { continue }
+            for surface in [entry.value, entry.surfaceText] + entry.aliases
+            where !surface.isEmpty && result[surface] == nil {
+                result[surface] = entry.token
+            }
         }
         return result
     }

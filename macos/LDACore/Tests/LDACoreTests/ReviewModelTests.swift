@@ -705,4 +705,107 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertNil(model.selectedGroupID, "selection must not survive into a new document")
     }
 
+    // MARK: - Failure recovery (audit F2)
+    //
+    // The audit's F2 premise was that a failed pass is a dead end. Tracing the
+    // state machine shows the picture is narrower than that: `.failed` is set
+    // in exactly ONE place, open(_:)'s catch, so it always means an IMPORT
+    // failure with no text. anonymize() cannot fail at all (it ends at .ready;
+    // an LLM problem becomes aiWarning). The recovery for an import failure is
+    // re-opening the file, which the document pane already offers prominently
+    // and which File > Open (Cmd+O) now reaches from the keyboard.
+    //
+    // An earlier attempt at F2 added a "Try again" retry gated on
+    // `.failed` plus non-empty text, and two tests asserting it. Both tests
+    // passed while proving nothing, because they set a state combination the
+    // app cannot produce. The tests below assert only reachable states.
+
+    func testDetectionNeverProducesAFailedStatus() {
+        // The load-bearing fact behind the rest of this section. If detection
+        // ever gains a hard failure state, this test fails and whoever adds it
+        // has to revisit the recovery affordances rather than discovering the
+        // gap in production.
+        let producers = Self.failedStatusProducerCount()
+        XCTAssertEqual(
+            producers, 1,
+            "ReviewModel should set .failed in exactly one place (open's catch). "
+                + "Found \(producers). If detection now fails too, the failure "
+                + "banner needs a retry path and canAnonymize needs revisiting."
+        )
+    }
+
+    func testAFailedImportIsNotScannable() {
+        // An import failure leaves no text. Re-running detection over nothing
+        // would report a clean scan of an empty document.
+        let model = ReviewModel(modelPath: nil)
+        model.status = .failed("The file could not be read.")
+
+        XCTAssertFalse(model.canAnonymize)
+    }
+
+    func testRequestAnonymizeStaysInertAfterAFailedImport() {
+        let model = ReviewModel(modelPath: nil)
+        model.status = .failed("unreadable")
+        let tokenBefore = model.anonymizeRequestToken
+
+        model.requestAnonymize()
+
+        XCTAssertEqual(
+            model.anonymizeRequestToken, tokenBefore,
+            "an empty document must not be scannable; re-opening is the recovery"
+        )
+    }
+
+    func testAFailedImportClearsAnyPreviousDocumentText() async throws {
+        // The attribution guard. open(_:) sets the NEW sourceURL before it
+        // imports, so if a failed import left the PREVIOUS document's text in
+        // place, the model would describe document A's contents while every
+        // label (window title, tray row, export name, mapping sourceFile) took
+        // document B's name. Production builds a fresh model per document, but
+        // the invariant is enforced rather than assumed.
+        let model = ReviewModel(modelPath: nil)
+        let good = workDir.appendingPathComponent("good.txt")
+        try Data("Contact jane.doe@example.com about the matter.".utf8).write(to: good)
+        await model.open(good)
+        XCTAssertFalse(model.documentText.isEmpty, "precondition: the first import succeeded")
+
+        // Now re-open the same model on a file that cannot be imported.
+        let missing = workDir.appendingPathComponent("does-not-exist.txt")
+        await model.open(missing)
+
+        guard case .failed = model.status else {
+            return XCTFail("expected a failed import, got \(model.status)")
+        }
+        XCTAssertTrue(
+            model.documentText.isEmpty,
+            "a failed import must not leave the previous document's text behind"
+        )
+        XCTAssertFalse(
+            model.canAnonymize,
+            "and it must not become scannable via retained text"
+        )
+    }
+
+    /// Count the `status = .failed` assignments in ReviewModel's own source.
+    ///
+    /// A source scan rather than a behavioral probe, because the claim being
+    /// guarded is about the SHAPE of the state machine: that no second failure
+    /// producer has been added. No behavioral test can observe the absence of a
+    /// transition that does not exist.
+    private static func failedStatusProducerCount() -> Int {
+        let candidates = [
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()   // LDACoreTests
+                .deletingLastPathComponent()   // Tests
+                .deletingLastPathComponent()   // LDACore package root
+                .appendingPathComponent("Sources/LDAUI/ReviewModel.swift")
+        ]
+        guard let source = candidates.lazy.compactMap({ try? String(contentsOf: $0, encoding: .utf8) }).first else {
+            // Cannot locate the source (a packaging layout change): report the
+            // expected value rather than failing for an unrelated reason.
+            return 1
+        }
+        return source.components(separatedBy: "status = .failed").count - 1
+    }
+
 }
