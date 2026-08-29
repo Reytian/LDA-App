@@ -1,0 +1,1633 @@
+{
+  "corpus": {
+    "path": "bench/fulldocs",
+    "documents": 2,
+    "gold_entities": 75,
+    "gold_negatives": 85
+  },
+  "models": [
+    {
+      "label": "finetune-lda-v2-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "bare_array": 2
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.6667,
+          "recall": 0.8,
+          "f1": 0.7273,
+          "tp": 60,
+          "predicted": 90,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.8222,
+          "recall": 0.9867,
+          "f1": 0.897,
+          "tp": 74,
+          "predicted": 90,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 14,
+            "predicted": 14,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 0.9286,
+            "recall": 0.9286,
+            "f1": 0.9286,
+            "tp": 13,
+            "predicted": 14,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 0.5455,
+            "recall": 0.5455,
+            "f1": 0.5455,
+            "tp": 6,
+            "predicted": 11,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.25,
+            "recall": 0.5455,
+            "f1": 0.3429,
+            "tp": 6,
+            "predicted": 24,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.4,
+            "recall": 0.5,
+            "f1": 0.4444,
+            "tp": 4,
+            "predicted": 10,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.8158,
+          "recall": 0.8611,
+          "f1": 0.8378,
+          "tp": 31,
+          "predicted": 38,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.9722,
+        "backstopped_strict": {
+          "precision": 0.5577,
+          "recall": 0.7436,
+          "f1": 0.6374,
+          "tp": 29,
+          "predicted": 52,
+          "gold": 39
+        },
+        "surface_drift": 0.1867
+      },
+      "over_extraction": {
+        "decoys_hit": 7,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0824,
+        "decoy_share_of_predictions": 0.0778,
+        "adversarial_decoy_hit_rate": 0.0824,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.1,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2583.3,
+        "load_seconds": 3.03,
+        "peak_rss_mb": 3659.3,
+        "peak_rss_gb": 3.57,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 53.27,
+        "total_latency_s": 106.55,
+        "mean_gen_tok_per_s": 22.11,
+        "completion_tokens": 2358,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 22,
+          "gold_count": 37,
+          "unique_predictions": 42,
+          "decoys_hit": 2,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 38,
+          "gold_count": 38,
+          "unique_predictions": 48,
+          "decoys_hit": 5,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2,
+        "throughput_subscore": 1.0,
+        "composite": 79.88,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "gemma4-12b-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "bare_array": 2
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.9359,
+          "recall": 0.9733,
+          "f1": 0.9542,
+          "tp": 73,
+          "predicted": 78,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.9359,
+          "recall": 0.9733,
+          "f1": 0.9542,
+          "tp": 73,
+          "predicted": 78,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9333,
+            "recall": 1.0,
+            "f1": 0.9655,
+            "tp": 14,
+            "predicted": 15,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.9286,
+            "f1": 0.963,
+            "tp": 13,
+            "predicted": 13,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.9091,
+            "f1": 0.9524,
+            "tp": 10,
+            "predicted": 10,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.7333,
+            "recall": 1.0,
+            "f1": 0.8462,
+            "tp": 11,
+            "predicted": 15,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9722,
+          "recall": 0.9722,
+          "f1": 0.9722,
+          "tp": 35,
+          "predicted": 36,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.9722,
+        "backstopped_strict": {
+          "precision": 0.9048,
+          "recall": 0.9744,
+          "f1": 0.9383,
+          "tp": 38,
+          "predicted": 42,
+          "gold": 39
+        },
+        "surface_drift": 0.0
+      },
+      "over_extraction": {
+        "decoys_hit": 2,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0235,
+        "decoy_share_of_predictions": 0.0256,
+        "adversarial_decoy_hit_rate": 0.0235,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 6791.9,
+        "load_seconds": 3.03,
+        "peak_rss_mb": 9433.0,
+        "peak_rss_gb": 9.21,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 135.29,
+        "total_latency_s": 270.58,
+        "mean_gen_tok_per_s": 9.29,
+        "completion_tokens": 2495,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 35,
+          "gold_count": 37,
+          "unique_predictions": 39,
+          "decoys_hit": 2,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 38,
+          "gold_count": 38,
+          "unique_predictions": 39,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2,
+        "throughput_subscore": 0.4202,
+        "composite": 84.06,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "gemma4-e4b-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "object_entities": 2
+        },
+        "contract_shape_rate": 1.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.9268,
+          "recall": 0.5067,
+          "f1": 0.6552,
+          "tp": 38,
+          "predicted": 41,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 1.0,
+          "recall": 0.5467,
+          "f1": 0.7069,
+          "tp": 41,
+          "predicted": 41,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 14,
+            "predicted": 14,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.6429,
+            "f1": 0.7826,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.4545,
+            "f1": 0.625,
+            "tp": 5,
+            "predicted": 5,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tp": 0,
+            "predicted": 0,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 0.5556,
+            "f1": 0.7143,
+            "tp": 5,
+            "predicted": 5,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 0.5,
+            "f1": 0.6667,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.25,
+            "recall": 0.125,
+            "f1": 0.1667,
+            "tp": 1,
+            "predicted": 4,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.8889,
+          "recall": 0.6667,
+          "f1": 0.7619,
+          "tp": 24,
+          "predicted": 27,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.75,
+        "backstopped_strict": {
+          "precision": 1.0,
+          "recall": 0.359,
+          "f1": 0.5283,
+          "tp": 14,
+          "predicted": 14,
+          "gold": 39
+        },
+        "surface_drift": 0.04
+      },
+      "over_extraction": {
+        "decoys_hit": 0,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0,
+        "decoy_share_of_predictions": 0.0,
+        "adversarial_decoy_hit_rate": 0.0,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 4746.6,
+        "load_seconds": 4.03,
+        "peak_rss_mb": 5180.5,
+        "peak_rss_gb": 5.06,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 32.82,
+        "total_latency_s": 65.64,
+        "mean_gen_tok_per_s": 18.13,
+        "completion_tokens": 1285,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "object_entities",
+          "strict_tp": 11,
+          "gold_count": 37,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "object_entities",
+          "strict_tp": 27,
+          "gold_count": 38,
+          "unique_predictions": 30,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.5,
+        "throughput_subscore": 0.82,
+        "composite": 71.79,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": false,
+          "G3_critical_lenient_recall_ge_0.90": false,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [
+          "G2_critical_strict_recall_ge_0.80",
+          "G3_critical_lenient_recall_ge_0.90"
+        ],
+        "verdict": "FAIL",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen35-4b-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "bare_array": 2
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.7841,
+          "recall": 0.92,
+          "f1": 0.8466,
+          "tp": 69,
+          "predicted": 88,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.8182,
+          "recall": 0.96,
+          "f1": 0.8834,
+          "tp": 72,
+          "predicted": 88,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 14,
+            "predicted": 14,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 0.9286,
+            "recall": 0.9286,
+            "f1": 0.9286,
+            "tp": 13,
+            "predicted": 14,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 11,
+            "predicted": 11,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.2727,
+            "recall": 0.5455,
+            "f1": 0.3636,
+            "tp": 6,
+            "predicted": 22,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.8,
+            "recall": 1.0,
+            "f1": 0.8889,
+            "tp": 8,
+            "predicted": 10,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9211,
+          "recall": 0.9722,
+          "f1": 0.9459,
+          "tp": 35,
+          "predicted": 38,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.9722,
+        "backstopped_strict": {
+          "precision": 0.68,
+          "recall": 0.8718,
+          "f1": 0.764,
+          "tp": 34,
+          "predicted": 50,
+          "gold": 39
+        },
+        "surface_drift": 0.04
+      },
+      "over_extraction": {
+        "decoys_hit": 7,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0824,
+        "decoy_share_of_predictions": 0.0795,
+        "adversarial_decoy_hit_rate": 0.0824,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.1111,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2614.0,
+        "load_seconds": 2.01,
+        "peak_rss_mb": 3686.2,
+        "peak_rss_gb": 3.6,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 53.33,
+        "total_latency_s": 106.66,
+        "mean_gen_tok_per_s": 21.38,
+        "completion_tokens": 2283,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 32,
+          "gold_count": 37,
+          "unique_predictions": 42,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 37,
+          "gold_count": 38,
+          "unique_predictions": 46,
+          "decoys_hit": 4,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2,
+        "throughput_subscore": 0.967,
+        "composite": 86.86,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen35-9b-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "bare_array": 2
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.7,
+          "recall": 0.7467,
+          "f1": 0.7226,
+          "tp": 56,
+          "predicted": 80,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.8625,
+          "recall": 0.92,
+          "f1": 0.8903,
+          "tp": 69,
+          "predicted": 80,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.7647,
+            "recall": 0.9286,
+            "f1": 0.8387,
+            "tp": 13,
+            "predicted": 17,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.8571,
+            "f1": 0.9231,
+            "tp": 12,
+            "predicted": 12,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 0.5455,
+            "recall": 0.5455,
+            "f1": 0.5455,
+            "tp": 6,
+            "predicted": 11,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.4,
+            "recall": 0.5455,
+            "f1": 0.4615,
+            "tp": 6,
+            "predicted": 15,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 0.8889,
+            "f1": 0.9412,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 0.875,
+            "f1": 0.9333,
+            "tp": 7,
+            "predicted": 7,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.4,
+            "recall": 0.5,
+            "f1": 0.4444,
+            "tp": 4,
+            "predicted": 10,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.7436,
+          "recall": 0.8056,
+          "f1": 0.7733,
+          "tp": 29,
+          "predicted": 39,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.9167,
+        "backstopped_strict": {
+          "precision": 0.6585,
+          "recall": 0.6923,
+          "f1": 0.675,
+          "tp": 27,
+          "predicted": 41,
+          "gold": 39
+        },
+        "surface_drift": 0.1733
+      },
+      "over_extraction": {
+        "decoys_hit": 2,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0235,
+        "decoy_share_of_predictions": 0.025,
+        "adversarial_decoy_hit_rate": 0.0235,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.1753,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 5417.4,
+        "load_seconds": 4.03,
+        "peak_rss_mb": 6393.8,
+        "peak_rss_gb": 6.24,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 112.31,
+        "total_latency_s": 224.62,
+        "mean_gen_tok_per_s": 13.61,
+        "completion_tokens": 3090,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 18,
+          "gold_count": 37,
+          "unique_predictions": 37,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 38,
+          "gold_count": 38,
+          "unique_predictions": 43,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2,
+        "throughput_subscore": 0.6156,
+        "composite": 73.1,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen38-27b-IQ1_S-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 1,
+          "extracted_substring": 1,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 0,
+            "extracted_substring": 1,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "single_object": 1,
+          "bare_array": 1
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.8,
+          "recall": 0.48,
+          "f1": 0.6,
+          "tp": 36,
+          "predicted": 45,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.8,
+          "recall": 0.48,
+          "f1": 0.6,
+          "tp": 36,
+          "predicted": 45,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.875,
+            "recall": 0.5,
+            "f1": 0.6364,
+            "tp": 7,
+            "predicted": 8,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.3571,
+            "f1": 0.5263,
+            "tp": 5,
+            "predicted": 5,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.5455,
+            "f1": 0.7059,
+            "tp": 6,
+            "predicted": 6,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.4615,
+            "recall": 0.5455,
+            "f1": 0.5,
+            "tp": 6,
+            "predicted": 13,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 0.8,
+            "recall": 0.4444,
+            "f1": 0.5714,
+            "tp": 4,
+            "predicted": 5,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 0.5,
+            "f1": 0.6667,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 1.0,
+            "recall": 0.5,
+            "f1": 0.6667,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9412,
+          "recall": 0.4444,
+          "f1": 0.6038,
+          "tp": 16,
+          "predicted": 17,
+          "gold": 36
+        },
+        "critical_lenient_recall": 0.4444,
+        "backstopped_strict": {
+          "precision": 0.7143,
+          "recall": 0.5128,
+          "f1": 0.597,
+          "tp": 20,
+          "predicted": 28,
+          "gold": 39
+        },
+        "surface_drift": 0.0
+      },
+      "over_extraction": {
+        "decoys_hit": 3,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0353,
+        "decoy_share_of_predictions": 0.0667,
+        "adversarial_decoy_hit_rate": 0.0353,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 5905.4,
+        "load_seconds": 5.04,
+        "peak_rss_mb": 7736.8,
+        "peak_rss_gb": 7.56,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 159.1,
+        "total_latency_s": 318.2,
+        "mean_gen_tok_per_s": 3.25,
+        "completion_tokens": 1475,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "extracted_substring",
+          "shape": "single_object",
+          "strict_tp": 1,
+          "gold_count": 37,
+          "unique_predictions": 1,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 35,
+          "gold_count": 38,
+          "unique_predictions": 44,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2,
+        "throughput_subscore": 0.147,
+        "composite": 54.96,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": false,
+          "G3_critical_lenient_recall_ge_0.90": false,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [
+          "G2_critical_strict_recall_ge_0.80",
+          "G3_critical_lenient_recall_ge_0.90"
+        ],
+        "verdict": "FAIL",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen38-27b-Q3_K_XL-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 0,
+          "stripped_fence": 2,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.0,
+        "shapes": {
+          "object_entities": 2
+        },
+        "contract_shape_rate": 1.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.875,
+          "recall": 0.9333,
+          "f1": 0.9032,
+          "tp": 70,
+          "predicted": 80,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.9375,
+          "recall": 1.0,
+          "f1": 0.9677,
+          "tp": 75,
+          "predicted": 80,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9333,
+            "recall": 1.0,
+            "f1": 0.9655,
+            "tp": 14,
+            "predicted": 15,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 0.875,
+            "recall": 1.0,
+            "f1": 0.9333,
+            "tp": 14,
+            "predicted": 16,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 11,
+            "predicted": 11,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.5,
+            "recall": 0.5455,
+            "f1": 0.5217,
+            "tp": 6,
+            "predicted": 12,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.8889,
+            "recall": 1.0,
+            "f1": 0.9412,
+            "tp": 8,
+            "predicted": 9,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9,
+          "recall": 1.0,
+          "f1": 0.9474,
+          "tp": 36,
+          "predicted": 40,
+          "gold": 36
+        },
+        "critical_lenient_recall": 1.0,
+        "backstopped_strict": {
+          "precision": 0.85,
+          "recall": 0.8718,
+          "f1": 0.8608,
+          "tp": 34,
+          "predicted": 40,
+          "gold": 39
+        },
+        "surface_drift": 0.0667
+      },
+      "over_extraction": {
+        "decoys_hit": 1,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0118,
+        "decoy_share_of_predictions": 0.0125,
+        "adversarial_decoy_hit_rate": 0.0118,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 12537.4,
+        "load_seconds": 9.07,
+        "peak_rss_mb": 14166.6,
+        "peak_rss_gb": 13.83,
+        "fits_16gb": false,
+        "fits_32gb": true,
+        "mean_latency_s": 265.12,
+        "total_latency_s": 530.24,
+        "mean_gen_tok_per_s": 4.87,
+        "completion_tokens": 2567,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "object_entities",
+          "strict_tp": 32,
+          "gold_count": 37,
+          "unique_predictions": 42,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "object_entities",
+          "strict_tp": 38,
+          "gold_count": 38,
+          "unique_predictions": 38,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.5,
+        "throughput_subscore": 0.2203,
+        "composite": 84.24,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": false
+      }
+    },
+    {
+      "label": "qwen38-27b-Q5_K_M-full",
+      "docs_total": 2,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 1,
+          "stripped_fence": 1,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 1,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.5,
+        "shapes": {
+          "object_entities": 2
+        },
+        "contract_shape_rate": 1.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.875,
+          "recall": 0.9333,
+          "f1": 0.9032,
+          "tp": 70,
+          "predicted": 80,
+          "gold": 75
+        },
+        "micro_lenient": {
+          "precision": 0.9375,
+          "recall": 1.0,
+          "f1": 0.9677,
+          "tp": 75,
+          "predicted": 80,
+          "gold": 75
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9333,
+            "recall": 1.0,
+            "f1": 0.9655,
+            "tp": 14,
+            "predicted": 15,
+            "gold": 14
+          },
+          "COMPANY": {
+            "precision": 0.875,
+            "recall": 1.0,
+            "f1": 0.9333,
+            "tp": 14,
+            "predicted": 16,
+            "gold": 14
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 11,
+            "predicted": 11,
+            "gold": 11
+          },
+          "AMOUNT": {
+            "precision": 0.5,
+            "recall": 0.5455,
+            "f1": 0.5217,
+            "tp": 6,
+            "predicted": 12,
+            "gold": 11
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 9,
+            "predicted": 9,
+            "gold": 9
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 8,
+            "predicted": 8,
+            "gold": 8
+          },
+          "ADDRESS": {
+            "precision": 0.8889,
+            "recall": 1.0,
+            "f1": 0.9412,
+            "tp": 8,
+            "predicted": 9,
+            "gold": 8
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9,
+          "recall": 1.0,
+          "f1": 0.9474,
+          "tp": 36,
+          "predicted": 40,
+          "gold": 36
+        },
+        "critical_lenient_recall": 1.0,
+        "backstopped_strict": {
+          "precision": 0.85,
+          "recall": 0.8718,
+          "f1": 0.8608,
+          "tp": 34,
+          "predicted": 40,
+          "gold": 39
+        },
+        "surface_drift": 0.0667
+      },
+      "over_extraction": {
+        "decoys_hit": 1,
+        "decoys_total": 85,
+        "decoy_hit_rate": 0.0118,
+        "decoy_share_of_predictions": 0.0125,
+        "adversarial_decoy_hit_rate": 0.0118,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 18855.6,
+        "load_seconds": 19.16,
+        "peak_rss_mb": 8686.8,
+        "peak_rss_gb": 8.48,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 355.71,
+        "total_latency_s": 711.42,
+        "mean_gen_tok_per_s": 3.61,
+        "completion_tokens": 2562,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "full-cn-agreement",
+          "parse_tier": "stripped_fence",
+          "shape": "object_entities",
+          "strict_tp": 32,
+          "gold_count": 37,
+          "unique_predictions": 42,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "full-en-agreement",
+          "parse_tier": "clean",
+          "shape": "object_entities",
+          "strict_tp": 38,
+          "gold_count": 38,
+          "unique_predictions": 38,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.75,
+        "throughput_subscore": 0.1633,
+        "composite": 86.17,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    }
+  ]
+}

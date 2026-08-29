@@ -1,0 +1,99 @@
+{
+  "id": "009-mixed-adversarial-roles",
+  "lang": "mixed",
+  "category": "joint-venture",
+  "adversarial": true,
+  "text": "合资经营合同（节选）\n\n一、定义\n本合同中，\"甲方\"指广州明德医疗器械有限公司；\"乙方\"指 Halcyon Bio Partners Pte. Ltd.；\"合营公司\"指双方拟设立的广州明德海康生物科技有限公司。\"本合同\"指本合资经营合同及其全部附件。\n\n二、出资\n2.1 甲方以现金人民币40,000,000元出资，占合营公司注册资本的60%。\n2.2 乙方以现金美元5,600,000（USD 5,600,000）出资，占合营公司注册资本的40%。\n\n三、董事会\n3.1 合营公司设董事会，由五名董事组成，其中甲方委派三名，乙方委派两名。\n3.2 首任董事长由甲方委派，为程立衡先生；首任总经理由乙方委派，为 Marcus Tan Wei Jie 先生。\n3.3 董事、监事及高级管理人员的义务依照中华人民共和国公司法执行。\n\n四、注册与地址\n4.1 合营公司注册地址为广州市黄埔区科学城开源大道11号明德产业园2号楼。\n4.2 乙方注册地址为 60 Anson Road, #12-01, Singapore 079914。\n\n五、通知\n甲方联系人：程立衡，电话 020-8755-3312，邮箱 chenglh@mingde-med.com\n乙方联系人：Marcus Tan Wei Jie，电话 +65 6555 0271，邮箱 marcus.tan@halcyonbio.sg\n合营公司筹备组联系人：邢知微，电话 +86 135-7788-2049\n\n六、审批与适用法律\n本合同经广州市黄埔区市场监督管理局登记后生效，适用中华人民共和国法律。因本合同引起的争议提交中国国际经济贸易仲裁委员会华南分会仲裁。\n\n签署日期：2027年10月12日",
+  "gold": [
+    {
+      "value": "广州明德医疗器械有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Halcyon Bio Partners Pte. Ltd.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "广州明德海康生物科技有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "程立衡",
+      "type": "PERSON"
+    },
+    {
+      "value": "Marcus Tan Wei Jie",
+      "type": "PERSON"
+    },
+    {
+      "value": "邢知微",
+      "type": "PERSON"
+    },
+    {
+      "value": "广州市黄埔区科学城开源大道11号明德产业园2号楼",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "60 Anson Road, #12-01, Singapore 079914",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "人民币40,000,000元",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "美元5,600,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "USD 5,600,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "2027年10月12日",
+      "type": "DATE"
+    },
+    {
+      "value": "020-8755-3312",
+      "type": "PHONE"
+    },
+    {
+      "value": "+65 6555 0271",
+      "type": "PHONE"
+    },
+    {
+      "value": "+86 135-7788-2049",
+      "type": "PHONE"
+    },
+    {
+      "value": "chenglh@mingde-med.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "marcus.tan@halcyonbio.sg",
+      "type": "EMAIL"
+    }
+  ],
+  "gold_negatives": [
+    "甲方",
+    "乙方",
+    "合营公司",
+    "本合同",
+    "董事会",
+    "董事长",
+    "总经理",
+    "监事",
+    "高级管理人员",
+    "中华人民共和国公司法",
+    "广州市黄埔区市场监督管理局",
+    "中国国际经济贸易仲裁委员会华南分会",
+    "中华人民共和国法律",
+    "60%",
+    "40%",
+    "联系人",
+    "筹备组",
+    "注册资本",
+    "中华人民共和国"
+  ],
+  "notes": "Adversarial fragment 2 of 3, aimed at Chinese defined-term aliasing. The definition clause binds 合营公司 to 广州明德海康生物科技有限公司: the alias must not be extracted, the canonical name must. 广州市黄埔区市场监督管理局 is a government agency and 中国国际经济贸易仲裁委员会华南分会 an arbitration body, both excluded, and both are long CJK proper nouns that read like company names, which is exactly the confusion being probed. 程立衡先生 carries an honorific suffix in the text, so a model returning the honorific scores a strict miss and a lenient hit, and the gap between the two numbers is the honorific-handling signal."
+}

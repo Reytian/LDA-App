@@ -602,9 +602,8 @@ public struct FillShell: View {
     private var extractDisabledReason: String {
         if model.sourcePaths.isEmpty { return "Add at least one source document first" }
         if model.modelPath == nil || (model.modelPath ?? "").isEmpty {
-            return "Requires the bundled on-device model (lda-v2-Q4_K_M.gguf). "
-                + "In development builds, place the model at "
-                + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf."
+            return "Requires an on-device model. Open Settings, then AI, "
+                + "and add a model to enable this."
         }
         return "Extract profile fields from the source documents"
     }

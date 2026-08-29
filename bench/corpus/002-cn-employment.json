@@ -1,0 +1,85 @@
+{
+  "id": "002-cn-employment",
+  "lang": "zh",
+  "category": "employment",
+  "adversarial": false,
+  "text": "劳动合同\n\n甲方（用人单位）：成都锦阳智能装备有限公司\n注册地址：成都市高新区天府五街200号锦阳大厦B座9层\n联系人：邱望舒，电话 028-8532-7710，邮箱 qiuwangshu@jinyang-equip.com\n\n乙方（劳动者）：夏廷玉\n通讯地址：成都市武侯区科华北路62号锦城花园7栋3单元501室\n电话：+86 189-0281-4477\n邮箱：xiatingyu1990@qq.com\n\n第一条 合同期限\n本合同为固定期限劳动合同，自2026年9月1日起至2029年8月31日止，其中试用期三个月。\n\n第二条 工作岗位\n乙方担任甲方研发中心高级算法工程师职务，工作地点为成都市。甲方可根据经营需要调整乙方的工作岗位。\n\n第三条 劳动报酬\n甲方每月10日前以货币形式支付乙方工资。试用期月工资为人民币18,000元，转正后月工资为人民币24,000元。年度奖金由甲方董事会根据经营业绩决定。\n\n第四条 保密义务\n乙方对在职期间知悉的甲方商业秘密负有保密义务。乙方离职后两年内不得为甲方的竞争对手提供同类服务。\n\n第五条 争议解决\n因履行本合同发生的争议，双方可向成都市劳动人事争议仲裁委员会申请仲裁。本合同适用中华人民共和国劳动合同法。\n\n甲方（盖章）：成都锦阳智能装备有限公司\n乙方（签字）：夏廷玉\n签订日期：2026年8月20日",
+  "gold": [
+    {
+      "value": "成都锦阳智能装备有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "邱望舒",
+      "type": "PERSON"
+    },
+    {
+      "value": "夏廷玉",
+      "type": "PERSON"
+    },
+    {
+      "value": "成都市高新区天府五街200号锦阳大厦B座9层",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "成都市武侯区科华北路62号锦城花园7栋3单元501室",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "028-8532-7710",
+      "type": "PHONE"
+    },
+    {
+      "value": "+86 189-0281-4477",
+      "type": "PHONE"
+    },
+    {
+      "value": "qiuwangshu@jinyang-equip.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "xiatingyu1990@qq.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "2026年9月1日",
+      "type": "DATE"
+    },
+    {
+      "value": "2029年8月31日",
+      "type": "DATE"
+    },
+    {
+      "value": "2026年8月20日",
+      "type": "DATE"
+    },
+    {
+      "value": "人民币18,000元",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "人民币24,000元",
+      "type": "AMOUNT"
+    }
+  ],
+  "gold_negatives": [
+    "甲方",
+    "乙方",
+    "用人单位",
+    "劳动者",
+    "联系人",
+    "高级算法工程师",
+    "研发中心",
+    "董事会",
+    "成都市劳动人事争议仲裁委员会",
+    "中华人民共和国劳动合同法",
+    "商业秘密",
+    "竞争对手",
+    "成都市",
+    "试用期三个月",
+    "每月10日",
+    "两年内",
+    "中华人民共和国"
+  ],
+  "notes": "Chinese labour contract. Job title (高级算法工程师) and internal unit (研发中心) are excluded by the job-title and generic-group rules. 成都市劳动人事争议仲裁委员会 is an arbitration body and 中华人民共和国劳动合同法 is a statute, both excluded. 每月10日 and 试用期三个月 are recurring or relative periods rather than concrete dates, so they are DATE decoys."
+}

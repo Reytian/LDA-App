@@ -1,0 +1,72 @@
+{
+  "id": "004-en-nda",
+  "lang": "en",
+  "category": "nda",
+  "adversarial": false,
+  "text": "MUTUAL NON-DISCLOSURE AGREEMENT\n\nThis Mutual Non-Disclosure Agreement (this \"Agreement\") is entered into as of 14 February 2027 (the \"Effective Date\") by and between Halden Optics Corporation, a corporation with its principal place of business at 4400 Beacon Ridge Parkway, Suite 250, Charlotte, North Carolina 28209 (\"Discloser\"), and Verrant Systems B.V., a company with its registered office at Keizersgracht 412, 1016 GC Amsterdam, the Netherlands (\"Recipient\"). Discloser and Recipient are each a \"Party\" and together the \"Parties\".\n\n1. Purpose. The Parties wish to evaluate a potential commercial relationship concerning inspection optics for semiconductor metrology.\n\n2. Confidential Information. \"Confidential Information\" means all non-public information disclosed by a Party to the other Party, whether disclosed orally, in writing, or by inspection of tangible objects.\n\n3. Exclusions. Confidential Information does not include information that (a) is or becomes publicly available through no fault of the Receiving Party; (b) was rightfully known to the Receiving Party prior to disclosure; or (c) is independently developed without use of the Confidential Information.\n\n4. Term. The obligations in this Agreement survive for five (5) years from the Effective Date.\n\n5. Notices. All notices must be sent to the following, and are effective on receipt:\n\nIf to Discloser: Halden Optics Corporation, Attn: Marguerite Delacroix-Reyes, General Counsel, 4400 Beacon Ridge Parkway, Suite 250, Charlotte, North Carolina 28209, email mdelacroix@haldenoptics.com, telephone +1 (704) 555-0148.\n\nIf to Recipient: Verrant Systems B.V., Attn: Joost van der Meer, Managing Director, Keizersgracht 412, 1016 GC Amsterdam, the Netherlands, email j.vandermeer@verrant.nl, telephone +31 20 555 0193.\n\n6. Governing Law. This Agreement is governed by the laws of the State of New York, without regard to its conflict of laws principles. Any dispute will be resolved by binding arbitration administered by JAMS in New York County.\n\nIN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.\n\nHALDEN OPTICS CORPORATION\nBy: Marguerite Delacroix-Reyes\nTitle: General Counsel\nDate: 14 February 2027\n\nVERRANT SYSTEMS B.V.\nBy: Joost van der Meer\nTitle: Managing Director\nDate: 14 February 2027",
+  "gold": [
+    {
+      "value": "Halden Optics Corporation",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Verrant Systems B.V.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Marguerite Delacroix-Reyes",
+      "type": "PERSON"
+    },
+    {
+      "value": "Joost van der Meer",
+      "type": "PERSON"
+    },
+    {
+      "value": "4400 Beacon Ridge Parkway, Suite 250, Charlotte, North Carolina 28209",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "Keizersgracht 412, 1016 GC Amsterdam, the Netherlands",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "14 February 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "mdelacroix@haldenoptics.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "j.vandermeer@verrant.nl",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+1 (704) 555-0148",
+      "type": "PHONE"
+    },
+    {
+      "value": "+31 20 555 0193",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "Agreement",
+    "Discloser",
+    "Recipient",
+    "Party",
+    "the Parties",
+    "Receiving Party",
+    "Confidential Information",
+    "General Counsel",
+    "Managing Director",
+    "Effective Date",
+    "JAMS",
+    "New York County",
+    "State of New York",
+    "New York",
+    "five (5) years",
+    "semiconductor metrology"
+  ],
+  "notes": "Baseline English NDA with no AMOUNT, which checks that a model does not invent one. Discloser and Recipient are quoted defined terms, not organization names. The company names also appear in all-caps in the signature block, which the strict matcher folds to the same key. New York appears only as governing law and venue, so it is a negative, while both street addresses are gold."
+}

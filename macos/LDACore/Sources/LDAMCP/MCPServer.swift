@@ -8,7 +8,8 @@
 //
 //  Transport note (LOCAL, not network): this server speaks newline-delimited
 //  JSON-RPC 2.0 over stdin/stdout only. It opens no sockets and makes no network
-//  calls, so it preserves the app's no-network-entitlement, offline posture. An
+//  calls. The app itself now has an outbound entitlement for model downloads,
+//  but this server is not part of that path and must never gain one. An
 //  MCP host launches this process and pipes requests to it on stdin; responses
 //  come back on stdout. Nothing leaves the machine.
 //

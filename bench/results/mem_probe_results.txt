@@ -1,0 +1,7 @@
+label|weights_gib|after_load_gb|peak_np1_gb
+{"label": "finetune-lda-v2", "weights_gib": 2.523, "after_load_gb": 2.816, "peak_np1_gb": 2.978, "ctx": 4096}
+{"label": "qwen35-4b-control", "weights_gib": 2.553, "after_load_gb": 2.845, "peak_np1_gb": 3.008, "ctx": 4096}
+{"label": "nuextract3", "weights_gib": 2.592, "after_load_gb": 2.815, "peak_np1_gb": 2.929, "ctx": 4096}
+{"label": "qwen35-9b", "weights_gib": 5.29, "after_load_gb": 5.575, "peak_np1_gb": 5.743, "ctx": 4096}
+{"label": "qwen3-4b-base", "weights_gib": 2.326, "after_load_gb": 2.972, "peak_np1_gb": 2.986, "ctx": 4096}
+{"label": "qwen3-8b", "weights_gib": 4.682, "after_load_gb": 5.137, "peak_np1_gb": 5.157, "ctx": 4096}

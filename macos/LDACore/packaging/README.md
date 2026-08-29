@@ -33,15 +33,47 @@ You need an Apple Developer account.
 ## What is in the bundle
 
 - `Contents/MacOS/LDAApp` — the app (statically links llama.cpp with Metal embedded).
-- `Contents/Resources/lda-v2-Q4_K_M.gguf` — the bundled v2 model (set `MODEL_PATH` to override).
+- `LDACore_LDAUI.bundle` and `ZIPFoundation_ZIPFoundation.bundle` — SwiftPM resource
+  bundles, at the bundle ROOT rather than in `Contents/Resources`, because that is
+  where the generated resource accessor looks. `LDACore_LDAUI.bundle/Models.json`
+  is the detection tier manifest and the app reads it during startup, so a build
+  without it traps on launch. `package-app.sh` fails rather than shipping one.
 - `Contents/Info.plist` — bundle id `com.haotianyi.LDA` (change as needed).
 
-## The offline guarantee
+**Only the Quick model is bundled** (`Contents/Resources/Qwen3.5-4B-Q4_K_M.gguf`,
+about 2.7 GB, so the .app is roughly 3.2 GB). Quick peaks at 3.1 GB, which fits
+the 16 GB minimum spec, so an offline user always has a model that actually runs
+on their machine. Balanced needs 24 GB, so bundling that instead would hand a
+16 GB user a model the memory gate blocks.
 
-`packaging/LDA.entitlements` turns the App Sandbox on and grants only
-user-selected file read/write. It deliberately includes **no network
-entitlement**, so the OS denies all network access. This is the core privacy
-property for privileged documents. Do not add `com.apple.security.network.*`.
+Balanced and Most thorough are downloaded through Model Management into
+`Application Support/LDA/Models/`. `package-app.sh` exits non-zero if the Quick
+model is missing rather than shipping a build with no working model.
+
+## The privacy guarantee
+
+`packaging/LDA.entitlements` turns the App Sandbox on and grants user-selected
+file read/write, app-scoped bookmarks, and outbound network.
+
+**The network entitlement is new, and the previous absolute claim that this app
+never touches the network no longer holds.** It was added for one purpose:
+downloading detection models the user explicitly requests in Settings, then AI,
+then Manage Models.
+
+What still holds, and what an auditor can verify:
+
+- **Document content never leaves the machine.** Detection, redaction and
+  restoration run entirely on-device against a local GGUF file. No document
+  text, entity, mapping or filename is ever transmitted.
+- The only outbound requests are model downloads, to the host recorded in
+  `Models.json`, and only when a user starts one.
+- No telemetry, no analytics, no crash reporting, no update check.
+- `com.apple.security.network.server` is still absent: nothing connects in.
+
+To audit: `grep -rn URLSession Sources/`. Every hit must sit behind Model
+Management. Anything else is a defect.
+
+Do not add `com.apple.security.network.server`.
 
 ## Not included
 

@@ -1,0 +1,107 @@
+{
+  "id": "007-mixed-cross-border-supplement",
+  "lang": "mixed",
+  "category": "supply-supplement",
+  "adversarial": false,
+  "text": "补充协议 / SUPPLEMENTAL AGREEMENT\n\n本补充协议于2027年7月9日由下列各方签订 / This Supplemental Agreement is dated 9 July 2027 and made between:\n\n甲方 / Party A: 苏州维澜精密机械有限公司 (Suzhou Weilan Precision Machinery Co., Ltd.)\n注册地址 / Registered address: 苏州市工业园区星湖街218号生物纳米园A3幢6层\n授权代表 / Authorised representative: 温砚清 (Wen Yanqing), 总经理\n\n乙方 / Party B: Arclight Industrial GmbH\nRegistered office: Ludwigstrasse 27, 80539 Munich, Germany\nAuthorised representative: Katharina Brunnhuber-Lang, Head of Procurement\n\n第一条 / Clause 1 采购数量与价格 / Volume and Price\n乙方同意在2028年12月31日前向甲方采购精密导轨组件，合同总金额为欧元3,750,000（EUR 3,750,000）。首付款人民币8,200,000元应于2027年8月15日前支付。\n\n第二条 / Clause 2 通知 / Notices\n甲方通知联系人 / Party A contact: 温砚清, 电话 +86 512-6288-4417, 邮箱 wenyanqing@weilan-precision.com\n乙方通知联系人 / Party B contact: Katharina Brunnhuber-Lang, telephone +49 89 5550 2281, email k.brunnhuber@arclight-ind.de\n抄送 / Copy to: 甲方法务部 legal@weilan-precision.com\n\n第三条 / Clause 3 适用法律 / Governing Law\n本补充协议适用中华人民共和国法律 / This Supplemental Agreement is governed by the laws of the People's Republic of China. 争议提交上海国际经济贸易仲裁委员会仲裁 / Disputes shall be referred to the Shanghai International Arbitration Center.",
+  "gold": [
+    {
+      "value": "苏州维澜精密机械有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Suzhou Weilan Precision Machinery Co., Ltd.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Arclight Industrial GmbH",
+      "type": "COMPANY"
+    },
+    {
+      "value": "温砚清",
+      "type": "PERSON"
+    },
+    {
+      "value": "Wen Yanqing",
+      "type": "PERSON"
+    },
+    {
+      "value": "Katharina Brunnhuber-Lang",
+      "type": "PERSON"
+    },
+    {
+      "value": "苏州市工业园区星湖街218号生物纳米园A3幢6层",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "Ludwigstrasse 27, 80539 Munich, Germany",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "2027年7月9日",
+      "type": "DATE"
+    },
+    {
+      "value": "9 July 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "2028年12月31日",
+      "type": "DATE"
+    },
+    {
+      "value": "2027年8月15日",
+      "type": "DATE"
+    },
+    {
+      "value": "欧元3,750,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "EUR 3,750,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "人民币8,200,000元",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "wenyanqing@weilan-precision.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "k.brunnhuber@arclight-ind.de",
+      "type": "EMAIL"
+    },
+    {
+      "value": "legal@weilan-precision.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+86 512-6288-4417",
+      "type": "PHONE"
+    },
+    {
+      "value": "+49 89 5550 2281",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "甲方",
+    "乙方",
+    "Party A",
+    "Party B",
+    "授权代表",
+    "总经理",
+    "Head of Procurement",
+    "中华人民共和国法律",
+    "People's Republic of China",
+    "上海国际经济贸易仲裁委员会",
+    "Shanghai International Arbitration Center",
+    "甲方法务部",
+    "精密导轨组件",
+    "Authorised representative",
+    "中华人民共和国"
+  ],
+  "notes": "Bilingual parallel text. The same party and the same date each appear in two scripts, and both surface forms are separately gold: redacting only one leaks the other. Same for the consideration, written once in Chinese and once in ISO form. This fragment is the main probe for a model that silently drops the non-dominant language of a mixed chunk."
+}

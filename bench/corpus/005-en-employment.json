@@ -1,0 +1,73 @@
+{
+  "id": "005-en-employment",
+  "lang": "en",
+  "category": "employment",
+  "adversarial": false,
+  "text": "EMPLOYMENT AGREEMENT\n\nThis Employment Agreement (the \"Agreement\") is made effective as of 6 April 2026 between Quillon Therapeutics, Inc., a Delaware corporation with offices at 1201 Sawgrass Terrace, Building C, Cambridge, Massachusetts 02142 (the \"Company\"), and Priyanka Rasmussen-Oyelaran, an individual residing at 88 Fenwick Lane, Apartment 4B, Somerville, Massachusetts 02143 (the \"Executive\").\n\n1. Position. The Company employs the Executive as Senior Vice President, Clinical Development, reporting to the Chief Executive Officer, Dr. Aurelio Banfi.\n\n2. Compensation. The Company will pay the Executive an annual base salary of USD 385,000, payable in accordance with the Company's standard payroll practices. The Executive is eligible for an annual target bonus of 40% of base salary.\n\n3. Equity. Subject to approval by the Board of Directors, the Executive will be granted an option to purchase 120,000 shares of common stock, vesting over four (4) years with a one-year cliff.\n\n4. Benefits. The Executive is eligible to participate in all employee benefit plans maintained by the Company, including plans subject to ERISA and continuation coverage under COBRA.\n\n5. At-Will Employment. Employment is at will and may be terminated by either the Company or the Executive at any time, subject to the notice provisions in Section 7.\n\n6. Notices. Notices to the Company must be sent to the attention of the General Counsel at legal@quillontx.com or +1 (617) 555-0272. Notices to the Executive must be sent to p.rasmussen@quillontx.com or +1 (617) 555-0338.\n\n7. Governing Law. This Agreement is governed by the laws of the Commonwealth of Massachusetts. The Executive consents to the exclusive jurisdiction of the state and federal courts located in Suffolk County, Massachusetts.\n\nAGREED:\n\nQUILLON THERAPEUTICS, INC.\nBy: Aurelio Banfi\nTitle: Chief Executive Officer\nDate: 6 April 2026\n\nEXECUTIVE\nPriyanka Rasmussen-Oyelaran\nDate: 6 April 2026",
+  "gold": [
+    {
+      "value": "Quillon Therapeutics, Inc.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Priyanka Rasmussen-Oyelaran",
+      "type": "PERSON"
+    },
+    {
+      "value": "Aurelio Banfi",
+      "type": "PERSON"
+    },
+    {
+      "value": "1201 Sawgrass Terrace, Building C, Cambridge, Massachusetts 02142",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "88 Fenwick Lane, Apartment 4B, Somerville, Massachusetts 02143",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "6 April 2026",
+      "type": "DATE"
+    },
+    {
+      "value": "USD 385,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "legal@quillontx.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "p.rasmussen@quillontx.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+1 (617) 555-0272",
+      "type": "PHONE"
+    },
+    {
+      "value": "+1 (617) 555-0338",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "the Company",
+    "the Executive",
+    "Agreement",
+    "Senior Vice President",
+    "Chief Executive Officer",
+    "General Counsel",
+    "Board of Directors",
+    "ERISA",
+    "COBRA",
+    "Delaware",
+    "Commonwealth of Massachusetts",
+    "Suffolk County",
+    "120,000 shares",
+    "40%",
+    "four (4) years",
+    "employee benefit plans",
+    "Section 7"
+  ],
+  "notes": "legal@quillontx.com is a role mailbox rather than a personal one, but it is still a concrete contact identifier and EMAIL is an explicit wire type, so it is gold; the General Counsel title next to it is a negative. 120,000 shares is a share count, not money, and 40% is a ratio, so both are AMOUNT decoys. Delaware appears only as the state of incorporation and is a negative, which pairs with 008 where Delaware also appears inside a real street address."
+}

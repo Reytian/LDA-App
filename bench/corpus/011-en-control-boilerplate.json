@@ -1,0 +1,27 @@
+{
+  "id": "011-en-control-boilerplate",
+  "lang": "en",
+  "category": "general-provisions",
+  "adversarial": true,
+  "text": "GENERAL PROVISIONS (EXCERPT)\n\n12. Entire Agreement. This Agreement, together with the Schedules and Exhibits attached to it, constitutes the entire agreement between the Parties with respect to its subject matter and supersedes all prior negotiations, representations, understandings, and agreements, whether written or oral.\n\n13. Amendment and Waiver. No amendment to this Agreement is effective unless it is in writing and signed by an authorised representative of each Party. No waiver of any provision is effective unless made in writing, and no waiver of a breach constitutes a waiver of any subsequent breach.\n\n14. Severability. If any provision of this Agreement is held to be invalid, illegal, or unenforceable by a court of competent jurisdiction, that provision shall be modified to the minimum extent necessary to make it enforceable, and the remaining provisions shall continue in full force and effect.\n\n15. Assignment. Neither Party may assign or transfer this Agreement, in whole or in part, without the prior written consent of the other Party, except that either Party may assign this Agreement to a successor in connection with a merger, acquisition, or sale of substantially all of its assets.\n\n16. Counterparts. This Agreement may be executed in any number of counterparts, each of which is deemed an original and all of which together constitute one and the same instrument. Signatures delivered by electronic means are deemed original signatures.\n\n17. Relationship of the Parties. Nothing in this Agreement creates a partnership, joint venture, agency, or employment relationship between the Parties. Neither Party has authority to bind the other or to incur any liability on behalf of the other.\n\n18. Third Party Rights. A person who is not a Party to this Agreement has no right to enforce any of its terms.\n\n19. Notices. Notices must be in writing and delivered by hand, by prepaid recorded delivery, or by email to the addresses set out in Schedule 1. A notice delivered by email is deemed received at the time of transmission, provided that no delivery failure notification is received.\n\n20. Force Majeure. Neither Party is liable for any failure or delay in performance caused by events beyond its reasonable control, including acts of God, war, terrorism, epidemic, labour disputes, or failure of utilities or telecommunications networks.",
+  "gold": [],
+  "gold_negatives": [
+    "This Agreement",
+    "the Parties",
+    "Party",
+    "Third Party",
+    "Schedules",
+    "Exhibits",
+    "Schedule 1",
+    "authorised representative",
+    "a court of competent jurisdiction",
+    "Force Majeure",
+    "Entire Agreement",
+    "Severability",
+    "Assignment",
+    "Counterparts",
+    "successor",
+    "joint venture"
+  ],
+  "notes": "English zero-PII control. Ten clauses of pure boilerplate with no person, organization, address, date, amount, email, or phone anywhere, so the correct answer is an empty entities array. Recall is undefined here and every prediction is a false positive, which makes this the cleanest read on baseline over-extraction. It also tests whether a model can emit a valid empty result rather than hallucinating filler to satisfy the schema."
+}

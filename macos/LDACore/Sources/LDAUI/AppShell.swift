@@ -367,11 +367,26 @@ public struct AppShell: View {
             }
 
             if !model.aiActive {
-                Label("Pattern matching only", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.danger)
-                    .help(model.aiWarning
-                        ?? "The AI model was unavailable, so names, companies, and addresses may have been missed.")
+                // Two different states share this slot and MUST look different.
+                // A deliberate patterns-only run is a normal, informational
+                // choice. An AI pass that was asked for and could not run is a
+                // warning: the user expected names and companies to be found
+                // and they were not. Rendering both as the same red triangle
+                // makes a failed redaction indistinguishable from an intended
+                // one. See docs/design/model-tiers-prd.md section 7.
+                if model.aiWarning == nil {
+                    Label("Patterns only", systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .help("Emails, phones, dates, amounts, and ID numbers were detected. "
+                            + "Names, companies, and addresses were not, because this "
+                            + "detection level does not run the AI model.")
+                } else {
+                    Label("AI did not run", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(CounselTheme.danger)
+                        .help(model.aiWarning ?? "")
+                }
             }
 
             if let warning = model.aiWarning {
@@ -417,7 +432,8 @@ public struct AppShell: View {
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .help("Documents, placeholders, and mappings never leave this Mac. "
-                    + "The app has no network access at all.")
+                    + "LDA uses the network only to download a detection model "
+                    + "you ask for, and only while that download runs.")
                 .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
         }
         .padding(.horizontal, 16)

@@ -1,0 +1,87 @@
+{
+  "id": "003-cn-loan",
+  "lang": "zh",
+  "category": "loan",
+  "adversarial": false,
+  "text": "借款合同\n\n出借方（甲方）：厦门鹭岛融通小额贷款有限公司\n注册地址：厦门市思明区鹭江道98号国贸中心21层\n授权代表：卓思远\n\n借款方（乙方）：福州临江食品有限公司\n注册地址：福州市仓山区金山大道618号临江产业园3号楼\n法定代表人：郝景澜\n\n第一条 借款金额与用途\n甲方向乙方提供借款人民币6,500,000元（大写：陆佰伍拾万元整），专项用于乙方冷链仓储设备采购。\n\n第二条 借款期限\n借款期限自2027年6月1日起至2029年5月31日止，共二十四个月。\n\n第三条 利率与还款\n年利率为8.4%，乙方应于每季度末月20日前支付当季利息，本金于借款期限届满之日一次性归还。逾期还款的，按日加收0.05%的罚息。\n\n第四条 划款账户\n甲方应将借款划入乙方指定账户，乙方开户行为中国银行福州仓山支行。\n\n第五条 通知与送达\n甲方联系人：卓思远，电话 0592-2288-6610，邮箱 zhuosiyuan@ludaoloan.com.cn\n乙方联系人：郝景澜，电话 +86 136-5090-2287，邮箱 haojinglan@linjiangfood.cn\n\n第六条 适用法律\n本合同适用中华人民共和国法律。因本合同产生的纠纷由厦门市思明区人民法院管辖。\n\n签订日期：2027年5月26日",
+  "gold": [
+    {
+      "value": "厦门鹭岛融通小额贷款有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "福州临江食品有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "中国银行福州仓山支行",
+      "type": "COMPANY"
+    },
+    {
+      "value": "卓思远",
+      "type": "PERSON"
+    },
+    {
+      "value": "郝景澜",
+      "type": "PERSON"
+    },
+    {
+      "value": "厦门市思明区鹭江道98号国贸中心21层",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "福州市仓山区金山大道618号临江产业园3号楼",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "人民币6,500,000元",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "2027年6月1日",
+      "type": "DATE"
+    },
+    {
+      "value": "2029年5月31日",
+      "type": "DATE"
+    },
+    {
+      "value": "2027年5月26日",
+      "type": "DATE"
+    },
+    {
+      "value": "0592-2288-6610",
+      "type": "PHONE"
+    },
+    {
+      "value": "+86 136-5090-2287",
+      "type": "PHONE"
+    },
+    {
+      "value": "zhuosiyuan@ludaoloan.com.cn",
+      "type": "EMAIL"
+    },
+    {
+      "value": "haojinglan@linjiangfood.cn",
+      "type": "EMAIL"
+    }
+  ],
+  "gold_negatives": [
+    "甲方",
+    "乙方",
+    "出借方",
+    "借款方",
+    "授权代表",
+    "法定代表人",
+    "联系人",
+    "8.4%",
+    "0.05%",
+    "二十四个月",
+    "厦门市思明区人民法院",
+    "中华人民共和国法律",
+    "冷链仓储设备",
+    "指定账户",
+    "中华人民共和国"
+  ],
+  "notes": "中国银行福州仓山支行 is gold COMPANY: a named branch is a specific organization, unlike the generic 指定账户. Interest rates (8.4%, 0.05%) are percentages, not monetary AMOUNTs, so they are decoys; only the principal carries a currency marker. 厦门市思明区人民法院 is a court and excluded by the tribunal rule."
+}

@@ -148,11 +148,32 @@ extension ReviewModel {
         cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> LLMPassOutcome {
-        guard useLLM, let modelPath else {
+        // The invariant this function exists to uphold: attempted == false means
+        // the user did not ask for an AI pass. It must NEVER mean "the user
+        // asked and we could not". Those two produce identical entity output,
+        // so if they also report identically a lawyer cannot tell a
+        // deliberately pattern-only redaction from one where the model silently
+        // failed to load and names were never looked for.
+        guard useLLM else {
             return LLMPassOutcome(spans: [], attempted: false, failure: nil, cancelled: false)
         }
+        guard let modelPath else {
+            return LLMPassOutcome(
+                spans: [], attempted: true,
+                failure: "No AI model is installed for the selected detection level, "
+                    + "so names, companies, and addresses were not detected. "
+                    + "Choose a different level in Settings, or add the model file.",
+                cancelled: false
+            )
+        }
         guard FileManager.default.fileExists(atPath: modelPath) else {
-            return LLMPassOutcome(spans: [], attempted: false, failure: nil, cancelled: false)
+            return LLMPassOutcome(
+                spans: [], attempted: true,
+                failure: "The AI model file could not be opened "
+                    + "(\((modelPath as NSString).lastPathComponent)), so names, companies, "
+                    + "and addresses were not detected.",
+                cancelled: false
+            )
         }
         do {
             let extractor: LLMExtractor

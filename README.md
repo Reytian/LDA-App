@@ -53,6 +53,14 @@ The tool uses a two-pass LLM scanning approach:
 
 ### Requirements
 
+**macOS app (LDA.app): a Mac with at least 16 GB of memory**, running macOS 14
+or later on Apple silicon. The detection model runs on your machine and has to
+fit in memory alongside your other applications, so 16 GB is a hard floor rather
+than a recommendation. See `macos/LDACore/README.md` for what each detection
+level needs.
+
+Python proof-of-concept:
+
 - Python 3.10+
 - macOS (uses `textutil` for `.doc` file conversion — Linux/Windows users can use `.docx` and `.txt` only)
 

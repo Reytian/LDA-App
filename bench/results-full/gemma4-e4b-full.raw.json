@@ -1,0 +1,31 @@
+{
+  "label": "gemma4-e4b-full",
+  "model_path": "/Users/claptrap/lda-bench/models/gemma-4-E4B-it-Q4_K_M.gguf",
+  "weights_mb": 4746.6,
+  "ctx": 12288,
+  "docs": [
+    {
+      "id": "full-cn-agreement",
+      "latency_s": 23.7,
+      "raw_output": "```json\n{\n  \"entities\": [\n    {\n      \"value\": \"宫敬亭\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"青岛翰宇海洋工程有限公司\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"长风新能源投资（合肥）有限公司\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"单予桐\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"洛阳晟丰重工科技有限公司\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"岑昭朗\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"顾雪笙\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"雅登霍太平洋控股有限公司\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"Rosalind Ekwueme-Hartveit\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"骆维桢\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"傅稚宁\",\n      \"type\": \"PERSON\"\n    }\n  ]\n}\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 4210,
+      "completion_tokens": 307,
+      "gen_tok_per_s": 12.95
+    },
+    {
+      "id": "full-en-agreement",
+      "latency_s": 41.94,
+      "raw_output": "```json\n{\n  \"entities\": [\n    {\n      \"value\": \"Brackenmoor Analytics, Inc.\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"2200 Halstead Avenue, Suite 900, Austin, Texas 78701\",\n      \"type\": \"ADDRESS\"\n    },\n    {\n      \"value\": \"Calloway Reef Industries Limited\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"41 Ormonde Quay Upper, Dublin 7, D07 K2N4\",\n      \"type\": \"ADDRESS\"\n    },\n    {\n      \"value\": \"Ormsgate Capital (BVI) Ltd.\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"Craigmuir Chambers, Road Town, Tortola VG1110\",\n      \"type\": \"ADDRESS\"\n    },\n    {\n      \"value\": \"Thistledown Instruments Corp.\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"28 September 2027\",\n      \"type\": \"DATE\"\n    },\n    {\n      \"value\": \"31 March 2028\",\n      \"type\": \"DATE\"\n    },\n    {\n      \"value\": \"30 November 2027\",\n      \"type\": \"DATE\"\n    },\n    {\n      \"value\": \"Chidiebere Nwankwo-Halvorsen\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"Aleksandra Wojciechowska-Prieto\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"+1 (512) 555-0192\",\n      \"type\": \"PHONE\"\n    },\n    {\n      \"value\": \"a.wojciechowska@brackenmoor.com\",\n      \"type\": \"EMAIL\"\n    },\n    {\n      \"value\": \"+353 1 555 0128\",\n      \"type\": \"PHONE\"\n    },\n    {\n      \"value\": \"c.nwankwo@callowayreef.ie\",\n      \"type\": \"EMAIL\"\n    },\n    {\n      \"value\": \"Yusra Al-Mansouri\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"+1 (415) 555-0247\",\n      \"type\": \"PHONE\"\n    },\n    {\n      \"value\": \"yal-mansouri@thistledown-inst.com\",\n      \"type\": \"EMAIL\"\n    },\n    {\n      \"value\": \"Rafael Quintanilla-Voss\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"rquintanilla@whitcomberowe.com\",\n      \"type\": \"EMAIL\"\n    },\n    {\n      \"value\": \"Emeric Lafontaine-Bergstrom\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"Thandiwe Okonkwo-Ferreira\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"4 August 2029\",\n      \"type\": \"DATE\"\n    },\n    {\n      \"value\": \"Pemberton Vale Trust Company N.A.\",\n      \"type\": \"COMPANY\"\n    },\n    {\n      \"value\": \"18 Fenchurch Wharf, Floor 6, London EC3M 5BQ\",\n      \"type\": \"ADDRESS\"\n    },\n    {\n      \"value\": \"Mihaela Constantinescu-Dubois\",\n      \"type\": \"PERSON\"\n    },\n    {\n      \"value\": \"+44 20 7555 0163\",\n      \"type\": \"PHONE\"\n    },\n    {\n      \"value\": \"m.constantinescu@pembertonvale.co.uk\",\n      \"type\": \"EMAIL\"\n    },\n    {\n      \"value\": \"15 June 2028\",\n      \"type\": \"DATE\"\n    }\n  ]\n}\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 1886,
+      "completion_tokens": 978,
+      "gen_tok_per_s": 23.32
+    }
+  ],
+  "load_seconds": 4.03,
+  "peak_rss_mb": 5180.5,
+  "peak_rss_gb": 5.06
+}

@@ -1,0 +1,85 @@
+{
+  "id": "010-en-adversarial-statutes-venue",
+  "lang": "en",
+  "category": "settlement",
+  "adversarial": true,
+  "text": "SETTLEMENT AND RELEASE AGREEMENT (EXCERPT)\n\n1. Parties. This Settlement and Release Agreement (this \"Release\") is between Tessellate Grid Energy, Inc. (the \"Employer\") and Ondrej Kwiatkowski-Sarr (the \"Claimant\").\n\n2. Recitals. The Claimant filed a charge with the Equal Employment Opportunity Commission on 11 May 2026 and a parallel complaint with the National Labor Relations Board. The Employer denies all allegations. The Parties wish to resolve the matter without any admission of liability.\n\n3. Released Claims. The Claimant releases the Employer from all claims arising under Title VII of the Civil Rights Act of 1964, the Age Discrimination in Employment Act, the Americans with Disabilities Act, the Family and Medical Leave Act, the Fair Labor Standards Act, the Employee Retirement Income Security Act, the Worker Adjustment and Retraining Notification Act, and the New York State Human Rights Law.\n\n4. Consideration. Within fourteen (14) days of the Effective Date, the Employer shall pay the Claimant USD 145,500, less applicable withholding, and shall report the payment to the Internal Revenue Service on the appropriate form.\n\n5. Representation. The Claimant is represented by Beatrice N'Diaye-Lindqvist of Harrow & Pell LLP, 300 Vesey Street, 18th Floor, New York, New York 10282, telephone +1 (212) 555-0155, email bndiaye@harrowpell.com. The Employer is represented by its Deputy General Counsel, Sung-Min Oyelowo, email s.oyelowo@tessellategrid.com.\n\n6. Governing Law and Forum. This Release is governed by the laws of the State of New York. Any action shall be brought in the United States District Court for the Southern District of New York, or, if that court lacks jurisdiction, in the Supreme Court of the State of New York, New York County. The Parties waive trial by jury under the New York Civil Practice Law and Rules.\n\n7. Effective Date. This Release becomes effective on 26 May 2026.",
+  "gold": [
+    {
+      "value": "Tessellate Grid Energy, Inc.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Harrow & Pell LLP",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Ondrej Kwiatkowski-Sarr",
+      "type": "PERSON"
+    },
+    {
+      "value": "Beatrice N'Diaye-Lindqvist",
+      "type": "PERSON"
+    },
+    {
+      "value": "Sung-Min Oyelowo",
+      "type": "PERSON"
+    },
+    {
+      "value": "300 Vesey Street, 18th Floor, New York, New York 10282",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "11 May 2026",
+      "type": "DATE"
+    },
+    {
+      "value": "26 May 2026",
+      "type": "DATE"
+    },
+    {
+      "value": "USD 145,500",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "+1 (212) 555-0155",
+      "type": "PHONE"
+    },
+    {
+      "value": "bndiaye@harrowpell.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "s.oyelowo@tessellategrid.com",
+      "type": "EMAIL"
+    }
+  ],
+  "gold_negatives": [
+    "the Employer",
+    "the Claimant",
+    "The Parties",
+    "Release",
+    "Effective Date",
+    "Deputy General Counsel",
+    "Equal Employment Opportunity Commission",
+    "National Labor Relations Board",
+    "Internal Revenue Service",
+    "Title VII of the Civil Rights Act of 1964",
+    "Age Discrimination in Employment Act",
+    "Americans with Disabilities Act",
+    "Family and Medical Leave Act",
+    "Fair Labor Standards Act",
+    "Employee Retirement Income Security Act",
+    "Worker Adjustment and Retraining Notification Act",
+    "New York State Human Rights Law",
+    "State of New York",
+    "New York",
+    "United States District Court for the Southern District of New York",
+    "Southern District of New York",
+    "Supreme Court of the State of New York",
+    "New York County",
+    "New York Civil Practice Law and Rules",
+    "fourteen (14) days"
+  ],
+  "notes": "Adversarial fragment 3 of 3, the highest decoy density in the corpus: twenty-five negatives against twelve gold items, and every decoy is a capitalised multi-word proper noun that a surface-form heuristic reads as an organization. Eight federal and state statutes, three agencies, three courts, and one procedural code are all excluded by the statute, tribunal, and agency rules, while two genuine organizations (an operating company and a law firm) and three genuine people sit among them. New York appears both as governing law, which is a negative, and inside the gold address."
+}

@@ -59,6 +59,7 @@ let package = Package(
             name: "LDAUI",
             dependencies: ["LDACore"],
             path: "Sources/LDAUI",
+            resources: [.process("Resources")],
             linkerSettings: [
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),

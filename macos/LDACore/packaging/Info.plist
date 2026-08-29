@@ -14,6 +14,6 @@
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>Legal Document Anonymizer. Runs fully offline.</string>
+  <key>NSHumanReadableCopyright</key><string>Legal Document Anonymizer. Documents stay on this Mac.</string>
 </dict>
 </plist>

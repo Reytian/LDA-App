@@ -20,17 +20,28 @@ import LDACore
 public struct SettingsView: View {
     @ObservedObject private var patterns: CustomPatternStore
     @ObservedObject private var learning: LearningStore
+    /// Owned by the app so a model download outlives this window.
+    @ObservedObject private var installer: ModelInstaller
+    /// True while a scan is running, which gates model removal.
+    private let isScanning: Bool
 
-    public init(patterns: CustomPatternStore, learning: LearningStore) {
+    public init(
+        patterns: CustomPatternStore,
+        learning: LearningStore,
+        installer: ModelInstaller,
+        isScanning: Bool
+    ) {
         self.patterns = patterns
         self.learning = learning
+        self.installer = installer
+        self.isScanning = isScanning
     }
 
     public var body: some View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
-            AITab()
+            AITab(installer: installer, isScanning: isScanning)
                 .tabItem { Label("AI", systemImage: "cpu") }
             VocabularyTab(store: patterns)
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
@@ -165,103 +176,256 @@ private struct HistoryTab: View {
 
 // MARK: - AI tab
 
-/// The detection model and quality/speed settings (R3, R14). The model always
-/// runs fully on this Mac; swapping only changes WHICH local model runs.
+/// The detection ladder. One control answers "how hard should LDA look for the
+/// names, companies, and addresses that patterns cannot catch". Every rung runs
+/// fully on this Mac; a higher rung only changes WHICH local model runs and how
+/// long it takes. See docs/design/model-tiers-prd.md.
 private struct AITab: View {
+    /// App-owned, so a download survives closing this window.
+    @ObservedObject var installer: ModelInstaller
+    /// True while a scan is running. Removing a model mid-scan would report
+    /// disk reclaimed that llama.cpp still has mmapped.
+    let isScanning: Bool
+
+    @AppStorage(AISettings.detectionLevelKey) private var levelRaw = DetectionLevel.quick.rawValue
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
-    @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
+
+    @State private var showLdaV2Notice = false
+    @State private var showManageModels = false
+
+    private let catalog = ModelCatalog.load()
+    private let installedGB = MemoryGate.installedGB()
+
+    private var level: DetectionLevel {
+        DetectionLevel(rawValue: levelRaw) ?? .quick
+    }
+
+    /// Run the legacy migration before the panel reads the stored level.
+    ///
+    /// @AppStorage reads the key directly, so without this a user upgrading
+    /// from detectionMode = "fast" would see Quick selected here while the
+    /// resolved setting was Patterns only: the panel would disagree with what
+    /// the app actually does.
+    private func migrateOnAppear() {
+        AISettings.migrateIfNeeded()
+        let resolved = AISettings.detectionLevel()
+        if resolved.rawValue != levelRaw { levelRaw = resolved.rawValue }
+        showLdaV2Notice = AISettings.shouldOfferLdaV2Switch()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Detection model")
-                    .font(.system(.headline, design: .serif))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                Text(modelDescription)
-                    .font(.callout)
-                    .foregroundStyle(modelMissing ? CounselTheme.danger : CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 12) {
-                Button {
-                    chooseModel()
-                } label: {
-                    Label("Choose Model\u{2026}", systemImage: "folder")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("How hard should LDA look?")
+                        .font(.system(.headline, design: .serif))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text("Higher settings find more names, companies, and addresses, "
+                        + "and take longer. Everything runs on this Mac.")
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .help("Pick another local GGUF model to run instead of the bundled one")
+
+                if showLdaV2Notice { ldaV2Notice }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(DetectionLevel.allCases, id: \.rawValue) { rung in
+                        rungRow(rung)
+                    }
+                }
 
                 if !customModelPath.isEmpty {
-                    Button("Use Bundled Model") {
-                        customModelPath = ""
-                    }
-                    .help("Go back to the tuned model that ships with the app")
+                    Divider()
+                    customModelRow
                 }
-            }
 
-            Divider()
+                Divider()
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Quality and speed")
-                    .font(.system(.headline, design: .serif))
-                    .foregroundStyle(CounselTheme.textPrimary)
+                HStack(spacing: 12) {
+                    Button {
+                        showManageModels = true
+                    } label: {
+                        Label("Manage Models\u{2026}", systemImage: "square.and.arrow.down")
+                    }
+                    .help("Download, remove, or choose a different detection model")
 
-                Picker("Detection", selection: $detectionModeRaw) {
-                    ForEach(DetectionMode.allCases, id: \.rawValue) { mode in
-                        Text(mode.label).tag(mode.rawValue)
+                    if !customModelPath.isEmpty {
+                        Button("Stop Using It") {
+                            AISettings.setCustomModel(url: nil)
+                            customModelPath = ""
+                        }
+                        .help("Go back to the model for the selected setting")
                     }
                 }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
 
-                Text("Thorough runs the on-device AI to find people, companies, and addresses, "
-                    + "and takes longer on big documents. Fast is instant but pattern-only: "
-                    + "emails, phones, dates, amounts, and IDs.")
+                Label("Your documents never leave this Mac. Detection and redaction run "
+                      + "entirely on this machine. The only time LDA uses the network is "
+                      + "when you ask it to download a model.",
+                      systemImage: "lock.laptopcomputer")
                     .font(.caption)
                     .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .onAppear { migrateOnAppear() }
+        .sheet(isPresented: $showManageModels) {
+            // Both arguments are required by design: a default would let a call
+            // site silently reintroduce the dead-parameter bug this replaced.
+            ModelManagementView(installer: installer, isBusyElsewhere: isScanning)
+        }
+    }
 
-            Spacer()
+    // MARK: Rows
 
-            Label("Every model runs fully on this Mac. Nothing leaves your computer.",
-                  systemImage: "lock.laptopcomputer")
+    @ViewBuilder
+    private func rungRow(_ rung: DetectionLevel) -> some View {
+        let tier = catalog.tier(for: rung)
+        let availability = tier.map { MemoryGate.availability(for: $0, installedGB: installedGB) }
+        // A tier is available when its file is in the container OR inside the
+        // app bundle. Quick ships bundled, so checking the container alone marks
+        // it "Not installed" on a packaged build and refuses to select it, which
+        // would leave a fresh install unable to use the one model it has.
+        let installed = tier.map {
+            ModelCatalog.isInstalled($0) || ModelCatalog.isBundled($0)
+        } ?? false
+        // Patterns only has no tier and is always selectable. A model rung is
+        // selectable only when it fits AND its file is present: selecting a rung
+        // we cannot actually run produces a silent patterns-only pass, which is
+        // the worst outcome this feature can have. Note the nil default is
+        // FALSE for model rungs: when the manifest fails to load we must fail
+        // closed rather than present a healthy-looking, unrunnable option.
+        let selectable: Bool = {
+            if rung == .patternsOnly { return true }
+            guard let availability else { return false }
+            return availability.isSelectable && installed
+        }()
+
+        Button {
+            guard selectable else { return }
+            // PRD 2.4: selecting a named rung clears "use another model",
+            // otherwise the ladder shows one thing and runs another.
+            AISettings.setCustomModel(url: nil)
+            customModelPath = ""
+            AISettings.setDetectionLevel(rung)
+            levelRaw = rung.rawValue
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: level == rung ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(level == rung ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(rung.displayName)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(selectable ? CounselTheme.textPrimary : CounselTheme.textSecondary)
+                        if tier != nil, installed {
+                            badge("Installed", tone: CounselTheme.textSecondary)
+                        } else if let tier {
+                            badge("Not installed \u{00B7} \(tier.downloadSizeDescription)",
+                                  tone: CounselTheme.textSecondary)
+                        }
+                        if case .tight = availability {
+                            badge("Tight fit", tone: CounselTheme.danger)
+                        }
+                    }
+                    Text(rung.summary)
+                        .font(.caption)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let tier, selectable {
+                        Text("About \(tier.secondsPerDocument) seconds for a short agreement.")
+                            .font(.caption2)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    if let tier, !selectable {
+                        Text(MemoryGate.requirementText(for: tier))
+                            .font(.caption2)
+                            .foregroundStyle(CounselTheme.danger)
+                    }
+                    if tier != nil, !installed {
+                        Text("Add the model file to use this setting.")
+                            .font(.caption2)
+                            .foregroundStyle(CounselTheme.danger)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!selectable)
+        .accessibilityAddTraits(level == rung ? [.isSelected] : [])
+    }
+
+    /// One-time offer to leave the retired fine tune. Stated in consequence
+    /// terms, not scores: the defect is that a share of what it finds comes back
+    /// in a form the app cannot anchor, so those values stay in the document and
+    /// never appear in the review list.
+    private var ldaV2Notice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your chosen model leaves some names in the document")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            Text("It reports a portion of the names and addresses it finds in a slightly "
+                + "different form from your document, so those are never redacted and never "
+                + "reach your review list. The built-in model does not have this problem "
+                + "and runs at the same speed.")
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button("Switch to Quick") {
+                    AISettings.setCustomModel(url: nil)
+                    customModelPath = ""
+                    AISettings.setDetectionLevel(.quick)
+                    levelRaw = DetectionLevel.quick.rawValue
+                    AISettings.dismissLdaV2Notice()
+                    showLdaV2Notice = false
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Keep using my model") {
+                    AISettings.dismissLdaV2Notice()
+                    showLdaV2Notice = false
+                }
+            }
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(CounselTheme.raised))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke(CounselTheme.danger.opacity(0.5), lineWidth: 1))
     }
 
-    /// What the active model line should say.
-    private var modelDescription: String {
-        if customModelPath.isEmpty {
-            return "Using the bundled tuned model (the default)."
+    private var customModelRow: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text("Custom model")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                badge("In use", tone: CounselTheme.inkAccent)
+            }
+            Text((customModelPath as NSString).lastPathComponent)
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+            Text("LDA cannot estimate speed or memory for a model it does not know. "
+                + "It overrides the setting above.")
+                .font(.caption2)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        if FileManager.default.fileExists(atPath: customModelPath) {
-            return "Using a custom model: \((customModelPath as NSString).abbreviatingWithTildeInPath)"
-        }
-        return "The chosen model is missing: \((customModelPath as NSString).abbreviatingWithTildeInPath). "
-            + "The bundled model is used instead."
     }
 
-    private var modelMissing: Bool {
-        !customModelPath.isEmpty && !FileManager.default.fileExists(atPath: customModelPath)
+    private func badge(_ text: String, tone: Color) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(tone)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(tone.opacity(0.4), lineWidth: 1))
     }
 
-    private func chooseModel() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        if let gguf = UTType(filenameExtension: "gguf") {
-            panel.allowedContentTypes = [gguf]
-        }
-        panel.message = "Choose a local GGUF model. It will run fully on this Mac."
-        panel.prompt = "Use Model"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        customModelPath = url.path
-    }
 }
 
 // MARK: - Sharing tab

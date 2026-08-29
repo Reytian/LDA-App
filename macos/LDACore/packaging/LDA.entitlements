@@ -11,11 +11,43 @@
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 
-  <!-- DELIBERATELY ABSENT: any network entitlement. This app never touches the
-       network. With the sandbox on and no network entitlement, outbound and
-       inbound network access is denied by the OS, which is the core privacy
-       guarantee for privileged documents. Do not add
-       com.apple.security.network.client or .network.server. -->
+  <!-- Persist access to a model the user picked in an open panel, so it is
+       still readable after the next launch. Without this the sandbox grants
+       access to the URL for one launch only, the stored path silently stops
+       resolving, and the app falls back to a different model while the user
+       believes their choice is still in effect.
+
+       NOTE FOR FUTURE EDITORS: this is a FILE bookmark entitlement, not a
+       network one. It grants no outbound or inbound access of any kind and
+       does not weaken the guarantee described below. Do not remove it while
+       "tidying up" entitlements: doing so reintroduces a silent redaction
+       defect that testing on an unsandboxed dev build cannot catch. -->
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+
+  <!-- Outbound network, for ONE purpose: downloading model files the user has
+       explicitly asked for in Settings, then AI, then Manage Models.
+
+       This entitlement was deliberately absent until the Model Management
+       feature. The previous comment claimed the app never touches the network;
+       that is no longer true and the claim has been corrected everywhere it
+       appeared, rather than left standing while the behaviour changed
+       underneath it.
+
+       What is still guaranteed, and what a security review can verify:
+       - Document content NEVER leaves this machine. Detection, redaction and
+         restoration run entirely on-device against a local GGUF file. No
+         document text, entity list, mapping or filename is ever transmitted.
+       - The only outbound requests are model downloads to the host named in
+         Models.json, and they happen only when the user starts one.
+       - There is no telemetry, no analytics, no crash reporting, no update
+         check.
+       - .network.server is still absent: nothing can connect INTO the app.
+
+       If you are auditing this: grep the sources for URLSession. Every use must
+       sit behind Model Management. Any other use is a defect, not a feature. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
 
   <!-- If notarization ever rejects the Metal/ggml binary for memory protection,
        uncomment the following (allow-jit is the least-privilege option):

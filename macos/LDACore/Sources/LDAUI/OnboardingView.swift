@@ -16,7 +16,9 @@ import SwiftUI
 public struct OnboardingView: View {
     @Binding var isPresented: Bool
 
-    /// Whether the on-device AI model is available (bundled or configured).
+    /// Whether an on-device AI model is available. Quick ships inside the app,
+    /// so this is normally true; it is false only when the bundled model is
+    /// absent, which package-app.sh refuses to produce.
     let modelAvailable: Bool
 
     public init(isPresented: Binding<Bool>, modelAvailable: Bool) {
@@ -65,8 +67,10 @@ public struct OnboardingView: View {
             Divider()
 
             Label {
-                Text("Everything runs on this Mac. The app has no network access at all: "
-                    + "documents, placeholders, and the encrypted mapping never leave your computer.")
+                Text("Your documents never leave this Mac. Detection, redaction, and the "
+                    + "encrypted mapping all run here, and nothing about a document is ever "
+                    + "sent anywhere. LDA uses the network for one thing only: downloading "
+                    + "a detection model when you ask it to.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -77,9 +81,10 @@ public struct OnboardingView: View {
 
             if !modelAvailable {
                 Label {
-                    Text("The on-device AI model was not found, so detection is pattern-only "
-                        + "for now (emails, phones, dates, amounts, IDs). You can pick a local "
-                        + "model later in Settings.")
+                    Text("No AI model is installed yet, so detection is pattern-only for now: "
+                        + "emails, phones, dates, amounts, and ID numbers. Names, companies, "
+                        + "and addresses are NOT detected until you add one. "
+                        + "Open Settings, then AI, to choose and install a model.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)

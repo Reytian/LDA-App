@@ -1,0 +1,89 @@
+{
+  "id": "001-cn-equity-transfer",
+  "lang": "zh",
+  "category": "equity-transfer",
+  "adversarial": false,
+  "text": "股权转让协议\n\n本协议由以下各方于2027年3月18日在杭州市签署。\n\n甲方（转让方）：杭州云栖数据科技有限公司\n统一社会信用代码：91330100MA2K7X9L4B\n注册地址：杭州市西湖区文三路化工路口98号云汇大厦12层\n法定代表人：陆见山\n\n乙方（受让方）：北辰资本管理（深圳）有限公司\n注册地址：深圳市福田区益田路5033号平安金融中心58层\n授权代表：邵语岚\n\n鉴于：\n1. 甲方是宁波磐石新材料有限公司（以下简称\"目标公司\"）的股东，持有目标公司55%的股权。\n2. 乙方希望受让甲方持有的目标公司25%的股权。\n\n第一条 转让价格\n标的股权的转让价格为人民币48,600,000元（大写：肆仟捌佰陆拾万元整）。乙方应于本协议生效之日起30个工作日内支付全部价款。\n\n第二条 交割\n双方应在价款支付完成后15个工作日内共同办理目标公司的股权变更登记手续。\n\n第三条 通知\n甲方联系人：陆见山，电话 +86 137-2244-8890，邮箱 lujianshan@yunqidata.com.cn\n乙方联系人：邵语岚，电话 +86 158-6677-1203，邮箱 shaoyulan@beichencap.cn\n目标公司联系人：华颂平，电话 0574-8712-3456\n\n第四条 争议解决\n因本协议引起的争议，双方应提交中国国际经济贸易仲裁委员会按其仲裁规则在杭州仲裁。本协议适用中华人民共和国法律。\n\n第五条 签署\n甲方：杭州云栖数据科技有限公司　法定代表人：陆见山　日期：2027年3月18日\n乙方：北辰资本管理（深圳）有限公司　授权代表：邵语岚　日期：2027年3月18日",
+  "gold": [
+    {
+      "value": "杭州云栖数据科技有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "北辰资本管理（深圳）有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "宁波磐石新材料有限公司",
+      "type": "COMPANY"
+    },
+    {
+      "value": "陆见山",
+      "type": "PERSON"
+    },
+    {
+      "value": "邵语岚",
+      "type": "PERSON"
+    },
+    {
+      "value": "华颂平",
+      "type": "PERSON"
+    },
+    {
+      "value": "杭州市西湖区文三路化工路口98号云汇大厦12层",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "深圳市福田区益田路5033号平安金融中心58层",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "2027年3月18日",
+      "type": "DATE"
+    },
+    {
+      "value": "人民币48,600,000元",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "lujianshan@yunqidata.com.cn",
+      "type": "EMAIL"
+    },
+    {
+      "value": "shaoyulan@beichencap.cn",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+86 137-2244-8890",
+      "type": "PHONE"
+    },
+    {
+      "value": "+86 158-6677-1203",
+      "type": "PHONE"
+    },
+    {
+      "value": "0574-8712-3456",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "甲方",
+    "乙方",
+    "转让方",
+    "受让方",
+    "目标公司",
+    "法定代表人",
+    "授权代表",
+    "股东",
+    "联系人",
+    "中国国际经济贸易仲裁委员会",
+    "中华人民共和国法律",
+    "30个工作日",
+    "15个工作日",
+    "杭州市",
+    "55%",
+    "25%",
+    "中华人民共和国"
+  ],
+  "notes": "Baseline dense-PII Chinese fragment. 目标公司 is a defined alias for 宁波磐石新材料有限公司: the canonical name is gold, the alias is a negative, because the SYSTEM prompt excludes defined terms and LDA resolves aliases in DefinedTermScanner rather than the LLM pass. 杭州市 appears as a bare place of signing, and the contract limits ADDRESS to street level, so the bare city is a negative while the two full street addresses are gold. Relative periods (30个工作日) and equity percentages are DATE and AMOUNT decoys. The USCC 91330100MA2K7X9L4B is deliberately in neither list: it is real PII but falls outside the seven wire types and is owned by DeterministicEngine, so a model that emits it takes an out-of-vocabulary-type hit rather than a decoy hit."
+}

@@ -1,0 +1,31 @@
+{
+  "label": "qwen38-27b-IQ1_S-full",
+  "model_path": "/Users/claptrap/lda-bench/models/Qwen3.8-27B-UD-IQ1_S.gguf",
+  "weights_mb": 5905.4,
+  "ctx": 12288,
+  "docs": [
+    {
+      "id": "full-cn-agreement",
+      "latency_s": 69.72,
+      "raw_output": "```json\n[\n  {\n    \"value\": \"宫敬亭\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"单予桐\",\n    \"type\": \"PERSON\"\n\n}\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 3492,
+      "completion_tokens": 55,
+      "gen_tok_per_s": 0.79
+    },
+    {
+      "id": "full-en-agreement",
+      "latency_s": 248.48,
+      "raw_output": "```json\n[\n  {\n    \"value\": \"12 October 2027\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"Brackenmoor Analytics, Inc.\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"2200 Halstead Avenue, Suite 900, Austin, Texas 78701\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"47-3319085\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"Calloway Reef Industries Limited\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"684195\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"41 Ormonde Quay Upper, Dublin 7, D07 K2N4, Ireland\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"Ormsgate Capital (BVI) Ltd.\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"2094771\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"Craigmuir Chambers, Road Town, Tortola VG1110, British Virgin Islands\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"Thistledown Instruments Corp.\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"28 September 2027\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"51%\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"49%\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"USD 73,400,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"GBP 4,150,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"EUR 2,900,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"31 March 2028\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"30 November 2027\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"USD 6,300,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"30%\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"Chidiebere Nwankwo-Halvorsen\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"Yusra Al-Mansouri\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"Aleksandra Wojciechowska-Prieto\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"+1 (512) 555-0192\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"a.wojciechowska@brackenmoor.com\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"+353 1 555 0128\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"c.nwankwo@callowayreef.ie\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"+1 (415) 555-0247\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"y.al-mansouri@thistledown-inst.com\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"R. Quintanilla-Voss\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"rquintanilla@whitcomberowe.com\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"Emeric Lafontaine-Bergstrom\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"Thandiwe Okonkwo-Ferreira\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"4 August 2029\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"USD 1,250,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"Pemberton Vale Trust Company N.A.\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"18 Fenchurch Wharf, Floor 6, London EC3M 5BQ, United Kingdom\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"Mihaela Constantinescu-Dubois\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"+44 20 7555 0163\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"m.constantinescu@pembertonvale.co.uk\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"GB29 PVTC 6016 1331 9268 19\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"15 June 2028\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"EUR 41,600,000\",\n    \"type\": \"AMOUNT\"\n  }\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 1925,
+      "completion_tokens": 1420,
+      "gen_tok_per_s": 5.71
+    }
+  ],
+  "load_seconds": 5.04,
+  "peak_rss_mb": 7736.8,
+  "peak_rss_gb": 7.56
+}

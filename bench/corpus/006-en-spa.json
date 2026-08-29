@@ -1,0 +1,93 @@
+{
+  "id": "006-en-spa",
+  "lang": "en",
+  "category": "spa",
+  "adversarial": false,
+  "text": "SHARE PURCHASE AGREEMENT (EXCERPT)\n\nThis Share Purchase Agreement (this \"Agreement\") is dated 22 November 2026 and made between:\n\n(1) Ostara Nordic Holdings AB, a company incorporated in Sweden with registered office at Birger Jarlsgatan 57, 113 56 Stockholm, Sweden (the \"Seller\");\n\n(2) Kestrel Bay Capital Partners LP, a limited partnership with its principal office at 500 Harbourfront Walk, Level 22, Singapore 018983 (the \"Buyer\"); and\n\n(3) Lumenwave Robotics Limited, a company incorporated in England and Wales with registered office at 14 Marlborough Court, Reading RG1 8QT, United Kingdom (the \"Target\").\n\n2.1 Sale and Purchase. Subject to the terms of this Agreement, the Seller shall sell and the Buyer shall purchase 4,200,000 ordinary shares in the Target, being 70% of the issued share capital of the Target, free from all encumbrances.\n\n2.2 Consideration. The aggregate consideration payable by the Buyer to the Seller is EUR 62,400,000, of which EUR 55,000,000 is payable in cash at Completion and EUR 7,400,000 is to be retained in escrow for eighteen (18) months.\n\n3.1 Completion. Completion shall take place on 15 January 2027 or such later date as the Parties may agree in writing.\n\n9.4 Notices. Notices to the Seller: Ostara Nordic Holdings AB, Attn: Ingrid Solheim-Vaskaite, Chief Financial Officer, email ingrid.solheim@ostaranordic.se, telephone +46 8 555 0166. Notices to the Buyer: Kestrel Bay Capital Partners LP, Attn: Terrence Obiora-Whitfield, email t.obiora@kestrelbay.sg, telephone +65 6555 0184.\n\n11.2 Governing Law. This Agreement and any non-contractual obligations arising out of it are governed by English law. The courts of England and Wales have exclusive jurisdiction.",
+  "gold": [
+    {
+      "value": "Ostara Nordic Holdings AB",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Kestrel Bay Capital Partners LP",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Lumenwave Robotics Limited",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Ingrid Solheim-Vaskaite",
+      "type": "PERSON"
+    },
+    {
+      "value": "Terrence Obiora-Whitfield",
+      "type": "PERSON"
+    },
+    {
+      "value": "Birger Jarlsgatan 57, 113 56 Stockholm, Sweden",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "500 Harbourfront Walk, Level 22, Singapore 018983",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "14 Marlborough Court, Reading RG1 8QT, United Kingdom",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "22 November 2026",
+      "type": "DATE"
+    },
+    {
+      "value": "15 January 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "EUR 62,400,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "EUR 55,000,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "EUR 7,400,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "ingrid.solheim@ostaranordic.se",
+      "type": "EMAIL"
+    },
+    {
+      "value": "t.obiora@kestrelbay.sg",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+46 8 555 0166",
+      "type": "PHONE"
+    },
+    {
+      "value": "+65 6555 0184",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "the Seller",
+    "the Buyer",
+    "the Target",
+    "Agreement",
+    "the Parties",
+    "Chief Financial Officer",
+    "England and Wales",
+    "English law",
+    "4,200,000 ordinary shares",
+    "70%",
+    "eighteen (18) months",
+    "Completion",
+    "issued share capital"
+  ],
+  "notes": "Three-party cross-border SPA. Tests whether a model splits a three-tranche consideration into three distinct AMOUNTs instead of collapsing them, and whether it keeps non-US postal formats (Swedish, Singaporean, UK) intact as single ADDRESS spans. The Seller, the Buyer, and the Target are quoted defined terms. Country names inside the gold addresses are not listed as negatives because the decoy check is exact-equality only, so a correct full address never triggers them."
+}

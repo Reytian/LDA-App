@@ -1,0 +1,75 @@
+{
+  "id": "008-en-adversarial-defined-terms",
+  "lang": "en",
+  "category": "asset-purchase",
+  "adversarial": true,
+  "text": "ASSET PURCHASE AGREEMENT (EXCERPT) - SCHEDULE 4 AND NOTICES\n\n1. Definitions. In this Agreement, \"the Company\" means Acme Holdings Ltd., \"the Purchaser\" means Northstar Aggregates LLC, and \"the Employee\" means each individual listed in Schedule 4. References to \"the Parties\" are to the Company and the Purchaser together. \"Confidential Information\" has the meaning given in clause 12.\n\n2. Schedule 4 - Continuing Employees.\n\n2.1 Jane Roe, General Counsel of the Company, whose employment transfers on Completion.\n2.2 Desmond Achterberg, Vice President of Operations, whose employment transfers on Completion.\n2.3 Each Employee remains subject to the policies of the Company, including the policies required by the Sarbanes-Oxley Act and the Delaware General Corporation Law.\n\n3. Registered Offices.\n\n3.1 The Company is incorporated in Delaware and its registered office is 1209 Orange Street, Wilmington, Delaware 19801.\n3.2 The Purchaser is incorporated in Delaware and maintains its principal place of business at 77 Cascade Row, Floor 3, Boise, Idaho 83702.\n\n4. Notices.\n\n4.1 To the Company: Acme Holdings Ltd., Attn: Jane Roe, General Counsel, 1209 Orange Street, Wilmington, Delaware 19801, email jane.roe@acmeholdings.com, telephone +1 (302) 555-0117.\n4.2 To the Purchaser: Northstar Aggregates LLC, Attn: Desmond Achterberg, 77 Cascade Row, Floor 3, Boise, Idaho 83702, email d.achterberg@northstaragg.com, telephone +1 (208) 555-0163.\n\n5. Governing Law. This Agreement is governed by the laws of the State of Delaware, and the Parties submit to the exclusive jurisdiction of the Delaware Court of Chancery. Claims under the Securities Exchange Act of 1934 are reserved to the SEC. Any arbitration shall be administered by JAMS under its Comprehensive Arbitration Rules, and nothing in this clause limits the rights of the Employee under the Fair Labor Standards Act.\n\n6. Completion Date. Completion occurs on 3 September 2027.",
+  "gold": [
+    {
+      "value": "Acme Holdings Ltd.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Northstar Aggregates LLC",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Jane Roe",
+      "type": "PERSON"
+    },
+    {
+      "value": "Desmond Achterberg",
+      "type": "PERSON"
+    },
+    {
+      "value": "1209 Orange Street, Wilmington, Delaware 19801",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "77 Cascade Row, Floor 3, Boise, Idaho 83702",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "3 September 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "jane.roe@acmeholdings.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "d.achterberg@northstaragg.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+1 (302) 555-0117",
+      "type": "PHONE"
+    },
+    {
+      "value": "+1 (208) 555-0163",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "the Company",
+    "the Purchaser",
+    "the Employee",
+    "the Parties",
+    "Confidential Information",
+    "General Counsel",
+    "Vice President of Operations",
+    "Sarbanes-Oxley Act",
+    "Delaware General Corporation Law",
+    "Delaware",
+    "State of Delaware",
+    "Delaware Court of Chancery",
+    "SEC",
+    "JAMS",
+    "Securities Exchange Act of 1934",
+    "Fair Labor Standards Act",
+    "Comprehensive Arbitration Rules",
+    "Schedule 4",
+    "Completion"
+  ],
+  "notes": "Adversarial fragment 1 of 3, built on the Delaware double role. Delaware standing alone is governing law and state of incorporation, so it is a negative, but the same token inside 1209 Orange Street, Wilmington, Delaware 19801 is part of a gold ADDRESS. Because decoys are matched by exact equality only, returning the full address never trips the Delaware decoy, while returning bare Delaware always does. The definition clause pairs each excluded defined term with the concrete name it stands for (the Company against Acme Holdings Ltd., the Purchaser against Northstar Aggregates LLC), and each real person is written immediately next to an excluded job title."
+}

@@ -1,0 +1,224 @@
+{
+  "id": "full-en-agreement",
+  "lang": "en",
+  "category": "full-agreement",
+  "adversarial": true,
+  "text": "SHARE PURCHASE AGREEMENT\n\nThis Share Purchase Agreement (this \"Agreement\") is made on 12 October 2027 among:\n\n(1) Brackenmoor Analytics, Inc., a Delaware corporation with its principal place of business at 2200 Halstead Avenue, Suite 900, Austin, Texas 78701, Employer Identification Number 47-3319085 (the \"Purchaser\");\n\n(2) Calloway Reef Industries Limited, registered in Ireland under company number 684195, with its registered office at 41 Ormonde Quay Upper, Dublin 7, D07 K2N4, Ireland (the \"Seller\");\n\n(3) Ormsgate Capital (BVI) Ltd., incorporated in the British Virgin Islands under company number 2094771, with its registered office at Craigmuir Chambers, Road Town, Tortola VG1110, British Virgin Islands (the \"Minority Holder\"); and\n\n(4) Thistledown Instruments Corp., incorporated under the laws of the State of Delaware (the \"Company\").\n\nRECITALS\n\nA. Calloway Reef Industries Limited is the legal and beneficial owner of 51% of the issued share capital of Thistledown Instruments Corp.\nB. Ormsgate Capital (BVI) Ltd. holds the remaining 49% and has advanced a shareholder loan to the Company.\nC. The Seller wishes to sell, and Brackenmoor Analytics, Inc. wishes to purchase, the Sale Shares.\nD. The Minority Holder waived its right of first refusal by a written waiver dated 28 September 2027.\n\n1. DEFINITIONS\n1.1 \"Sale Shares\" means the 51% of the issued share capital of Thistledown Instruments Corp. held by the Seller.\n1.2 \"Completion\" means completion of the sale and purchase of the Sale Shares under clause 4.\n1.3 \"Business Day\" means a day on which banks are open for general business in Austin, Texas and in Dublin.\n1.4 \"Escrow Amount\" has the meaning given in Schedule 1.\n\n2. SALE AND PURCHASE\n2.1 The Seller shall sell, and the Purchaser shall purchase, the Sale Shares free from all liens and encumbrances.\n2.2 The consideration for the Sale Shares is USD 73,400,000, payable in immediately available funds at Completion.\n2.3 The Purchaser shall in addition pay GBP 4,150,000 to Ormsgate Capital (BVI) Ltd. for the release of the shareholder loan described in clause 5.\n2.4 A deferred earn-out of up to EUR 2,900,000 is payable to Calloway Reef Industries Limited if audited revenue for the period ending 31 March 2028 exceeds the threshold in Schedule 2.\n\n3. CONDITIONS PRECEDENT\n3.1 Completion is conditional on merger control clearance from the Federal Trade Commission.\n3.2 If the conditions are not satisfied within twenty (20) Business Days of the date of this Agreement, the Purchaser or the Seller may terminate by written notice.\n\n4. COMPLETION\n4.1 Completion shall take place on 30 November 2027 at the offices of the Purchaser.\n4.2 At Completion the Seller shall deliver executed stock transfer forms and the written resignation of Chidiebere Nwankwo-Halvorsen as a director of Thistledown Instruments Corp., and the Purchaser shall pay the consideration less the Escrow Amount to the escrow agent named in Schedule 1.\n\n5. SHAREHOLDER LOAN\n5.1 The shareholder loan of USD 6,300,000 advanced by the Minority Holder to Thistledown Instruments Corp. shall be repaid in full at Completion.\n\n6. WARRANTIES\n6.1 The Seller warrants that Calloway Reef Industries Limited has full power to enter into this Agreement.\n6.2 The Company, acting by Yusra Al-Mansouri, warrants that it has complied in all material respects with the Foreign Corrupt Practices Act and the UK Bribery Act 2010.\n\n7. LIMITATIONS\n7.1 The aggregate liability of the Seller under the warranties shall not exceed 30% of the consideration.\n7.2 No claim may be brought after the second anniversary of Completion.\n\n8. RESTRICTIVE COVENANTS\n8.1 For three years from Completion, Chidiebere Nwankwo-Halvorsen shall not solicit any employee, customer or supplier of the Company.\n\n9. CONFIDENTIALITY\n9.1 Each party shall keep the terms of this Agreement confidential, save where disclosure is required by the Securities Act of 1933.\n\n10. GOVERNING LAW AND DISPUTE RESOLUTION\n10.1 This Agreement is governed by the laws of the State of Delaware, and matters of internal corporate affairs are governed by the Delaware General Corporation Law.\n10.2 Any dispute shall be resolved by arbitration administered by JAMS, seated in Wilmington, Delaware. The Parties submit to the exclusive jurisdiction of the Court of Chancery of the State of Delaware for interim relief.\n10.3 Nothing prevents proceedings before the Hong Kong International Arbitration Centre in respect of the escrow arrangements, which are governed by the law of Hong Kong.\n\n11. NOTICES\n11.1 To the Purchaser: Aleksandra Wojciechowska-Prieto, Chief Executive Officer, telephone +1 (512) 555-0192, email a.wojciechowska@brackenmoor.com.\n11.2 To the Seller: Chidiebere Nwankwo-Halvorsen, telephone +353 1 555 0128, email c.nwankwo@callowayreef.ie.\n11.3 To the Company: Yusra Al-Mansouri, General Counsel, telephone +1 (415) 555-0247, email yal-mansouri@thistledown-inst.com.\n11.4 Copy to Rafael Quintanilla-Voss of Whitcombe Rowe LLP, email rquintanilla@whitcomberowe.com.\n\nEXECUTION\n\nBrackenmoor Analytics, Inc. by Aleksandra Wojciechowska-Prieto, CEO, 12 October 2027.\nCalloway Reef Industries Limited by Chidiebere Nwankwo-Halvorsen, Director, 12 October 2027.\nOrmsgate Capital (BVI) Ltd. by Emeric Lafontaine-Bergstrom, Director, 12 October 2027.\nThistledown Instruments Corp. by Yusra Al-Mansouri, Company Secretary, 12 October 2027.\nWitnessed by Thandiwe Okonkwo-Ferreira, Notary Public, commission expiring 4 August 2029.\n\nSCHEDULE 1 ESCROW\n\nThe Escrow Amount of USD 1,250,000 is held by Pemberton Vale Trust Company N.A. of 18 Fenchurch Wharf, Floor 6, London EC3M 5BQ, United Kingdom. Escrow officer: Mihaela Constantinescu-Dubois, telephone +44 20 7555 0163, email m.constantinescu@pembertonvale.co.uk. IBAN GB29 PVTC 6016 1331 9268 19. Release to Calloway Reef Industries Limited on 15 June 2028.\n\nSCHEDULE 2 EARN-OUT\n\nEarn-out threshold: audited revenue of EUR 41,600,000 for the period ending 31 March 2028.",
+  "gold": [
+    {
+      "value": "Brackenmoor Analytics, Inc.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Calloway Reef Industries Limited",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Ormsgate Capital (BVI) Ltd.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Thistledown Instruments Corp.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Whitcombe Rowe LLP",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Pemberton Vale Trust Company N.A.",
+      "type": "COMPANY"
+    },
+    {
+      "value": "Aleksandra Wojciechowska-Prieto",
+      "type": "PERSON"
+    },
+    {
+      "value": "Chidiebere Nwankwo-Halvorsen",
+      "type": "PERSON"
+    },
+    {
+      "value": "Yusra Al-Mansouri",
+      "type": "PERSON"
+    },
+    {
+      "value": "Rafael Quintanilla-Voss",
+      "type": "PERSON"
+    },
+    {
+      "value": "Emeric Lafontaine-Bergstrom",
+      "type": "PERSON"
+    },
+    {
+      "value": "Thandiwe Okonkwo-Ferreira",
+      "type": "PERSON"
+    },
+    {
+      "value": "Mihaela Constantinescu-Dubois",
+      "type": "PERSON"
+    },
+    {
+      "value": "2200 Halstead Avenue, Suite 900, Austin, Texas 78701",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "41 Ormonde Quay Upper, Dublin 7, D07 K2N4, Ireland",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "Craigmuir Chambers, Road Town, Tortola VG1110, British Virgin Islands",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "18 Fenchurch Wharf, Floor 6, London EC3M 5BQ, United Kingdom",
+      "type": "ADDRESS"
+    },
+    {
+      "value": "12 October 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "28 September 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "31 March 2028",
+      "type": "DATE"
+    },
+    {
+      "value": "30 November 2027",
+      "type": "DATE"
+    },
+    {
+      "value": "4 August 2029",
+      "type": "DATE"
+    },
+    {
+      "value": "15 June 2028",
+      "type": "DATE"
+    },
+    {
+      "value": "USD 73,400,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "GBP 4,150,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "EUR 2,900,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "USD 6,300,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "USD 1,250,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "EUR 41,600,000",
+      "type": "AMOUNT"
+    },
+    {
+      "value": "a.wojciechowska@brackenmoor.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "c.nwankwo@callowayreef.ie",
+      "type": "EMAIL"
+    },
+    {
+      "value": "yal-mansouri@thistledown-inst.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "rquintanilla@whitcomberowe.com",
+      "type": "EMAIL"
+    },
+    {
+      "value": "m.constantinescu@pembertonvale.co.uk",
+      "type": "EMAIL"
+    },
+    {
+      "value": "+1 (512) 555-0192",
+      "type": "PHONE"
+    },
+    {
+      "value": "+353 1 555 0128",
+      "type": "PHONE"
+    },
+    {
+      "value": "+1 (415) 555-0247",
+      "type": "PHONE"
+    },
+    {
+      "value": "+44 20 7555 0163",
+      "type": "PHONE"
+    }
+  ],
+  "gold_negatives": [
+    "the Purchaser",
+    "the Seller",
+    "the Company",
+    "the Minority Holder",
+    "The Parties",
+    "this Agreement",
+    "Sale Shares",
+    "Completion",
+    "Business Day",
+    "Escrow Amount",
+    "Chief Executive Officer",
+    "General Counsel",
+    "Director",
+    "Company Secretary",
+    "Notary Public",
+    "Delaware General Corporation Law",
+    "Foreign Corrupt Practices Act",
+    "UK Bribery Act 2010",
+    "Securities Act of 1933",
+    "Federal Trade Commission",
+    "JAMS",
+    "Court of Chancery of the State of Delaware",
+    "Hong Kong International Arbitration Centre",
+    "State of Delaware",
+    "Delaware",
+    "Hong Kong",
+    "British Virgin Islands",
+    "Ireland",
+    "Austin, Texas",
+    "Dublin",
+    "Wilmington, Delaware",
+    "twenty (20) Business Days",
+    "51%",
+    "49%",
+    "30%",
+    "three years",
+    "second anniversary"
+  ],
+  "tail_entities": [
+    "Aleksandra Wojciechowska-Prieto",
+    "+1 (512) 555-0192",
+    "a.wojciechowska@brackenmoor.com",
+    "+353 1 555 0128",
+    "c.nwankwo@callowayreef.ie",
+    "+1 (415) 555-0247",
+    "yal-mansouri@thistledown-inst.com",
+    "Rafael Quintanilla-Voss",
+    "Whitcombe Rowe LLP",
+    "rquintanilla@whitcomberowe.com",
+    "Emeric Lafontaine-Bergstrom",
+    "Thandiwe Okonkwo-Ferreira",
+    "4 August 2029",
+    "USD 1,250,000",
+    "Pemberton Vale Trust Company N.A.",
+    "18 Fenchurch Wharf, Floor 6, London EC3M 5BQ, United Kingdom",
+    "Mihaela Constantinescu-Dubois",
+    "+44 20 7555 0163",
+    "m.constantinescu@pembertonvale.co.uk",
+    "15 June 2028",
+    "EUR 41,600,000"
+  ],
+  "notes": "Full-length English share purchase agreement: 11 operative clauses, a signature block and two schedules, built to test long-document behaviour that the 300 to 900 character fragments in bench/corpus cannot reach: entity fatigue in the back half, defined-term substitution sustained across eleven clauses, and tail leakage.\n\nREPETITION. Calloway Reef Industries Limited and Thistledown Instruments Corp. each appear 6 times, Ormsgate Capital (BVI) Ltd. 4, Brackenmoor Analytics, Inc. 3; Chidiebere Nwankwo-Halvorsen 4, Yusra Al-Mansouri 3; the signing date 12 October 2027 appears 5 times. After clause 1 the agreement refers to these parties almost entirely as the Purchaser, the Seller, the Company and the Minority Holder, so a model that anchors on the defined term instead of re-resolving the registered name still scores on a document-level recall number while losing the later mentions.\n\nTAIL ENTITIES. The values in tail_entities all have their FIRST occurrence inside the final 25% of text; validate_fulldocs.py enforces this. They fall in three bands. The notices clause at 75.7% introduces Aleksandra Wojciechowska-Prieto (the Purchaser's CEO, named nowhere earlier), Rafael Quintanilla-Voss and Whitcombe Rowe LLP, plus every EMAIL and three of the four PHONE values in the document. The signature block adds Emeric Lafontaine-Bergstrom (offshore signatory) and Thandiwe Okonkwo-Ferreira (notary) with the date 4 August 2029. Schedule 1 adds the escrow chain: Pemberton Vale Trust Company N.A., Mihaela Constantinescu-Dubois, a London street address, a fourth phone, a fifth email, USD 1,250,000 and 15 June 2028; Schedule 2 adds EUR 41,600,000. Every EMAIL and PHONE in this agreement is a tail entity, so a model that fatigues after the operative clauses leaks the entire contactable surface of the deal while still appearing to have found all four parties.\n\nDECOYS. the Purchaser, the Seller, the Company, the Minority Holder, The Parties, Sale Shares, Completion, Business Day and Escrow Amount are defined terms: the registered names are gold and the defined terms are negatives, because PromptStore excludes defined terms and LDA resolves them in DefinedTermScanner rather than in the LLM pass. Chief Executive Officer, General Counsel, Director, Company Secretary and Notary Public are role labels, not names. Four statutes (Delaware General Corporation Law, Foreign Corrupt Practices Act, UK Bribery Act 2010, Securities Act of 1933), one agency (Federal Trade Commission) and three tribunals (JAMS, Court of Chancery of the State of Delaware, Hong Kong International Arbitration Centre) are excluded by the statute, agency and tribunal rules. State of Delaware and Delaware appear as governing law, Hong Kong as the law of the escrow, and British Virgin Islands and Ireland as jurisdictions of incorporation, so all are negatives even though British Virgin Islands and Ireland also appear inside gold ADDRESS values; Austin, Texas and Dublin are bare cities in the Business Day definition and Wilmington, Delaware is a bare arbitral seat, all negatives against the four street-level gold ADDRESS values. Percentages and relative periods carry no currency or calendar anchor and are AMOUNT and DATE decoys.\n\nDELIBERATELY IN NEITHER LIST, following the convention set by 001-cn-equity-transfer for the 统一社会信用代码: Employer Identification Number 47-3319085, company numbers 684195 and 2094771, and IBAN GB29 PVTC 6016 1331 9268 19. These are genuine identifiers but fall outside the seven wire types and are owned by DeterministicEngine, so a model that emits them takes a precision dilution rather than a decoy hit, which is what would happen on device.\n\nPERSON NAME STRESS. Six of the seven PERSON values are hyphenated and none are Anglo-American defaults: Wojciechowska-Prieto, Nwankwo-Halvorsen, Al-Mansouri, Quintanilla-Voss, Lafontaine-Bergstrom, Okonkwo-Ferreira, Constantinescu-Dubois. A model that clips at the hyphen or drops the second element produces a value EntityLocator can still anchor on as a fragment, which redacts only part of the name and leaks the rest. Read the strict versus lenient gap in score.py for this.\n\nRUNNER NOTE. At 5967 characters this document does not fit run_model.py's 4096 default context together with a 38-entity JSON answer. Run with --ctx 8192 --max-tokens 3072 or higher; otherwise finish_reason=length truncates the answer mid-array and the truncation artefact is indistinguishable from the tail-fatigue signal this document exists to measure."
+}

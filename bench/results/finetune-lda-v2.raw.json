@@ -1,0 +1,131 @@
+{
+  "label": "finetune-lda-v2",
+  "model_path": "/Users/claptrap/lda-deploy/lda-v2-Q4_K_M.gguf",
+  "weights_mb": 2583.3,
+  "ctx": 4096,
+  "docs": [
+    {
+      "id": "001-cn-equity-transfer",
+      "latency_s": 19.51,
+      "raw_output": "```json\n[\n  {\"value\": \"2027 年 3 月 18 日\", \"type\": \"DATE\"},\n  {\"value\": \"杭州市\", \"type\": \"ADDRESS\"},\n  {\"value\": \"杭州云栖数据科技有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"91330100MA2K7X9L4B\", \"type\": \"AMOUNT\"},\n  {\"value\": \"杭州市西湖区文三路化工路口 98 号云汇大厦 12 层\", \"type\": \"ADDRESS\"},\n  {\"value\": \"陆见山\", \"type\": \"PERSON\"},\n  {\"value\": \"北辰资本管理（深圳）有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"深圳市福田区益田路 5033 号平安金融中心 58 层\", \"type\": \"ADDRESS\"},\n  {\"value\": \"邵语岚\", \"type\": \"PERSON\"},\n  {\"value\": \"宁波磐石新材料有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"48,600,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"陆见山\", \"type\": \"PERSON\"},\n  {\"value\": \"+86 137-2244-8890\", \"type\": \"PHONE\"},\n  {\"value\": \"lujianshan@yunqidata.com.cn\", \"type\": \"EMAIL\"},\n  {\"value\": \"邵语岚\", \"type\": \"PERSON\"},\n  {\"value\": \"+86 158-6677-1203\", \"type\": \"PHONE\"},\n  {\"value\": \"shaoyulan@beichencap.cn\", \"type\": \"EMAIL\"},\n  {\"value\": \"华颂平\", \"type\": \"PERSON\"},\n  {\"value\": \"0574-8712-3456\", \"type\": \"PHONE\"},\n  {\"value\": \"中国国际经济贸易仲裁委员会\", \"type\": \"COMPANY\"},\n  {\"value\": \"杭州\", \"type\": \"ADDRESS\"},\n  {\"value\": \"中华人民共和国\", \"type\": \"COMPANY\"}\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 624,
+      "completion_tokens": 483,
+      "gen_tok_per_s": 24.75
+    },
+    {
+      "id": "002-cn-employment",
+      "latency_s": 13.82,
+      "raw_output": "```json\n[\n  {\"value\": \"成都锦阳智能装备有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"成都市高新区天府五街200号锦阳大厦B座9层\", \"type\": \"ADDRESS\"},\n  {\"value\": \"邱望舒\", \"type\": \"PERSON\"},\n  {\"value\": \"028-8532-7710\", \"type\": \"PHONE\"},\n  {\"value\": \"qiuwangshu@jinyang-equip.com\", \"type\": \"EMAIL\"},\n  {\"value\": \"夏廷玉\", \"type\": \"PERSON\"},\n  {\"value\": \"成都市武侯区科华北路62号锦城花园7栋3单元501室\", \"type\": \"ADDRESS\"},\n  {\"value\": \"+86 189-0281-4477\", \"type\": \"PHONE\"},\n  {\"value\": \"xiatingyu1990@qq.com\", \"type\": \"EMAIL\"},\n  {\"value\": \"2026年9月1日\", \"type\": \"DATE\"},\n  {\"value\": \"2029年8月31日\", \"type\": \"DATE\"},\n  {\"value\": \"18,000元\", \"type\": \"AMOUNT\"},\n  {\"value\": \"24,000元\", \"type\": \"AMOUNT\"},\n  {\"value\": \"2026年8月20日\", \"type\": \"DATE\"}\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 545,
+      "completion_tokens": 335,
+      "gen_tok_per_s": 24.24
+    },
+    {
+      "id": "003-cn-loan",
+      "latency_s": 23.44,
+      "raw_output": "```json\n[\n  {\n    \"value\": \"厦门鹭岛融通小额贷款有限公司\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"厦门市思明区鹭江道98号国贸中心21层\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"卓思远\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"福州临江食品有限公司\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"福州市仓山区金山大道618号临江产业园3号楼\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"郝景澜\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"6,500,000\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"2027年6月1日\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"2029年5月31日\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"8.4%\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"0.05%\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"中国银行福州仓山支行\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"卓思远\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"0592-2288-6610\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"zhuosiyuan@ludaoloan.com.cn\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"郝景澜\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"+86 136-5090-2287\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"haojinglan@linjiangfood.cn\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"厦门市思明区人民法院\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"2027年5月26日\",\n    \"type\": \"DATE\"\n  }\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 533,
+      "completion_tokens": 587,
+      "gen_tok_per_s": 25.05
+    },
+    {
+      "id": "004-en-nda",
+      "latency_s": 10.8,
+      "raw_output": "[{\"value\":\"14 February 2027\",\"type\":\"DATE\"},{\"value\":\"Halden Optics Corporation\",\"type\":\"COMPANY\"},{\"value\":\"4400 Beacon Ridge Parkway, Suite 250, Charlotte, North Carolina 28209\",\"type\":\"ADDRESS\"},{\"value\":\"Verrant Systems B.V.\",\"type\":\"COMPANY\"},{\"value\":\"Keizersgracht 412, 1016 GC Amsterdam, the Netherlands\",\"type\":\"ADDRESS\"},{\"value\":\"Marguerite Delacroix-Reyes\",\"type\":\"PERSON\"},{\"value\":\"mdelacroix@haldenoptics.com\",\"type\":\"EMAIL\"},{\"value\":\"+1 (704) 555-0148\",\"type\":\"PHONE\"},{\"value\":\"Joost van der Meer\",\"type\":\"PERSON\"},{\"value\":\"j.vandermeer@verrant.nl\",\"type\":\"EMAIL\"},{\"value\":\"+31 20 555 0193\",\"type\":\"PHONE\"},{\"value\":\"14 February 2027\",\"type\":\"DATE\"}]",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 800,
+      "completion_tokens": 222,
+      "gen_tok_per_s": 20.56
+    },
+    {
+      "id": "005-en-employment",
+      "latency_s": 11.52,
+      "raw_output": "[{\"value\":\"6 April 2026\",\"type\":\"DATE\"},{\"value\":\"Quillon Therapeutics, Inc.\",\"type\":\"COMPANY\"},{\"value\":\"1201 Sawgrass Terrace, Building C, Cambridge, Massachusetts 02142\",\"type\":\"ADDRESS\"},{\"value\":\"Priyanka Rasmussen-Oyelaran\",\"type\":\"PERSON\"},{\"value\":\"88 Fenwick Lane, Apartment 4B, Somerville, Massachusetts 02143\",\"type\":\"ADDRESS\"},{\"value\":\"Dr. Aurelio Banfi\",\"type\":\"PERSON\"},{\"value\":\"USD 385,000\",\"type\":\"AMOUNT\"},{\"value\":\"120,000\",\"type\":\"AMOUNT\"},{\"value\":\"legal@quillontx.com\",\"type\":\"EMAIL\"},{\"value\":\"+1 (617) 555-0272\",\"type\":\"PHONE\"},{\"value\":\"p.rasmussen@quillontx.com\",\"type\":\"EMAIL\"},{\"value\":\"+1 (617) 555-0338\",\"type\":\"PHONE\"},{\"value\":\"6 April 2026\",\"type\":\"DATE\"},{\"value\":\"6 April 2026\",\"type\":\"DATE\"}]",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 706,
+      "completion_tokens": 251,
+      "gen_tok_per_s": 21.78
+    },
+    {
+      "id": "006-en-spa",
+      "latency_s": 13.9,
+      "raw_output": "[{\"value\":\"22 November 2026\",\"type\":\"DATE\"},{\"value\":\"Ostara Nordic Holdings AB\",\"type\":\"COMPANY\"},{\"value\":\"Birger Jarlsgatan 57, 113 56 Stockholm, Sweden\",\"type\":\"ADDRESS\"},{\"value\":\"Kestrel Bay Capital Partners LP\",\"type\":\"COMPANY\"},{\"value\":\"500 Harbourfront Walk, Level 22, Singapore 018983\",\"type\":\"ADDRESS\"},{\"value\":\"Lumenwave Robotics Limited\",\"type\":\"COMPANY\"},{\"value\":\"14 Marlborough Court, Reading RG1 8QT, United Kingdom\",\"type\":\"ADDRESS\"},{\"value\":\"EUR 62,400,000\",\"type\":\"AMOUNT\"},{\"value\":\"EUR 55,000,000\",\"type\":\"AMOUNT\"},{\"value\":\"EUR 7,400,000\",\"type\":\"AMOUNT\"},{\"value\":\"15 January 2027\",\"type\":\"DATE\"},{\"value\":\"Ingrid Solheim-Vaskaite\",\"type\":\"PERSON\"},{\"value\":\"ingrid.solheim@ostaranordic.se\",\"type\":\"EMAIL\"},{\"value\":\"+46 8 555 0166\",\"type\":\"PHONE\"},{\"value\":\"Terrence Obiora-Whitfield\",\"type\":\"PERSON\"},{\"value\":\"t.obiora@kestrelbay.sg\",\"type\":\"EMAIL\"},{\"value\":\"+65 6555 0184\",\"type\":\"PHONE\"}]",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 694,
+      "completion_tokens": 313,
+      "gen_tok_per_s": 22.52
+    },
+    {
+      "id": "007-mixed-cross-border-supplement",
+      "latency_s": 17.48,
+      "raw_output": "```json\n[\n  {\"value\": \"2027年7月9日\", \"type\": \"DATE\"},\n  {\"value\": \"2028年12月31日\", \"type\": \"DATE\"},\n  {\"value\": \"2027年8月15日\", \"type\": \"DATE\"},\n  {\"value\": \"苏州维澜精密机械有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"苏州市工业园区星湖街218号生物纳米园A3幢6层\", \"type\": \"ADDRESS\"},\n  {\"value\": \"温砚清\", \"type\": \"PERSON\"},\n  {\"value\": \"Arclight Industrial GmbH\", \"type\": \"COMPANY\"},\n  {\"value\": \"Ludwigstrasse 27, 80539 Munich, Germany\", \"type\": \"ADDRESS\"},\n  {\"value\": \"Katharina Brunnhuber-Lang\", \"type\": \"PERSON\"},\n  {\"value\": \"欧元3,750,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"EUR 3,750,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"人民币8,200,000元\", \"type\": \"AMOUNT\"},\n  {\"value\": \"+86 512-6288-4417\", \"type\": \"PHONE\"},\n  {\"value\": \"wenyanqing@weilan-precision.com\", \"type\": \"EMAIL\"},\n  {\"value\": \"+49 89 5550 2281\", \"type\": \"PHONE\"},\n  {\"value\": \"k.brunnhuber@arclight-ind.de\", \"type\": \"EMAIL\"},\n  {\"value\": \"legal@weilan-precision.com\", \"type\": \"EMAIL\"}\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 629,
+      "completion_tokens": 412,
+      "gen_tok_per_s": 23.57
+    },
+    {
+      "id": "008-en-adversarial-defined-terms",
+      "latency_s": 9.36,
+      "raw_output": "[{\"value\":\"Acme Holdings Ltd.\",\"type\":\"COMPANY\"},{\"value\":\"Northstar Aggregates LLC\",\"type\":\"COMPANY\"},{\"value\":\"Jane Roe\",\"type\":\"PERSON\"},{\"value\":\"Desmond Achterberg\",\"type\":\"PERSON\"},{\"value\":\"1209 Orange Street, Wilmington, Delaware 19801\",\"type\":\"ADDRESS\"},{\"value\":\"77 Cascade Row, Floor 3, Boise, Idaho 83702\",\"type\":\"ADDRESS\"},{\"value\":\"jane.roe@acmeholdings.com\",\"type\":\"EMAIL\"},{\"value\":\"+1 (302) 555-0117\",\"type\":\"PHONE\"},{\"value\":\"d.achterberg@northstaragg.com\",\"type\":\"EMAIL\"},{\"value\":\"+1 (208) 555-0163\",\"type\":\"PHONE\"},{\"value\":\"3 September 2027\",\"type\":\"DATE\"}]",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 712,
+      "completion_tokens": 190,
+      "gen_tok_per_s": 20.3
+    },
+    {
+      "id": "009-mixed-adversarial-roles",
+      "latency_s": 17.29,
+      "raw_output": "```json\n[\n  {\"value\": \"广州明德医疗器械有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"Halcyon Bio Partners Pte. Ltd.\", \"type\": \"COMPANY\"},\n  {\"value\": \"广州明德海康生物科技有限公司\", \"type\": \"COMPANY\"},\n  {\"value\": \"40,000,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"5,600,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"USD 5,600,000\", \"type\": \"AMOUNT\"},\n  {\"value\": \"程立衡\", \"type\": \"PERSON\"},\n  {\"value\": \"Marcus Tan Wei Jie\", \"type\": \"PERSON\"},\n  {\"value\": \"邢知微\", \"type\": \"PERSON\"},\n  {\"value\": \"广州市黄埔区科学城开源大道 11 号明德产业园 2 号楼\", \"type\": \"ADDRESS\"},\n  {\"value\": \"60 Anson Road, #12-01, Singapore 079914\", \"type\": \"ADDRESS\"},\n  {\"value\": \"020-8755-3312\", \"type\": \"PHONE\"},\n  {\"value\": \"+65 6555 0271\", \"type\": \"PHONE\"},\n  {\"value\": \"+86 135-7788-2049\", \"type\": \"PHONE\"},\n  {\"value\": \"chenglh@mingde-med.com\", \"type\": \"EMAIL\"},\n  {\"value\": \"marcus.tan@halcyonbio.sg\", \"type\": \"EMAIL\"},\n  {\"value\": \"2027 年 10 月 12 日\", \"type\": \"DATE\"}\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 637,
+      "completion_tokens": 409,
+      "gen_tok_per_s": 23.66
+    },
+    {
+      "id": "010-en-adversarial-statutes-venue",
+      "latency_s": 22.75,
+      "raw_output": "```json\n[\n  {\n    \"value\": \"Tessellate Grid Energy, Inc.\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"Ondrej Kwiatkowski-Sarr\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"Equal Employment Opportunity Commission\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"National Labor Relations Board\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"11 May 2026\",\n    \"type\": \"DATE\"\n  },\n  {\n    \"value\": \"145,500\",\n    \"type\": \"AMOUNT\"\n  },\n  {\n    \"value\": \"Internal Revenue Service\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"Beatrice N'Diaye-Lindqvist\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"Harrow & Pell LLP\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"300 Vesey Street, 18th Floor, New York, New York 10282\",\n    \"type\": \"ADDRESS\"\n  },\n  {\n    \"value\": \"+1 (212) 555-0155\",\n    \"type\": \"PHONE\"\n  },\n  {\n    \"value\": \"bndiaye@harrowpell.com\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"Sung-Min Oyelowo\",\n    \"type\": \"PERSON\"\n  },\n  {\n    \"value\": \"s.oyelowo@tessellategrid.com\",\n    \"type\": \"EMAIL\"\n  },\n  {\n    \"value\": \"United States District Court for the Southern District of New York\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"Supreme Court of the State of New York, New York County\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"New York Civil Practice Law and Rules\",\n    \"type\": \"COMPANY\"\n  },\n  {\n    \"value\": \"26 May 2026\",\n    \"type\": \"DATE\"\n  }\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 667,
+      "completion_tokens": 557,
+      "gen_tok_per_s": 24.49
+    },
+    {
+      "id": "011-en-control-boilerplate",
+      "latency_s": 2.11,
+      "raw_output": "[]",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 674,
+      "completion_tokens": 2,
+      "gen_tok_per_s": 0.95
+    },
+    {
+      "id": "012-cn-control-boilerplate",
+      "latency_s": 2.93,
+      "raw_output": "```json\n[\n  {\n    \"value\": \"中华人民共和国\",\n    \"type\": \"COUNTRY\"\n  }\n]\n```",
+      "reasoning_content": "",
+      "finish_reason": "stop",
+      "prompt_tokens": 559,
+      "completion_tokens": 32,
+      "gen_tok_per_s": 10.92
+    }
+  ],
+  "load_seconds": 2.02,
+  "peak_rss_mb": 5788.0,
+  "peak_rss_gb": 5.65
+}

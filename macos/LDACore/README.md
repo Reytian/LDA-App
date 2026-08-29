@@ -3,8 +3,33 @@
 LDACore is the headless Swift core of LDA.app, a native macOS legal-document
 anonymizer that runs fully offline and on-device.
 
-This package contains no UI and no network access. It is the single shared core
-beneath three later faces: a SwiftUI app, a CLI, and an MCP stdio server.
+This package contains no UI. It is the single shared core beneath three later
+faces: a SwiftUI app, a CLI, and an MCP stdio server. Document processing is
+entirely on-device; the app reaches the network only to download a detection
+model the user has asked for, and this core is not part of that path.
+
+## System requirements
+
+**Minimum: a Mac with 16 GB of memory.** LDA runs its detection model on your
+machine, and the model has to fit in memory alongside whatever else you have
+open. Below 16 GB there is no configuration that both detects names reliably and
+leaves room for a word processor and a browser, so 16 GB is the floor rather
+than a recommendation.
+
+What each detection level needs, measured on an Apple M4:
+
+| Level | Model | Download | Peak memory | Mac needed | Per agreement |
+|---|---|---|---|---|---|
+| Patterns only | none | none | none | any | instant |
+| Quick | Qwen3.5-4B | built in | 3.1 GB | **16 GB** | about 55 s |
+| Balanced | gemma-4-12b | 7.1 GB | 8.5 GB | 24 GB | about 2 min |
+| Most thorough | Qwen3.8-27B | 13.2 GB | 12.2 GB | 24 GB | about 4.5 min |
+
+Quick ships inside the app, so a 16 GB Mac works out of the box with no
+download. Balanced and Most thorough are downloaded from Model Management in
+Settings. LDA will not offer you a level your Mac cannot run.
+
+Also required: macOS 14 or later, and Apple silicon.
 
 ## What lives here
 

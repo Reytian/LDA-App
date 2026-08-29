@@ -40,14 +40,17 @@ struct LDAApp: App {
     /// The session model for the Anonymize window: the document tray plus one
     /// review model per document (R12/R19).
     @StateObject private var sessionModel = SessionModel(
-        makeModel: { ReviewModel(modelPath: LDAApp.defaultModelPath()) }
+        makeModel: { ReviewModel(modelPath: AISettings.resolveModelPath()) }
     )
 
     /// The fill model for the Fill window.
-    @StateObject private var fillModel = FillModel(modelPath: LDAApp.defaultModelPath())
+    @StateObject private var fillModel = FillModel(modelPath: AISettings.resolveModelPath())
 
     /// The shared mode store. Owned here; passed into RootShell and read by
     /// the CommandMenu entries to route Cmd+J / Cmd+Shift+J / Cmd+Return.
+    /// App-level so an in-flight model download survives closing Settings.
+    @StateObject private var modelInstaller = ModelInstaller()
+
     @StateObject private var modeStore = AppModeStore()
 
     /// The persisted custom vocabulary, shared by the window and Settings.
@@ -62,7 +65,10 @@ struct LDAApp: App {
     /// The AI settings (custom model path and detection mode), observed so a
     /// change in Settings re-applies to every open document model.
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
-    @AppStorage(AISettings.detectionModeKey) private var detectionModeRaw = DetectionMode.thorough.rawValue
+    // Observe the ladder's key. The legacy detectionModeKey is no longer
+    // written by anything, so watching it meant a settings change never reached
+    // an already-open document.
+    @AppStorage(AISettings.detectionLevelKey) private var detectionLevelRaw = DetectionLevel.quick.rawValue
 
     private var colorScheme: ColorScheme? {
         AppearanceMode.from(rawValue: appearanceRaw).colorScheme
@@ -100,7 +106,7 @@ struct LDAApp: App {
                     sessionModel.configureNewModel = { [patternStore, learningStore] model in
                         model.customPatternProvider = { patternStore.activePatterns }
                         model.learningStore = learningStore
-                        AISettings.apply(to: model, bundledDefault: LDAApp.defaultModelPath())
+                        AISettings.apply(to: model)
                     }
                     // NOTE: a parked awaiting-AI session is resumed lazily
                     // (first paste-restore), NOT here. The parked mapping is
@@ -110,7 +116,7 @@ struct LDAApp: App {
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
                 }
-                .onChange(of: detectionModeRaw) { _, _ in
+                .onChange(of: detectionLevelRaw) { _, _ in
                     sessionModel.reapplyConfiguration()
                 }
         }
@@ -204,7 +210,15 @@ struct LDAApp: App {
         }
 
         Settings {
-            SettingsView(patterns: patternStore, learning: learningStore)
+            SettingsView(
+                patterns: patternStore,
+                learning: learningStore,
+                installer: modelInstaller,
+                // Any open document mid-scan gates model removal: llama.cpp
+                // still has the file mmapped, so the disk would not
+                // actually come back and the app would report otherwise.
+                isScanning: sessionModel.entries.contains { $0.model.status == .detecting }
+            )
                 .preferredColorScheme(colorScheme)
         }
 
@@ -216,15 +230,8 @@ struct LDAApp: App {
         }
     }
 
-    /// The default v2 GGUF model path. Prefers the copy bundled inside the app
-    /// (a distributed, self-contained .app), then falls back to the developer
-    /// location, then nil (deterministic-only).
-    private static func defaultModelPath() -> String? {
-        if let bundled = Bundle.main.path(forResource: "lda-v2-Q4_K_M", ofType: "gguf") {
-            return bundled
-        }
-        let dev = ("~/Developer/lda-models/lda-v2-Q4_K_M.gguf" as NSString)
-            .expandingTildeInPath
-        return FileManager.default.fileExists(atPath: dev) ? dev : nil
-    }
+    // The initial model path is whatever the current detection level resolves
+    // to: the container copy, then the bundled Quick model, then nil. See
+    // docs/design/model-tiers-prd.md section 6 and model-management-prd.md.
+
 }

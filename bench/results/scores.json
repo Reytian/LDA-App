@@ -1,0 +1,2201 @@
+{
+  "corpus": {
+    "path": "bench/corpus",
+    "documents": 12,
+    "gold_entities": 143,
+    "gold_negatives": 204
+  },
+  "models": [
+    {
+      "label": "finetune-lda-v2",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 5,
+          "stripped_fence": 7,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 4,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 5,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "mixed": {
+            "clean": 0,
+            "stripped_fence": 2,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.4167,
+        "shapes": {
+          "bare_array": 12
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {
+          "type_out_of_vocab": 1
+        },
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.8141,
+          "recall": 0.8881,
+          "f1": 0.8495,
+          "tp": 127,
+          "predicted": 156,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.8974,
+          "recall": 0.979,
+          "f1": 0.9365,
+          "tp": 140,
+          "predicted": 156,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9565,
+            "recall": 0.9167,
+            "f1": 0.9362,
+            "tp": 22,
+            "predicted": 23,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 0.7097,
+            "recall": 0.9565,
+            "f1": 0.8148,
+            "tp": 22,
+            "predicted": 31,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 0.8889,
+            "recall": 0.8421,
+            "f1": 0.8649,
+            "tp": 16,
+            "predicted": 18,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.4211,
+            "recall": 0.5333,
+            "f1": 0.4706,
+            "tp": 8,
+            "predicted": 19,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 0.7727,
+            "recall": 0.85,
+            "f1": 0.8095,
+            "tp": 17,
+            "predicted": 22,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.8026,
+          "recall": 0.9104,
+          "f1": 0.8531,
+          "tp": 61,
+          "predicted": 76,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.9701,
+        "backstopped_strict": {
+          "precision": 0.8354,
+          "recall": 0.8684,
+          "f1": 0.8516,
+          "tp": 66,
+          "predicted": 79,
+          "gold": 76
+        },
+        "surface_drift": 0.0909
+      },
+      "over_extraction": {
+        "decoys_hit": 12,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0588,
+        "decoy_share_of_predictions": 0.0769,
+        "adversarial_decoy_hit_rate": 0.0638,
+        "control_false_positives": 1,
+        "control_fp_per_1k_chars": 0.329,
+        "duplicate_rate": 0.0429,
+        "production_unknown_type_rate": 0.0064,
+        "out_of_vocab_type_rate": 0.0064
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2583.3,
+        "load_seconds": 2.02,
+        "peak_rss_mb": 5788.0,
+        "peak_rss_gb": 5.65,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 13.74,
+        "total_latency_s": 164.91,
+        "mean_gen_tok_per_s": 20.23,
+        "completion_tokens": 3793,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 15,
+          "unique_predictions": 20,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 14,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 15,
+          "unique_predictions": 18,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 11,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 17,
+          "gold_count": 17,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 17,
+          "gold_count": 20,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 17,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 12,
+          "unique_predictions": 18,
+          "decoys_hit": 5,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 1,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.4083,
+        "throughput_subscore": 0.6639,
+        "composite": 81.98,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "nuextract3",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 2,
+          "stripped_fence": 0,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 10
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 1,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 3
+          },
+          "en": {
+            "clean": 1,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 5
+          },
+          "mixed": {
+            "clean": 0,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 2
+          }
+        },
+        "parse_success_rate": 0.1667,
+        "clean_rate": 0.1667,
+        "shapes": {
+          "none": 10,
+          "type_keyed_map": 2
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {
+          "type_alias": 1,
+          "type_out_of_vocab": 1
+        },
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.4815,
+          "recall": 0.0909,
+          "f1": 0.1529,
+          "tp": 13,
+          "predicted": 27,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.4815,
+          "recall": 0.0909,
+          "f1": 0.1529,
+          "tp": 13,
+          "predicted": 27,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 0.1667,
+            "f1": 0.2857,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.0435,
+            "f1": 0.0833,
+            "tp": 1,
+            "predicted": 1,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tp": 0,
+            "predicted": 4,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tp": 0,
+            "predicted": 5,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 0.1905,
+            "f1": 0.32,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "tp": 0,
+            "predicted": 4,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 1.0,
+            "recall": 0.2,
+            "f1": 0.3333,
+            "tp": 4,
+            "predicted": 4,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 1.0,
+          "recall": 0.1343,
+          "f1": 0.2368,
+          "tp": 9,
+          "predicted": 9,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.1343,
+        "backstopped_strict": {
+          "precision": 0.2353,
+          "recall": 0.0526,
+          "f1": 0.086,
+          "tp": 4,
+          "predicted": 17,
+          "gold": 76
+        },
+        "surface_drift": 0.0
+      },
+      "over_extraction": {
+        "decoys_hit": 0,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0,
+        "decoy_share_of_predictions": 0.0,
+        "adversarial_decoy_hit_rate": 0.0,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0357,
+        "production_unknown_type_rate": 0.5185,
+        "out_of_vocab_type_rate": 0.037
+      },
+      "confusion": {
+        "COMPANY": {
+          "UNKNOWN": 1
+        }
+      },
+      "cost": {
+        "weights_mb": 2654.5,
+        "load_seconds": 2.02,
+        "peak_rss_mb": 5115.9,
+        "peak_rss_gb": 5.0,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 8.88,
+        "total_latency_s": 106.59,
+        "mean_gen_tok_per_s": 18.51,
+        "completion_tokens": 2287,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 15,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "clean",
+          "shape": "type_keyed_map",
+          "strict_tp": 6,
+          "gold_count": 14,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 15,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 11,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "type_keyed_map",
+          "strict_tp": 7,
+          "gold_count": 11,
+          "unique_predictions": 13,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 17,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 20,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 11,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 17,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 12,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.2833,
+        "throughput_subscore": 0.6075,
+        "composite": 44.81,
+        "gates": {
+          "G1_all_docs_parse": false,
+          "G2_critical_strict_recall_ge_0.80": false,
+          "G3_critical_lenient_recall_ge_0.90": false,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [
+          "G1_all_docs_parse",
+          "G2_critical_strict_recall_ge_0.80",
+          "G3_critical_lenient_recall_ge_0.90"
+        ],
+        "verdict": "FAIL",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen3-4b-base-nothink",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 12,
+          "stripped_fence": 0,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 4,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 6,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "mixed": {
+            "clean": 2,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 1.0,
+        "shapes": {
+          "bare_array": 12
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {
+          "type_alias": 1,
+          "type_out_of_vocab": 1
+        },
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.9127,
+          "recall": 0.8042,
+          "f1": 0.855,
+          "tp": 115,
+          "predicted": 126,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.9683,
+          "recall": 0.8531,
+          "f1": 0.9071,
+          "tp": 122,
+          "predicted": 126,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 0.7917,
+            "f1": 0.8837,
+            "tp": 19,
+            "predicted": 19,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 0.9524,
+            "recall": 0.8696,
+            "f1": 0.9091,
+            "tp": 20,
+            "predicted": 21,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.7368,
+            "f1": 0.8485,
+            "tp": 14,
+            "predicted": 14,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.3333,
+            "recall": 0.2667,
+            "f1": 0.2963,
+            "tp": 4,
+            "predicted": 12,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 0.9524,
+            "f1": 0.9756,
+            "tp": 20,
+            "predicted": 20,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 0.9524,
+            "f1": 0.9756,
+            "tp": 20,
+            "predicted": 20,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 0.9474,
+            "recall": 0.9,
+            "f1": 0.9231,
+            "tp": 18,
+            "predicted": 19,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9661,
+          "recall": 0.8507,
+          "f1": 0.9048,
+          "tp": 57,
+          "predicted": 59,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.8507,
+        "backstopped_strict": {
+          "precision": 0.8788,
+          "recall": 0.7632,
+          "f1": 0.8169,
+          "tp": 58,
+          "predicted": 66,
+          "gold": 76
+        },
+        "surface_drift": 0.0489
+      },
+      "over_extraction": {
+        "decoys_hit": 2,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0098,
+        "decoy_share_of_predictions": 0.0159,
+        "adversarial_decoy_hit_rate": 0.0,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0156,
+        "production_unknown_type_rate": 0.0159,
+        "out_of_vocab_type_rate": 0.0079
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2381.6,
+        "load_seconds": 2.01,
+        "peak_rss_mb": 4583.2,
+        "peak_rss_gb": 4.48,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 11.0,
+        "total_latency_s": 131.98,
+        "mean_gen_tok_per_s": 23.19,
+        "completion_tokens": 3556,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 15,
+          "unique_predictions": 15,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 14,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 15,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 11,
+          "unique_predictions": 10,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 17,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 20,
+          "unique_predictions": 16,
+          "decoys_hit": 2,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 17,
+          "unique_predictions": 15,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 9,
+          "gold_count": 12,
+          "unique_predictions": 9,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.7,
+        "throughput_subscore": 0.7611,
+        "composite": 85.62,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": false,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [
+          "G3_critical_lenient_recall_ge_0.90"
+        ],
+        "verdict": "FAIL",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen3-4b-base-think",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 11,
+          "stripped_fence": 0,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 1
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 4,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 5,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 1
+          },
+          "mixed": {
+            "clean": 2,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 0.9167,
+        "clean_rate": 0.9167,
+        "shapes": {
+          "bare_array": 11,
+          "none": 1
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.913,
+          "recall": 0.8811,
+          "f1": 0.8968,
+          "tp": 126,
+          "predicted": 138,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.9565,
+          "recall": 0.9231,
+          "f1": 0.9395,
+          "tp": 132,
+          "predicted": 138,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 1.0,
+            "recall": 0.875,
+            "f1": 0.9333,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 0.9524,
+            "recall": 0.8696,
+            "f1": 0.9091,
+            "tp": 20,
+            "predicted": 21,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.8947,
+            "f1": 0.9444,
+            "tp": 17,
+            "predicted": 17,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.3889,
+            "recall": 0.4667,
+            "f1": 0.4242,
+            "tp": 7,
+            "predicted": 18,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 1.0,
+            "recall": 0.95,
+            "f1": 0.9744,
+            "tp": 19,
+            "predicted": 19,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9836,
+          "recall": 0.8955,
+          "f1": 0.9375,
+          "tp": 60,
+          "predicted": 61,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.8955,
+        "backstopped_strict": {
+          "precision": 0.8571,
+          "recall": 0.8684,
+          "f1": 0.8627,
+          "tp": 66,
+          "predicted": 77,
+          "gold": 76
+        },
+        "surface_drift": 0.042
+      },
+      "over_extraction": {
+        "decoys_hit": 3,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0147,
+        "decoy_share_of_predictions": 0.0217,
+        "adversarial_decoy_hit_rate": 0.0,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0072,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2381.6,
+        "load_seconds": 2.02,
+        "peak_rss_mb": 5803.7,
+        "peak_rss_gb": 5.67,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 34.42,
+        "total_latency_s": 413.07,
+        "mean_gen_tok_per_s": 30.47,
+        "completion_tokens": 12661,
+        "reasoning_est_tokens": 8942,
+        "reasoning_chars": 33423,
+        "docs_with_reasoning": 12,
+        "thinking_share_chars": 0.8101,
+        "thinking_overhead_vs_completion": 0.7063
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 15,
+          "unique_predictions": 18,
+          "decoys_hit": 2,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 14,
+          "unique_predictions": 15,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 15,
+          "unique_predictions": 15,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 17,
+          "gold_count": 17,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 20,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 17,
+          "unique_predictions": 15,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 12,
+          "unique_predictions": 10,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "unparseable",
+          "shape": "none",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.6583,
+        "throughput_subscore": 1.0,
+        "composite": 90.62,
+        "gates": {
+          "G1_all_docs_parse": false,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": false,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [
+          "G1_all_docs_parse",
+          "G3_critical_lenient_recall_ge_0.90"
+        ],
+        "verdict": "FAIL",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen3-8b-nothink",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 12,
+          "stripped_fence": 0,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 4,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 6,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "mixed": {
+            "clean": 2,
+            "stripped_fence": 0,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 1.0,
+        "shapes": {
+          "bare_array": 12
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {
+          "type_out_of_vocab": 2,
+          "missing_value": 1
+        },
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.8889,
+          "recall": 0.8951,
+          "f1": 0.892,
+          "tp": 128,
+          "predicted": 144,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.9236,
+          "recall": 0.9301,
+          "f1": 0.9268,
+          "tp": 133,
+          "predicted": 144,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.875,
+            "recall": 0.875,
+            "f1": 0.875,
+            "tp": 21,
+            "predicted": 24,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 0.9565,
+            "recall": 0.9565,
+            "f1": 0.9565,
+            "tp": 22,
+            "predicted": 23,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 0.9333,
+            "recall": 0.7368,
+            "f1": 0.8235,
+            "tp": 14,
+            "predicted": 15,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.5294,
+            "recall": 0.6,
+            "f1": 0.5625,
+            "tp": 9,
+            "predicted": 17,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 20,
+            "predicted": 20,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.9403,
+          "recall": 0.9403,
+          "f1": 0.9403,
+          "tp": 63,
+          "predicted": 67,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.9552,
+        "backstopped_strict": {
+          "precision": 0.8784,
+          "recall": 0.8553,
+          "f1": 0.8667,
+          "tp": 65,
+          "predicted": 74,
+          "gold": 76
+        },
+        "surface_drift": 0.035
+      },
+      "over_extraction": {
+        "decoys_hit": 8,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0392,
+        "decoy_share_of_predictions": 0.0556,
+        "adversarial_decoy_hit_rate": 0.0106,
+        "control_false_positives": 1,
+        "control_fp_per_1k_chars": 0.329,
+        "duplicate_rate": 0.0526,
+        "production_unknown_type_rate": 0.0208,
+        "out_of_vocab_type_rate": 0.0208
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 4794.9,
+        "load_seconds": 4.02,
+        "peak_rss_mb": 6702.7,
+        "peak_rss_gb": 6.55,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 18.3,
+        "total_latency_s": 219.62,
+        "mean_gen_tok_per_s": 13.62,
+        "completion_tokens": 3384,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 15,
+          "gold_count": 15,
+          "unique_predictions": 16,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 14,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 15,
+          "unique_predictions": 19,
+          "decoys_hit": 4,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 13,
+          "decoys_hit": 2,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 11,
+          "unique_predictions": 13,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 16,
+          "gold_count": 17,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 20,
+          "unique_predictions": 13,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 17,
+          "unique_predictions": 15,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 12,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 1,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.7,
+        "throughput_subscore": 0.447,
+        "composite": 86.15,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen35-4b-control",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 4,
+          "stripped_fence": 8,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 0,
+            "stripped_fence": 4,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 4,
+            "stripped_fence": 2,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "mixed": {
+            "clean": 0,
+            "stripped_fence": 2,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.3333,
+        "shapes": {
+          "bare_array": 12
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {
+          "type_out_of_vocab": 1
+        },
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.8481,
+          "recall": 0.9371,
+          "f1": 0.8904,
+          "tp": 134,
+          "predicted": 158,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.8924,
+          "recall": 0.986,
+          "f1": 0.9369,
+          "tp": 141,
+          "predicted": 158,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9583,
+            "recall": 0.9583,
+            "f1": 0.9583,
+            "tp": 23,
+            "predicted": 24,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 0.7188,
+            "recall": 1.0,
+            "f1": 0.8364,
+            "tp": 23,
+            "predicted": 32,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 1.0,
+            "recall": 0.9474,
+            "f1": 0.973,
+            "tp": 18,
+            "predicted": 18,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.4444,
+            "recall": 0.5333,
+            "f1": 0.4848,
+            "tp": 8,
+            "predicted": 18,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 0.8696,
+            "recall": 1.0,
+            "f1": 0.9302,
+            "tp": 20,
+            "predicted": 23,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.8354,
+          "recall": 0.9851,
+          "f1": 0.9041,
+          "tp": 66,
+          "predicted": 79,
+          "gold": 67
+        },
+        "critical_lenient_recall": 1.0,
+        "backstopped_strict": {
+          "precision": 0.8718,
+          "recall": 0.8947,
+          "f1": 0.8831,
+          "tp": 68,
+          "predicted": 78,
+          "gold": 76
+        },
+        "surface_drift": 0.0489
+      },
+      "over_extraction": {
+        "decoys_hit": 13,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0637,
+        "decoy_share_of_predictions": 0.0823,
+        "adversarial_decoy_hit_rate": 0.0638,
+        "control_false_positives": 1,
+        "control_fp_per_1k_chars": 0.329,
+        "duplicate_rate": 0.0539,
+        "production_unknown_type_rate": 0.0063,
+        "out_of_vocab_type_rate": 0.0063
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 2614.0,
+        "load_seconds": 2.02,
+        "peak_rss_mb": 5790.3,
+        "peak_rss_gb": 5.65,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 13.84,
+        "total_latency_s": 166.03,
+        "mean_gen_tok_per_s": 20.09,
+        "completion_tokens": 3783,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 15,
+          "unique_predictions": 20,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 14,
+          "unique_predictions": 15,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 13,
+          "gold_count": 15,
+          "unique_predictions": 17,
+          "decoys_hit": 3,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 11,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 17,
+          "gold_count": 17,
+          "unique_predictions": 17,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 20,
+          "gold_count": 20,
+          "unique_predictions": 20,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 17,
+          "unique_predictions": 16,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 12,
+          "unique_predictions": 18,
+          "decoys_hit": 5,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 1,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.3667,
+        "throughput_subscore": 0.6593,
+        "composite": 85.19,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    },
+    {
+      "label": "qwen35-9b",
+      "docs_total": 12,
+      "docs_missing_from_run": [],
+      "parse": {
+        "tiers": {
+          "clean": 9,
+          "stripped_fence": 3,
+          "extracted_substring": 0,
+          "repaired": 0,
+          "unparseable": 0
+        },
+        "tiers_by_lang": {
+          "zh": {
+            "clean": 3,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "en": {
+            "clean": 5,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          },
+          "mixed": {
+            "clean": 1,
+            "stripped_fence": 1,
+            "extracted_substring": 0,
+            "repaired": 0,
+            "unparseable": 0
+          }
+        },
+        "parse_success_rate": 1.0,
+        "clean_rate": 0.75,
+        "shapes": {
+          "bare_array": 12
+        },
+        "contract_shape_rate": 0.0,
+        "schema_deviations": {},
+        "truncated_finish_reason": 0,
+        "truncation_rate": 0.0,
+        "truncated_detected_by_parser": 0
+      },
+      "quality": {
+        "micro_strict": {
+          "precision": 0.7793,
+          "recall": 0.7902,
+          "f1": 0.7847,
+          "tp": 113,
+          "predicted": 145,
+          "gold": 143
+        },
+        "micro_lenient": {
+          "precision": 0.9586,
+          "recall": 0.972,
+          "f1": 0.9653,
+          "tp": 139,
+          "predicted": 145,
+          "gold": 143
+        },
+        "per_type_strict": {
+          "PERSON": {
+            "precision": 0.9583,
+            "recall": 0.9583,
+            "f1": 0.9583,
+            "tp": 23,
+            "predicted": 24,
+            "gold": 24
+          },
+          "COMPANY": {
+            "precision": 1.0,
+            "recall": 0.9565,
+            "f1": 0.9778,
+            "tp": 22,
+            "predicted": 22,
+            "gold": 23
+          },
+          "DATE": {
+            "precision": 0.4211,
+            "recall": 0.4211,
+            "f1": 0.4211,
+            "tp": 8,
+            "predicted": 19,
+            "gold": 19
+          },
+          "AMOUNT": {
+            "precision": 0.3529,
+            "recall": 0.4,
+            "f1": 0.375,
+            "tp": 6,
+            "predicted": 17,
+            "gold": 15
+          },
+          "EMAIL": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "PHONE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "tp": 21,
+            "predicted": 21,
+            "gold": 21
+          },
+          "ADDRESS": {
+            "precision": 0.5714,
+            "recall": 0.6,
+            "f1": 0.5854,
+            "tp": 12,
+            "predicted": 21,
+            "gold": 20
+          }
+        },
+        "critical_strict": {
+          "precision": 0.8507,
+          "recall": 0.8507,
+          "f1": 0.8507,
+          "tp": 57,
+          "predicted": 67,
+          "gold": 67
+        },
+        "critical_lenient_recall": 0.9851,
+        "backstopped_strict": {
+          "precision": 0.7179,
+          "recall": 0.7368,
+          "f1": 0.7273,
+          "tp": 56,
+          "predicted": 78,
+          "gold": 76
+        },
+        "surface_drift": 0.1818
+      },
+      "over_extraction": {
+        "decoys_hit": 2,
+        "decoys_total": 204,
+        "decoy_hit_rate": 0.0098,
+        "decoy_share_of_predictions": 0.0138,
+        "adversarial_decoy_hit_rate": 0.0,
+        "control_false_positives": 0,
+        "control_fp_per_1k_chars": 0.0,
+        "duplicate_rate": 0.0397,
+        "production_unknown_type_rate": 0.0,
+        "out_of_vocab_type_rate": 0.0
+      },
+      "confusion": {},
+      "cost": {
+        "weights_mb": 5417.4,
+        "load_seconds": 4.04,
+        "peak_rss_mb": 8263.2,
+        "peak_rss_gb": 8.07,
+        "fits_16gb": true,
+        "fits_32gb": true,
+        "mean_latency_s": 28.35,
+        "total_latency_s": 340.18,
+        "mean_gen_tok_per_s": 11.88,
+        "completion_tokens": 4756,
+        "reasoning_est_tokens": 0,
+        "reasoning_chars": 0,
+        "docs_with_reasoning": 0,
+        "thinking_share_chars": 0.0,
+        "thinking_overhead_vs_completion": 0.0
+      },
+      "documents": [
+        {
+          "id": "001-cn-equity-transfer",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 15,
+          "unique_predictions": 17,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "002-cn-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 7,
+          "gold_count": 14,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "003-cn-loan",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 8,
+          "gold_count": 15,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "004-en-nda",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "005-en-employment",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 10,
+          "gold_count": 11,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "006-en-spa",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 17,
+          "gold_count": 17,
+          "unique_predictions": 20,
+          "decoys_hit": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "007-mixed-cross-border-supplement",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 14,
+          "gold_count": 20,
+          "unique_predictions": 20,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "008-en-adversarial-defined-terms",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 11,
+          "gold_count": 11,
+          "unique_predictions": 11,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "009-mixed-adversarial-roles",
+          "parse_tier": "stripped_fence",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 17,
+          "unique_predictions": 14,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "010-en-adversarial-statutes-venue",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 12,
+          "gold_count": 12,
+          "unique_predictions": 12,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "011-en-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        },
+        {
+          "id": "012-cn-control-boilerplate",
+          "parse_tier": "clean",
+          "shape": "bare_array",
+          "strict_tp": 0,
+          "gold_count": 0,
+          "unique_predictions": 0,
+          "decoys_hit": 0,
+          "finish_reason": "stop"
+        }
+      ],
+      "scorecard": {
+        "reliability_subscore": 0.575,
+        "throughput_subscore": 0.3899,
+        "composite": 78.66,
+        "gates": {
+          "G1_all_docs_parse": true,
+          "G2_critical_strict_recall_ge_0.80": true,
+          "G3_critical_lenient_recall_ge_0.90": true,
+          "G4_decoy_hit_rate_le_0.25": true,
+          "G5_fits_32gb": true,
+          "G6_truncation_rate_le_0.10": true
+        },
+        "gates_failed": [],
+        "verdict": "PASS",
+        "fits_16gb": true
+      }
+    }
+  ]
+}

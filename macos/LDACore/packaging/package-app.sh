@@ -14,7 +14,7 @@
 #                        xcrun notarytool store-credentials NOTARY_PROFILE \
 #                          --apple-id you@example.com --team-id TEAMID \
 #                          --password APP_SPECIFIC_PASSWORD
-#   MODEL_PATH         path to the GGUF to bundle (default ~/Developer/lda-models/lda-v2-Q4_K_M.gguf)
+#   MODEL_PATH         Quick model GGUF to bundle (default ~/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf)
 #   SCRATCH_PATH       SwiftPM scratch directory. Set it OUTSIDE iCloud when the
 #                      checkout lives in an iCloud-synced folder, or the build
 #                      can fail with "input file was modified during the build".
@@ -36,7 +36,10 @@ STAGE_DIR=""
 # allowed". Defaults to $PKG/dist, fine for unsigned local builds.
 DIST="${DIST_PATH:-$PKG/dist}"
 APP="$DIST/LDA.app"
-MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/lda-v2-Q4_K_M.gguf}"
+# Quick (Qwen3.5-4B) is the ONLY bundled model. It peaks at 3.1 GB so it runs
+# on the 16 GB minimum spec, which means an offline user always has a model
+# that works. Balanced needs 24 GB and is downloaded through Manage Models.
+MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf}"
 
 if [ -n "${CODESIGN_IDENTITY:-}" ] && printf '%s' "$DIST" | grep -qi "/Mobile Documents/\|/Documents/"; then
   echo "!! Refusing to sign inside an iCloud-synced path ($DIST)."
@@ -71,7 +74,8 @@ fi
 echo "==> Building release binary"
 cd "$BUILD_PKG"
 swift build -c release --product LDAApp "${SCRATCH[@]}" >/dev/null
-BIN="$(swift build -c release --product LDAApp "${SCRATCH[@]}" --show-bin-path)/LDAApp"
+BUILD_DIR="$(swift build -c release --product LDAApp "${SCRATCH[@]}" --show-bin-path)"
+BIN="$BUILD_DIR/LDAApp"
 
 echo "==> Assembling $APP"
 rm -rf "$APP"
@@ -83,11 +87,31 @@ if [ -f "$PKG/packaging/AppIcon.icns" ]; then
   cp "$PKG/packaging/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
+# SwiftPM resource bundles. LDAUI reads Models.json (the tier manifest) during
+# startup, and the generated accessor looks in the .app ROOT, not
+# Contents/Resources. Without this the packaged app has an empty catalog: the
+# ladder collapses to Patterns only and Manage Models shows nothing.
+echo "==> Bundling SwiftPM resource bundles"
+FOUND_BUNDLE=0
+for RB in "$BUILD_DIR"/*.bundle; do
+  [ -e "$RB" ] || continue
+  echo "    $(basename "$RB")"
+  cp -R "$RB" "$APP/"
+  FOUND_BUNDLE=1
+done
+if [ "$FOUND_BUNDLE" -eq 0 ] || [ ! -f "$APP/LDACore_LDAUI.bundle/Models.json" ]; then
+  echo "!! LDACore_LDAUI.bundle/Models.json is missing from $BUILD_DIR."
+  echo "!! Refusing to ship a build whose model catalog would be empty."
+  exit 1
+fi
+
 if [ -f "$MODEL_PATH" ]; then
-  echo "==> Bundling model ($(du -h "$MODEL_PATH" | cut -f1))"
-  cp "$MODEL_PATH" "$APP/Contents/Resources/lda-v2-Q4_K_M.gguf"
+  echo "==> Bundling Quick model ($(du -h "$MODEL_PATH" | cut -f1))"
+  cp "$MODEL_PATH" "$APP/Contents/Resources/$(basename "$MODEL_PATH")"
 else
-  echo "!! Model not found at $MODEL_PATH; bundling without it (app runs deterministic-only)."
+  echo "!! Quick model not found at $MODEL_PATH."
+  echo "!! Shipping without it leaves a fresh install with no working model."
+  exit 1
 fi
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
