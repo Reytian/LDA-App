@@ -250,6 +250,24 @@ public struct ModelCatalog: Sendable {
         bundledPath(for: tier) != nil
     }
 
+    /// A downloaded copy of a tier that ALSO ships inside the app.
+    ///
+    /// An earlier build shipped no model and downloaded Quick into the
+    /// container. A user who upgrades from it has Quick in both places, wasting
+    /// 2.74 GB, with the container copy shadowing the bundled one. Returns the
+    /// redundant container file so the UI can offer to reclaim it.
+    public static func redundantContainerCopy(
+        for tier: ModelTier,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard isBundled(tier),
+              let url = installedURL(for: tier, fileManager: fileManager),
+              fileManager.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
+    }
+
     /// Whether the tier's file is present and the expected size. Size is the
     /// cheap first identity layer: it catches a truncated download instantly.
     public static func isInstalled(

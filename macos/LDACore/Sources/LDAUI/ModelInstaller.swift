@@ -56,6 +56,8 @@ public enum ModelInstallError: Equatable, Sendable {
     case digestMismatch
     /// Could not write into the app container.
     case storage(String)
+    /// Offline mode is on, so no request was made.
+    case offlineMode
     /// A request or redirect tried to leave the allowlisted hosts. Never
     /// retried silently: this is the failure that protects the network claim.
     case blockedHost(String)
@@ -81,6 +83,9 @@ public enum ModelInstallError: Equatable, Sendable {
         case let .insufficientMemory(requirement):
             return "This Mac does not have enough memory to run this model. "
                 + requirement
+        case .offlineMode:
+            return "Offline mode is on, so LDA did not contact the network. "
+                + "Turn it off in Manage Models to download this model."
         case let .blockedHost(host):
             return "The download tried to contact \(host), which is not on LDA's "
                 + "allowed list, so it was stopped. LDA only ever connects to "
@@ -92,7 +97,9 @@ public enum ModelInstallError: Equatable, Sendable {
     public var isRetryable: Bool {
         switch self {
         case .transport, .sizeMismatch, .insufficientDisk: return true
-        case .digestMismatch, .storage, .blockedHost, .insufficientMemory: return false
+        case .digestMismatch, .storage, .blockedHost, .insufficientMemory,
+             .offlineMode:
+            return false
         }
     }
 }
@@ -136,6 +143,9 @@ public final class ModelInstaller: NSObject, ObservableObject {
     @Published public private(set) var phases: [String: ModelInstallPhase] = [:]
 
     private var tasks: [String: URLSessionDownloadTask] = [:]
+    /// Resume data from a cancelled or interrupted transfer, so restarting a
+    /// 13 GB download does not begin again at zero.
+    private var resumeData: [String: Data] = [:]
     private var tierByTaskID: [Int: ModelTier] = [:]
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -170,8 +180,18 @@ public final class ModelInstaller: NSObject, ObservableObject {
     /// a blocked tier is blocked permanently on this machine: spending 13 GB of
     /// download on a file the ladder will never let the user select is a worse
     /// outcome than saying no up front.
-    public func install(_ tier: ModelTier, installedGB: Double = MemoryGate.installedGB()) {
+    public func install(
+        _ tier: ModelTier,
+        installedGB: Double = MemoryGate.installedGB(),
+        defaults: UserDefaults = .standard
+    ) {
         guard !ModelCatalog.isInstalled(tier), tasks[tier.id] == nil else { return }
+
+        // Checked here, at the bottom of the stack, so no UI path can bypass it.
+        guard !AISettings.isOfflineMode(defaults: defaults) else {
+            phases[tier.id] = .failed(.offlineMode)
+            return
+        }
 
         if case .insufficientMemory = MemoryGate.availability(for: tier, installedGB: installedGB) {
             phases[tier.id] = .failed(
@@ -206,7 +226,13 @@ public final class ModelInstaller: NSObject, ObservableObject {
             )
             return
         }
-        let task = session.downloadTask(with: url)
+        // Resume where the last attempt stopped when the server supports it.
+        let task: URLSessionDownloadTask
+        if let data = resumeData.removeValue(forKey: tier.id) {
+            task = session.downloadTask(withResumeData: data)
+        } else {
+            task = session.downloadTask(with: url)
+        }
         tasks[tier.id] = task
         tierByTaskID[task.taskIdentifier] = tier
         phases[tier.id] = .downloading(fraction: 0, received: 0, expected: tier.sizeBytes)
@@ -225,7 +251,10 @@ public final class ModelInstaller: NSObject, ObservableObject {
         // two multi-gigabyte transfers of the same file run at once.
         tierByTaskID[task.taskIdentifier] = nil
         tasks[tier.id] = nil
-        task.cancel()
+        task.cancel { [weak self] data in
+            guard let data else { return }
+            Task { @MainActor in self?.resumeData[tier.id] = data }
+        }
         phases[tier.id] = .cancelled
     }
 
@@ -254,6 +283,25 @@ public final class ModelInstaller: NSObject, ObservableObject {
             // Take the now-empty tier directory with it.
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
             phases[tier.id] = .waiting
+            return size
+        } catch {
+            phases[tier.id] = .failed(.storage(error.localizedDescription))
+            return nil
+        }
+    }
+
+    /// Delete a downloaded copy of a tier that also ships inside the app.
+    ///
+    /// Distinct from `remove`, which refuses bundled tiers outright. Here the
+    /// bundled copy is exactly why deleting is safe: resolution falls back to
+    /// it, so the selected level does not change and nothing is reprocessed.
+    @discardableResult
+    public func removeRedundantCopy(_ tier: ModelTier) -> Int64? {
+        guard let url = ModelCatalog.redundantContainerCopy(for: tier) else { return nil }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap(Int64.init)
+        do {
+            try FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
             return size
         } catch {
             phases[tier.id] = .failed(.storage(error.localizedDescription))
@@ -456,6 +504,12 @@ extension ModelInstaller: URLSessionDownloadDelegate {
             // A refused redirect has already set blockedHost, which is not
             // retryable. Do not downgrade it to a retryable transport error.
             if case .failed(.blockedHost) = self.phases[tier.id] ?? .waiting { return }
+            // Keep resume data from an interrupted transfer too, so Try Again
+            // continues rather than restarting.
+            if let data = (error as NSError)
+                .userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+                self.resumeData[tier.id] = data
+            }
             self.phases[tier.id] = cancelled
                 ? .cancelled
                 : .failed(.transport(error.localizedDescription))

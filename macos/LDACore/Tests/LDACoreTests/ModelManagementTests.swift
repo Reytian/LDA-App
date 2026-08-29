@@ -139,6 +139,64 @@ final class ModelManagementTests: XCTestCase {
         }
     }
 
+    // MARK: - Offline mode
+
+    private func offlineDefaults(_ on: Bool) -> UserDefaults {
+        let suite = "lda.tests.offline.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        d.set(on, forKey: AISettings.offlineModeKey)
+        return d
+    }
+
+    func testOfflineModeIsOffByDefault() {
+        let suite = "lda.tests.offline.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        XCTAssertFalse(AISettings.isOfflineMode(defaults: d))
+    }
+
+    func testOfflineModeBlocksEveryDownloadRegardlessOfMemory() {
+        // Checked at the bottom of the stack, so a UI path cannot bypass it.
+        let d = offlineDefaults(true)
+        for level in DetectionLevel.modelLevels {
+            XCTAssertFalse(
+                AISettings.canDownload(catalog.tier(for: level)!,
+                                       installedGB: 64, defaults: d),
+                "\(level.rawValue) must not be downloadable in offline mode"
+            )
+        }
+    }
+
+    func testTurningOfflineModeOffRestoresDownloads() {
+        // The rule above must not pass by refusing everything permanently.
+        let d = offlineDefaults(false)
+        XCTAssertTrue(AISettings.canDownload(catalog.tier(for: .balanced)!,
+                                             installedGB: 64, defaults: d))
+    }
+
+    func testAnUnmanagedInstallReportsNoForcedValue() {
+        XCTAssertNil(AISettings.managedOfflineMode(defaults: offlineDefaults(true)),
+                     "a plain user preference is not a managed one")
+    }
+
+    // MARK: - Redundant container copy
+
+    func testABundledTierWithNoContainerCopyHasNothingToReclaim() {
+        let quick = catalog.tier(for: .quick)!
+        XCTAssertNil(ModelCatalog.redundantContainerCopy(for: quick),
+                     "no container copy exists in the test environment")
+    }
+
+    func testANonBundledTierIsNeverReportedAsRedundant() {
+        // Balanced is downloaded, so a container copy is the ONLY copy and
+        // deleting it as "redundant" would remove the model entirely.
+        for level in [DetectionLevel.balanced, .mostThorough] {
+            XCTAssertNil(ModelCatalog.redundantContainerCopy(for: catalog.tier(for: level)!),
+                         "\(level.rawValue) is not bundled, so its copy is not redundant")
+        }
+    }
+
     // MARK: - Annotation inputs
 
     func testEveryTierCarriesTheFiguresTheAnnotationNeeds() {

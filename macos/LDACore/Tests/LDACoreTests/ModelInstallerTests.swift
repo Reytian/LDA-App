@@ -164,6 +164,41 @@ final class ModelInstallerTests: XCTestCase {
         installer.cancel(thorough)
     }
 
+    // MARK: - Offline mode
+
+    func testOfflineModeRefusesWithoutTouchingTheNetwork() {
+        let suite = "lda.tests.installer.offline.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        d.removePersistentDomain(forName: suite)
+        d.set(true, forKey: AISettings.offlineModeKey)
+
+        let installer = ModelInstaller()
+        let t = tier(url: "https://huggingface.co/x/y/resolve/main/m.gguf")
+        installer.install(t, installedGB: 64, defaults: d)
+        guard case let .failed(err) = installer.phase(for: t),
+              case .offlineMode = err else {
+            return XCTFail("expected offlineMode, got \(installer.phase(for: t))")
+        }
+        XCTAssertFalse(err.isRetryable,
+                       "retrying cannot help while offline mode is on")
+        XCTAssertTrue(err.message.lowercased().contains("offline mode"), err.message)
+    }
+
+    func testEveryFailureCaseIsCoveredByTheMessageContract() {
+        // Regression: blockedHost, insufficientMemory and offlineMode were added
+        // after the original message test and were silently excluded from it.
+        let all: [ModelInstallError] = [
+            .insufficientDisk(neededBytes: 2, freeBytes: 1),
+            .insufficientMemory(requirement: "Needs 24 GB."),
+            .transport("x"), .sizeMismatch(expected: 2, actual: 1),
+            .digestMismatch, .storage("x"), .blockedHost("evil.example")
+        ]
+        for e in all {
+            XCTAssertFalse(e.message.isEmpty, "\(e) has no message")
+            XCTAssertFalse(e.message.contains("Error Domain"), e.message)
+        }
+    }
+
     // MARK: - Removal rules
 
     func testABundledModelCanNeverBeRemoved() {
@@ -237,6 +272,28 @@ final class ModelInstallerTests: XCTestCase {
             let url = URL(string: t.sourceURL)
             XCTAssertNotNil(url, "\(t.id) has no usable source URL")
             XCTAssertEqual(url?.scheme, "https", "\(t.id) must download over https")
+        }
+    }
+
+    func testManifestDigestsMatchTheUpstreamPublishedValues() {
+        // Verified 2026-08-30 against the HuggingFace API, where the LFS `oid`
+        // IS the SHA-256 and `lfs.size` the byte count. Pinning them here means
+        // a hand-edited manifest, or a silently re-uploaded model file, fails
+        // the build instead of failing a user's download after 13 GB.
+        let upstream: [String: (String, Int64)] = [
+            "quick": ("00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+                      2_740_937_888),
+            "balanced": ("0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42",
+                         7_121_861_440),
+            "most-thorough": ("8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e",
+                              13_146_393_504)
+        ]
+        for t in ModelCatalog.load().tiers {
+            guard let (oid, size) = upstream[t.id] else {
+                return XCTFail("unknown tier \(t.id); add its upstream values")
+            }
+            XCTAssertEqual(t.sha256, oid, "\(t.id) digest drifted from upstream")
+            XCTAssertEqual(t.sizeBytes, size, "\(t.id) size drifted from upstream")
         }
     }
 

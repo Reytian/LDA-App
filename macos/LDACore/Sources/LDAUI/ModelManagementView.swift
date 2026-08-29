@@ -160,6 +160,26 @@ public struct ModelManagementView: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Toggle(isOn: Binding(
+                get: { AISettings.isOfflineMode() },
+                set: { UserDefaults.standard.set($0, forKey: AISettings.offlineModeKey) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Offline mode")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(CounselTheme.textPrimary)
+                    Text("Refuse all network requests, including model downloads. "
+                        + "This is a setting inside LDA, not a firewall.")
+                        .font(.caption2)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(AISettings.managedOfflineMode() != nil)
+            .help(AISettings.managedOfflineMode() != nil
+                  ? "Your organisation has set this and it cannot be changed here."
+                  : "Stop LDA making any network request")
+
             Text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
@@ -239,6 +259,24 @@ public struct ModelManagementView: View {
 
             statusLine(lvl, tier, bundled: bundled, installed: installed,
                        availability: availability, phase: phase)
+
+            if let redundant = ModelCatalog.redundantContainerCopy(for: tier) {
+                HStack(spacing: 10) {
+                    Text("A downloaded copy of \(lvl.displayName) is also on this Mac. "
+                        + "It is not needed because \(lvl.displayName) is built into the app.")
+                        .font(.caption2)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Remove downloaded copy") {
+                        if let bytes = installer.removeRedundantCopy(tier) {
+                            lastReclaimed = ByteCountFormatter.string(
+                                fromByteCount: bytes, countStyle: .file)
+                        }
+                    }
+                    .disabled(isBusyElsewhere)
+                }
+                .help(redundant.path)
+            }
         }
         .padding(.vertical, 8)
     }

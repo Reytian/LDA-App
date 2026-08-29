@@ -73,6 +73,16 @@ public enum AISettings {
     /// been answered, either way, so it never appears twice.
     public static let ldaV2NoticeDismissedKey = "com.haotianyi.LDA.ldaV2NoticeDismissed"
 
+    /// Offline mode. When on, the app makes no network request at all, so model
+    /// downloads are refused rather than attempted.
+    ///
+    /// This does not make a typical user safer: the app already only connects
+    /// when they press Download. It exists so a firm can answer "can you
+    /// guarantee it will not" with a setting rather than with trust, and so IT
+    /// can force that answer through a managed preference. The UI must admit
+    /// its own limit: it is a setting inside LDA, not a firewall.
+    public static let offlineModeKey = "com.haotianyi.LDA.offlineMode"
+
     // MARK: Custom model resolution
 
     /// The custom model URL, resolved from its security-scoped bookmark when
@@ -256,6 +266,24 @@ public enum AISettings {
         defaults.set(true, forKey: ldaV2NoticeDismissedKey)
     }
 
+    /// Whether offline mode is on.
+    ///
+    /// A managed preference (an MDM-deployed value, which UserDefaults reports
+    /// as forced) wins over the user's own choice and cannot be turned off in
+    /// the app. That is the point: IT sets it, the user cannot quietly undo it.
+    public static func isOfflineMode(defaults: UserDefaults = .standard) -> Bool {
+        if let forced = managedOfflineMode(defaults: defaults) { return forced }
+        return defaults.bool(forKey: offlineModeKey)
+    }
+
+    /// The MDM-forced value, when one is deployed.
+    public static func managedOfflineMode(defaults: UserDefaults = .standard) -> Bool? {
+        guard !defaults.objectIsForced(forKey: offlineModeKey) else {
+            return defaults.bool(forKey: offlineModeKey)
+        }
+        return nil
+    }
+
     /// Whether a tier can be downloaded on this Mac.
     ///
     /// Every affordance that could start a download must read this one property.
@@ -264,8 +292,10 @@ public enum AISettings {
     public static func canDownload(
         _ tier: ModelTier,
         installedGB: Double = MemoryGate.installedGB(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
     ) -> Bool {
+        if isOfflineMode(defaults: defaults) { return false }
         if ModelCatalog.isBundled(tier) { return false }
         if ModelCatalog.isInstalled(tier, fileManager: fileManager) { return false }
         // Apple silicon memory is soldered, so a blocked tier is blocked for the
