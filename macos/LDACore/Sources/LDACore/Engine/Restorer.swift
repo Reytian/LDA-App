@@ -54,6 +54,20 @@ public enum Restorer {
     ///   occurrences replaced, any orphan tokens found during the scan, and any
     ///   near-miss suspect placeholders found by the forensics scan.
     public static func restore(text: String, mapping: Mapping) -> RestoreResult {
+        // The mapping knows its own style, so restore dispatches on it: the
+        // token grammar scan for .token (byte-identical to the historical
+        // behavior), the literal replacement scan for the styles whose
+        // replacements are ordinary strings.
+        switch mapping.style {
+        case .token:
+            return restoreTokenStyle(text: text, mapping: mapping)
+        case .pseudonym, .asterisk:
+            return restoreLiteralStyle(text: text, mapping: mapping)
+        }
+    }
+
+    /// The historical token-grammar restore. See restore(text:mapping:).
+    private static func restoreTokenStyle(text: String, mapping: Mapping) -> RestoreResult {
         // Decode Markdown-escaped underscores inside otherwise exact tokens
         // ("{PERSON\_1}" is the exact token, Markdown-encoded) so a Markdown
         // round-trip through an external AI restores cleanly. This is a
@@ -136,5 +150,144 @@ public enum Restorer {
             orphanTokens: orphanTokens,
             suspectPlaceholders: suspects
         )
+    }
+
+    // MARK: - Literal styles (pseudonym, asterisk)
+
+    /// Restore for the styles whose replacements are ordinary strings.
+    ///
+    /// A single left-to-right pass substitutes every literal occurrence of a
+    /// mapping replacement with its original value. At each position the
+    /// longest matching replacement wins (a pseudonym may be a prefix of a
+    /// longer one), an emitted value is never re-scanned, and the pass is
+    /// deterministic regardless of dictionary order.
+    ///
+    /// Report semantics per the style contract:
+    /// - restoredCount counts substituted occurrences.
+    /// - orphanTokens lists mapping replacements that were never substituted
+    ///   (the edited text no longer contains them).
+    /// - ambiguousReplacements lists replacements shared by two or more
+    ///   entities (asterisk collisions). Their sites are left verbatim,
+    ///   never guessed.
+    /// - suspectPlaceholders stays empty: there is no token grammar to
+    ///   mangle in these styles.
+    private static func restoreLiteralStyle(text: String, mapping: Mapping) -> RestoreResult {
+        // replacement -> the distinct original values behind it. Entry keys
+        // are visited in sorted order so value order is deterministic.
+        var valuesByReplacement: [String: [String]] = [:]
+        for key in mapping.entries.keys.sorted() {
+            guard let entry = mapping.entries[key], !entry.token.isEmpty else { continue }
+            if !(valuesByReplacement[entry.token]?.contains(entry.value) ?? false) {
+                valuesByReplacement[entry.token, default: []].append(entry.value)
+            }
+        }
+        let ambiguous = Set(
+            valuesByReplacement.filter { $0.value.count > 1 }.map { $0.key }
+        )
+
+        let nsText = text as NSString
+
+        // Collect every literal occurrence of every replacement.
+        struct LiteralMatch {
+            let range: NSRange
+            let replacement: String
+        }
+        var found: [LiteralMatch] = []
+        for replacement in valuesByReplacement.keys {
+            var searchLocation = 0
+            while searchLocation < nsText.length {
+                let range = nsText.range(
+                    of: replacement,
+                    options: [.literal],
+                    range: NSRange(location: searchLocation, length: nsText.length - searchLocation)
+                )
+                guard range.location != NSNotFound, range.length > 0 else { break }
+                found.append(LiteralMatch(range: range, replacement: replacement))
+                searchLocation = range.location + range.length
+            }
+        }
+
+        // Earliest position first; at the same position the longest
+        // replacement wins; ties break on the string for determinism.
+        found.sort { lhs, rhs in
+            if lhs.range.location != rhs.range.location {
+                return lhs.range.location < rhs.range.location
+            }
+            if lhs.range.length != rhs.range.length {
+                return lhs.range.length > rhs.range.length
+            }
+            return lhs.replacement < rhs.replacement
+        }
+
+        var result = ""
+        var cursor = 0
+        var restoredCount = 0
+        var substituted = Set<String>()
+        var ambiguousSeen = Set<String>()
+        var ambiguousReported: [String] = []
+
+        for match in found {
+            // A match starting before the cursor overlaps an accepted match
+            // (a shorter replacement nested in a longer one) and is skipped.
+            guard match.range.location >= cursor else { continue }
+
+            if match.range.location > cursor {
+                result += nsText.substring(
+                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                )
+            }
+
+            if ambiguous.contains(match.replacement) {
+                // Two or more entities share this masked form. Restoring one
+                // of them would be a guess; leave the site verbatim and flag.
+                result += nsText.substring(with: match.range)
+                if ambiguousSeen.insert(match.replacement).inserted {
+                    ambiguousReported.append(match.replacement)
+                }
+            } else if let value = valuesByReplacement[match.replacement]?.first {
+                result += value
+                restoredCount += 1
+                substituted.insert(match.replacement)
+            } else {
+                result += nsText.substring(with: match.range)
+            }
+
+            cursor = match.range.location + match.range.length
+        }
+
+        if cursor < nsText.length {
+            result += nsText.substring(from: cursor)
+        }
+
+        // Mapping replacements that never substituted anywhere: the edited
+        // text no longer contains them (or a longer replacement shadowed
+        // every occurrence). Ambiguity is reported separately above.
+        let orphans = valuesByReplacement.keys
+            .filter { !substituted.contains($0) && !ambiguousSeen.contains($0) }
+            .sorted()
+
+        return RestoreResult(
+            text: result,
+            restoredCount: restoredCount,
+            orphanTokens: orphans,
+            suspectPlaceholders: [],
+            ambiguousReplacements: ambiguousReported
+        )
+    }
+
+    /// The unambiguous replacement -> value map for a literal-style mapping:
+    /// every replacement carried by exactly one distinct value. Ambiguous
+    /// replacements (asterisk collisions) are excluded so a caller doing its
+    /// own substitution (the DOCX run walker) can never guess.
+    internal static func unambiguousReplacementMap(_ mapping: Mapping) -> [String: String] {
+        var valuesByReplacement: [String: Set<String>] = [:]
+        for entry in mapping.entries.values where !entry.token.isEmpty {
+            valuesByReplacement[entry.token, default: []].insert(entry.value)
+        }
+        var map: [String: String] = [:]
+        for (replacement, values) in valuesByReplacement where values.count == 1 {
+            map[replacement] = values.first
+        }
+        return map
     }
 }

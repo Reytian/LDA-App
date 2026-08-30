@@ -52,14 +52,24 @@ public enum Tokenizer {
     ///     in the same session, or a client profile's stored mapping). A surface
     ///     text known to the seed (its value, surfaceText, or an alias) reuses
     ///     the seed's token, per-type counters continue past the seed's maxima,
-    ///     and the returned mapping is the union of seed and new entries.
+    ///     and the returned mapping is the union of seed and new entries. A seed
+    ///     replacement whose shape does not fit the requested style (a brace
+    ///     token seeding a pseudonym run, or the reverse) is never re-emitted:
+    ///     the entry is carried in the union for restore, and the surface gets
+    ///     a fresh replacement in the requested style.
+    ///   - style: how replacements are rendered. The default .token preserves
+    ///     the historical "{TYPE_N}" output byte for byte.
+    ///   - uniquenessCorpus: additional texts (the other documents of a
+    ///     session) a pseudonym must not occur in. Ignored by other styles.
     /// - Returns: The tokenized text plus the mapping needed to restore it.
     public static func tokenize(
         text: String,
         spans: [Span],
         sourceFile: String,
         createdAtISO8601: String,
-        seedMapping: Mapping? = nil
+        seedMapping: Mapping? = nil,
+        style: SubstitutionStyle = .token,
+        uniquenessCorpus: [String] = []
     ) -> TokenizeResult {
         let utf16Count = text.utf16.count
 
@@ -115,31 +125,40 @@ public enum Tokenizer {
         // Seed the walk from an existing mapping: known surfaces reuse their
         // token, counters continue past the seed maxima, and the seed entries
         // are carried into the result so one mapping restores every document.
-        // Seed entries are visited in sorted-token order because dictionary
-        // iteration is unordered and the walk must stay deterministic.
+        // Seed entries are visited in sorted-key order because dictionary
+        // iteration is unordered and the walk must stay deterministic. Entries
+        // are carried under their seed key (not entry.token) so asterisk
+        // collision keys survive the union.
         if let seedMapping {
-            for token in seedMapping.entries.keys.sorted() {
-                guard let entry = seedMapping.entries[token], !entry.token.isEmpty else {
+            for key in seedMapping.entries.keys.sorted() {
+                guard let entry = seedMapping.entries[key], !entry.token.isEmpty else {
                     continue
                 }
-                entries[entry.token] = entry
+                entries[key] = entry
 
-                if let parsed = parseToken(entry.token) {
+                if style == .token, let parsed = parseToken(entry.token) {
                     typeCounters[parsed.type] = max(typeCounters[parsed.type] ?? 0, parsed.number)
                 }
 
-                // A seed token that already exists as a literal in THIS text
-                // must not be emitted again (the literal and the reused token
-                // would be byte-identical); leave those surfaces unseeded so a
-                // fresh token is minted for this document instead.
-                guard !reservedLiterals.contains(entry.token) else { continue }
-
                 for surface in [entry.value, entry.surfaceText] + entry.aliases
                 where !surface.isEmpty && textToToken[surface] == nil {
+                    guard canReuseSeedReplacement(
+                        entry,
+                        surface: surface,
+                        style: style,
+                        text: text,
+                        reservedLiterals: reservedLiterals,
+                        uniquenessCorpus: uniquenessCorpus
+                    ) else { continue }
                     textToToken[surface] = entry.token
                 }
             }
         }
+
+        // Every replacement string already spoken for (seed entries included),
+        // so a pseudonym can never collide with one.
+        var usedReplacements = Set(entries.values.map { $0.token })
+        var pseudonyms = PseudonymGenerator()
 
         for span in accepted {
             let surfaceText = span.text
@@ -147,28 +166,56 @@ public enum Tokenizer {
                 continue
             }
 
-            let typeToken = TokenGrammar.sanitizeType(span.type.rawValue)
+            let replacement: String
+            switch style {
+            case .token:
+                let typeToken = TokenGrammar.sanitizeType(span.type.rawValue)
 
-            // Advance the per-type counter, skipping any value that would collide
-            // with a token-shaped literal already in the source. This keeps minted
-            // tokens in a numbering range disjoint from any literal {TYPE_N}, so
-            // the tokenized edit surface is unambiguous and restore stays lossless.
-            var nextCount = (typeCounters[typeToken] ?? 0) + 1
-            var token = "{\(typeToken)_\(nextCount)}"
-            while reservedLiterals.contains(token) {
-                nextCount += 1
-                token = "{\(typeToken)_\(nextCount)}"
+                // Advance the per-type counter, skipping any value that would collide
+                // with a token-shaped literal already in the source. This keeps minted
+                // tokens in a numbering range disjoint from any literal {TYPE_N}, so
+                // the tokenized edit surface is unambiguous and restore stays lossless.
+                var nextCount = (typeCounters[typeToken] ?? 0) + 1
+                var token = "{\(typeToken)_\(nextCount)}"
+                while reservedLiterals.contains(token) {
+                    nextCount += 1
+                    token = "{\(typeToken)_\(nextCount)}"
+                }
+                typeCounters[typeToken] = nextCount
+                replacement = token
+
+            case .pseudonym:
+                // A pseudonym must be free four ways: never used by another
+                // entity, never a token literal, and never occurring in this
+                // document or in any companion document of the session, so
+                // the literal restore scan can only ever hit substitution
+                // sites.
+                replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
+                    usedReplacements.contains(candidate)
+                        || reservedLiterals.contains(candidate)
+                        || text.contains(candidate)
+                        || uniquenessCorpus.contains { $0.contains(candidate) }
+                }
+
+            case .asterisk:
+                // Masking is a pure function of the surface. Collisions are
+                // allowed by design and preserved as distinct entries below;
+                // restore refuses the ambiguous ones.
+                replacement = AsteriskMasking.mask(surfaceText, type: span.type)
             }
-            typeCounters[typeToken] = nextCount
 
-            textToToken[surfaceText] = token
+            usedReplacements.insert(replacement)
+            textToToken[surfaceText] = replacement
 
-            entries[token] = MappingEntry(
-                token: token,
-                value: surfaceText,
-                type: span.type,
-                surfaceText: surfaceText,
-                aliases: []
+            insertEntry(
+                MappingEntry(
+                    token: replacement,
+                    value: surfaceText,
+                    type: span.type,
+                    surfaceText: surfaceText,
+                    aliases: []
+                ),
+                into: &entries
             )
         }
 
@@ -202,10 +249,69 @@ public enum Tokenizer {
         let mapping = Mapping(
             entries: entries,
             createdAtISO8601: createdAtISO8601,
-            sourceFile: sourceFile
+            sourceFile: sourceFile,
+            style: style
         )
 
         return TokenizeResult(tokenizedText: tokenizedText, mapping: mapping)
+    }
+
+    /// Whether a seed entry's replacement may be re-emitted for a known
+    /// surface under the requested style.
+    ///
+    /// - token: only an exact grammar token is a valid token-style
+    ///   replacement, and a seed token that already exists as a literal in
+    ///   THIS text must not be emitted again (the literal and the reused
+    ///   token would be byte-identical and restore would corrupt the
+    ///   literal).
+    /// - pseudonym: a grammar-token seed must not leak into a pseudonym
+    ///   document (that is the failure mode this style fixes), and a
+    ///   pseudonym occurring naturally in this document or a companion
+    ///   document cannot be reused because the literal restore scan could
+    ///   not tell the natural occurrence from the substitution.
+    /// - asterisk: a replacement is reusable only when it equals this
+    ///   surface's own mask (masking is deterministic, so this simply
+    ///   filters out replacements carried over from other styles).
+    private static func canReuseSeedReplacement(
+        _ entry: MappingEntry,
+        surface: String,
+        style: SubstitutionStyle,
+        text: String,
+        reservedLiterals: Set<String>,
+        uniquenessCorpus: [String]
+    ) -> Bool {
+        switch style {
+        case .token:
+            return parseToken(entry.token) != nil
+                && !reservedLiterals.contains(entry.token)
+        case .pseudonym:
+            return parseToken(entry.token) == nil
+                && !text.contains(entry.token)
+                && !uniquenessCorpus.contains { $0.contains(entry.token) }
+        case .asterisk:
+            return entry.token == AsteriskMasking.mask(surface, type: entry.type)
+        }
+    }
+
+    /// Insert a freshly minted entry under a collision-free key.
+    ///
+    /// Token and pseudonym replacements are unique by construction, so the
+    /// key is simply the replacement. Asterisk masks can collide across
+    /// entities; the colliding entry is stored under "<mask>#N" so both
+    /// originals are recorded and restore can detect the ambiguity.
+    private static func insertEntry(
+        _ entry: MappingEntry,
+        into entries: inout [String: MappingEntry]
+    ) {
+        if entries[entry.token] == nil {
+            entries[entry.token] = entry
+            return
+        }
+        var suffix = 2
+        while entries["\(entry.token)#\(suffix)"] != nil {
+            suffix += 1
+        }
+        entries["\(entry.token)#\(suffix)"] = entry
     }
 
     /// Scan `text` for every token-shaped literal already present, using the

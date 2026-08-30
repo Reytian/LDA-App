@@ -84,6 +84,28 @@ public struct Span: Equatable, Sendable, Codable {
     }
 }
 
+// MARK: - Substitution style
+
+/// How detected entities are rendered in the redacted output.
+///
+/// Part of the persisted Mapping wire format: restore dispatches on the
+/// style stored in the sidecar, so a mapping always knows how to find its
+/// own replacements.
+public enum SubstitutionStyle: String, Codable, Sendable, CaseIterable {
+    /// Opaque brace tokens, "{TYPE_N}". The historical default. Restore is a
+    /// grammar scan; byte-identical round trip for well-formed tokens, but an
+    /// external AI often rewrites the braces and breaks the token.
+    case token
+    /// Natural-language stand-ins (甲公司, 张某, Company A). An external AI
+    /// treats them as names, not markup, so they survive AI round trips.
+    /// Restore is a literal scan of the mapping's replacement strings.
+    case pseudonym
+    /// Lossy per-type masking (张*明, 138****5678) for documents sent to
+    /// human readers. Restore substitutes only unambiguous masks; colliding
+    /// masks are flagged and never guessed.
+    case asterisk
+}
+
 // MARK: - Mapping
 
 /// A single token-to-value mapping entry. One entry per distinct token.
@@ -117,22 +139,47 @@ public struct MappingEntry: Equatable, Sendable, Codable {
 /// The full token map for one tokenization. Pure functions never read the clock,
 /// so the caller supplies createdAtISO8601.
 public struct Mapping: Equatable, Sendable, Codable {
-    /// token -> entry.
+    /// key -> entry. The key equals the entry's token for the token and
+    /// pseudonym styles (replacements are unique there). Asterisk masks can
+    /// collide across entities, so a colliding entry is stored under a
+    /// disambiguated key while its token keeps the shared replacement string.
     public var entries: [String: MappingEntry]
     /// ISO-8601 creation timestamp supplied by the caller. Do not call Date()
     /// inside pure functions to populate this.
     public var createdAtISO8601: String
     /// The source file this mapping was built from.
     public var sourceFile: String
+    /// The substitution style this mapping's replacements were rendered in.
+    /// Sidecars written before styles existed have no style field and decode
+    /// as .token, preserving their historical restore behavior.
+    public var style: SubstitutionStyle
 
     public init(
         entries: [String: MappingEntry],
         createdAtISO8601: String,
-        sourceFile: String
+        sourceFile: String,
+        style: SubstitutionStyle = .token
     ) {
         self.entries = entries
         self.createdAtISO8601 = createdAtISO8601
         self.sourceFile = sourceFile
+        self.style = style
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case entries
+        case createdAtISO8601
+        case sourceFile
+        case style
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.entries = try container.decode([String: MappingEntry].self, forKey: .entries)
+        self.createdAtISO8601 = try container.decode(String.self, forKey: .createdAtISO8601)
+        self.sourceFile = try container.decode(String.self, forKey: .sourceFile)
+        // Legacy payloads predate styles; they are token-style by definition.
+        self.style = try container.decodeIfPresent(SubstitutionStyle.self, forKey: .style) ?? .token
     }
 }
 
@@ -160,24 +207,33 @@ public struct RestoreResult: Sendable {
     public var text: String
     /// How many tokens were successfully substituted.
     public var restoredCount: Int
-    /// Leftover or broken tokens detected by the orphan guard.
+    /// Per-style orphan report. Token style: token-shaped strings present in
+    /// the text but absent from the mapping (leftover or broken tokens).
+    /// Pseudonym and asterisk styles: mapping replacements that were never
+    /// substituted because the text no longer contains them.
     public var orphanTokens: [String]
     /// Near-miss placeholder shapes found by the forensics scan: strings that
     /// look like a mangled session placeholder (bracket swap, lost brace, case
     /// or space damage, bare TYPE_N). These are flagged for the user and NEVER
-    /// substituted, per the flag-don't-guess contract.
+    /// substituted, per the flag-don't-guess contract. Token style only.
     public var suspectPlaceholders: [String]
+    /// Asterisk style only: masked forms shared by two or more different
+    /// entities. Substituting one would be a guess, so those sites are left
+    /// verbatim and reported here (flag, never guess).
+    public var ambiguousReplacements: [String]
 
     public init(
         text: String,
         restoredCount: Int,
         orphanTokens: [String],
-        suspectPlaceholders: [String] = []
+        suspectPlaceholders: [String] = [],
+        ambiguousReplacements: [String] = []
     ) {
         self.text = text
         self.restoredCount = restoredCount
         self.orphanTokens = orphanTokens
         self.suspectPlaceholders = suspectPlaceholders
+        self.ambiguousReplacements = ambiguousReplacements
     }
 }
 
