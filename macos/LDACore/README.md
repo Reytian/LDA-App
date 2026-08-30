@@ -280,27 +280,46 @@ track it.
 ### Keychain accounts are per edge
 
 The CLI and the MCP server derive their per-document Keychain accounts under
-different namespaces (`lda-<mapping base>` vs `ai.openclaw.lda.mcp.<mapping
-base>`), so a sidecar protected by the Keychain on one edge does not restore on
-the other. This is deliberate isolation, not a bug, but it surprises people:
-anonymize and restore through the same edge, or pass `--passphrase` when a
-sidecar must travel between tools or machines.
+different namespaces (`lda-<mapping base>` vs
+`ai.openclaw.lda.mcp.<redacted handle>`), so a sidecar protected by the
+Keychain on one edge does not restore on the other. This is deliberate
+isolation, not a bug, but it surprises people: anonymize and restore through
+the same edge, or pass `--passphrase` when a sidecar must travel between tools
+or machines. On the MCP side the account embeds only the opaque artifact
+handle, never a document name.
 
 ### Other limitations
 
 - **arm64 only.** `llama.xcframework` is built for Apple silicon; there is no
   Intel Mac support.
-- **MCP host trust.** The MCP server reads and writes only inside the user's
-  home directory and the system temporary directory. Set
+- **MCP context boundary.** Everything an MCP tool returns enters the model
+  context of the agent host and leaves the machine, and file paths are
+  themselves PII (legal folders are named after the parties). The advertised
+  tools therefore operate on opaque vault handles: the human stages documents
+  with `lda vault stage <path>`, and the tools return handles, redacted text
+  (`read_redacted` only), and aggregate counts. No original text, no detected
+  entity values, no filenames, and no paths cross the tool surface, in results
+  or in error messages. `attest` reports the posture, including byte counters
+  for what the session has returned. The vault lives at
+  `~/Library/Application Support/LDA/Vault` (override with `LDA_VAULT_DIR` at
+  launch); exports land only in the vault's own `outbox/`. The old path-taking
+  core tools are removed; `extract_profile`, `fill`, and the portfolio tools
+  are refused unless the server is launched with
+  `LDA_MCP_LEGACY_PATH_TOOLS=1`. Vault contents are plaintext on disk in this
+  phase (`attest` says so honestly); encryption at rest and XPC key holding
+  are the next phases.
+- **MCP host trust.** The gated legacy tools read and write only inside the
+  user's home directory and the system temporary directory. Set
   `LDA_MCP_ALLOWED_ROOTS` (colon separated) when launching the server to allow
   additional locations. This is an environment variable set by whoever launches
   the server, not a value a request can supply: a policy a request can widen is
-  not a policy. GGUF model paths are held to the same allow-list, widened by
-  one directory: the app bundle's `Resources`, where a distributed build ships
-  its model. A model anywhere else requires `LDA_MCP_ALLOWED_ROOTS`, so a
-  prompt-steered host cannot stage a malicious model in some other writable
-  location and point llama.cpp at it. The launcher itself stays trusted: it
-  controls the environment, the binary, and the bundled model.
+  not a policy. GGUF model paths (the one path argument the handle-first tools
+  still accept) are held to the same allow-list, widened by one directory: the
+  app bundle's `Resources`, where a distributed build ships its model. A model
+  anywhere else requires `LDA_MCP_ALLOWED_ROOTS`, so a prompt-steered host
+  cannot stage a malicious model in some other writable location and point
+  llama.cpp at it. The launcher itself stays trusted: it controls the
+  environment, the binary, and the bundled model.
 - **Review PDF coverage.** For PDF input, a value that is tokenized in the edit
   surface but whose position could not be established on the page is counted in
   `unboxedTokenCount` rather than being given an invented box. A non-zero count
