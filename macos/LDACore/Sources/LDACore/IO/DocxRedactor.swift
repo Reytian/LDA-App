@@ -216,6 +216,52 @@ public enum DocxRedactor {
         )
     }
 
+    /// Replace every literal replacement string in a redacted .docx with its
+    /// value and write to out. The literal-style counterpart of restore: used
+    /// for pseudonym and asterisk mappings, whose replacements are ordinary
+    /// strings rather than grammar tokens.
+    ///
+    /// The caller passes only the UNAMBIGUOUS replacements (see
+    /// Restorer.unambiguousReplacementMap); a colliding asterisk mask stays
+    /// verbatim in the document, never guessed. Like the token path this
+    /// substitutes run by run, so a replacement split across runs by later
+    /// editing does not restore (the whole-text report scan still counts it).
+    public static func restoreLiteral(
+        redactedDocx: URL,
+        replacementToValue: [String: String],
+        to out: URL
+    ) throws {
+        let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
+        var layout = try DocxDocumentXML.parse(data)
+
+        for index in layout.segments.indices {
+            guard case .runText(let text) = layout.segments[index] else { continue }
+            let replaced = Restorer.substituteLiteralReplacements(
+                in: text,
+                replacementToValue: replacementToValue
+            )
+            if replaced != text {
+                layout.segments[index] = .runText(replaced)
+            }
+        }
+
+        var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
+        // Restore literal replacements in the non-body text parts too.
+        let nonBody = DocxParts.restoreNonBodyPartsLiteral(
+            url: redactedDocx,
+            replacementToValue: replacementToValue
+        )
+        for (path, bytes) in nonBody {
+            rewriteParts[path] = bytes
+        }
+
+        try DocxZip.rewrite(
+            source: redactedDocx,
+            replacing: rewriteParts,
+            to: out
+        )
+    }
+
     /// Replace all grammar-matched tokens in a single run's text with their
     /// mapped values. Tokens absent from tokenToValue are left untouched so the
     /// orphan guard downstream can flag them.

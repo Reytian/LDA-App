@@ -73,7 +73,10 @@ extension LDAService {
     ///   - createdAtISO8601: caller-supplied ISO-8601 timestamp.
     ///   - llmModelPath: optional GGUF path; nil stays deterministic-only.
     ///   - seedMapping: optional starting mapping (a client profile's stored
-    ///     mapping) whose identities the session keeps using.
+    ///     mapping) whose identities the session keeps using. A seed built in
+    ///     a different style contributes restore entries only; the session
+    ///     mints fresh replacements in its own style for those surfaces.
+    ///   - style: how replacements are rendered across the whole session.
     /// - Throws: DocumentIOError for unreadable inputs,
     ///   LDAServiceError.incompleteExtraction when the LLM could not fully
     ///   scan a document, LDAServiceError.unanchoredEntities when it scanned
@@ -84,7 +87,8 @@ extension LDAService {
         inputs: [URL],
         createdAtISO8601: String,
         llmModelPath: String? = nil,
-        seedMapping: Mapping? = nil
+        seedMapping: Mapping? = nil,
+        style: SubstitutionStyle = .token
     ) throws -> SessionAnonymizeResult {
         guard !inputs.isEmpty else {
             throw LDAServiceError.noReadableSources
@@ -113,7 +117,8 @@ extension LDAService {
             documents: sessionDocuments,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
-            seedMapping: seedMapping
+            seedMapping: seedMapping,
+            style: style
         )
 
         let outputs = zip(inputs.indices, result.documents).map { index, document in

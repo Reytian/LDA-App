@@ -233,6 +233,36 @@ enum DocxParts {
         return replacements
     }
 
+    /// Literal-style counterpart of restoreNonBodyParts: re-substitute every
+    /// unambiguous replacement string across the non-body text parts. Used
+    /// for pseudonym and asterisk mappings.
+    static func restoreNonBodyPartsLiteral(
+        url: URL,
+        replacementToValue: [String: String]
+    ) -> [String: Data] {
+        var replacements: [String: Data] = [:]
+        for path in textBearingPartPaths(in: url) {
+            guard let data = try? DocxZip.readEntry(path, from: url),
+                  var layout = try? DocxDocumentXML.parse(data) else { continue }
+            var changed = false
+            for index in layout.segments.indices {
+                guard case .runText(let text) = layout.segments[index] else { continue }
+                let replaced = Restorer.substituteLiteralReplacements(
+                    in: text,
+                    replacementToValue: replacementToValue
+                )
+                if replaced != text {
+                    layout.segments[index] = .runText(replaced)
+                    changed = true
+                }
+            }
+            if changed {
+                replacements[path] = DocxDocumentXML.serialize(layout)
+            }
+        }
+        return replacements
+    }
+
     // MARK: - Token resolution
 
     /// The dominant non-overlapping spans for a part, longest-first then earliest,
