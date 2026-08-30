@@ -152,11 +152,11 @@ final class SessionEdgeTests: XCTestCase {
         // Handle-first: stage both documents into a per-test vault, then hand
         // the tool their handles. No path enters or leaves the tool call.
         let vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        let vault = DocumentVault(rootDirectory: vaultDir)
+        let vault = VaultTestSupport.vault(root: vaultDir)
         let handle1 = try vault.stage(fileURL: doc1, stagedAtISO8601: "2026-08-30T00:00:00Z").handle
         let handle2 = try vault.stage(fileURL: doc2, stagedAtISO8601: "2026-08-30T00:00:00Z").handle
 
-        let server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        let server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 7,

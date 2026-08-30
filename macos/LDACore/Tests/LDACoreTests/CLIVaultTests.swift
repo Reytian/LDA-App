@@ -53,7 +53,8 @@ final class CLIVaultTests: XCTestCase {
         let entries = try LDACLI.runVaultStage(
             inputs: [source],
             vaultRoot: vaultRoot,
-            timestamp: { "2026-08-30T00:00:00Z" }
+            timestamp: { "2026-08-30T00:00:00Z" },
+            protection: VaultTestSupport.protection
         )
 
         XCTAssertEqual(entries.count, 1)
@@ -65,14 +66,18 @@ final class CLIVaultTests: XCTestCase {
         XCTAssertEqual(entry.originalFilename, "matter.txt")
 
         // The MCP surface sees the same staged document through its handle.
-        let vaultEntry = try DocumentVault(rootDirectory: vaultRoot).entry(handle: entry.handle)
+        let vaultEntry = try VaultTestSupport.vault(root: vaultRoot).entry(handle: entry.handle)
         XCTAssertEqual(vaultEntry.kind, .original)
     }
 
     func testVaultStageOfAMissingFileFailsWithInputNotFound() throws {
         let missing = workDir.appendingPathComponent("nope.txt")
         XCTAssertThrowsError(
-            try LDACLI.runVaultStage(inputs: [missing], vaultRoot: vaultRoot)
+            try LDACLI.runVaultStage(
+                inputs: [missing],
+                vaultRoot: vaultRoot,
+                protection: VaultTestSupport.protection
+            )
         ) { error in
             guard case CLIError.inputNotFound = error else {
                 return XCTFail("expected inputNotFound, got \(error)")
@@ -102,7 +107,8 @@ final class CLIVaultTests: XCTestCase {
         let entries = try LDACLI.runVaultStage(
             inputs: [zipURL],
             vaultRoot: vaultRoot,
-            timestamp: { "2026-08-30T00:00:00Z" }
+            timestamp: { "2026-08-30T00:00:00Z" },
+            protection: VaultTestSupport.protection
         )
 
         XCTAssertEqual(entries.count, 2)
@@ -112,7 +118,7 @@ final class CLIVaultTests: XCTestCase {
         )
         // Every staged copy is readable through the vault after the zip
         // expansion scratch space is gone.
-        let vault = DocumentVault(rootDirectory: vaultRoot)
+        let vault = VaultTestSupport.vault(root: vaultRoot)
         for entry in entries {
             XCTAssertNoThrow(try vault.readDocumentBytes(handle: entry.handle))
         }
@@ -125,11 +131,12 @@ final class CLIVaultTests: XCTestCase {
         let staged = try LDACLI.runVaultStage(
             inputs: [source],
             vaultRoot: vaultRoot,
-            timestamp: { "2026-08-30T00:00:00Z" }
+            timestamp: { "2026-08-30T00:00:00Z" },
+            protection: VaultTestSupport.protection
         ).first!
 
         // Derive one artifact directly through the vault.
-        let vault = DocumentVault(rootDirectory: vaultRoot)
+        let vault = VaultTestSupport.vault(root: vaultRoot)
         let slot = try vault.prepareDerived(kind: .redacted)
         let produced = slot.directory.appendingPathComponent("original_redacted.txt")
         try Data("Mail {EMAIL_1} now.".utf8).write(to: produced)
@@ -142,7 +149,10 @@ final class CLIVaultTests: XCTestCase {
             mappingAccountBase: nil
         )
 
-        let listed = try LDACLI.runVaultList(vaultRoot: vaultRoot)
+        let listed = try LDACLI.runVaultList(
+            vaultRoot: vaultRoot,
+            protection: VaultTestSupport.protection
+        )
 
         XCTAssertEqual(listed.count, 2)
         XCTAssertEqual(listed[0].handle, staged.handle)
@@ -153,6 +163,42 @@ final class CLIVaultTests: XCTestCase {
     }
 
     func testVaultListOnAFreshVaultIsEmpty() throws {
-        XCTAssertEqual(try LDACLI.runVaultList(vaultRoot: vaultRoot), [])
+        XCTAssertEqual(
+            try LDACLI.runVaultList(
+                vaultRoot: vaultRoot,
+                protection: VaultTestSupport.protection
+            ),
+            []
+        )
+    }
+
+    // MARK: - Encrypted vault
+
+    /// The CLI runs in-process over the same encrypted DocumentVault: staging
+    /// stores ciphertext, and list decrypts the registry to keep printing the
+    /// human-facing correlation (handle to original filename).
+    func testVaultStageAndListWorkOverTheEncryptedStore() throws {
+        let source = try writeFixture(named: "matter.txt", contents: "Mail jane@example.com now.")
+        let staged = try LDACLI.runVaultStage(
+            inputs: [source],
+            vaultRoot: vaultRoot,
+            timestamp: { "2026-08-30T00:00:00Z" },
+            protection: VaultTestSupport.protection
+        ).first!
+
+        // Ciphertext at rest: the stored object carries none of the body.
+        let entry = try VaultTestSupport.vault(root: vaultRoot).entry(handle: staged.handle)
+        let raw = try XCTUnwrap(FileManager.default.contents(
+            atPath: vaultRoot.appendingPathComponent(entry.relativePath).path
+        ))
+        XCTAssertFalse(String(decoding: raw, as: UTF8.self).contains("jane@example.com"))
+
+        // The human-facing listing still correlates handle and filename.
+        let listed = try LDACLI.runVaultList(
+            vaultRoot: vaultRoot,
+            protection: VaultTestSupport.protection
+        )
+        XCTAssertEqual(listed.first?.handle, staged.handle)
+        XCTAssertEqual(listed.first?.originalFilename, "matter.txt")
     }
 }

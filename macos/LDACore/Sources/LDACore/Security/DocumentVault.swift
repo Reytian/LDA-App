@@ -10,9 +10,10 @@
 //
 //  Layout under the vault root:
 //
-//    registry.json                 the handle registry (atomic writes)
+//    registry.sealed               the encrypted handle registry (atomic writes)
 //    objects/<handle>/...          one directory per staged or derived artifact
 //    outbox/                       where exported artifacts land for the human
+//    scratch/                      short-lived decrypted copies, removed after use
 //
 //  Naming rule: nothing inside objects/ may derive from the original filename.
 //  A staged original is stored as "original.<format>"; derived artifacts are
@@ -20,11 +21,15 @@
 //  survives ONLY in the registry, reserved for human-facing export naming,
 //  and must never be returned through any MCP tool.
 //
-//  Encryption posture (honest): vault contents are plaintext on disk today.
-//  Roadmap phase 5 adds encryption at rest and phase 6 moves key holding into
-//  an XPC service. To let those slot in without changing this public API, all
-//  reads of stored document bytes go through ONE internal chokepoint
-//  (plaintextFileURL(for:)); phase 5 will decrypt there and nowhere else.
+//  Encryption posture (phase 5): every stored object and the registry are
+//  AES-256-GCM EncryptedContainer blobs; cat on any file under the vault
+//  returns ciphertext. The one deliberate exit is the outbox, where export
+//  writes the DECRYPTED artifact for the human. Mapping sidecars are already
+//  containers of their own kind and are stored as their producers wrote them.
+//  Key handling lives entirely in DocumentVaultEncryption.swift so phase 6
+//  (XPC key holding) changes one file. A vault written by the plaintext phase
+//  4 layout (registry.json plus plaintext objects) migrates in place on first
+//  open. The outbox is exempt from encryption; nothing else is.
 //
 //  Concurrency: the registry is a single JSON file written atomically, so a
 //  crash never leaves a torn registry. Writers in ONE process are serialized
@@ -131,6 +136,8 @@ public enum DocumentVaultError: Error, Equatable {
     case corruptRegistry
     /// The system random source failed while allocating a handle.
     case randomnessUnavailable
+    /// A decrypted scratch copy could not be created inside the vault.
+    case scratchWriteFailed
 
     /// A short, boundary-safe description: code plus handle only.
     public var message: String {
@@ -151,6 +158,8 @@ public enum DocumentVaultError: Error, Equatable {
             return "corrupt_registry: the vault registry could not be decoded"
         case .randomnessUnavailable:
             return "randomness_unavailable: could not allocate a handle"
+        case .scratchWriteFailed:
+            return "scratch_write_failed: a temporary decrypted copy could not be created"
         }
     }
 }
@@ -165,26 +174,43 @@ public struct DocumentVault {
     /// the process (never by a request), like LDA_MCP_ALLOWED_ROOTS.
     public static let environmentKey = "LDA_VAULT_DIR"
 
-    /// File and directory names inside the vault root.
+    /// File and directory names inside the vault root. registry.json is the
+    /// pre-encryption plaintext registry, kept as a name ONLY so its presence
+    /// can be detected and migrated; the live registry is registry.sealed.
     public static let registryFileName = "registry.json"
+    public static let sealedRegistryFileName = "registry.sealed"
     public static let objectsDirectoryName = "objects"
     public static let outboxDirectoryName = "outbox"
+    public static let scratchDirectoryName = "scratch"
 
     /// Where the vault lives.
     public let rootDirectory: URL
 
+    /// How the vault master key is held. Injectable so tests run on a
+    /// passphrase and never touch the real Keychain; the default resolves to
+    /// the Keychain master key account (see DocumentVaultEncryption.swift).
+    let protection: MappingProtection
+
     /// Serializes registry read-modify-write cycles within this process.
     private static let registryLock = NSLock()
 
-    public init(rootDirectory: URL) {
+    public init(
+        rootDirectory: URL,
+        protection: MappingProtection = DocumentVault.defaultProtection()
+    ) {
         self.rootDirectory = rootDirectory
+        self.protection = protection
     }
 
-    /// Open the vault at the root the environment selects: LDA_VAULT_DIR when
-    /// set, else Application Support/LDA/Vault (the same app-support base the
-    /// other stores use).
+    /// Open the vault the environment selects: LDA_VAULT_DIR for the root
+    /// (else Application Support/LDA/Vault, the same app-support base the
+    /// other stores use) and LDA_VAULT_PASSPHRASE for the key protection
+    /// (else the Keychain master key).
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.init(rootDirectory: DocumentVault.rootDirectory(environment: environment))
+        self.init(
+            rootDirectory: DocumentVault.rootDirectory(environment: environment),
+            protection: DocumentVault.defaultProtection(environment: environment)
+        )
     }
 
     /// The vault root for an environment. LDA_VAULT_DIR wins; the default is
@@ -216,7 +242,14 @@ public struct DocumentVault {
         rootDirectory.appendingPathComponent(DocumentVault.objectsDirectoryName, isDirectory: true)
     }
 
-    private var registryURL: URL {
+    /// The live, encrypted registry.
+    private var sealedRegistryURL: URL {
+        rootDirectory.appendingPathComponent(DocumentVault.sealedRegistryFileName)
+    }
+
+    /// The pre-encryption plaintext registry. Its presence means the vault was
+    /// written by the plaintext phase and must migrate before any operation.
+    private var plaintextRegistryURL: URL {
         rootDirectory.appendingPathComponent(DocumentVault.registryFileName)
     }
 
@@ -234,12 +267,17 @@ public struct DocumentVault {
         var isDirectory: ObjCBool = false
         guard
             FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
-            !isDirectory.boolValue
+            !isDirectory.boolValue,
+            let plaintext = FileManager.default.contents(atPath: fileURL.path)
         else {
             throw DocumentVaultError.sourceUnreadable
         }
 
         let format = DocumentVault.normalizedFormat(forExtension: fileURL.pathExtension)
+        // Neutral metadata comes from the plaintext BEFORE sealing: byteCount
+        // records the document size (not the container size) and the PDF page
+        // count is read from the in-memory bytes.
+        let pageCount = format == "pdf" ? PDFDocument(data: plaintext)?.pageCount : nil
 
         let entry: VaultEntry = try DocumentVault.registryLock.withLock {
             var registry = try loadRegistryLocked()
@@ -249,15 +287,14 @@ public struct DocumentVault {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let storedName = "original.\(format)"
             let storedURL = directory.appendingPathComponent(storedName)
-            try FileManager.default.copyItem(at: fileURL, to: storedURL)
+            try sealObjectData(plaintext, to: storedURL)
 
-            let byteCount = try DocumentVault.fileByteCount(storedURL)
             let entry = VaultEntry(
                 handle: handle,
                 kind: .original,
                 format: format,
-                byteCount: byteCount,
-                pageCount: format == "pdf" ? PDFDocument(url: storedURL)?.pageCount : nil,
+                byteCount: plaintext.count,
+                pageCount: pageCount,
                 stagedAtISO8601: stagedAtISO8601,
                 relativePath: "\(DocumentVault.objectsDirectoryName)/\(handle)/\(storedName)",
                 originalFilename: fileURL.lastPathComponent,
@@ -301,10 +338,18 @@ public struct DocumentVault {
 
     /// Register a produced artifact. The primary file (and the mapping file,
     /// when given) must already sit inside the vault; the entry records their
-    /// vault-relative locations plus neutral metadata.
+    /// vault-relative locations plus neutral metadata. The primary file is
+    /// sealed in place (producers write plaintext; the vault owns encryption),
+    /// while the mapping file is recorded untouched: it is already an
+    /// encrypted container of its own kind with its own key.
     ///
     /// The mapping file may live in ANOTHER entry's directory: a session
     /// shares one sidecar across all of its redacted artifacts.
+    ///
+    /// Any OTHER file the producer left in the slot directory is removed: it
+    /// is not registered, so nothing could ever read it back, and leaving it
+    /// would keep producer plaintext (a review PDF, a companion) in the vault
+    /// forever.
     @discardableResult
     public func commit(
         slot: DerivedSlot,
@@ -317,14 +362,23 @@ public struct DocumentVault {
         let relativePath = try vaultRelativePath(of: primaryFile)
         let mappingRelativePath = try mappingFile.map { try vaultRelativePath(of: $0) }
         let format = DocumentVault.normalizedFormat(forExtension: primaryFile.pathExtension)
-        let byteCount = try DocumentVault.fileByteCount(primaryFile)
+        guard let plaintext = FileManager.default.contents(atPath: primaryFile.path) else {
+            throw DocumentVaultError.sourceUnreadable
+        }
+        let pageCount = format == "pdf" ? PDFDocument(data: plaintext)?.pageCount : nil
+
+        try sealObjectData(plaintext, to: primaryFile)
+        sweepUncommittedFiles(
+            in: slot.directory,
+            keeping: [primaryFile, mappingFile].compactMap { $0 }
+        )
 
         let entry = VaultEntry(
             handle: slot.handle,
             kind: slot.kind,
             format: format,
-            byteCount: byteCount,
-            pageCount: format == "pdf" ? PDFDocument(url: primaryFile)?.pageCount : nil,
+            byteCount: plaintext.count,
+            pageCount: pageCount,
             stagedAtISO8601: stagedAtISO8601,
             relativePath: relativePath,
             originalFilename: nil,
@@ -347,6 +401,25 @@ public struct DocumentVault {
     /// Best-effort cleanup for a failed pipeline run.
     public func abort(slot: DerivedSlot) {
         try? FileManager.default.removeItem(at: slot.directory)
+    }
+
+    /// Remove everything in a slot directory except the files being committed.
+    /// Best-effort: a failure to remove a stray never fails the commit, and
+    /// the boundary regression test scans the tree afterwards anyway.
+    private func sweepUncommittedFiles(in directory: URL, keeping keep: [URL]) {
+        let keptPaths = Set(keep.map {
+            $0.standardizedFileURL.resolvingSymlinksInPath().path
+        })
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for child in children {
+            let path = child.standardizedFileURL.resolvingSymlinksInPath().path
+            if !keptPaths.contains(path) {
+                try? FileManager.default.removeItem(at: child)
+            }
+        }
     }
 
     // MARK: - Lookup
@@ -379,28 +452,23 @@ public struct DocumentVault {
 
     // MARK: - Reading (the chokepoint)
 
-    /// Read the stored bytes of an entry. Routed through the plaintext
-    /// chokepoint so phase 5 (encryption at rest) changes one function.
-    /// FileManager.contents is deliberate: unlike Data(contentsOf:) it has no
-    /// remote-URL capability, so the network chokepoint scan stays clean.
+    /// Read and decrypt the stored bytes of an entry, entirely in memory: no
+    /// plaintext touches the disk on this path.
     public func readDocumentBytes(handle: String) throws -> Data {
-        let found = try entry(handle: handle)
-        guard let data = FileManager.default.contents(atPath: plaintextFileURL(for: found).path) else {
-            throw DocumentVaultError.unknownHandle(handle)
-        }
-        return data
+        try openObjectData(for: entry(handle: handle))
     }
 
-    /// Run body with a URL from which the entry's plaintext can be read.
-    /// Today that is the stored file itself; when phase 5 encrypts the store,
-    /// this will decrypt to a private temporary file, hand it to body, and
-    /// destroy it afterward. Callers must not retain the URL past body.
+    /// Decrypt the entry to a short-lived scratch file INSIDE the vault root
+    /// (owner-only permissions), run body over its URL, and remove the file
+    /// afterward, throw or return. Callers must not retain the URL past body.
     public func withPlaintextFileURL<T>(
         handle: String,
         _ body: (URL) throws -> T
     ) throws -> T {
         let found = try entry(handle: handle)
-        return try body(plaintextFileURL(for: found))
+        return try withScratchPlaintext(entries: [found]) { urls in
+            try body(urls[0])
+        }
     }
 
     /// The plural form for pipelines that consume several documents at once
@@ -409,11 +477,13 @@ public struct DocumentVault {
         handles: [String],
         _ body: ([URL]) throws -> T
     ) throws -> T {
-        let urls = try handles.map { try plaintextFileURL(for: entry(handle: $0)) }
-        return try body(urls)
+        let found = try handles.map { try entry(handle: $0) }
+        return try withScratchPlaintext(entries: found, body)
     }
 
-    /// The mapping sidecar location for a redacted entry.
+    /// The mapping sidecar location for a redacted entry. The sidecar is an
+    /// encrypted container of its own kind (LDAMAP), so its raw URL is safe to
+    /// hand to MappingStore without a scratch decryption step.
     public func mappingFileURL(forHandle handle: String) throws -> URL {
         let found = try entry(handle: handle)
         guard let relative = found.mappingRelativePath else {
@@ -422,21 +492,15 @@ public struct DocumentVault {
         return rootDirectory.appendingPathComponent(relative)
     }
 
-    /// THE internal chokepoint every read of stored document bytes goes
-    /// through. Phase 5 (encryption at rest) will decrypt here; phase 6 (XPC
-    /// key holding) will fetch the key here. Nothing else may resolve an
-    /// entry's stored file.
-    private func plaintextFileURL(for entry: VaultEntry) -> URL {
-        rootDirectory.appendingPathComponent(entry.relativePath)
-    }
-
     // MARK: - Export
 
-    /// Copy a redacted or restored artifact into the outbox, named after the
-    /// original document it derives from (the one place the original filename
-    /// is used). Originals are refused: the vault never re-emits a source
-    /// document. Returns the outbox file URL for HUMAN-facing edges (CLI,
-    /// GUI); MCP responses must not include it.
+    /// Write the DECRYPTED bytes of a redacted or restored artifact into the
+    /// outbox, named after the original document it derives from (the one
+    /// place the original filename is used). The outbox is the deliberate
+    /// human-facing exit and the only place the vault emits plaintext.
+    /// Originals are refused: the vault never re-emits a source document.
+    /// Returns the outbox file URL for HUMAN-facing edges (CLI, GUI); MCP
+    /// responses must not include it.
     @discardableResult
     public func exportToOutbox(handle: String) throws -> URL {
         let found = try entry(handle: handle)
@@ -450,6 +514,7 @@ public struct DocumentVault {
             throw DocumentVaultError.notExportable(handle)
         }
 
+        let plaintext = try openObjectData(for: found)
         try FileManager.default.createDirectory(
             at: outboxDirectory,
             withIntermediateDirectories: true
@@ -457,10 +522,7 @@ public struct DocumentVault {
 
         let baseName = exportBaseName(for: found)
         let destination = firstFreeOutboxURL(base: baseName, ext: found.format)
-        try FileManager.default.copyItem(
-            at: plaintextFileURL(for: found),
-            to: destination
-        )
+        try plaintext.write(to: destination, options: [.atomic])
         SecurityEventLog.shared.record(kind: .vaultArtifactExported, scope: DocumentVault.auditScope)
         return destination
     }
@@ -522,34 +584,86 @@ public struct DocumentVault {
         static let empty = Registry(version: currentVersion, entries: [])
     }
 
-    /// Load the registry, treating a missing file as empty. Called with the
-    /// registry lock held. FileManager.contents is deliberate: unlike
-    /// Data(contentsOf:) it has no remote-URL capability, so the network
-    /// chokepoint scan stays clean.
+    /// Load the registry, treating a missing file as empty. A plaintext
+    /// registry.json on disk means the vault was written by the pre-encryption
+    /// phase; it is migrated in place FIRST, so no operation ever runs over an
+    /// unencrypted store. Called with the registry lock held.
+    /// FileManager.contents is deliberate: unlike Data(contentsOf:) it has no
+    /// remote-URL capability, so the network chokepoint scan stays clean.
     private func loadRegistryLocked() throws -> Registry {
-        guard FileManager.default.fileExists(atPath: registryURL.path) else {
+        if FileManager.default.fileExists(atPath: plaintextRegistryURL.path) {
+            return try migrateFromPlaintextFormLocked()
+        }
+        guard FileManager.default.fileExists(atPath: sealedRegistryURL.path) else {
             return .empty
         }
-        guard
-            let data = FileManager.default.contents(atPath: registryURL.path),
-            let registry = try? JSONDecoder().decode(Registry.self, from: data)
-        else {
+        let data = try DocumentVault.registryContainer.load(
+            from: sealedRegistryURL,
+            protection: protection
+        )
+        guard let registry = try? JSONDecoder().decode(Registry.self, from: data) else {
             throw DocumentVaultError.corruptRegistry
         }
         return registry
     }
 
-    /// Write the registry atomically so a crash never leaves a torn file.
-    /// Called with the registry lock held.
+    /// Encrypt and write the registry. The container writes atomically, so a
+    /// crash never leaves a torn file. Called with the registry lock held.
     private func saveRegistryLocked(_ registry: Registry) throws {
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: true
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(registry)
-        try data.write(to: registryURL, options: [.atomic])
+        try DocumentVault.registryContainer.save(
+            data,
+            to: sealedRegistryURL,
+            protection: protection
+        )
+    }
+
+    /// Migrate a plaintext-form vault (registry.json plus plaintext objects)
+    /// to the encrypted form, in place and without losing entries: seal every
+    /// object the registry names, write the sealed registry, then remove the
+    /// plaintext registry LAST. The steps are idempotent, so a crash mid-way
+    /// resumes on the next open (an object already carrying the container
+    /// magic is skipped rather than double-wrapped). Mapping sidecars are
+    /// containers of their own kind already and are left untouched. Called
+    /// with the registry lock held.
+    private func migrateFromPlaintextFormLocked() throws -> Registry {
+        guard
+            let data = FileManager.default.contents(atPath: plaintextRegistryURL.path),
+            let registry = try? JSONDecoder().decode(Registry.self, from: data)
+        else {
+            throw DocumentVaultError.corruptRegistry
+        }
+
+        for entry in registry.entries {
+            let url = rootDirectory.appendingPathComponent(entry.relativePath)
+            guard let bytes = FileManager.default.contents(atPath: url.path) else {
+                // A missing object cannot be sealed; the entry survives and a
+                // later read of it fails exactly as it would have before.
+                continue
+            }
+            if bytes.starts(with: DocumentVault.objectMagic) {
+                // Already sealed by an interrupted earlier migration run. (A
+                // plaintext document beginning with the magic bytes would be
+                // skipped too and then fail closed on read; a real document
+                // starting with "LDAVOBJ" does not occur in practice.)
+                continue
+            }
+            try sealObjectData(bytes, to: url)
+        }
+
+        try saveRegistryLocked(registry)
+        try FileManager.default.removeItem(at: plaintextRegistryURL)
+        SecurityEventLog.shared.record(
+            kind: .vaultMigratedToEncryptedForm,
+            scope: DocumentVault.auditScope
+        )
+        return registry
     }
 
     // MARK: - Handles
@@ -602,12 +716,6 @@ public struct DocumentVault {
         case "md", "markdown": return "md"
         default: return "txt"
         }
-    }
-
-    /// The size of a file in bytes.
-    private static func fileByteCount(_ url: URL) throws -> Int {
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        return (attributes[.size] as? Int) ?? 0
     }
 
     /// The vault-relative path of a URL, throwing when it is not inside the

@@ -383,12 +383,17 @@ extension MCPServer {
 
     // MARK: attest
 
-    /// attest: the server's honest self-description for this phase. Phase 5
-    /// upgrades vaultEncryptionAtRest; phase 6 upgrades keyACLMode.
+    /// attest: the server's honest self-description. Every field is derived
+    /// from actual state, never hardcoded: vaultEncryptionAtRest reads the
+    /// on-disk form (false while an unmigrated plaintext registry exists) and
+    /// vaultKeyProtection names how the vault master key is actually held
+    /// (the XPC phase will introduce a new value there).
     func callAttest() -> [String: Any] {
+        let vault = openVault()
         let snapshot = metrics.snapshot()
         return [
-            "vaultEncryptionAtRest": false,
+            "vaultEncryptionAtRest": vault.isEncryptionAtRestActive(),
+            "vaultKeyProtection": vault.keyProtectionDescription,
             "keyACLMode": KeychainAccessPolicy.requireUserPresence ? "userPresence" : "silent",
             "plaintextBytesReturnedThisSession": snapshot.plaintextBytesReturned,
             "redactedBytesReturnedThisSession": snapshot.redactedBytesReturned,

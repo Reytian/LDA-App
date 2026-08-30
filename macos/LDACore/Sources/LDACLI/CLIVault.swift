@@ -53,25 +53,35 @@ public struct VaultEntryJSON: Codable, Equatable {
 extension LDACLI {
 
     /// Stage core: validate each input exists, expand any .zip into its
-    /// contained documents, copy everything into the vault, and return the
-    /// new entries. Expansion scratch space is cleaned up before returning
-    /// (the vault holds its own copies by then).
+    /// contained documents, copy everything into the vault (encrypted at
+    /// rest), and return the new entries. Expansion scratch space is cleaned
+    /// up before returning (the vault holds its own copies by then).
+    ///
+    /// protection selects how the vault master key is held; the default
+    /// resolves LDA_VAULT_PASSPHRASE from the process environment, else the
+    /// Keychain master key. Tests inject a passphrase.
     public static func runVaultStage(
         inputs: [URL],
         vaultRoot: URL,
-        timestamp: TimestampProvider = defaultTimestampProvider
+        timestamp: TimestampProvider = defaultTimestampProvider,
+        protection: MappingProtection = DocumentVault.defaultProtection()
     ) throws -> [VaultEntryJSON] {
         defer { ZipImporter.cleanUpAllExpansions() }
         let resolved = try resolveSessionInputs(inputs)
-        let vault = DocumentVault(rootDirectory: vaultRoot)
+        let vault = DocumentVault(rootDirectory: vaultRoot, protection: protection)
         return try resolved.map { url in
             VaultEntryJSON(entry: try vault.stage(fileURL: url, stagedAtISO8601: timestamp()))
         }
     }
 
     /// List core: every vault entry, oldest first.
-    public static func runVaultList(vaultRoot: URL) throws -> [VaultEntryJSON] {
-        try DocumentVault(rootDirectory: vaultRoot).list().map(VaultEntryJSON.init)
+    public static func runVaultList(
+        vaultRoot: URL,
+        protection: MappingProtection = DocumentVault.defaultProtection()
+    ) throws -> [VaultEntryJSON] {
+        try DocumentVault(rootDirectory: vaultRoot, protection: protection)
+            .list()
+            .map(VaultEntryJSON.init)
     }
 }
 
