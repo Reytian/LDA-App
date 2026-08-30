@@ -30,6 +30,11 @@ public struct AnonymizeResult: Sendable {
     public var mappingFileURL: URL
     /// A boxes-over-PII review PDF, present only when the input was a PDF.
     public var visualPdfURL: URL?
+    /// A boxes-over-PII redacted PNG, present only when the input was a
+    /// standalone image (png / jpg / jpeg). The boxes are destructive, so
+    /// this artifact is NOT restorable; the paired redacted text companion
+    /// is the round-trip surface.
+    public var redactedImageURL: URL?
     /// How many entities were tokenized.
     public var entityCount: Int
     /// The accepted spans (post-merge) that were tokenized.
@@ -61,11 +66,13 @@ public struct AnonymizeResult: Sendable {
         entities: [Span],
         imageRedactionCount: Int = 0,
         embeddedMediaCount: Int = 0,
-        unboxedTokenCount: Int = 0
+        unboxedTokenCount: Int = 0,
+        redactedImageURL: URL? = nil
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
         self.visualPdfURL = visualPdfURL
+        self.redactedImageURL = redactedImageURL
         self.entityCount = entityCount
         self.entities = entities
         self.imageRedactionCount = imageRedactionCount
@@ -212,14 +219,32 @@ public enum LDAService {
         // the already-loaded engine without loading the model a second time. The
         // primary text pass throws if a segment could not be fully scanned, so the
         // document is never written out as cleanly anonymized on a partial scan.
-        let imported = try importDocument(input, extension: ext)
+        //
+        // A standalone image is extracted ONCE up front: its joined OCR text
+        // feeds the same detection pipeline as every other format, and the
+        // per-line geometry is reused by the image redactor below without a
+        // second OCR pass.
+        let imageExtraction: ImageExtraction? = shouldTreatAsImage(input, extension: ext)
+            ? try ImageTextExtractor().extract(input)
+            : nil
+        let imported: ImportedDocument
+        if let imageExtraction {
+            imported = ImportedDocument(
+                text: imageExtraction.text,
+                format: .image,
+                isScanned: true,
+                pageCount: 1
+            )
+        } else {
+            imported = try importDocument(input, extension: ext)
+        }
         let detector = makeDetector(modelPath: llmModelPath)
         let detected = try detector.detectText(imported.text)
         // DOCX replacement happens run by run inside paragraphs, and the
         // paragraph newline exists in no run, so a span crossing it cannot
         // round-trip. Split such spans into per-paragraph parts (each gets its
         // own token and restores within its own run structure).
-        let spans = ext == "docx"
+        let spans = ext == "docx" && imageExtraction == nil
             ? SpanSplitter.splitAtLineBreaks(detected, in: imported.text)
             : detected
         var tokenized = Tokenizer.tokenize(
@@ -238,6 +263,47 @@ public enum LDAService {
             in: tokenized.mapping,
             pairs: EntityRescan.aliasPairs(in: imported.text, confirmed: detected)
         )
+
+        // Standalone image input produces TWO artifacts and returns early:
+        //  (a) the redacted TEXT companion, the same edit surface shape as the
+        //      PDF path, byte-identically restorable through the mapping; and
+        //  (b) the redacted IMAGE, a PNG with opaque boxes over every
+        //      observation that carries a replaced range. The boxes are
+        //      destructive, so (b) is never a restore surface. Whole
+        //      observation boxes are covered: over-covering is acceptable,
+        //      under-covering is a leak. A replaced range the geometry cannot
+        //      locate is counted in unboxedTokenCount, never dropped.
+        if let extraction = imageExtraction {
+            let companionURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
+            try CompanionWriter.writeText(tokenized.tokenizedText, to: companionURL)
+
+            let coverage = ImageRedactor.coverage(
+                lines: extraction.lines,
+                replacedRanges: spans.map { $0.start..<$0.end }
+            )
+            let imageURL = outputDir.appendingPathComponent("\(baseName)_redacted.png")
+            let boxCount = try ImageRedactor.renderRedactedPNG(
+                originalImageAt: input,
+                covering: coverage.coveredLines,
+                to: imageURL
+            )
+
+            let companionBaseName = companionURL.deletingPathExtension().lastPathComponent
+            let sidecarURL = outputDir.appendingPathComponent("\(companionBaseName).ldamap")
+            try MappingStore.save(tokenized.mapping, to: sidecarURL, protection: protection)
+
+            return AnonymizeResult(
+                redactedFileURL: companionURL,
+                mappingFileURL: sidecarURL,
+                visualPdfURL: nil,
+                entityCount: spans.count,
+                entities: spans,
+                imageRedactionCount: boxCount,
+                embeddedMediaCount: 0,
+                unboxedTokenCount: coverage.unlocatedRangeCount,
+                redactedImageURL: imageURL
+            )
+        }
 
         let redactedFileURL: URL
         var visualPdfURL: URL?
@@ -377,8 +443,20 @@ public enum LDAService {
         guard editedRedacted.standardizedFileURL.path != output.standardizedFileURL.path else {
             throw LDAServiceError.outputEqualsInput
         }
-        let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
         let ext = editedRedacted.pathExtension.lowercased()
+        // A redacted image is not an edit surface: the opaque boxes destroy
+        // the covered pixels, so restoring one is impossible by design.
+        // Refuse clearly, before any mapping IO or Keychain prompt, instead
+        // of decoding raster bytes as text and producing nonsense.
+        if shouldTreatAsImage(editedRedacted, extension: ext) {
+            throw DocumentIOError.unsupportedFormat(
+                "\(editedRedacted.lastPathComponent) is an image, and a redacted "
+                    + "image cannot be restored: its boxes permanently cover the "
+                    + "pixels. Restore the redacted text companion (.txt) that "
+                    + "was produced alongside it."
+            )
+        }
+        let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
 
         if ext == "docx" {
             if loadedMapping.style == .token {
@@ -541,12 +619,26 @@ public enum LDAService {
         return Detector(extractor: extractor)
     }
 
+    /// True when the file should route through the standalone image pipeline:
+    /// an image extension (png / jpg / jpeg) always does; any OTHER extension
+    /// outside docx and pdf is settled by magic bytes, so a PNG that reaches
+    /// disk under a .txt name (the vault stores staged files by normalized
+    /// format) is OCR'd instead of being decoded as Latin-1 mojibake. The
+    /// docx and pdf extensions are exempt from sniffing: their own importers
+    /// surface real structural errors for mismatched bytes.
+    internal static func shouldTreatAsImage(_ url: URL, extension ext: String) -> Bool {
+        if ImageTextExtractor.supportedExtensions.contains(ext) { return true }
+        if ext == "docx" || ext == "pdf" { return false }
+        return ImageTextExtractor.isImageFile(url)
+    }
+
     /// Import a document by file extension. A PDF with no usable text layer at
     /// all falls back to whole-document Vision OCR; a hybrid PDF keeps its
     /// text layer and splices page-scoped OCR text into the scanned pages, so
     /// a scanned exhibit inside a digital contract still reaches detection.
-    /// Unknown extensions are treated as plain text so the text importer's own
-    /// unreadable error surfaces for genuinely bad inputs.
+    /// A standalone image (by extension or magic bytes) is OCR'd through
+    /// ImageTextExtractor. Unknown extensions are treated as plain text so
+    /// the text importer's own unreadable error surfaces for bad inputs.
     ///
     /// Internal (not private) so that LDAFillService.swift can call it directly
     /// for profile source import, avoiding duplicate logic.
@@ -554,6 +646,9 @@ public enum LDAService {
         _ url: URL,
         extension ext: String
     ) throws -> ImportedDocument {
+        if shouldTreatAsImage(url, extension: ext) {
+            return try ImageTextExtractor().importDocument(url)
+        }
         switch ext {
         case "docx":
             return try DocxImporter().importDocument(url)
