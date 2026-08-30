@@ -437,6 +437,14 @@ public struct AppShell: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help("\(result.mappingURL.lastPathComponent), \(protection)")
+                    if let imageURL = result.redactedImageURL {
+                        Text("Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable")
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(imageURL.lastPathComponent)
+                    }
                     if result.embeddedMediaCount > 0 {
                         Text("Warning: \(result.embeddedMediaCount) embedded image"
                             + (result.embeddedMediaCount == 1 ? " was" : "s were")
@@ -451,10 +459,10 @@ public struct AppShell: View {
 
             if case .exported(let result, _) = completion {
                 Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([
-                        result.redactedURL,
-                        result.mappingURL
-                    ])
+                    NSWorkspace.shared.activateFileViewerSelecting(
+                        [result.redactedURL, result.mappingURL]
+                            + (result.redactedImageURL.map { [$0] } ?? [])
+                    )
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -840,7 +848,7 @@ public struct AppShell: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, or a .zip of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
@@ -927,9 +935,10 @@ public struct AppShell: View {
 
     // MARK: - Content types
 
-    /// The document types the Open panel accepts: plain text, Word, and PDF.
+    /// The document types the Open panel accepts: plain text, Word, PDF, zip,
+    /// and evidence images (PNG and JPEG).
     private static let openContentTypes: [UTType] = {
-        var types: [UTType] = [.plainText, .text, .pdf, .zip]
+        var types: [UTType] = [.plainText, .text, .pdf, .zip, .png, .jpeg]
         if let docx = UTType(
             "org.openxmlformats.wordprocessingml.document"
         ) {

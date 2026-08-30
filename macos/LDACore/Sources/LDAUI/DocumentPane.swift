@@ -200,7 +200,7 @@ public struct DocumentPane: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, or a .zip of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         openURLs(panel.urls)
@@ -221,9 +221,10 @@ public struct DocumentPane: View {
         }
     }
 
-    /// The document types accepted for opening: plain text, Word, PDF, and zip.
+    /// The document types accepted for opening: plain text, Word, PDF, zip,
+    /// and evidence images (PNG and JPEG).
     private static let openContentTypes: [UTType] = {
-        var types: [UTType] = [.plainText, .text, .pdf, .zip]
+        var types: [UTType] = [.plainText, .text, .pdf, .zip, .png, .jpeg]
         if let docx = UTType("org.openxmlformats.wordprocessingml.document") {
             types.append(docx)
         }

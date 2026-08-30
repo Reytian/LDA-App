@@ -624,12 +624,9 @@ public enum LDAService {
     /// outside docx and pdf is settled by magic bytes, so a PNG that reaches
     /// disk under a .txt name (the vault stores staged files by normalized
     /// format) is OCR'd instead of being decoded as Latin-1 mojibake. The
-    /// docx and pdf extensions are exempt from sniffing: their own importers
-    /// surface real structural errors for mismatched bytes.
+    /// rule itself lives on ImageTextExtractor so the GUI edge shares it.
     internal static func shouldTreatAsImage(_ url: URL, extension ext: String) -> Bool {
-        if ImageTextExtractor.supportedExtensions.contains(ext) { return true }
-        if ext == "docx" || ext == "pdf" { return false }
-        return ImageTextExtractor.isImageFile(url)
+        ImageTextExtractor.shouldTreatAsImage(url, extension: ext)
     }
 
     /// Import a document by file extension. A PDF with no usable text layer at

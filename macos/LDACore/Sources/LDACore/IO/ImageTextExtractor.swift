@@ -143,6 +143,17 @@ public struct ImageTextExtractor: DocumentImporter {
         return hasImageMagicBytes(url)
     }
 
+    /// The ONE routing rule every edge shares: a file routes through the
+    /// image pipeline when it carries an image extension, or when any OTHER
+    /// extension outside docx and pdf carries image magic bytes. The docx and
+    /// pdf extensions are exempt from sniffing because their own importers
+    /// surface real structural errors for mismatched bytes.
+    public static func shouldTreatAsImage(_ url: URL, extension ext: String) -> Bool {
+        if supportedExtensions.contains(ext) { return true }
+        if ext == "docx" || ext == "pdf" { return false }
+        return isImageFile(url)
+    }
+
     /// PNG and JPEG signatures. Neither prefix is decodable as the start of
     /// any real text file (0x89 is an invalid UTF-8 lead byte and 0xFF an
     /// invalid start), so sniffing cannot misroute genuine text.
