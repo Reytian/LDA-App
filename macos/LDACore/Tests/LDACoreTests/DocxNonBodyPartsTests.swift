@@ -136,6 +136,71 @@ final class DocxNonBodyPartsTests: XCTestCase {
         XCTAssertTrue(out.contains("https://example.com/page"), "http link must be preserved")
     }
 
+    /// XML permits single OR double quotes around an attribute value, and
+    /// non-Word producers (LibreOffice, python-docx variants, XML tooling, and
+    /// hand-edited packages) emit single quotes. A single-quoted external
+    /// mailto:/tel: target must be neutralized exactly like a double-quoted
+    /// one, or the address rides out of the app inside the redacted package.
+    func testNeutralizeExternalTargetsHandlesSingleQuotedAttributes() {
+        let xml = "<Relationships>"
+            + "<Relationship Id='rId1' TargetMode='External' Target='mailto:client@example.com'/>"
+            + "<Relationship Id='rId2' TargetMode='External' Target='tel:+12125550147'/>"
+            + "<Relationship Id='rId3' Target='header1.xml'/>"
+            + "<Relationship Id='rId4' TargetMode='External' Target='https://example.com/page'/>"
+            + "</Relationships>"
+        let out = DocxParts.neutralizeExternalTargets(xml)
+        XCTAssertFalse(out.contains("client@example.com"),
+                       "single-quoted mailto target must be neutralized")
+        XCTAssertFalse(out.contains("+12125550147"),
+                       "single-quoted tel target must be neutralized")
+        XCTAssertTrue(out.contains("header1.xml"),
+                      "internal target must be preserved")
+        XCTAssertTrue(out.contains("https://example.com/page"),
+                      "http link must be preserved")
+    }
+
+    /// XML scopes the quote choice per attribute, so one element can carry a
+    /// double-quoted TargetMode beside a single-quoted Target. The TargetMode
+    /// guard and the Target rewrite must therefore each be quote-agnostic on
+    /// their own: a quote-agnostic rewrite behind a double-quote-only guard is
+    /// dead code for exactly the files that need it.
+    func testNeutralizeExternalTargetsHandlesMixedQuoteStyles() {
+        let xml = "<Relationships>"
+            + "<Relationship Id='rId1' TargetMode=\"External\" Target='mailto:a@example.com'/>"
+            + "<Relationship Id=\"rId2\" TargetMode='External' Target=\"mailto:b@example.com\"/>"
+            + "</Relationships>"
+        let out = DocxParts.neutralizeExternalTargets(xml)
+        XCTAssertFalse(out.contains("a@example.com"),
+                       "single-quoted Target under a double-quoted TargetMode must be neutralized")
+        XCTAssertFalse(out.contains("b@example.com"),
+                       "double-quoted Target under a single-quoted TargetMode must be neutralized")
+    }
+
+    /// A value delimited by one quote style may legally CONTAIN the other, and
+    /// an apostrophe in an email local part is both legal and real
+    /// ("o'brien@..."). A matcher that ends the value at the first quote of
+    /// EITHER style would rewrite only the opening fragment and strand the rest
+    /// of the address as loose text in the part: a leak dressed up as a fix.
+    func testNeutralizeExternalTargetsHandlesInnerQuoteOfTheOtherStyle() {
+        let apostrophe = "<Relationships>"
+            + "<Relationship Id=\"rId1\" TargetMode=\"External\" Target=\"mailto:o'brien@example.com\"/>"
+            + "</Relationships>"
+        let outApostrophe = DocxParts.neutralizeExternalTargets(apostrophe)
+        XCTAssertFalse(outApostrophe.contains("example.com"),
+                       "no fragment of an apostrophe-bearing address may survive the rewrite")
+        XCTAssertTrue(outApostrophe.contains("Target=\"about:blank\""),
+                      "a well-formed neutralized Target must replace the whole attribute")
+
+        let innerDouble = "<Relationships>"
+            + "<Relationship Id='rId1' TargetMode='External' Target='mailto:a\"b@example.com'/>"
+            + "</Relationships>"
+        let outInnerDouble = DocxParts.neutralizeExternalTargets(innerDouble)
+        XCTAssertFalse(outInnerDouble.contains("example.com"),
+                       "no fragment of a quote-bearing single-quoted address may survive")
+        XCTAssertTrue(outInnerDouble.contains("Target=\"about:blank\""),
+                      "a well-formed neutralized Target must replace the whole attribute")
+    }
+
     /// core.xml author/title elements are blanked while their tags survive.
     func testScrubCorePropsBlanksAuthorAndTitle() {
         let xml = """

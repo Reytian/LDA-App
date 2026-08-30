@@ -488,29 +488,63 @@ enum DocxParts {
         return result
     }
 
+    /// A whole Target attribute in either quote style, used to overwrite the
+    /// address wholesale. The value is delimited by the SAME quote that opened
+    /// it, so it may legally contain the other quote: an apostrophe in an email
+    /// local part (o'brien@example.com) is both legal and real. A matcher
+    /// that ended the value at the first quote of EITHER style would rewrite
+    /// only the opening fragment and strand the rest of the address as loose
+    /// text in the part, which is a leak wearing the costume of a fix.
+    private static let targetAttributePattern = #"(?<=\s)Target=(?:"[^"]*"|'[^']*')"#
+
     /// Rewrite one <Relationship .../> element when it is an external link with a
     /// sensitive scheme; otherwise return it unchanged.
+    ///
+    /// Every attribute here is read quote-agnostically. XML gives the two quote
+    /// styles equal standing (AttValue accepts either), and while Word writes
+    /// double quotes, LibreOffice, python-docx variants, XML tooling, and
+    /// hand-edited packages emit single-quoted attributes. Matching only double
+    /// quotes left those targets in place, so a real mailto:/tel: address rode
+    /// out of the app inside the "redacted" package. The TargetMode guard has to
+    /// be quote-agnostic for the same reason: a quote-agnostic rewrite sitting
+    /// behind a double-quote-only guard is dead code for exactly the files that
+    /// need it.
     private static func rewriteRelationshipElement(_ element: String) -> String {
-        guard element.contains("TargetMode=\"External\"") else { return element }
+        guard attributeValue("TargetMode", in: element) == "External" else { return element }
         guard let target = attributeValue("Target", in: element) else { return element }
         let lowered = target.lowercased()
         guard sensitiveSchemes.contains(where: { lowered.hasPrefix($0) }) else { return element }
-        return element.replacingOccurrences(
-            of: "Target=\"\(target)\"",
-            with: "Target=\"\(neutralizedTarget)\""
+        guard let regex = try? NSRegularExpression(pattern: targetAttributePattern) else {
+            return element
+        }
+        let ns = element as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        // escapedTemplate: the replacement is a literal, never a "$1" reference.
+        let template = NSRegularExpression.escapedTemplate(
+            for: "Target=\"\(neutralizedTarget)\""
         )
+        return regex.stringByReplacingMatches(in: element, range: full, withTemplate: template)
     }
 
-    /// Extract the unescaped value of a double-quoted attribute from one tag.
+    /// Extract the unescaped value of an attribute from one tag, accepting
+    /// either quote style. Returns nil when the attribute is absent.
+    ///
+    /// The two quote styles are separate alternatives rather than one [^"']
+    /// character class so that a value keeps whichever quote it did not open
+    /// with (see targetAttributePattern). The name is anchored to a preceding
+    /// space so it matches a whole attribute name only, never the tail of a
+    /// longer one ("Mode" must not match inside "TargetMode").
     private static func attributeValue(_ name: String, in element: String) -> String? {
         let escaped = NSRegularExpression.escapedPattern(for: name)
-        let pattern = "\(escaped)=\"([^\"]*)\""
+        let pattern = "(?<=\\s)\(escaped)=(?:\"([^\"]*)\"|'([^']*)')"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let ns = element as NSString
         let full = NSRange(location: 0, length: ns.length)
-        guard let match = regex.firstMatch(in: element, range: full), match.numberOfRanges >= 2 else {
-            return nil
+        guard let match = regex.firstMatch(in: element, range: full) else { return nil }
+        // Exactly one of the two quote alternatives participates in a match.
+        for group in 1 ... 2 where match.range(at: group).location != NSNotFound {
+            return ns.substring(with: match.range(at: group))
         }
-        return ns.substring(with: match.range(at: 1))
+        return nil
     }
 }
