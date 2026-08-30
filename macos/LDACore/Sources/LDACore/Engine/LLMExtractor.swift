@@ -38,10 +38,16 @@ public struct ExtractionResult: Sendable {
     public let spans: [Span]
     /// How many segments could not be fully scanned even after retry/splitting.
     public let incompleteSegmentCount: Int
+    /// How many distinct reported values could not be anchored anywhere in the
+    /// source, even after repairing CJK script-boundary space drift. These were
+    /// seen by the model but cannot be redacted, so a non-zero count means the
+    /// document is not guaranteed PII-free.
+    public let unlocatableEntityCount: Int
 
-    public init(spans: [Span], incompleteSegmentCount: Int) {
+    public init(spans: [Span], incompleteSegmentCount: Int, unlocatableEntityCount: Int = 0) {
         self.spans = spans
         self.incompleteSegmentCount = incompleteSegmentCount
+        self.unlocatableEntityCount = unlocatableEntityCount
     }
 
     /// True when every segment was fully scanned. False means at least one
@@ -190,6 +196,7 @@ public final class LLMExtractor {
         var seenEntities = Set<CanonicalKey>()
         var spans: [Span] = []
         var seenSpans = Set<SpanKey>()
+        var unlocatableEntityCount = 0
 
         for entity in kept {
             let key = CanonicalKey(
@@ -198,11 +205,28 @@ public final class LLMExtractor {
             )
             guard seenEntities.insert(key).inserted else { continue }
 
-            let located = EntityLocator.spans(
+            // Anchor the value as reported. If that fails and the value carries
+            // CJK script-boundary space drift, retry once with the tightened
+            // form. The fallback ordering matters: a source that genuinely
+            // spaces its digits still matches on the first, faithful attempt.
+            var located = EntityLocator.spans(
                 forValue: entity.value,
                 type: entity.type,
                 in: text
             )
+            if located.isEmpty {
+                let tightened = CJKSpacing.tightenScriptBoundaries(entity.value)
+                if tightened != entity.value {
+                    located = EntityLocator.spans(
+                        forValue: tightened,
+                        type: entity.type,
+                        in: text
+                    )
+                }
+            }
+            if located.isEmpty {
+                unlocatableEntityCount += 1
+            }
             for span in located {
                 let spanKey = SpanKey(start: span.start, end: span.end, type: span.type)
                 if seenSpans.insert(spanKey).inserted {
@@ -211,7 +235,11 @@ public final class LLMExtractor {
             }
         }
 
-        return ExtractionResult(spans: spans, incompleteSegmentCount: incompleteSegmentCount)
+        return ExtractionResult(
+            spans: spans,
+            incompleteSegmentCount: incompleteSegmentCount,
+            unlocatableEntityCount: unlocatableEntityCount
+        )
     }
 
     // MARK: - Per-segment scanning
