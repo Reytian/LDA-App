@@ -3,21 +3,33 @@
 //  LDAMCP
 //
 //  A Model Context Protocol (MCP) server over LDAService, speaking JSON-RPC 2.0
-//  on stdio. This is the edge an MCP client (an agent host) connects to in order
-//  to drive anonymize / restore / detect as tools.
+//  on stdio. This is the edge an MCP client (an agent host) connects to.
+//
+//  Context boundary: "the MCP server runs locally" does NOT mean data stays
+//  local. Everything a tool returns enters the model context of the agent host
+//  and leaves the machine, and file paths are themselves PII (legal folders
+//  are named after the parties). The advertised surface is therefore
+//  handle-first: documents are staged into a DocumentVault by the human (lda
+//  vault stage), tools accept and return opaque handles, and only read_redacted
+//  may return body text (redacted text only). See MCPVaultTools.swift and
+//  MCPToolCatalog.swift. The old path-taking core tools are removed; the
+//  path-taking fill and portfolio tools are refused unless the process was
+//  launched with LDA_MCP_LEGACY_PATH_TOOLS=1.
 //
 //  Transport note (LOCAL, not network): this server speaks newline-delimited
 //  JSON-RPC 2.0 over stdin/stdout only. It opens no sockets and makes no network
 //  calls. The app itself now has an outbound entitlement for model downloads,
 //  but this server is not part of that path and must never gain one. An
 //  MCP host launches this process and pipes requests to it on stdin; responses
-//  come back on stdout. Nothing leaves the machine.
+//  come back on stdout.
 //
 //  Structure for testability: the core is a PURE function, handle(_:), that maps
 //  one raw JSON-RPC request payload to one raw response payload (or nil for a
 //  notification). It performs no stdio of its own, so it is fully unit-testable.
-//  runStdioLoop() is the thin imperative shell that wires handle(_:) to stdin and
-//  stdout.
+//  The one piece of per-instance state is MCPSessionMetrics, the counters the
+//  attest tool reports; it hangs off the server by reference and never affects
+//  a response other than attest's. runStdioLoop() is the thin imperative shell
+//  that wires handle(_:) to stdin and stdout.
 //
 //  Clock ownership: LDAService is clock-free by contract. This edge stamps the
 //  ISO-8601 createdAt with Date() at the tools/call boundary so the facade stays
@@ -28,7 +40,6 @@
 //
 
 import Foundation
-import Security
 import LDACore
 
 // MARK: - MCPServer
@@ -58,7 +69,25 @@ public struct MCPServer {
     /// bytes) and far below a memory problem.
     public static let maxRequestLineBytes = 10 * 1024 * 1024
 
-    public init() {}
+    /// The launch environment: the legacy-tool gate and the vault root
+    /// override are read from here, never from a request. Injected so tests
+    /// can open the gate and point the vault at a temporary directory without
+    /// mutating the process environment.
+    let environment: [String: String]
+
+    /// Counters for the attest tool: bytes returned and per-tool call counts.
+    /// A reference type held by this value-typed server, so handle(_:) stays
+    /// non-mutating and one server instance accumulates across calls.
+    let metrics = MCPSessionMetrics()
+
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.environment = environment
+    }
+
+    /// Whether the path-taking legacy tools are enabled for this process.
+    var legacyPathToolsEnabled: Bool {
+        environment[MCPServer.legacyPathToolsEnvironmentKey] == "1"
+    }
 
     // MARK: - Pure request handler
 
@@ -135,15 +164,26 @@ public struct MCPServer {
         return encode(resultWithId: id, result: result)
     }
 
-    /// tools/list: advertise the three tools and their JSON-Schema input schemas.
+    /// tools/list: advertise the handle-first surface, plus the legacy path
+    /// tools only when the launch environment opted in.
     private func handleToolsList(id: RequestID) -> Data? {
-        let result: [String: Any] = ["tools": MCPServer.toolDescriptors]
+        var tools = MCPServer.vaultToolDescriptors
+        if legacyPathToolsEnabled {
+            tools += MCPServer.legacyToolDescriptors
+        }
+        let result: [String: Any] = ["tools": tools]
         return encode(resultWithId: id, result: result)
     }
 
-    /// tools/call: dispatch by tool name to LDAService, returning a content array
-    /// holding one text block with a JSON summary. Any thrown error is reported as
-    /// an isError result rather than crashing the process.
+    /// tools/call: dispatch by tool name, returning a content array holding one
+    /// text block with a JSON summary. Any thrown error is reported as an
+    /// isError result rather than crashing the process.
+    ///
+    /// Three tiers: the handle-first vault tools (errors rendered boundary-safe,
+    /// never a path), the removed old core tools (a migration message), and the
+    /// legacy path tools (refused unless LDA_MCP_LEGACY_PATH_TOOLS=1 was set at
+    /// launch; their errors keep the older, more detailed wording since the
+    /// operator explicitly accepted the legacy surface).
     private func handleToolsCall(id: RequestID, params: [String: Any]) -> Data? {
         guard let name = params["name"] as? String else {
             return encode(
@@ -154,172 +194,69 @@ public struct MCPServer {
         }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
 
-        do {
-            let summary: [String: Any]
-            switch name {
-            case "anonymize_document":
-                summary = try callAnonymize(arguments)
-            case "anonymize_session":
-                summary = try callAnonymizeSession(arguments)
-            case "restore_document":
-                summary = try callRestore(arguments)
-            case "detect_entities":
-                summary = try callDetect(arguments)
-            case "extract_profile":
-                summary = try callExtractProfile(arguments)
-            case "fill":
-                summary = try callFill(arguments)
-            case "portfolio_list":
-                summary = try callPortfolioList(arguments)
-            case "portfolio_show":
-                summary = try callPortfolioShow(arguments)
-            default:
-                return toolErrorResult(id: id, message: "Unknown tool: \(name)")
-            }
-            return toolTextResult(id: id, summary: summary)
-        } catch {
-            // Never crash the loop on a tool failure; surface it as an isError
-            // tools/call result so the client can recover.
-            return toolErrorResult(id: id, message: describe(error))
-        }
-    }
-
-    // MARK: - Tool implementations
-
-    /// anonymize_document: run LDAService.anonymize and summarize the artifacts.
-    private func callAnonymize(_ arguments: [String: Any]) throws -> [String: Any] {
-        let input = try requireURL(arguments, key: "input")
-        let outputDir = try requireURL(arguments, key: "outputDir")
-        // The mapping sidecar is keyed by the redacted base name, which the
-        // service derives as "<input base>_redacted".
-        let mappingBase = input.deletingPathExtension().lastPathComponent + "_redacted"
-        let protection = protectionMode(from: arguments, mappingBaseName: mappingBase)
-
-        // The edge owns the clock: stamp createdAt with an ISO-8601 timestamp now.
-        let createdAt = MCPServer.iso8601Now()
-
-        let modelPath = try allowedModelPath(arguments, key: "modelPath")
-        let result = try LDAService.anonymize(
-            input: input,
-            outputDir: outputDir,
-            protection: protection,
-            createdAtISO8601: createdAt,
-            llmModelPath: modelPath
-        )
-
-        var summary: [String: Any] = [
-            "redactedFile": result.redactedFileURL.path,
-            "mappingFile": result.mappingFileURL.path,
-            "entityCount": result.entityCount,
-            "entityTypes": entityTypeStrings(result.entities),
-            "imageRedactionCount": result.imageRedactionCount,
-            "embeddedMediaCount": result.embeddedMediaCount,
-            // Non-zero means the review PDF still SHOWS those values even though
-            // the edit surface and mapping have them tokenized. The host must
-            // relay this, not drop it.
-            "unboxedTokenCount": result.unboxedTokenCount
-        ]
-        if let visual = result.visualPdfURL {
-            summary["visualPdf"] = visual.path
-        }
-        return summary
-    }
-
-    /// restore_document: run LDAService.restore and summarize the output.
-    private func callRestore(_ arguments: [String: Any]) throws -> [String: Any] {
-        let editedRedacted = try requireURL(arguments, key: "editedRedacted")
-        let mapping = try requireURL(arguments, key: "mapping")
-        let output = try requireURL(arguments, key: "output")
-        let mappingBase = mapping.deletingPathExtension().lastPathComponent
-        let protection = protectionMode(from: arguments, mappingBaseName: mappingBase)
-
-        let report: RestoreReport
-        do {
-            report = try LDAService.restore(
-                editedRedacted: editedRedacted,
-                mapping: mapping,
-                protection: protection,
-                output: output
-            )
-        } catch {
-            // Sidecars written by older builds were all encrypted under one
-            // shared Keychain account, so a MISSING per-document key is worth
-            // one retry against the legacy account.
-            //
-            // Only that case. The retry used to fire on any error, which meant a
-            // genuine decryptionFailed (wrong passphrase, tampered sidecar) was
-            // re-attempted and then reported as whatever the second attempt
-            // happened to fail with, hiding the real cause from the user. A
-            // tampered mapping must surface as tampering.
-            guard case .keychain = protection,
-                  case DocumentIOError.keychainError(errSecItemNotFound) = error
-            else {
-                throw error
-            }
+        if MCPServer.vaultToolNames.contains(name) {
+            metrics.noteToolCall(name)
             do {
-                report = try LDAService.restore(
-                    editedRedacted: editedRedacted,
-                    mapping: mapping,
-                    protection: .keychain(account: MCPServer.defaultKeychainAccount),
-                    output: output
-                )
-            } catch let legacyError {
-                // Report both: the per-document key was absent AND the legacy
-                // account did not work either.
-                throw MCPToolError.restoreFailedAfterLegacyRetry(
-                    original: describe(error),
-                    retry: describe(legacyError)
-                )
+                let summary: [String: Any]
+                switch name {
+                case "list_pending":
+                    summary = try callListPending()
+                case "anonymize":
+                    summary = try callAnonymizeHandle(arguments)
+                case "anonymize_session":
+                    summary = try callAnonymizeSessionHandles(arguments)
+                case "read_redacted":
+                    summary = try callReadRedacted(arguments)
+                case "detect_entities":
+                    summary = try callDetectHandle(arguments)
+                case "restore":
+                    summary = try callRestoreHandle(arguments)
+                case "export":
+                    summary = try callExport(arguments)
+                case "attest":
+                    summary = callAttest()
+                default:
+                    return toolErrorResult(id: id, message: "Unknown tool: \(name)")
+                }
+                return toolTextResult(id: id, summary: summary)
+            } catch {
+                return toolErrorResult(id: id, message: describeBoundarySafe(error))
             }
         }
 
-        return [
-            "output": report.outputURL.path,
-            "restoredCount": report.restoredCount,
-            "orphanTokens": report.orphanTokens,
-            "suspectPlaceholders": report.suspectPlaceholders
-        ]
-    }
-
-    /// detect_entities: run LDAService.detect and summarize the detected spans.
-    ///
-    /// Context boundary rule: the response carries entity TYPES and OFFSETS
-    /// only, never span.text. Everything a tool returns enters the model
-    /// context of whatever agent host launched this server, so returning the
-    /// detected surface text (a name, an ID number, an account number) would
-    /// upload the exact bytes this product exists to keep on the machine. A
-    /// local caller can slice the document with the offsets; a remote model
-    /// has no legitimate use for the plaintext.
-    private func callDetect(_ arguments: [String: Any]) throws -> [String: Any] {
-        let input = try requireURL(arguments, key: "input")
-        let modelPath = try allowedModelPath(arguments, key: "modelPath")
-        let spans = try LDAService.detect(input: input, llmModelPath: modelPath)
-
-        let entities: [[String: Any]] = spans.map { span in
-            [
-                "type": span.type.rawValue,
-                "start": span.start,
-                "end": span.end
-            ]
+        if MCPServer.removedToolNames.contains(name) {
+            return toolErrorResult(id: id, message: MCPServer.removedToolMessage(name))
         }
 
-        return [
-            "entityCount": spans.count,
-            "entityTypes": entityTypeStrings(spans),
-            "entities": entities
-        ]
+        if MCPServer.legacyGatedToolNames.contains(name) {
+            guard legacyPathToolsEnabled else {
+                return toolErrorResult(id: id, message: MCPServer.legacyGatedToolMessage(name))
+            }
+            metrics.noteToolCall(name)
+            do {
+                let summary: [String: Any]
+                switch name {
+                case "extract_profile":
+                    summary = try callExtractProfile(arguments)
+                case "fill":
+                    summary = try callFill(arguments)
+                case "portfolio_list":
+                    summary = try callPortfolioList(arguments)
+                case "portfolio_show":
+                    summary = try callPortfolioShow(arguments)
+                default:
+                    return toolErrorResult(id: id, message: "Unknown tool: \(name)")
+                }
+                return toolTextResult(id: id, summary: summary)
+            } catch {
+                return toolErrorResult(id: id, message: describe(error))
+            }
+        }
+
+        return toolErrorResult(id: id, message: "Unknown tool: \(name)")
     }
 
     // MARK: - Argument helpers
-
-    /// Require a string argument and turn it into a file URL, throwing a readable
-    /// error when it is missing or empty.
-    private func requireURL(_ arguments: [String: Any], key: String) throws -> URL {
-        guard let value = arguments[key] as? String, !value.isEmpty else {
-            throw MCPToolError.missingArgument(key)
-        }
-        return try allowedURL(value, key: key)
-    }
 
     /// Build a file URL from a path argument and enforce the path allow-list.
     ///
@@ -353,31 +290,16 @@ public struct MCPServer {
         return value
     }
 
-    /// Choose the mapping protection mode from the arguments. A passphrase, when
-    /// present and non-empty, selects PBKDF2 passphrase protection; otherwise the
-    /// server uses a Keychain account derived from the mapping base name, so a
-    /// sidecar is always encrypted at rest and every document gets its OWN key
-    /// (one shared key would be a single point of failure for every sidecar
-    /// ever produced through this server).
-    private func protectionMode(
-        from arguments: [String: Any],
-        mappingBaseName: String
-    ) -> MappingProtection {
-        if let passphrase = arguments["passphrase"] as? String, !passphrase.isEmpty {
-            return .passphrase(passphrase)
-        }
-        return .keychain(account: MCPServer.keychainAccount(forMappingBaseName: mappingBaseName))
-    }
-
     /// The per-document Keychain account for a mapping sidecar, derived from
-    /// the sidecar's base file name.
+    /// the sidecar's base name. The vault tools pass an opaque handle as the
+    /// base, so the account never embeds a document name.
     static func keychainAccount(forMappingBaseName base: String) -> String {
         "\(MCPServer.defaultKeychainAccount).\(base)"
     }
 
     /// The distinct entity-type wire strings present in a set of spans, in stable
-    /// first-seen document order.
-    private func entityTypeStrings(_ spans: [Span]) -> [String] {
+    /// first-seen document order. Internal so MCPVaultTools reuses it.
+    func entityTypeStrings(_ spans: [Span]) -> [String] {
         var seen = Set<String>()
         var ordered: [String] = []
         for span in spans {
@@ -549,133 +471,6 @@ public struct MCPServer {
         return formatter.string(from: Date())
     }
 
-    // MARK: - Tool descriptors
-
-    /// The seven advertised tools with JSON-Schema input schemas. Declared once so
-    /// tools/list and the dispatcher cannot drift.
-    static let toolDescriptors: [[String: Any]] = [
-        [
-            "name": "anonymize_document",
-            "description": "Detect and tokenize PII in a document, writing a redacted edit surface and an encrypted mapping sidecar.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "input": ["type": "string", "description": "Path to the source document."],
-                    "outputDir": ["type": "string", "description": "Directory for the redacted file and sidecar."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
-                ],
-                "required": ["input", "outputDir"]
-            ]
-        ],
-        [
-            "name": "anonymize_session",
-            "description": "Anonymize several documents as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Writes per-document redacted Markdown intermediates and a single encrypted session sidecar. A .zip input expands into the session.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "inputs": [
-                        "type": "array",
-                        "items": ["type": "string"],
-                        "description": "Paths of the session's documents (DOCX, PDF, TXT, MD, or a .zip of them)."
-                    ],
-                    "outputDir": ["type": "string", "description": "Directory for the redacted intermediates and the session sidecar."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."],
-                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities (same value, same placeholder, across sessions)."]
-                ],
-                "required": ["inputs", "outputDir"]
-            ]
-        ],
-        [
-            "name": "restore_document",
-            "description": "Restore tokens in an edited redacted file back to their original values using an encrypted mapping.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "editedRedacted": ["type": "string", "description": "Path to the edited redacted file."],
-                    "mapping": ["type": "string", "description": "Path to the encrypted .ldamap sidecar."],
-                    "output": ["type": "string", "description": "Path to write the restored document."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase that protects the mapping sidecar."]
-                ],
-                "required": ["editedRedacted", "mapping", "output"]
-            ]
-        ],
-        [
-            "name": "detect_entities",
-            "description": "Detect PII entities in a document without writing any files. Returns entity types, counts, and character offsets only; the detected text itself never leaves the machine.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "input": ["type": "string", "description": "Path to the source document."],
-                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
-                ],
-                "required": ["input"]
-            ]
-        ],
-        [
-            "name": "extract_profile",
-            "description": "Build an encrypted ClientPortfolio from source documents and save it to disk. Returns a value-free summary (field count, keys, conflicts); no field values are included in the response.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "sources": [
-                        "type": "array",
-                        "items": ["type": "string"],
-                        "description": "One or more source document paths (DOCX, PDF, or TXT) to extract profile fields from."
-                    ],
-                    "label": ["type": "string", "description": "Short human label for the resulting profile."],
-                    "out": ["type": "string", "description": "Destination path for the encrypted .ldaprofile file."],
-                    "model": ["type": "string", "description": "Absolute path to the v2 GGUF model. Required for profile extraction."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase to protect the profile. Omit to use a per-profile Keychain key."],
-                    "kind": ["type": "string", "enum": ["company", "individual", "general"], "description": "Portfolio kind: company (default), individual, or general. Controls which keys the model is prompted to extract."]
-                ],
-                "required": ["sources", "label", "out", "model"]
-            ]
-        ],
-        [
-            "name": "fill",
-            "description": "Fill blanks in a document from a ClientPortfolio. Exactly one of profile (path to a .ldaprofile file) or portfolio (library entry by name or UUID) must be supplied; they are mutually exclusive. passphrase is only valid with profile; portfolio always uses the library Keychain key. mode=plan returns the fill plan for review. mode=apply writes the filled document and returns a value-free report.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "profile": ["type": "string", "description": "Path to an encrypted .ldaprofile file. Mutually exclusive with portfolio."],
-                    "portfolio": ["type": "string", "description": "Portfolio library entry by label or UUID. Mutually exclusive with profile. Cannot be combined with passphrase."],
-                    "input": ["type": "string", "description": "Path to the fill target (.docx or .pdf)."],
-                    "mode": [
-                        "type": "string",
-                        "enum": ["plan", "apply"],
-                        "description": "plan: return the fill plan for review. apply: promote proposed blanks and write the filled document."
-                    ],
-                    "model": ["type": "string", "description": "Optional path to the v2 GGUF model for unmatched blanks."],
-                    "passphrase": ["type": "string", "description": "Optional passphrase protecting the profile. Only valid when using the profile parameter."],
-                    "output_dir": ["type": "string", "description": "Directory to write the filled document. Required when mode is apply."]
-                ],
-                "required": ["input", "mode"]
-            ]
-        ],
-        [
-            "name": "portfolio_list",
-            "description": "List all portfolios in the library. Returns a value-free sorted array of summaries (id, label, kind, dates, fieldCount, conflicted). No field values are included.",
-            "inputSchema": [
-                "type": "object",
-                "properties": [String: Any](),
-                "required": [String]()
-            ]
-        ],
-        [
-            "name": "portfolio_show",
-            "description": "Show one portfolio's value-free detail: summary fields plus rawKeys and conflictedKeys. No field values are included. Identified by UUID or label (case-insensitive, must be unique).",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "portfolio": ["type": "string", "description": "Portfolio UUID or label (case-insensitive, must be unique)."]
-                ],
-                "required": ["portfolio"]
-            ]
-        ]
-    ]
-
     // MARK: - Stdio loop
 
     /// Run the blocking stdio read/dispatch/write loop until EOF on stdin.
@@ -834,18 +629,11 @@ private enum RequestID {
 /// Errors raised while validating tool-call arguments at the MCP edge.
 enum MCPToolError: Error {
     case missingArgument(String)
-    /// The per-document key was absent and the legacy shared account did not
-    /// work either. Carries both descriptions so the user sees the real cause
-    /// rather than only the second failure.
-    case restoreFailedAfterLegacyRetry(original: String, retry: String)
 
     var message: String {
         switch self {
         case .missingArgument(let key):
             return "Missing or empty required argument: \(key)"
-        case .restoreFailedAfterLegacyRetry(let original, let retry):
-            return "Restore failed. Per-document key: \(original). "
-                + "Legacy shared key: \(retry)."
         }
     }
 }

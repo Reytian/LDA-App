@@ -148,9 +148,15 @@ final class SessionEdgeTests: XCTestCase {
     func testMCPAnonymizeSessionToolSharesOneMapping() throws {
         let doc1 = try write("a.txt", "Mail john@acme.com please.")
         let doc2 = try write("b.txt", "Also john@acme.com again.")
-        let outDir = workDir.appendingPathComponent("mcp-out")
 
-        let server = MCPServer()
+        // Handle-first: stage both documents into a per-test vault, then hand
+        // the tool their handles. No path enters or leaves the tool call.
+        let vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
+        let vault = DocumentVault(rootDirectory: vaultDir)
+        let handle1 = try vault.stage(fileURL: doc1, stagedAtISO8601: "2026-08-30T00:00:00Z").handle
+        let handle2 = try vault.stage(fileURL: doc2, stagedAtISO8601: "2026-08-30T00:00:00Z").handle
+
+        let server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 7,
@@ -158,8 +164,7 @@ final class SessionEdgeTests: XCTestCase {
             "params": [
                 "name": "anonymize_session",
                 "arguments": [
-                    "inputs": [doc1.path, doc2.path],
-                    "outputDir": outDir.path,
+                    "handles": [handle1, handle2],
                     "passphrase": "pw"
                 ]
             ]
@@ -181,20 +186,25 @@ final class SessionEdgeTests: XCTestCase {
 
         let documents = try XCTUnwrap(summary["documents"] as? [[String: Any]])
         XCTAssertEqual(documents.count, 2)
-        let mappingFile = try XCTUnwrap(summary["mappingFile"] as? String)
-        XCTAssertTrue(mappingFile.hasSuffix("a_session.ldamap"))
+        XCTAssertNil(summary["mappingFile"], "the sidecar location must stay inside the vault")
 
-        // Both intermediates share the {EMAIL_1} identity.
+        // Both redacted artifacts share the {EMAIL_1} identity. Read them
+        // through the vault: the response carries handles, not text or paths.
         for document in documents {
-            let path = try XCTUnwrap(document["redactedFile"] as? String)
-            let markdown = try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
+            let redactedHandle = try XCTUnwrap(document["redactedHandle"] as? String)
+            XCTAssertNil(document["redactedFile"], "no path may ride back")
+            let markdown = String(
+                decoding: try vault.readDocumentBytes(handle: redactedHandle),
+                as: UTF8.self
+            )
             XCTAssertTrue(markdown.contains("{EMAIL_1}"))
             XCTAssertFalse(markdown.contains("john@acme.com"))
         }
     }
 
     func testMCPToolListAdvertisesAnonymizeSession() throws {
-        let names = MCPServer.toolDescriptors.compactMap { $0["name"] as? String }
+        XCTAssertTrue(MCPServer.vaultToolNames.contains("anonymize_session"))
+        let names = MCPServer.vaultToolDescriptors.compactMap { $0["name"] as? String }
         XCTAssertTrue(names.contains("anonymize_session"))
     }
 }

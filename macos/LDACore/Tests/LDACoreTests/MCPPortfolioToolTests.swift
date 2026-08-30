@@ -28,7 +28,11 @@ final class MCPPortfolioToolTests: XCTestCase {
     // MARK: - Hermetic working directory
 
     private var workDir: URL!
-    private let server = MCPServer()
+    /// The legacy path tools under test are gated behind the launch-time
+    /// opt-in, so this suite runs its server with the gate open.
+    private let server = MCPServer(environment: [
+        MCPServer.legacyPathToolsEnvironmentKey: "1"
+    ])
 
     override func setUpWithError() throws {
         try super.setUpWithError()
