@@ -186,38 +186,10 @@ public enum Restorer {
         )
 
         let nsText = text as NSString
-
-        // Collect every literal occurrence of every replacement.
-        struct LiteralMatch {
-            let range: NSRange
-            let replacement: String
-        }
-        var found: [LiteralMatch] = []
-        for replacement in valuesByReplacement.keys {
-            var searchLocation = 0
-            while searchLocation < nsText.length {
-                let range = nsText.range(
-                    of: replacement,
-                    options: [.literal],
-                    range: NSRange(location: searchLocation, length: nsText.length - searchLocation)
-                )
-                guard range.location != NSNotFound, range.length > 0 else { break }
-                found.append(LiteralMatch(range: range, replacement: replacement))
-                searchLocation = range.location + range.length
-            }
-        }
-
-        // Earliest position first; at the same position the longest
-        // replacement wins; ties break on the string for determinism.
-        found.sort { lhs, rhs in
-            if lhs.range.location != rhs.range.location {
-                return lhs.range.location < rhs.range.location
-            }
-            if lhs.range.length != rhs.range.length {
-                return lhs.range.length > rhs.range.length
-            }
-            return lhs.replacement < rhs.replacement
-        }
+        let accepted = acceptedLiteralMatches(
+            in: text,
+            replacements: Array(valuesByReplacement.keys)
+        )
 
         var result = ""
         var cursor = 0
@@ -226,11 +198,7 @@ public enum Restorer {
         var ambiguousSeen = Set<String>()
         var ambiguousReported: [String] = []
 
-        for match in found {
-            // A match starting before the cursor overlaps an accepted match
-            // (a shorter replacement nested in a longer one) and is skipped.
-            guard match.range.location >= cursor else { continue }
-
+        for match in accepted {
             if match.range.location > cursor {
                 result += nsText.substring(
                     with: NSRange(location: cursor, length: match.range.location - cursor)
@@ -273,6 +241,96 @@ public enum Restorer {
             suspectPlaceholders: [],
             ambiguousReplacements: ambiguousReported
         )
+    }
+
+    // MARK: - Shared literal scanning
+
+    /// One accepted literal occurrence of a replacement string.
+    internal struct AcceptedLiteralMatch {
+        let range: NSRange
+        let replacement: String
+    }
+
+    /// Find the non-overlapping literal occurrences of the given replacement
+    /// strings, in document order, with the longest replacement winning at
+    /// any shared start position. Deterministic regardless of input order.
+    internal static func acceptedLiteralMatches(
+        in text: String,
+        replacements: [String]
+    ) -> [AcceptedLiteralMatch] {
+        let nsText = text as NSString
+
+        var found: [AcceptedLiteralMatch] = []
+        for replacement in replacements where !replacement.isEmpty {
+            var searchLocation = 0
+            while searchLocation < nsText.length {
+                let range = nsText.range(
+                    of: replacement,
+                    options: [.literal],
+                    range: NSRange(location: searchLocation, length: nsText.length - searchLocation)
+                )
+                guard range.location != NSNotFound, range.length > 0 else { break }
+                found.append(AcceptedLiteralMatch(range: range, replacement: replacement))
+                searchLocation = range.location + range.length
+            }
+        }
+
+        // Earliest position first; at the same position the longest
+        // replacement wins; ties break on the string for determinism.
+        found.sort { lhs, rhs in
+            if lhs.range.location != rhs.range.location {
+                return lhs.range.location < rhs.range.location
+            }
+            if lhs.range.length != rhs.range.length {
+                return lhs.range.length > rhs.range.length
+            }
+            return lhs.replacement < rhs.replacement
+        }
+
+        // Greedy accept: a match starting before the previous accepted end
+        // overlaps it (a shorter replacement nested in a longer one, or two
+        // occurrences crossing) and is dropped.
+        var accepted: [AcceptedLiteralMatch] = []
+        var cursor = 0
+        for match in found {
+            guard match.range.location >= cursor else { continue }
+            accepted.append(match)
+            cursor = match.range.location + match.range.length
+        }
+        return accepted
+    }
+
+    /// Substitute every unambiguous literal replacement in a plain string.
+    ///
+    /// The single-pass emit mirrors restoreLiteralStyle without the report:
+    /// used by the DOCX run walker, which restores run by run and reports
+    /// separately from the whole-document scan.
+    internal static func substituteLiteralReplacements(
+        in text: String,
+        replacementToValue: [String: String]
+    ) -> String {
+        let accepted = acceptedLiteralMatches(
+            in: text,
+            replacements: Array(replacementToValue.keys)
+        )
+        guard !accepted.isEmpty else { return text }
+
+        let nsText = text as NSString
+        var result = ""
+        var cursor = 0
+        for match in accepted {
+            if match.range.location > cursor {
+                result += nsText.substring(
+                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                )
+            }
+            result += replacementToValue[match.replacement] ?? nsText.substring(with: match.range)
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < nsText.length {
+            result += nsText.substring(from: cursor)
+        }
+        return result
     }
 
     /// The unambiguous replacement -> value map for a literal-style mapping:

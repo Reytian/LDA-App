@@ -74,17 +74,22 @@ public struct RestoreReport: Sendable {
     /// Near-miss placeholder shapes flagged by the forensics scan (an external
     /// AI may have mangled a placeholder); never substituted, only reported.
     public var suspectPlaceholders: [String]
+    /// Asterisk style only: masked forms shared by several entities. Their
+    /// sites were left verbatim because substituting one would be a guess.
+    public var ambiguousReplacements: [String]
 
     public init(
         outputURL: URL,
         restoredCount: Int,
         orphanTokens: [String],
-        suspectPlaceholders: [String] = []
+        suspectPlaceholders: [String] = [],
+        ambiguousReplacements: [String] = []
     ) {
         self.outputURL = outputURL
         self.restoredCount = restoredCount
         self.orphanTokens = orphanTokens
         self.suspectPlaceholders = suspectPlaceholders
+        self.ambiguousReplacements = ambiguousReplacements
     }
 }
 
@@ -154,12 +159,19 @@ public enum LDAService {
     ///     deterministic-only V1 path. When non-nil and the file exists, an
     ///     LLMExtractor backed by an LLMEngine loaded from this path fills the
     ///     list; any load or extraction failure degrades gracefully to empty.
+    ///   - style: how replacements are rendered in the redacted output. The
+    ///     default .token keeps the historical "{TYPE_N}" behavior unchanged.
+    ///     Supplementary channels (DOCX non-body parts, the PDF image-PII
+    ///     channel) still mint brace tokens in every style; their entries live
+    ///     in the same mapping and restore correctly, they just do not carry
+    ///     the pseudonym AI-robustness benefit.
     public static func anonymize(
         input: URL,
         outputDir: URL,
         protection: MappingProtection,
         createdAtISO8601: String,
-        llmModelPath: String? = nil
+        llmModelPath: String? = nil,
+        style: SubstitutionStyle = .token
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
@@ -191,7 +203,8 @@ public enum LDAService {
             text: imported.text,
             spans: spans,
             sourceFile: input.lastPathComponent,
-            createdAtISO8601: createdAtISO8601
+            createdAtISO8601: createdAtISO8601,
+            style: style
         )
 
         let redactedFileURL: URL
@@ -324,23 +337,44 @@ public enum LDAService {
         let ext = editedRedacted.pathExtension.lowercased()
 
         if ext == "docx" {
-            // Restore on the docx runs, then re-import the restored docx to surface
-            // any orphan tokens the user left behind.
-            let tokenToValue = Dictionary(
-                uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
-            )
-            try DocxRedactor.restore(
+            if loadedMapping.style == .token {
+                // Restore on the docx runs, then re-import the restored docx to
+                // surface any orphan tokens the user left behind.
+                let tokenToValue = Dictionary(
+                    uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
+                )
+                try DocxRedactor.restore(
+                    redactedDocx: editedRedacted,
+                    tokenToValue: tokenToValue,
+                    to: output
+                )
+                let restoredText = try DocxImporter().importDocument(output).text
+                let report = Restorer.restore(text: restoredText, mapping: loadedMapping)
+                return RestoreReport(
+                    outputURL: output,
+                    restoredCount: report.restoredCount,
+                    orphanTokens: report.orphanTokens,
+                    suspectPlaceholders: report.suspectPlaceholders
+                )
+            }
+
+            // Literal styles: the report comes from the PRE-restore text (a
+            // post-restore scan could no longer see which replacements were
+            // present), and the docx rewrite substitutes only the unambiguous
+            // replacements so a colliding asterisk mask is never guessed.
+            let preRestoreText = try DocxImporter().importDocument(editedRedacted).text
+            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
+            try DocxRedactor.restoreLiteral(
                 redactedDocx: editedRedacted,
-                tokenToValue: tokenToValue,
+                replacementToValue: Restorer.unambiguousReplacementMap(loadedMapping),
                 to: output
             )
-            let restoredText = try DocxImporter().importDocument(output).text
-            let report = Restorer.restore(text: restoredText, mapping: loadedMapping)
             return RestoreReport(
                 outputURL: output,
                 restoredCount: report.restoredCount,
                 orphanTokens: report.orphanTokens,
-                suspectPlaceholders: report.suspectPlaceholders
+                suspectPlaceholders: report.suspectPlaceholders,
+                ambiguousReplacements: report.ambiguousReplacements
             )
         }
 
@@ -352,7 +386,8 @@ public enum LDAService {
             outputURL: output,
             restoredCount: report.restoredCount,
             orphanTokens: report.orphanTokens,
-            suspectPlaceholders: report.suspectPlaceholders
+            suspectPlaceholders: report.suspectPlaceholders,
+            ambiguousReplacements: report.ambiguousReplacements
         )
     }
 
