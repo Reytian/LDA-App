@@ -714,6 +714,8 @@ public struct DocumentVault {
         case "docx": return "docx"
         case "pdf": return "pdf"
         case "md", "markdown": return "md"
+        case "png": return "png"
+        case "jpg", "jpeg": return "jpg"
         default: return "txt"
         }
     }
