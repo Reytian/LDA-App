@@ -41,6 +41,10 @@ public enum DocumentFormat: String, Sendable, Codable {
     case plainText
     case docx
     case pdf
+    /// A standalone raster image (png / jpg / jpeg) whose text is recovered
+    /// through OCR. The redacted edit surface is a companion .txt; the visual
+    /// artifact is a boxes-over-PII PNG.
+    case image
 }
 
 // MARK: - Imported document
