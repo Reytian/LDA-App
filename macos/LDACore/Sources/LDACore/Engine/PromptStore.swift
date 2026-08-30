@@ -350,6 +350,60 @@ public final class PromptStore {
         reset(.blankMatch)
     }
 
+    // MARK: Document-type extraction variants
+
+    /// The genre emphasis appended to the extraction system prompt when the
+    /// document classifier (or a forced route) picks a class. The base prompt
+    /// and its semantics stay authoritative and verbatim; the emphasis only
+    /// directs attention to what that genre typically contains, and repeats
+    /// no exclusion the base already owns. Generic has no emphasis by design,
+    /// so it returns nil and the base prompt is used unchanged.
+    ///
+    /// Stance note: the base prompt extracts real names of specific people
+    /// and excludes courts and tribunals as institutions. Judges and clerks
+    /// are real names of specific people, so the judgment emphasis names them
+    /// explicitly; that keeps the base semantics rather than changing them.
+    public static func extractionEmphasis(for documentClass: DocumentClass) -> String? {
+        switch documentClass {
+        case .judgment:
+            return "This document is a court judgment or ruling. Pay particular attention to "
+                + "the names of the parties (plaintiffs, defendants, appellants, respondents), "
+                + "their attorneys and agents ad litem, the judges, clerks, and witnesses named, "
+                + "and companies appearing as litigants."
+        case .complaint:
+            return "This document is a court filing such as a complaint. Pay particular "
+                + "attention to the plaintiff and defendant names in the caption, their legal "
+                + "representatives and attorneys, the parties' addresses, and identity numbers."
+        case .contract:
+            return "This document is a contract. Pay particular attention to the full "
+                + "registered names of the contracting parties and their defined short names, "
+                + "signatory names, registered and mailing addresses, and bank account details "
+                + "in payment clauses."
+        case .disclosure:
+            return "This document is a securities disclosure or corporate announcement. Pay "
+                + "particular attention to company names and their abbreviations, the directors, "
+                + "supervisors, and senior officers named, and the counterparty companies in the "
+                + "disclosed transaction."
+        case .letter:
+            return "This document is a letter. Pay particular attention to the recipient and "
+                + "sender names, the organizations they represent, and the street-level "
+                + "addresses and contact details in the letterhead and signature block."
+        case .generic:
+            return nil
+        }
+    }
+
+    /// The extraction system prompt routed for a document class: the current
+    /// (possibly user-edited) base prompt plus the class emphasis on a new
+    /// line. Generic returns the base prompt unchanged, so routing can never
+    /// lose a user's edits or the trained base instruction.
+    public func extractionSystem(for documentClass: DocumentClass) -> String {
+        guard let emphasis = PromptStore.extractionEmphasis(for: documentClass) else {
+            return currentExtractionSystem
+        }
+        return currentExtractionSystem + "\n" + emphasis
+    }
+
     // MARK: Extraction prompt builder
 
     /// Build the v2 single-shot extraction USER text for one document chunk.
