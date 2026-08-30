@@ -122,8 +122,11 @@ public enum ZipImporter {
 
     // MARK: - Recognition
 
-    /// The document extensions a session can import from an archive.
-    public static let supportedExtensions: Set<String> = ["docx", "pdf", "txt", "md", "text"]
+    /// The document extensions a session can import from an archive. Images
+    /// (png / jpg / jpeg) are session documents since the standalone image
+    /// feature: chat screenshots and receipts arrive zipped as often as not.
+    public static let supportedExtensions: Set<String> =
+        ["docx", "pdf", "txt", "md", "text", "png", "jpg", "jpeg"]
 
     /// True when the URL looks like a zip archive (by extension).
     public static func isZip(_ url: URL) -> Bool {

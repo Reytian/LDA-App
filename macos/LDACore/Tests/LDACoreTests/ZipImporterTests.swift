@@ -86,11 +86,13 @@ final class ZipImporterTests: XCTestCase {
     }
 
     func testExpandSkipsJunkAndUnsupportedEntries() throws {
+        // Images (png/jpg/jpeg) are supported session documents since the
+        // standalone image feature, so the unsupported fixture is an .exe.
         let zipURL = try makeZip(entries: [
             ("real.txt", "keep me"),
             ("__MACOSX/real.txt", "resource fork junk"),
             (".DS_Store", "finder junk"),
-            ("photo.png", "not a document"),
+            ("tool.exe", "not a document"),
             ("nested/.hidden.txt", "hidden")
         ])
 
