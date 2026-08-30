@@ -75,6 +75,8 @@ public enum SecurityEventKind: String, Codable, Sendable {
     /// A vault artifact was copied to the outbox (or an export was refused,
     /// recorded as a failure with a short reason).
     case vaultArtifactExported
+    /// A plaintext-form vault (pre phase 5) was migrated to encrypted storage.
+    case vaultMigratedToEncryptedForm
 }
 
 // MARK: - Event
