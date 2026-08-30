@@ -107,7 +107,7 @@ struct VaultStage: ParsableCommand {
             + "A .zip stages each contained document."
     )
 
-    @Argument(help: "Path to the document to stage (DOCX, PDF, TXT, MD, or a .zip of them).")
+    @Argument(help: "Path to the document to stage (DOCX, PDF, TXT, MD, an evidence image PNG/JPG/JPEG, or a .zip of them).")
     var path: String
 
     @Option(name: .long, help: "Vault directory. Defaults to LDA_VAULT_DIR when set, else Application Support/LDA/Vault.")

@@ -86,12 +86,23 @@ public struct ExportResult: Equatable {
     /// DOCX without PII scanning. Non-zero means the UI must warn: wet-ink
     /// signature scans and stamps live there. Always 0 for non-DOCX sources.
     public let embeddedMediaCount: Int
+    /// The boxes-over-PII redacted PNG, present only when the source was a
+    /// standalone image. Destructive by design and never restorable; the
+    /// redactedURL text companion is the restore surface.
+    public let redactedImageURL: URL?
 
-    public init(redactedURL: URL, mappingURL: URL, tokenCount: Int, embeddedMediaCount: Int = 0) {
+    public init(
+        redactedURL: URL,
+        mappingURL: URL,
+        tokenCount: Int,
+        embeddedMediaCount: Int = 0,
+        redactedImageURL: URL? = nil
+    ) {
         self.redactedURL = redactedURL
         self.mappingURL = mappingURL
         self.tokenCount = tokenCount
         self.embeddedMediaCount = embeddedMediaCount
+        self.redactedImageURL = redactedImageURL
     }
 }
 

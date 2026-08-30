@@ -30,9 +30,16 @@ extension ReviewModel {
     // MARK: - Detection helpers (off the main actor)
 
     /// Import a document by extension. PDF with no usable text layer falls back
-    /// to Vision OCR. Unknown extensions are treated as plain text.
+    /// to Vision OCR. A standalone image (png / jpg / jpeg, or image magic
+    /// bytes under another extension) is OCR'd: its recognized text IS the
+    /// original text for this document kind, reviewed like any other. Unknown
+    /// extensions are treated as plain text.
     nonisolated static func importText(from url: URL) throws -> String {
-        switch url.pathExtension.lowercased() {
+        let ext = url.pathExtension.lowercased()
+        if ImageTextExtractor.shouldTreatAsImage(url, extension: ext) {
+            return try ImageTextExtractor().importDocument(url).text
+        }
+        switch ext {
         case "docx":
             return try DocxImporter().importDocument(url).text
         case "pdf":
@@ -273,14 +280,21 @@ extension ReviewModel {
             pairs: EntityRescan.aliasPairs(in: text, confirmed: acceptedSpans)
         )
 
+        // An image source additionally yields a redacted PNG under the same
+        // base name, so the collision probe covers that artifact too.
+        let isImageSource = source.map {
+            ImageTextExtractor.shouldTreatAsImage($0, extension: sourceExt)
+        } ?? false
         let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"
         let redactedBaseName = collisionFreeBaseName(
             "\(baseName)_redacted",
             extension: redactedExt,
-            in: outputDir
+            in: outputDir,
+            alsoProbing: isImageSource ? ["png"] : []
         )
         let redactedURL = outputDir.appendingPathComponent("\(redactedBaseName).\(redactedExt)")
         var embeddedMediaCount = 0
+        var redactedImageURL: URL?
 
         if sourceExt == "docx", let source {
             embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
@@ -310,6 +324,35 @@ extension ReviewModel {
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
         }
 
+        // Image source: also render the redacted PNG. The image is re-read
+        // here (export is a separate call from open, and the model stores no
+        // geometry); when its recognized text no longer matches the reviewed
+        // text, the ranges cannot be trusted to sit on the right lines, so
+        // the export fails closed instead of shipping a leaking "redacted"
+        // image. Whole observation boxes are covered; over-covering is
+        // acceptable, under-covering is a leak.
+        if isImageSource, let source {
+            let extraction = try ImageTextExtractor().extract(source)
+            guard extraction.text == text else {
+                throw DocumentIOError.corrupt(
+                    "The image's recognized text no longer matches the reviewed "
+                        + "text (the file may have changed on disk). Re-open "
+                        + "\(source.lastPathComponent) and export again."
+                )
+            }
+            let coverage = ImageRedactor.coverage(
+                lines: extraction.lines,
+                replacedRanges: acceptedSpans.map { $0.start..<$0.end }
+            )
+            let imageURL = outputDir.appendingPathComponent("\(redactedBaseName).png")
+            try ImageRedactor.renderRedactedPNG(
+                originalImageAt: source,
+                covering: coverage.coveredLines,
+                to: imageURL
+            )
+            redactedImageURL = imageURL
+        }
+
         let mappingURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
         let protection: MappingProtection = passphrase
             .map { .passphrase($0) }
@@ -320,22 +363,27 @@ extension ReviewModel {
             redactedURL: redactedURL,
             mappingURL: mappingURL,
             tokenCount: tokenized.mapping.entries.count,
-            embeddedMediaCount: embeddedMediaCount
+            embeddedMediaCount: embeddedMediaCount,
+            redactedImageURL: redactedImageURL
         )
         return (export: export, tokenBySurface: tokenBySurface(mapping: tokenized.mapping))
     }
 
     /// First base name (base, base_2, base_3, ...) whose edit-surface file AND
-    /// mapping sidecar are both absent from the directory.
+    /// mapping sidecar (and any extra probed artifacts, e.g. the redacted PNG
+    /// of an image export) are all absent from the directory.
     nonisolated static func collisionFreeBaseName(
         _ base: String,
         extension ext: String,
-        in directory: URL
+        in directory: URL,
+        alsoProbing extraExtensions: [String] = []
     ) -> String {
         let fm = FileManager.default
         func taken(_ name: String) -> Bool {
-            fm.fileExists(atPath: directory.appendingPathComponent("\(name).\(ext)").path)
-                || fm.fileExists(atPath: directory.appendingPathComponent("\(name).ldamap").path)
+            let probes = [ext, "ldamap"] + extraExtensions
+            return probes.contains { probe in
+                fm.fileExists(atPath: directory.appendingPathComponent("\(name).\(probe)").path)
+            }
         }
         guard taken(base) else { return base }
         var counter = 2

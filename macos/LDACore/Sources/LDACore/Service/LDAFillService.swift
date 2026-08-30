@@ -310,6 +310,9 @@ extension LDAService {
         case .docx: expectedExt = "docx"
         case .pdf:  expectedExt = "pdf"
         case .plainText: expectedExt = "txt"
+        // An image is never a writable fill target; naming its extension here
+        // lets the writable-target guard below refuse it with a clear message.
+        case .image: expectedExt = "png"
         }
         guard ext == expectedExt else {
             throw DocumentIOError.unsupportedFormat(

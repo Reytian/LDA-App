@@ -90,6 +90,10 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     public let redactedFileURL: String
     public let mappingFileURL: String
     public let visualPdfURL: String?
+    /// The boxes-over-PII redacted PNG, present only for image input
+    /// (png / jpg / jpeg). Destructive by design and never restorable; the
+    /// redactedFileURL text companion is the restore surface.
+    public let redactedImageURL: String?
     public let entityCount: Int
     public let imageRedactionCount: Int
     /// Embedded media files copied into the redacted DOCX without PII scanning
@@ -104,6 +108,7 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.redactedFileURL = result.redactedFileURL.path
         self.mappingFileURL = result.mappingFileURL.path
         self.visualPdfURL = result.visualPdfURL?.path
+        self.redactedImageURL = result.redactedImageURL?.path
         self.entityCount = result.entityCount
         self.imageRedactionCount = result.imageRedactionCount
         self.embeddedMediaCount = result.embeddedMediaCount
@@ -356,7 +361,7 @@ struct Anonymize: ParsableCommand {
         abstract: "Redact a document and write an encrypted mapping sidecar."
     )
 
-    @Option(name: .long, help: "Path to a source document. Repeat for a multi-document session; a .zip expands into the session.")
+    @Option(name: .long, help: "Path to a source document (.txt, .docx, .pdf) or evidence image (.png, .jpg, .jpeg). Repeat for a multi-document session; a .zip expands into the session. A single image also produces a redacted PNG next to the text companion.")
     var input: [String]
 
     @Option(name: .long, help: "Directory to write the edit surface and sidecar.")
