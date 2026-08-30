@@ -323,7 +323,8 @@ struct LDARoot: ParsableCommand {
             Detect.self,
             ExtractProfile.self,
             Fill.self,
-            Portfolio.self
+            Portfolio.self,
+            Vault.self
         ]
     )
 }
@@ -461,6 +462,8 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
         switch error {
         case let cliError as CLIError:
             return cliError.description
+        case let vaultError as DocumentVaultError:
+            return vaultError.message
         case let resolutionError as PortfolioResolutionError:
             return resolutionError.description
         case DocumentIOError.unreadable(let detail):
