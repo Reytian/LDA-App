@@ -72,7 +72,8 @@ extension MCPServer {
             inputs: inputs,
             createdAtISO8601: createdAt,
             llmModelPath: modelPath,
-            seedMapping: seed
+            seedMapping: seed,
+            style: try styleArgument(from: arguments)
         )
 
         if let clientLabel, let clientStore, let clientProtection {

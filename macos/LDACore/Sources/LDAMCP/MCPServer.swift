@@ -195,7 +195,8 @@ public struct MCPServer {
             outputDir: outputDir,
             protection: protection,
             createdAtISO8601: createdAt,
-            llmModelPath: modelPath
+            llmModelPath: modelPath,
+            style: try styleArgument(from: arguments)
         )
 
         var summary: [String: Any] = [
@@ -246,8 +247,26 @@ public struct MCPServer {
             "output": report.outputURL.path,
             "restoredCount": report.restoredCount,
             "orphanTokens": report.orphanTokens,
-            "suspectPlaceholders": report.suspectPlaceholders
+            "suspectPlaceholders": report.suspectPlaceholders,
+            "ambiguousReplacements": report.ambiguousReplacements
         ]
+    }
+
+    /// Parse the optional "style" argument shared by the anonymize tools.
+    /// Absent or empty means .token (the historical behavior); an unknown
+    /// value is an explicit error rather than a silent default.
+    func styleArgument(from arguments: [String: Any]) throws -> SubstitutionStyle {
+        guard let raw = arguments["style"] as? String, !raw.isEmpty else {
+            return .token
+        }
+        guard let style = SubstitutionStyle(rawValue: raw) else {
+            throw MCPToolError.invalidArgument(
+                key: "style",
+                value: raw,
+                allowed: SubstitutionStyle.allCases.map { $0.rawValue }
+            )
+        }
+        return style
     }
 
     /// detect_entities: run LDAService.detect and summarize the detected spans.
@@ -488,7 +507,8 @@ public struct MCPServer {
                     "input": ["type": "string", "description": "Path to the source document."],
                     "outputDir": ["type": "string", "description": "Directory for the redacted file and sidecar."],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."]
+                    "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."],
+                    "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Output style. token: {TYPE_N} placeholders (default). pseudonym: natural-language stand-ins that survive AI editing. asterisk: masked values (like 138****5678) for human readers; colliding masks restore as ambiguous, never guessed."]
                 ],
                 "required": ["input", "outputDir"]
             ]
@@ -507,7 +527,8 @@ public struct MCPServer {
                     "outputDir": ["type": "string", "description": "Directory for the redacted intermediates and the session sidecar."],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
                     "modelPath": ["type": "string", "description": "Optional path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS."],
-                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities (same value, same placeholder, across sessions)."]
+                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities (same value, same placeholder, across sessions)."],
+                    "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Output style. token: {TYPE_N} placeholders (default). pseudonym: natural-language stand-ins that survive AI editing. asterisk: masked values (like 138****5678) for human readers; colliding masks restore as ambiguous, never guessed."]
                 ],
                 "required": ["inputs", "outputDir"]
             ]
@@ -696,13 +717,18 @@ private enum RequestID {
 // MARK: - Tool errors
 
 /// Errors raised while validating tool-call arguments at the MCP edge.
-private enum MCPToolError: Error {
+/// Internal (not private) so the session tools extension can raise the same
+/// shapes.
+internal enum MCPToolError: Error {
     case missingArgument(String)
+    case invalidArgument(key: String, value: String, allowed: [String])
 
     var message: String {
         switch self {
         case .missingArgument(let key):
             return "Missing or empty required argument: \(key)"
+        case .invalidArgument(let key, let value, let allowed):
+            return "Invalid value \"\(value)\" for argument \(key). Allowed: \(allowed.joined(separator: ", "))"
         }
     }
 }
