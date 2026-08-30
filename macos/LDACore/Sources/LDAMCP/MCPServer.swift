@@ -290,6 +290,23 @@ public struct MCPServer {
         return value
     }
 
+    /// Parse the optional "style" argument shared by the anonymize tools.
+    /// Absent or empty means .token (the historical behavior); an unknown
+    /// value is an explicit error rather than a silent default.
+    func styleArgument(from arguments: [String: Any]) throws -> SubstitutionStyle {
+        guard let raw = arguments["style"] as? String, !raw.isEmpty else {
+            return .token
+        }
+        guard let style = SubstitutionStyle(rawValue: raw) else {
+            throw MCPToolError.invalidArgument(
+                key: "style",
+                value: raw,
+                allowed: SubstitutionStyle.allCases.map { $0.rawValue }
+            )
+        }
+        return style
+    }
+
     /// The per-document Keychain account for a mapping sidecar, derived from
     /// the sidecar's base name. The vault tools pass an opaque handle as the
     /// base, so the account never embeds a document name.
@@ -629,11 +646,14 @@ private enum RequestID {
 /// Errors raised while validating tool-call arguments at the MCP edge.
 enum MCPToolError: Error {
     case missingArgument(String)
+    case invalidArgument(key: String, value: String, allowed: [String])
 
     var message: String {
         switch self {
         case .missingArgument(let key):
             return "Missing or empty required argument: \(key)"
+        case .invalidArgument(let key, let value, let allowed):
+            return "Invalid value \"\(value)\" for argument \(key). Allowed: \(allowed.joined(separator: ", "))"
         }
     }
 }

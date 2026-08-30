@@ -194,6 +194,11 @@ public final class SessionModel: ObservableObject {
         }
     }
 
+    /// Supplies the output style for Copy for AI and the clipboard companion.
+    /// The default reads the persisted setting live, so a change in Settings
+    /// applies to the next handoff; tests inject a fixed closure.
+    public var outputStyleProvider: () -> SubstitutionStyle = { AISettings.outputStyle() }
+
     /// Forwards the ACTIVE model's change notifications through the session,
     /// so a shell observing only the session still refreshes its toolbar and
     /// banners when the active document's review state changes.
@@ -368,7 +373,8 @@ public final class SessionModel: ObservableObject {
             documents: documents,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
-            seedMapping: seed
+            seedMapping: seed,
+            style: outputStyleProvider()
         )
         sessionMapping = result.mapping
 
@@ -645,7 +651,8 @@ public final class SessionModel: ObservableObject {
             spans: spans,
             sourceFile: clientLabel ?? "clipboard",
             createdAtISO8601: createdAtISO8601,
-            seedMapping: seed
+            seedMapping: seed,
+            style: outputStyleProvider()
         )
         sessionMapping = result.mapping
 

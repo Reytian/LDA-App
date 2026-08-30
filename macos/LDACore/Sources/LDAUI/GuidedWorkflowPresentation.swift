@@ -109,7 +109,8 @@ extension ReviewModel {
     /// remain visible in the preview.
     nonisolated static func redactedPreviewText(
         text: String,
-        entities: [ReviewEntity]
+        entities: [ReviewEntity],
+        style: SubstitutionStyle = .token
     ) -> String {
         let accepted = entities.filter(\.accepted)
         var seedEntries: [String: MappingEntry] = [:]
@@ -140,7 +141,8 @@ extension ReviewModel {
             : Mapping(
                 entries: seedEntries,
                 createdAtISO8601: "preview",
-                sourceFile: "preview"
+                sourceFile: "preview",
+                style: style
             )
 
         return Tokenizer.tokenize(
@@ -148,7 +150,8 @@ extension ReviewModel {
             spans: accepted.map(\.span),
             sourceFile: "preview",
             createdAtISO8601: "preview",
-            seedMapping: seed
+            seedMapping: seed,
+            style: style
         ).tokenizedText
     }
 }

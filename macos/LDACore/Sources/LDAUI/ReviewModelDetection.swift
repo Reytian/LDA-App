@@ -237,7 +237,8 @@ extension ReviewModel {
         modelPath: String?,
         outputDir: URL,
         passphrase: String?,
-        createdAtISO8601: String
+        createdAtISO8601: String,
+        style: SubstitutionStyle = .token
     ) throws -> (export: ExportResult, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
@@ -253,7 +254,8 @@ extension ReviewModel {
             text: text,
             spans: acceptedSpans,
             sourceFile: sourceFile,
-            createdAtISO8601: createdAtISO8601
+            createdAtISO8601: createdAtISO8601,
+            style: style
         )
 
         let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"

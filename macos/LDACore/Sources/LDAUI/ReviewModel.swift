@@ -131,6 +131,11 @@ public final class ReviewModel: ObservableObject {
     /// to the CustomPatternStore; the default is an empty list.
     public var customPatternProvider: () -> [CustomPattern] = { [] }
 
+    /// Supplies the output style at export and preview time. The default reads
+    /// the persisted setting live, so a change in Settings applies to the next
+    /// export without replumbing; tests inject a fixed closure.
+    public var outputStyleProvider: () -> SubstitutionStyle = { AISettings.outputStyle() }
+
     /// On-device learning. When set, the model applies learned redactions and
     /// suppressions during anonymize and records the user's decisions on export.
     public var learningStore: LearningStore?
@@ -666,6 +671,7 @@ public final class ReviewModel: ObservableObject {
         let custom = customPatternProvider()
         let shouldUseLLM = useLLM
         let path = modelPath
+        let style = outputStyleProvider()
 
         let result = try await Task.detached(priority: .userInitiated) {
             try Self.performExport(
@@ -677,7 +683,8 @@ public final class ReviewModel: ObservableObject {
                 modelPath: path,
                 outputDir: outputDir,
                 passphrase: passphrase,
-                createdAtISO8601: createdAtISO8601
+                createdAtISO8601: createdAtISO8601,
+                style: style
             )
         }.value
 

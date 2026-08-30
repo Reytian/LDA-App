@@ -70,28 +70,43 @@ public enum SessionTokenizer {
     ///     example a session or client name; the mapping spans many files).
     ///   - createdAtISO8601: caller-supplied ISO-8601 timestamp.
     ///   - seedMapping: optional starting mapping (client profile or a prior
-    ///     session) whose identities the session must keep using.
+    ///     session) whose identities the session must keep using. A seed built
+    ///     in a different style contributes restore entries only; its
+    ///     replacements are not re-emitted (see Tokenizer).
+    ///   - style: how replacements are rendered across the whole session.
     /// - Returns: the tokenized documents plus the shared union mapping.
     public static func tokenize(
         documents: [SessionDocument],
         sourceLabel: String,
         createdAtISO8601: String,
-        seedMapping: Mapping? = nil
+        seedMapping: Mapping? = nil,
+        style: SubstitutionStyle = .token
     ) -> SessionTokenizeResult {
         var mapping = seedMapping ?? Mapping(
             entries: [:],
             createdAtISO8601: createdAtISO8601,
-            sourceFile: sourceLabel
+            sourceFile: sourceLabel,
+            style: style
         )
         var tokenized: [SessionTokenizedDocument] = []
 
-        for document in documents {
+        // A pseudonym minted for document K must not occur naturally in ANY
+        // document of the session: the shared mapping restores every document
+        // with one literal scan, so a natural occurrence in a companion
+        // document would be indistinguishable from a substitution site.
+        let allTexts = documents.map { $0.text }
+
+        for (index, document) in documents.enumerated() {
+            var corpus = allTexts
+            corpus.remove(at: index)
             let result = Tokenizer.tokenize(
                 text: document.text,
                 spans: document.spans,
                 sourceFile: sourceLabel,
                 createdAtISO8601: createdAtISO8601,
-                seedMapping: mapping
+                seedMapping: mapping,
+                style: style,
+                uniquenessCorpus: corpus
             )
             mapping = result.mapping
             tokenized.append(
@@ -106,6 +121,7 @@ public enum SessionTokenizer {
         // but the session is one unit with one label and one timestamp.
         mapping.sourceFile = sourceLabel
         mapping.createdAtISO8601 = createdAtISO8601
+        mapping.style = style
 
         return SessionTokenizeResult(documents: tokenized, mapping: mapping)
     }

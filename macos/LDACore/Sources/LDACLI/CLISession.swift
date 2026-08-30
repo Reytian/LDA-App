@@ -71,6 +71,7 @@ extension LDACLI {
         llmModelPath: String? = nil,
         clientLabel: String? = nil,
         clientStore: ClientMappingStore? = nil,
+        style: SubstitutionStyle = .token,
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> SessionSummaryJSON {
         guard let first = inputs.first else {
@@ -100,7 +101,8 @@ extension LDACLI {
             inputs: inputs,
             createdAtISO8601: timestamp(),
             llmModelPath: llmModelPath,
-            seedMapping: seed
+            seedMapping: seed,
+            style: style
         )
 
         // Save the union back so the client's next session keeps these

@@ -161,13 +161,15 @@ extension MCPServer {
             // single point of failure for every sidecar).
             let protection = vaultMappingProtection(from: arguments, accountBase: slot.handle)
             let createdAt = MCPServer.iso8601Now()
+            let style = try styleArgument(from: arguments)
             let result = try vault.withPlaintextFileURL(handle: handle) { inputURL in
                 try LDAService.anonymize(
                     input: inputURL,
                     outputDir: slot.directory,
                     protection: protection,
                     createdAtISO8601: createdAt,
-                    llmModelPath: modelPath
+                    llmModelPath: modelPath,
+                    style: style
                 )
             }
             let committed = try vault.commit(
@@ -318,7 +320,12 @@ extension MCPServer {
                     "editedRedactedHandle": editedEntry.handle,
                     "restoredCount": result.restoredCount,
                     "orphanTokens": result.orphanTokens,
-                    "suspectPlaceholders": result.suspectPlaceholders
+                    "suspectPlaceholders": result.suspectPlaceholders,
+                    // Replacement strings that two or more entities share
+                    // (asterisk masks can collide); restore refuses to guess
+                    // at them. Replacement strings are boundary-safe: they are
+                    // what the redacted text already shows.
+                    "ambiguousReplacements": result.ambiguousReplacements
                 ]
             } catch {
                 vault.abort(slot: restoredSlot)
@@ -352,7 +359,8 @@ extension MCPServer {
                 "restoredHandle": committed.handle,
                 "restoredCount": report.restoredCount,
                 "orphanTokens": report.orphanTokens,
-                "suspectPlaceholders": report.suspectPlaceholders
+                "suspectPlaceholders": report.suspectPlaceholders,
+                "ambiguousReplacements": report.ambiguousReplacements
             ]
         } catch {
             vault.abort(slot: restoredSlot)

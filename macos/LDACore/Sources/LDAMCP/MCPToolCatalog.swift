@@ -100,7 +100,8 @@ extension MCPServer {
                 "properties": [
                     "handle": ["type": "string", "description": "Handle of a staged original (doc_...)."],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."]
+                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."],
+                    "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Replacement style: token ({PERSON_1}, default), pseudonym (natural-language stand-ins that survive AI rewriting), or asterisk (masking for human recipients; restore refuses ambiguous masks)."]
                 ],
                 "required": ["handle"]
             ]
@@ -118,7 +119,8 @@ extension MCPServer {
                     ],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
                     "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."],
-                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities. The label is never echoed back."]
+                    "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities. The label is never echoed back."],
+                    "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Replacement style: token ({PERSON_1}, default), pseudonym (natural-language stand-ins that survive AI rewriting), or asterisk (masking for human recipients; restore refuses ambiguous masks)."]
                 ],
                 "required": ["handles"]
             ]

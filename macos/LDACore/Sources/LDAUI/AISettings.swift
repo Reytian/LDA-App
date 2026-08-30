@@ -28,6 +28,7 @@
 //
 
 import Foundation
+import LDACore
 
 /// The quality/speed tradeoff for detection.
 ///
@@ -72,6 +73,10 @@ public enum AISettings {
     /// Set once the one-time offer to leave the retired lda-v2 fine tune has
     /// been answered, either way, so it never appears twice.
     public static let ldaV2NoticeDismissedKey = "com.haotianyi.LDA.ldaV2NoticeDismissed"
+
+    /// UserDefaults key for the output style (token, pseudonym, asterisk).
+    /// Stored as the SubstitutionStyle raw value; absent means token.
+    public static let outputStyleKey = "com.haotianyi.LDA.outputStyle"
 
     /// Offline mode. When on, the app makes no network request at all, so model
     /// downloads are refused rather than attempted.
@@ -269,6 +274,27 @@ public enum AISettings {
     /// The stored detection mode, derived from the ladder.
     public static func detectionMode(defaults: UserDefaults = .standard) -> DetectionMode {
         detectionLevel(defaults: defaults).usesLLM ? .thorough : .fast
+    }
+
+    // MARK: Output style
+
+    /// The stored output style. Absent or unrecognized values resolve to
+    /// .token, the historical behavior, so an old install never changes its
+    /// output on update.
+    public static func outputStyle(defaults: UserDefaults = .standard) -> SubstitutionStyle {
+        guard let raw = defaults.string(forKey: outputStyleKey),
+              let style = SubstitutionStyle(rawValue: raw) else {
+            return .token
+        }
+        return style
+    }
+
+    /// Store the selected output style.
+    public static func setOutputStyle(
+        _ style: SubstitutionStyle,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(style.rawValue, forKey: outputStyleKey)
     }
 
     /// Whether to show the one-time offer to stop using the retired lda-v2

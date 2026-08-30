@@ -67,12 +67,14 @@ extension MCPServer {
         }
 
         let createdAt = MCPServer.iso8601Now()
+        let style = try styleArgument(from: arguments)
         let session = try vault.withPlaintextFileURLs(handles: handles) { inputs in
             try LDAService.anonymizeSession(
                 inputs: inputs,
                 createdAtISO8601: createdAt,
                 llmModelPath: modelPath,
-                seedMapping: seed
+                seedMapping: seed,
+                style: style
             )
         }
 

@@ -559,6 +559,7 @@ private struct SharingTab: View {
 
 private struct GeneralTab: View {
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
+    @AppStorage(AISettings.outputStyleKey) private var outputStyleRaw = SubstitutionStyle.token.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -578,6 +579,26 @@ private struct GeneralTab: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Divider()
+
+            Text("Output style")
+                .font(.system(.headline, design: .serif))
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Picker("Output style", selection: outputStyleBinding) {
+                ForEach(SubstitutionStyle.allCases, id: \.self) { style in
+                    Text(Self.label(for: style)).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 380, alignment: .leading)
+
+            Text(Self.explanation(for: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token))
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Spacer()
         }
         .padding(24)
@@ -589,6 +610,41 @@ private struct GeneralTab: View {
             get: { AppearanceMode.from(rawValue: appearanceRaw) },
             set: { appearanceRaw = $0.rawValue }
         )
+    }
+
+    private var outputStyleBinding: Binding<SubstitutionStyle> {
+        Binding(
+            get: { SubstitutionStyle(rawValue: outputStyleRaw) ?? .token },
+            set: { outputStyleRaw = $0.rawValue }
+        )
+    }
+
+    /// Short picker labels. Internal (not fileprivate) copy lives here because
+    /// the style enum itself stays UI-free in the engine.
+    static func label(for style: SubstitutionStyle) -> String {
+        switch style {
+        case .token: return "Placeholders"
+        case .pseudonym: return "Pseudonyms"
+        case .asterisk: return "Asterisks"
+        }
+    }
+
+    /// One-sentence explanation per style, shown under the picker.
+    static func explanation(for style: SubstitutionStyle) -> String {
+        switch style {
+        case .token:
+            return "Protected values become placeholders like {PERSON_1}. Exact and compact, "
+                + "but an external AI sometimes rewrites the braces, and a rewritten "
+                + "placeholder cannot be restored."
+        case .pseudonym:
+            return "Protected values become natural stand-in names like Company A or 甲公司. "
+                + "AI tools treat them as names and leave them alone, so documents come back "
+                + "restorable even after heavy editing."
+        case .asterisk:
+            return "Protected values are masked in place, like 张*明 or 138****5678, the form "
+                + "courts and regulators expect. Best for sending to a person; if two values "
+                + "share one mask, that mask is reported instead of guessed at restore."
+        }
     }
 }
 
