@@ -146,9 +146,54 @@ extension DocumentVault {
         )
     }
 
+    /// Remove scratch plaintext whose owning process is gone (security audit
+    /// F-001). Scratch names are pt_<pid>_<hex>.<format>; a file whose PID
+    /// segment is missing, unparseable, or names a dead process is a crash
+    /// leftover and is removed. A live PID's files are in use by that process
+    /// (the CLI and the MCP server can share one vault) and are left alone.
+    /// Best effort by design: a failed removal must not fail the operation
+    /// that triggered the sweep.
+    func sweepDeadScratchFiles() {
+        guard let names = try? FileManager.default.contentsOfDirectory(
+            atPath: scratchDirectory.path
+        ) else {
+            return
+        }
+        for name in names {
+            guard name.hasPrefix("pt_") else { continue }
+            if let owner = Self.scratchOwnerPID(fromName: name), Self.isProcessAlive(owner) {
+                continue
+            }
+            try? FileManager.default.removeItem(
+                at: scratchDirectory.appendingPathComponent(name)
+            )
+        }
+    }
+
+    /// Parse the owner PID out of a pt_<pid>_<hex> scratch name. Returns nil
+    /// for the pre-PID naming or anything else unparseable.
+    static func scratchOwnerPID(fromName name: String) -> pid_t? {
+        let segments = name.split(separator: "_")
+        guard segments.count >= 3, segments[0] == "pt", let pid = pid_t(segments[1]) else {
+            return nil
+        }
+        return pid
+    }
+
+    /// Whether a process with this PID exists. kill(pid, 0) delivers no
+    /// signal: 0 means it exists, EPERM means it exists but is not ours (not
+    /// expected inside a per-user vault, still treated as alive), ESRCH means
+    /// it is gone.
+    static func isProcessAlive(_ pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
+    }
+
     /// Decrypt each entry to a private scratch file, run body over the URLs,
     /// and remove the scratch files afterwards, throw or return. The scratch
-    /// name is random with the entry's logical format as its extension so
+    /// name embeds the creator's PID (so crash leftovers are attributable)
+    /// plus random hex, with the entry's logical format as its extension so
     /// importers dispatch correctly; it derives nothing from the original
     /// filename. Callers must not retain the URLs past body.
     func withScratchPlaintext<T>(
@@ -160,15 +205,23 @@ extension DocumentVault {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        // The defer below removes these files on every ORDERLY exit, but a
+        // SIGKILL or power loss mid-body leaves decrypted plaintext behind,
+        // silently defeating "encrypted at rest" for the in-flight document.
+        // Sweeping dead owners' files here means the next vault use by any
+        // process cleans up after a crashed one.
+        sweepDeadScratchFiles()
         var scratchURLs: [URL] = []
         defer {
             for url in scratchURLs {
                 try? FileManager.default.removeItem(at: url)
             }
         }
+        let pid = ProcessInfo.processInfo.processIdentifier
         for entry in entries {
             let plaintext = try openObjectData(for: entry)
-            let name = try DocumentVault.randomHandle(prefix: "pt_") + "." + entry.format
+            let name = try DocumentVault.randomHandle(prefix: "pt_\(pid)_")
+                + "." + entry.format
             let url = scratchDirectory.appendingPathComponent(name)
             // createFile sets the owner-only mode at creation, so there is no
             // window during which the plaintext is readable more widely.

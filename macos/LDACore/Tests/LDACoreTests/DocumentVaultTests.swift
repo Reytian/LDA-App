@@ -746,3 +746,94 @@ final class DocumentVaultTests: XCTestCase {
         context.closePDF()
     }
 }
+
+// MARK: - Crash-leftover scratch sweep (security audit F-001)
+
+extension DocumentVaultTests {
+
+    private var scratchDir: URL {
+        vaultRoot.appendingPathComponent(DocumentVault.scratchDirectoryName, isDirectory: true)
+    }
+
+    /// A PID that belonged to a real process that has since exited: spawn
+    /// /usr/bin/true and wait for it. Recently valid, provably dead.
+    private func deadProcessID() throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        process.waitUntilExit()
+        return process.processIdentifier
+    }
+
+    private func plantScratchFile(named name: String) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: scratchDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let url = scratchDir.appendingPathComponent(name)
+        try Data("LEFTOVER PLAINTEXT".utf8).write(to: url)
+        return url
+    }
+
+    /// A scratch file whose owning process died (a crash during anonymize)
+    /// must be removed by the next vault use, or "encrypted at rest" is a lie
+    /// for exactly the documents that were in flight at crash time.
+    func testDeadProcessScratchLeftoverIsSweptOnNextUse() throws {
+        let deadPID = try deadProcessID()
+        let leftover = try plantScratchFile(named: "pt_\(deadPID)_abcdef123456.txt")
+
+        _ = try vault.list()
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: leftover.path),
+            "a dead process's scratch plaintext must be swept on the next vault use"
+        )
+    }
+
+    /// A scratch file with no parseable owner (the pre-PID naming) is treated
+    /// as a leftover and swept: only vault code writes here, and every live
+    /// writer tags its files with its own PID.
+    func testUnparseableScratchNameIsSweptOnNextUse() throws {
+        let leftover = try plantScratchFile(named: "pt_abcdef123456.txt")
+
+        _ = try vault.list()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+    }
+
+    /// A live process's scratch file is IN USE and must survive the sweep:
+    /// the CLI and the MCP server can operate on one vault concurrently.
+    func testLiveProcessScratchFileSurvivesSweep() throws {
+        let livePID = ProcessInfo.processInfo.processIdentifier
+        let inUse = try plantScratchFile(named: "pt_\(livePID)_abcdef123456.txt")
+
+        _ = try vault.list()
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: inUse.path),
+            "a live process's scratch file must not be swept out from under it"
+        )
+        try? FileManager.default.removeItem(at: inUse)
+    }
+
+    /// The scratch files the vault itself creates carry the creator's PID, so
+    /// the sweep can tell in-use files from crash leftovers.
+    func testScratchFilesAreTaggedWithTheCreatorPID() throws {
+        let source = workDir.appendingPathComponent("tagged.txt")
+        try Data("scratch tag fixture".utf8).write(to: source)
+        let entry = try vault.stage(fileURL: source, stagedAtISO8601: "2026-08-30T00:00:00Z")
+
+        let expectedTag = "pt_\(ProcessInfo.processInfo.processIdentifier)_"
+        var seen: [String] = []
+        _ = try vault.withPlaintextFileURL(handle: entry.handle) { url -> Int in
+            seen.append(url.lastPathComponent)
+            return 0
+        }
+        XCTAssertEqual(seen.count, 1)
+        XCTAssertTrue(
+            seen[0].hasPrefix(expectedTag),
+            "scratch name \(seen[0]) must start with \(expectedTag)"
+        )
+    }
+}

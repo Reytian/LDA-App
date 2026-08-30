@@ -131,6 +131,13 @@ check_against_root() {
           || contains "$command" "$root_tilde_escaped"; then
           block
         fi
+        # The vault CLI reveals the handle-to-filename correlation the MCP
+        # surface deliberately withholds (lda vault list prints original
+        # filenames for the human). Staging and listing are HUMAN actions;
+        # an agent reaching for them gets a visible refusal instead.
+        if contains "$command" "lda vault" || contains "$command" "lda-mcp"; then
+          block
+        fi
       fi
       ;;
   esac

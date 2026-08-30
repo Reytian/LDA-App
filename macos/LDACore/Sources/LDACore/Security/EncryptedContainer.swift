@@ -798,9 +798,14 @@ public struct EncryptedContainer {
     // version selects the AAD rather than a try-then-retry. That keeps the
     // legacy path explicit instead of guessing.
     //
-    // RULE: each store kind MUST use a distinct magic byte sequence AND a distinct
-    // keychainService string. Sharing either across store kinds would allow a container
-    // of one kind to be silently opened as another kind, defeating store-level isolation.
+    // RULE: each store kind MUST use a distinct magic byte sequence, and by
+    // default a distinct keychainService string as well. A deliberate,
+    // documented exception may share ONE key across facets of the same store
+    // (the document vault shares its master key between LDAVOBJ objects and
+    // the LDAVREG registry): that is safe ONLY because the magic is bound as
+    // AES-GCM AAD in version 2 (and checked as a plaintext prefix for version
+    // 1), so a container of one facet still refuses to open as the other.
+    // Never share a keychainService between UNRELATED store kinds.
 
     /// Build the plaintext header. The returned bytes are both the file prefix
     /// and, for version 2, the AES-GCM additional authenticated data.

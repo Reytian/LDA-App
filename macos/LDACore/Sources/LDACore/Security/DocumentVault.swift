@@ -426,7 +426,11 @@ public struct DocumentVault {
 
     /// Every entry, oldest staging timestamp first (ties keep insertion order).
     public func list() throws -> [VaultEntry] {
-        try DocumentVault.registryLock.withLock {
+        // Listing is the operation every session performs first (list_pending,
+        // attest, lda vault list), so it doubles as the recovery point for
+        // scratch plaintext a crashed process left behind.
+        sweepDeadScratchFiles()
+        return try DocumentVault.registryLock.withLock {
             try loadRegistryLocked().entries
         }
         .enumerated()

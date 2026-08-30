@@ -42,6 +42,16 @@ Behavior on a blocked call: the tool call is refused (exit 2) and the agent
 sees a one-line explanation pointing it at the MCP tools instead
 (`list_pending`, `anonymize`, `read_redacted`, `restore`, `export`, `attest`).
 
+Bash commands invoking `lda vault` or `lda-mcp` are also refused: `lda vault
+list` prints original filenames (the handle-to-name correlation the MCP
+surface deliberately withholds), and staging is a human action by design. Be
+honest about the limit: an agent host with an unrestricted Bash tool has
+countless other ways to run a binary, so this refusal is a speed bump that
+makes the attempt visible, not a wall. The wall is that vault CONTENTS are
+ciphertext at rest; the filename correlation in the registry is equally
+sealed, but any locally runnable CLI that can open the vault can print what
+it decrypts.
+
 Verified cases (see the script's history for the harness): direct reads,
 tilde paths, backslash-escaped `Application\ Support` spellings inside Bash
 commands, Grep/Glob path and pattern arguments, the `LDA_VAULT_DIR` override,

@@ -18,6 +18,12 @@
 //  exception: modelPath points at a GGUF the human configured, not at client
 //  data, and stays gated by MCPPathPolicy.enforceModelPath.
 //
+//  Accepted disclosure, per the boundary spec's tool table: detect_entities
+//  returns per-entity character OFFSETS, which reveal each original surface's
+//  exact length and position (a weak side channel). The spec chose offsets so
+//  a local caller can slice the text itself; anything finer than type plus
+//  offsets stays on the machine.
+//
 //  Every error thrown here is rendered by describeBoundarySafe, which maps
 //  each failure to error-code-plus-handle wording and never interpolates a
 //  detail string that could carry a path.

@@ -70,13 +70,15 @@ extension MCPServer {
             + "legacy path tools."
     }
 
-    /// The migration message returned for a removed core tool.
+    /// The migration message returned for a removed core tool. Staging is
+    /// phrased as the USER's action on purpose: an agent that runs the CLI
+    /// itself would be handling the path this design keeps out of context.
     static func removedToolMessage(_ name: String) -> String {
         let replacement = name == "anonymize_document" ? "anonymize" : "restore"
         return "Tool \(name) was removed: core tools now operate on vault handles "
-            + "so file paths never enter the model context. Stage documents with "
-            + "the CLI (lda vault stage <path>), find them with list_pending, and "
-            + "call \(replacement) with a handle."
+            + "so file paths never enter the model context. Ask the user to stage "
+            + "documents with the CLI (lda vault stage <path>), find them with "
+            + "list_pending, and call \(replacement) with a handle."
     }
 
     // MARK: - Vault tool descriptors
