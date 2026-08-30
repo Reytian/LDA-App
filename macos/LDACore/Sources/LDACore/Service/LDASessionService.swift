@@ -94,7 +94,6 @@ extension LDAService {
         let detector = makeDetector(modelPath: llmModelPath)
 
         var sessionDocuments: [SessionDocument] = []
-        var spansByIndex: [[Span]] = []
         for input in inputs {
             let imported = try importDocument(input, extension: input.pathExtension.lowercased())
             let spans = try detector.detectText(imported.text)
@@ -105,8 +104,28 @@ extension LDAService {
                     spans: spans
                 )
             )
-            spansByIndex.append(spans)
         }
+
+        // Session-wide recall sweep: a PERSON or COMPANY confirmed anywhere in
+        // the session (including defined short names swept per document) is
+        // rescanned in EVERY document, so the shared mapping never lets a
+        // party detected in one document leak from another. Blocking stays
+        // per document; only the needle surfaces cross documents.
+        let sessionEntities = sessionDocuments.flatMap { document in
+            document.spans.filter { $0.type == .person || $0.type == .company }
+        }
+        sessionDocuments = sessionDocuments.map { document in
+            SessionDocument(
+                name: document.name,
+                text: document.text,
+                spans: EntityRescan.expand(
+                    document.spans,
+                    in: document.text,
+                    knownEntities: sessionEntities
+                )
+            )
+        }
+        let spansByIndex = sessionDocuments.map { $0.spans }
 
         let label = sessionLabel(for: inputs)
         let result = SessionTokenizer.tokenize(

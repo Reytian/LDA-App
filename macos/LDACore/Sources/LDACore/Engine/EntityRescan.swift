@@ -93,19 +93,37 @@ public enum EntityRescan {
     /// literal occurrence of its PERSON and COMPANY surfaces and their bound
     /// aliases. Returns the union, sorted by start ascending, still
     /// overlap-free. Spans of other types are passed through untouched.
-    public static func expand(_ confirmed: [Span], in text: String) -> [Span] {
-        guard !confirmed.isEmpty, !text.isEmpty else { return confirmed }
+    ///
+    /// - Parameters:
+    ///   - confirmed: this document's merged, overlap-free spans.
+    ///   - text: this document's full text.
+    ///   - knownEntities: optional PERSON and COMPANY spans confirmed in OTHER
+    ///     documents of the same session. Their surfaces join the needle set
+    ///     (same safety filters) but they never block occurrences, since their
+    ///     offsets belong to other documents. This closes the session-level
+    ///     recall gap: a party detected in document 1 is swept in document 2
+    ///     even when document 2's own detection missed it.
+    public static func expand(
+        _ confirmed: [Span],
+        in text: String,
+        knownEntities: [Span] = []
+    ) -> [Span] {
+        guard !confirmed.isEmpty || !knownEntities.isEmpty, !text.isEmpty else {
+            return confirmed
+        }
 
         // 1. Needles from confirmed PERSON and COMPANY surfaces, in document
         //    order so the type of a surface confirmed twice under different
         //    types follows its earliest span. Dedup is case-insensitive to
-        //    match EntityLocator's case-insensitive search.
+        //    match EntityLocator's case-insensitive search. Session-known
+        //    surfaces follow the document's own, so a local confirmation wins
+        //    the needle metadata.
         var needles: [Needle] = []
         var seenNeedles = Set<String>()
         let ordered = confirmed.sorted { lhs, rhs in
             lhs.start != rhs.start ? lhs.start < rhs.start : lhs.end < rhs.end
         }
-        for span in ordered where span.type == .person || span.type == .company {
+        for span in ordered + knownEntities where span.type == .person || span.type == .company {
             let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let key = value.lowercased()
             guard !value.isEmpty, !seenNeedles.contains(key) else { continue }
