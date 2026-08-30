@@ -92,6 +92,7 @@ public final class LLMExtractor {
     private let completer: TextCompleter
     private let prompts: PromptStore
     private let cancelToken: ExtractionCancelToken?
+    private let route: DocumentTypeRoute
 
     /// - Parameters:
     ///   - completer: the text-completion backend (an LLMEngine in production, a
@@ -101,14 +102,20 @@ public final class LLMExtractor {
     ///     once per generated token inside a CancelAwareCompleter, so a user's
     ///     stop lands within a fraction of a second. When it fires,
     ///     extractDetailed throws ExtractionCancelled.
+    ///   - route: how the extraction system prompt is specialized per document
+    ///     genre. Defaults to .auto (classify the text and route to that
+    ///     class's prompt variant); .forced(...) overrides the classifier, and
+    ///     .forced(.generic) disables routing and keeps the base prompt.
     public init(
         completer: TextCompleter,
         prompts: PromptStore = PromptStore(),
-        cancelToken: ExtractionCancelToken? = nil
+        cancelToken: ExtractionCancelToken? = nil,
+        route: DocumentTypeRoute = .auto
     ) {
         self.completer = completer
         self.prompts = prompts
         self.cancelToken = cancelToken
+        self.route = route
         if let cancellable = completer as? CancelAwareCompleter {
             cancellable.cancelToken = cancelToken
         }
@@ -165,6 +172,18 @@ public final class LLMExtractor {
             segmentsToProcess.append(window.text)
         }
 
+        // Resolve the document-type prompt route ONCE per document: every
+        // window of one document uses the same system prompt, so the shared
+        // prompt prefix stays identical across the batch (prefill reuse).
+        let documentClass: DocumentClass
+        switch route {
+        case .auto:
+            documentClass = DocumentTypeClassifier.classify(text)
+        case .forced(let forced):
+            documentClass = forced
+        }
+        let systemPrompt = prompts.extractionSystem(for: documentClass)
+
         // 2. Run the segments. When the completer supports batched decoding
         //    (the production LLMEngine), ALL windows' first attempts stream
         //    through the engine's parallel slots in ONE call: the shared
@@ -183,7 +202,7 @@ public final class LLMExtractor {
         let total = segmentsToProcess.count
         onProgress?(0, total)
 
-        let outcomes = try scanAll(segmentsToProcess, onProgress: onProgress)
+        let outcomes = try scanAll(segmentsToProcess, systemPrompt: systemPrompt, onProgress: onProgress)
 
         var rawEntities: [ExtractedEntity] = []
         var incompleteSegmentCount = 0
@@ -316,13 +335,14 @@ public final class LLMExtractor {
     /// path, so batching is purely an optimization.
     private func scanAll(
         _ segments: [String],
+        systemPrompt: String,
         onProgress: ((Int, Int) -> Void)?
     ) throws -> [SegmentOutcome] {
         var firstAttempts: [String?] = Array(repeating: nil, count: segments.count)
         var batchedProgress = false
 
         if segments.count > 1, let batcher = completer as? BatchTextCompleter {
-            let prompts = segments.map { buildPrompt(for: $0) }
+            let prompts = segments.map { buildPrompt(for: $0, systemPrompt: systemPrompt) }
             var finished = 0
             let total = segments.count
             if let outputs = try? batcher.completeBatch(
@@ -346,7 +366,7 @@ public final class LLMExtractor {
         var outcomes: [SegmentOutcome] = []
         for (index, segment) in segments.enumerated() {
             try throwIfCancelled()
-            outcomes.append(scanSegment(segment, firstAttempt: firstAttempts[index]))
+            outcomes.append(scanSegment(segment, systemPrompt: systemPrompt, firstAttempt: firstAttempts[index]))
             if !batchedProgress {
                 onProgress?(index + 1, segments.count)
             }
@@ -364,11 +384,11 @@ public final class LLMExtractor {
     /// recovered before any cut are always kept. The segment is reported
     /// incomplete only if a leaf attempt still truncates with no possibility
     /// of finer splitting.
-    private func scanSegment(_ segment: String, firstAttempt: String? = nil) -> SegmentOutcome {
+    private func scanSegment(_ segment: String, systemPrompt: String, firstAttempt: String? = nil) -> SegmentOutcome {
         // First attempt at the default cap, unless the batched group pass
         // already produced it.
         let firstCompletion = firstAttempt
-            ?? complete(segment: segment, maxTokens: LLMExtractor.maxCompletionTokens)
+            ?? complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.maxCompletionTokens)
         guard let first = firstCompletion else {
             // The completer threw. Skip this segment as before; a backend failure
             // is not a truncation we can recover by retrying with a larger cap.
@@ -381,7 +401,7 @@ public final class LLMExtractor {
 
         // Retry once with a larger cap: the most common cause is simply the output
         // budget, which a bigger cap fixes outright.
-        if let retry = complete(segment: segment, maxTokens: LLMExtractor.retryCompletionTokens) {
+        if let retry = complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.retryCompletionTokens) {
             let retryParse = EntityJSONParser.parseDetailed(retry)
             if !retryParse.truncated {
                 return SegmentOutcome(entities: retryParse.entities, incomplete: false)
@@ -400,26 +420,27 @@ public final class LLMExtractor {
         var entities: [ExtractedEntity] = []
         var anyIncomplete = false
         for sub in subSegments {
-            let outcome = scanSegment(sub)
+            let outcome = scanSegment(sub, systemPrompt: systemPrompt)
             entities.append(contentsOf: outcome.entities)
             if outcome.incomplete { anyIncomplete = true }
         }
         return SegmentOutcome(entities: entities, incomplete: anyIncomplete)
     }
 
-    /// Render the full ChatML prompt for one segment.
-    private func buildPrompt(for segment: String) -> String {
+    /// Render the full ChatML prompt for one segment using the routed system
+    /// prompt (the base extraction prompt plus any document-class emphasis).
+    private func buildPrompt(for segment: String, systemPrompt: String) -> String {
         return LLMEngine.buildChatMLPrompt(
-            system: prompts.currentExtractionSystem,
+            system: systemPrompt,
             user: prompts.extractionUser(chunk: segment)
         )
     }
 
     /// Build the prompt for a segment and complete it, returning nil if the
     /// completer throws (a backend failure, not a truncation).
-    private func complete(segment: String, maxTokens: Int) -> String? {
+    private func complete(segment: String, systemPrompt: String, maxTokens: Int) -> String? {
         return try? completer.complete(
-            prompt: buildPrompt(for: segment),
+            prompt: buildPrompt(for: segment, systemPrompt: systemPrompt),
             maxTokens: maxTokens,
             stop: [LLMExtractor.imEndMarker]
         )

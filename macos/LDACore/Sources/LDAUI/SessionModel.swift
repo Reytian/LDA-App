@@ -376,20 +376,30 @@ public final class SessionModel: ObservableObject {
             seedMapping: seed,
             style: outputStyleProvider()
         )
-        sessionMapping = result.mapping
+        // Record the full-name/short-name grouping in the shared mapping,
+        // mirroring LDAService.anonymizeSession. Tokens and values are
+        // untouched (byte-identical restore); only grouping metadata is added.
+        var linkedMapping = result.mapping
+        for document in documents {
+            linkedMapping = EntityRescan.linkAliases(
+                in: linkedMapping,
+                pairs: EntityRescan.aliasPairs(in: document.text, confirmed: document.spans)
+            )
+        }
+        sessionMapping = linkedMapping
 
         // Save the union back under the client so the next session keeps
         // these identities (R10).
         if let clientLabel {
             try clientStore().save(
-                result.mapping,
+                linkedMapping,
                 label: clientLabel,
                 protection: clientProtection(clientLabel)
             )
         }
 
         // Show the assigned tokens on the accepted entities (sealed chips).
-        let tokenBySurface = ReviewModel.tokenBySurface(mapping: result.mapping)
+        let tokenBySurface = ReviewModel.tokenBySurface(mapping: linkedMapping)
         for entry in ready {
             for index in entry.model.entities.indices {
                 entry.model.entities[index].token = entry.model.entities[index].accepted

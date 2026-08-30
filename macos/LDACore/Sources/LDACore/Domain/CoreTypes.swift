@@ -124,19 +124,28 @@ public struct MappingEntry: Equatable, Sendable, Codable {
     public var surfaceText: String
     /// Other known surface forms that refer to the same entity.
     public var aliases: [String]
+    /// When this entry is a defined short name of another entry's entity
+    /// (全称/简称归并), the canonical entry's token, for example "{COMPANY_2}".
+    /// The alias keeps its OWN token and value so restore stays byte-identical
+    /// at every site; this field only records the grouping. Nil for canonical
+    /// entries and for entries with no known alias relationship. Optional and
+    /// absent from older sidecars, which decode as nil.
+    public var canonicalToken: String?
 
     public init(
         token: String,
         value: String,
         type: EntityType,
         surfaceText: String,
-        aliases: [String]
+        aliases: [String],
+        canonicalToken: String? = nil
     ) {
         self.token = token
         self.value = value
         self.type = type
         self.surfaceText = surfaceText
         self.aliases = aliases
+        self.canonicalToken = canonicalToken
     }
 }
 
