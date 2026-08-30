@@ -335,7 +335,18 @@ public enum DefinedTermScanner {
         guard !trimmed.isEmpty else { return false }
 
         if containsCJK(trimmed) {
-            return canonical.contains(trimmed)
+            // Contiguous substrings first (the common case), then ordered
+            // character subsequences: PRC practice routinely forms a short
+            // name by keeping the brand and industry words and dropping the
+            // middle, so 蓝鲸科技 abbreviates 蓝鲸智能科技有限公司 even though
+            // 智能 interrupts the run. A contiguous-only test rejected exactly
+            // these, and every mention of such a short name then leaked
+            // (release QA, High). Over-acceptance is bounded elsewhere: this
+            // test only ever runs on aliases BOUND by a definition
+            // parenthetical, and generic terms are refused by the boilerplate
+            // and role-label gates before derivation is consulted.
+            if canonical.contains(trimmed) { return true }
+            return isOrderedCharacterSubsequence(trimmed, of: canonical)
         }
 
         let aliasWords = words(of: trimmed)
@@ -350,8 +361,22 @@ public enum DefinedTermScanner {
         return isAcronym(termWords: aliasWords, of: canonicalWords)
     }
 
+    /// True when every character of candidate appears in container in the
+    /// same order, gaps allowed. Two-pointer walk, O(container length).
+    static func isOrderedCharacterSubsequence(_ candidate: String, of container: String) -> Bool {
+        guard !candidate.isEmpty else { return false }
+        var remainder = container[container.startIndex...]
+        for character in candidate {
+            guard let found = remainder.firstIndex(of: character) else { return false }
+            remainder = remainder[remainder.index(after: found)...]
+        }
+        return true
+    }
+
     /// True when the string contains at least one CJK ideograph (Han ranges
     /// plus the ideographic iteration and zero marks common in names).
+    /// The ONE implementation of this test: SubstitutionStyling forwards here
+    /// so script decisions cannot drift between aliasing and styling.
     static func containsCJK(_ s: String) -> Bool {
         return s.unicodeScalars.contains { scalar in
             switch scalar.value {

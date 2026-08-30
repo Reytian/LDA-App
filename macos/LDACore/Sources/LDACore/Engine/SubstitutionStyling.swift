@@ -86,18 +86,12 @@ public struct PseudonymGenerator {
         return containsCJK(surface) ? .chinese : .latin
     }
 
-    /// True when the string contains at least one CJK ideograph.
+    /// True when the string contains at least one CJK ideograph. Forwards to
+    /// the scanner's single implementation so the aliasing and styling layers
+    /// can never disagree about what counts as CJK (they briefly did: the two
+    /// copies had drifted over extension ranges and iteration marks).
     static func containsCJK(_ s: String) -> Bool {
-        s.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0x3400...0x4DBF,  // CJK unified ideographs extension A
-                 0x4E00...0x9FFF,  // CJK unified ideographs
-                 0xF900...0xFAFF:  // CJK compatibility ideographs
-                return true
-            default:
-                return false
-            }
-        }
+        DefinedTermScanner.containsCJK(s)
     }
 
     // MARK: Candidate sequences

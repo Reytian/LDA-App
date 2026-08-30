@@ -253,11 +253,14 @@ public enum EntityRescan {
     // MARK: - Mapping linkage
 
     /// Record the alias grouping in a token mapping: for every pair, the entry
-    /// whose surface is the alias gets `canonicalToken` set to the token of
-    /// the entry whose surface is the canonical name. Values, tokens, and
-    /// restore behavior are untouched, so restore stays byte-identical; only
-    /// the grouping metadata is added. Returns a new Mapping (no mutation of
-    /// the input). Entries already carrying a canonicalToken keep it.
+    /// whose surface is the alias gets `canonicalToken` set to the KEY (in
+    /// Mapping.entries) of the entry whose surface is the canonical name.
+    /// The key, not the token field: keys are unique even for asterisk
+    /// collision entries, whose token holds a shared mask while the key
+    /// disambiguates. Values, tokens, and restore behavior are untouched, so
+    /// restore stays byte-identical; only the grouping metadata is added.
+    /// Returns a new Mapping (no mutation of the input). Entries already
+    /// carrying a canonicalToken keep it.
     public static func linkAliases(in mapping: Mapping, pairs: [AliasPair]) -> Mapping {
         guard !pairs.isEmpty, !mapping.entries.isEmpty else { return mapping }
 

@@ -121,3 +121,46 @@ final class DefinedTermScannerAliasTests: XCTestCase {
         XCTAssertFalse(DefinedTermScanner.droppableTerms(in: text).contains("meridian works"))
     }
 }
+
+// MARK: - Non-contiguous CJK short names (release QA finding, High)
+
+extension DefinedTermScannerAliasTests {
+
+    /// PRC practice routinely forms a short name by keeping the brand and
+    /// industry words and dropping the middle: 蓝鲸科技 abbreviates
+    /// 深圳市蓝鲸智能科技有限公司 even though 智能 interrupts the run. A
+    /// contiguous-substring test rejected exactly these, so every mention of
+    /// such a short name leaked. Derivation must accept an ordered character
+    /// subsequence.
+    func testSkipWordShortNameIsDerived() {
+        XCTAssertTrue(DefinedTermScanner.isDerivedAlias(
+            "蓝鲸科技",
+            of: "深圳市蓝鲸智能科技有限公司"
+        ))
+    }
+
+    /// Order still matters: characters present but reordered are not an
+    /// abbreviation of the name.
+    func testReorderedCharactersAreNotDerived() {
+        XCTAssertFalse(DefinedTermScanner.isDerivedAlias(
+            "科技蓝鲸",
+            of: "深圳市蓝鲸智能科技有限公司"
+        ))
+    }
+
+    /// A character the canonical name never contains breaks derivation.
+    func testForeignCharacterIsNotDerived() {
+        XCTAssertFalse(DefinedTermScanner.isDerivedAlias(
+            "蓝鲸快帆",
+            of: "深圳市蓝鲸智能科技有限公司"
+        ))
+    }
+
+    /// The contiguous case keeps working.
+    func testContiguousShortNameStaysDerived() {
+        XCTAssertTrue(DefinedTermScanner.isDerivedAlias(
+            "快帆科技",
+            of: "杭州快帆科技有限公司"
+        ))
+    }
+}

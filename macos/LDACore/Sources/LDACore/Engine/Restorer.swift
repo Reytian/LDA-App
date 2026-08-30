@@ -60,10 +60,42 @@ public enum Restorer {
         // replacements are ordinary strings.
         switch mapping.style {
         case .token:
-            return restoreTokenStyle(text: text, mapping: mapping)
+            return restoreTokenStyleWithCarriedLiterals(text: text, mapping: mapping)
         case .pseudonym, .asterisk:
             return restoreLiteralStyle(text: text, mapping: mapping)
         }
+    }
+
+    /// Token-style restore, plus a literal supplement for entries carried
+    /// across styles. A client mapping seeded under the pseudonym style and
+    /// extended under the token style holds both replacement shapes; the
+    /// grammar scan cannot see the non-brace ones, so an old pseudonym
+    /// intermediate used to restore to zero replacements with no warning.
+    /// The supplement scans ONLY the carried literal entries, and their
+    /// absence is not an orphan: a token-style document is expected to carry
+    /// braces, not the other style's replacements.
+    private static func restoreTokenStyleWithCarriedLiterals(
+        text: String,
+        mapping: Mapping
+    ) -> RestoreResult {
+        let tokenPass = restoreTokenStyle(text: text, mapping: mapping)
+
+        let carried = mapping.entries.filter { _, entry in
+            !entry.token.isEmpty && !TokenGrammar.isPlaceholderShaped(entry.token)
+        }
+        guard !carried.isEmpty else { return tokenPass }
+
+        var literalOnly = mapping
+        literalOnly.entries = carried
+        let literalPass = restoreLiteralStyle(text: tokenPass.text, mapping: literalOnly)
+
+        return RestoreResult(
+            text: literalPass.text,
+            restoredCount: tokenPass.restoredCount + literalPass.restoredCount,
+            orphanTokens: tokenPass.orphanTokens,
+            suspectPlaceholders: tokenPass.suspectPlaceholders,
+            ambiguousReplacements: literalPass.ambiguousReplacements
+        )
     }
 
     /// The historical token-grammar restore. See restore(text:mapping:).

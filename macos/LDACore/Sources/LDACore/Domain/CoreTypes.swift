@@ -125,7 +125,11 @@ public struct MappingEntry: Equatable, Sendable, Codable {
     /// Other known surface forms that refer to the same entity.
     public var aliases: [String]
     /// When this entry is a defined short name of another entry's entity
-    /// (全称/简称归并), the canonical entry's token, for example "{COMPANY_2}".
+    /// (全称/简称归并), the canonical entry's KEY in Mapping.entries, for
+    /// example "{COMPANY_2}". The key is chosen over the entry's token field
+    /// deliberately: keys are unique, while asterisk-collision entries store
+    /// a shared mask in token and disambiguate the key ("张*#2"), so a key
+    /// reference always resolves to exactly one entry.
     /// The alias keeps its OWN token and value so restore stays byte-identical
     /// at every site; this field only records the grouping. Nil for canonical
     /// entries and for entries with no known alias relationship. Optional and
@@ -259,6 +263,16 @@ public enum TokenGrammar {
     /// Canonical detection regex for a token. Use this on both the emit side and
     /// the restore side so they never drift.
     public static let placeholderPattern = #"\{[A-Z][A-Z0-9]*_\d+\}"#
+
+    /// Whether an entire string is one placeholder-shaped token. Used to tell
+    /// brace entries from replacements carried across substitution styles.
+    public static func isPlaceholderShaped(_ s: String) -> Bool {
+        let range = NSRange(location: 0, length: (s as NSString).length)
+        guard let regex = try? NSRegularExpression(pattern: "^\(placeholderPattern)$") else {
+            return false
+        }
+        return regex.firstMatch(in: s, range: range) != nil
+    }
 
     /// Sanitize a raw type string into a token TYPE matching [A-Z][A-Z0-9]*.
     ///

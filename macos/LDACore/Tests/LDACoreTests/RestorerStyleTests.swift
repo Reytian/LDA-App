@@ -275,3 +275,64 @@ final class RestorerStyleTests: XCTestCase {
         XCTAssertEqual(restored.restoredCount, 2)
     }
 }
+
+// MARK: - Mixed-style mappings (merge-seam review finding 2)
+
+extension RestorerStyleTests {
+
+    /// A client mapping seeded under one style and extended under another
+    /// carries both replacement shapes. A token-style mapping must restore
+    /// its carried literal (pseudonym-shaped) seed entries too: an OLD
+    /// pseudonym intermediate restored against the updated mapping used to
+    /// come back with zero replacements and no warning at all.
+    func testTokenStyleMappingAlsoRestoresCarriedLiteralSeedEntries() {
+        let document = "本协议由{PERSON_1}签署。"
+        let spans = [span("{PERSON_1}", in: document, type: .person)]
+        _ = spans
+        var mapping = Tokenizer.tokenize(
+            text: "张三签署。",
+            spans: [span("张三", in: "张三签署。", type: .person)],
+            sourceFile: "doc.txt",
+            createdAtISO8601: "2026-08-30T00:00:00Z",
+            style: .token
+        ).mapping
+        // A pseudonym-shaped seed carried across styles: the replacement is a
+        // natural-language stand-in, not a brace token.
+        mapping.entries["甲公司"] = entry(
+            replacement: "甲公司",
+            value: "杭州快帆科技有限公司",
+            type: .company
+        )
+
+        let mixed = "本协议由甲公司与{PERSON_1}签署。"
+        let restored = Restorer.restore(text: mixed, mapping: mapping)
+
+        XCTAssertEqual(restored.text, "本协议由杭州快帆科技有限公司与张三签署。")
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.orphanTokens.isEmpty, "both shapes restored: \(restored.orphanTokens)")
+    }
+
+    /// The supplement must not pollute the report: a carried literal entry
+    /// that simply does not occur in a token-style document is EXPECTED (the
+    /// document uses braces), not an orphan.
+    func testAbsentCarriedLiteralEntryIsNotReportedAsOrphan() {
+        var mapping = Tokenizer.tokenize(
+            text: "张三签署。",
+            spans: [span("张三", in: "张三签署。", type: .person)],
+            sourceFile: "doc.txt",
+            createdAtISO8601: "2026-08-30T00:00:00Z",
+            style: .token
+        ).mapping
+        mapping.entries["甲公司"] = entry(
+            replacement: "甲公司",
+            value: "杭州快帆科技有限公司",
+            type: .company
+        )
+
+        let restored = Restorer.restore(text: "{PERSON_1}到场。", mapping: mapping)
+
+        XCTAssertEqual(restored.text, "张三到场。")
+        XCTAssertEqual(restored.restoredCount, 1)
+        XCTAssertTrue(restored.orphanTokens.isEmpty, "an absent carried literal is not an orphan")
+    }
+}
