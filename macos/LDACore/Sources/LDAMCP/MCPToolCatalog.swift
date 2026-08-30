@@ -174,7 +174,7 @@ extension MCPServer {
         ],
         [
             "name": "attest",
-            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, the Keychain ACL mode, byte counters for what this session has returned, and per-tool call counts.",
+            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, how the vault master key is protected, the Keychain ACL mode, byte counters for what this session has returned, and per-tool call counts.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),

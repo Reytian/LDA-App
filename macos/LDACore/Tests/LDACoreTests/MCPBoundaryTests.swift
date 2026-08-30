@@ -312,6 +312,28 @@ final class MCPBoundaryTests: XCTestCase {
         }
     }
 
+    /// attest must be honest, not hopeful: over a vault still carrying the
+    /// pre-encryption plaintext registry (unmigrated because no tool has
+    /// opened the registry yet), it must report vaultEncryptionAtRest false.
+    func testAttestReportsFalseOverAnUnmigratedPlaintextVault() throws {
+        try FileManager.default.createDirectory(at: vaultDir, withIntermediateDirectories: true)
+        try Data("{\"entries\":[],\"version\":1}".utf8).write(
+            to: vaultDir.appendingPathComponent(DocumentVault.registryFileName)
+        )
+
+        var attest = try summary(of: try call(tool: "attest", arguments: [:]))
+        XCTAssertEqual(
+            attest["vaultEncryptionAtRest"] as? Bool,
+            false,
+            "an unmigrated plaintext registry means the guarantee does not hold yet"
+        )
+
+        // Any registry-opening tool migrates the store; attest then flips.
+        try call(tool: "list_pending", arguments: [:])
+        attest = try summary(of: try call(tool: "attest", arguments: [:]))
+        XCTAssertEqual(attest["vaultEncryptionAtRest"] as? Bool, true)
+    }
+
     // MARK: - Session sharing through handles
 
     func testAnonymizeSessionSharesPlaceholdersAndRestoresThroughAnyMember() throws {
