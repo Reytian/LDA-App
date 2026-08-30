@@ -112,6 +112,13 @@ final class SessionModelTests: XCTestCase {
         return makeSession(modelPath: dummyModel.path)
     }
 
+    /// A hermetic learning store: its own UserDefaults suite, so a test never
+    /// reads or writes what the developer's own use of the app has learned.
+    private func freshLearningStore() -> LearningStore {
+        let defaults = UserDefaults(suiteName: "lda.test.\(UUID().uuidString)")!
+        return LearningStore(defaults: defaults, storageKey: "session-learning")
+    }
+
     // MARK: - Tray
 
     func testAddDocumentsImportsAndSelectsLast() async throws {
@@ -454,6 +461,110 @@ final class SessionModelTests: XCTestCase {
         let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
 
         XCTAssertTrue(result.rescanWarnings.isEmpty)
+    }
+
+    func testHandToAIDoesNotPrescribeARescanASuppressedTermWouldRefuseToClose() async throws {
+        // The stuck-banner seam. Learned suppression is applied AFTER the
+        // rescan sweep (ReviewModelDetection), so a party the user has net
+        // rejected is swept into the candidate list and then dropped again:
+        // re-scanning can never close this gap. The warning itself stays
+        // truthful (the document really does still carry the party), but the
+        // sentence must stop sending the user to a button that cannot help.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        // What an earlier export left behind: one net rejection is enough.
+        let learning = freshLearningStore()
+        learning.record(accepted: [], rejected: [("Jordan Marlowe", .person)])
+        XCTAssertTrue(
+            learning.suppressKeys.contains(LearningStore.key(value: "Jordan Marlowe", type: .person)),
+            "fixture: a single net rejection must suppress the term"
+        )
+        session.configureNewModel = { $0.learningStore = learning }
+
+        let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([unscanned])
+        await session.anonymizeAll()
+
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+        // Suppression hides the party from a.txt's detection too, so the user
+        // confirms it by hand, the one path that bypasses the learned filter.
+        XCTAssertEqual(
+            session.entries[1].model.addManualEntity(text: "Jordan Marlowe", type: .person),
+            1,
+            "fixture: the party must be confirmed in a.txt for the seam to exist"
+        )
+
+        // The gap really is unclosable: running Scan on b.txt again, exactly
+        // what the banner used to prescribe, changes nothing.
+        let spansBeforeRescan = session.entries[0].model.entities.map(\.span)
+        await session.entries[0].model.anonymize()
+        XCTAssertEqual(
+            session.entries[0].model.entities.map(\.span),
+            spansBeforeRescan,
+            "fixture: suppression drops the swept party, so the re-scan is a no-op"
+        )
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        let warning = try XCTUnwrap(result.rescanWarnings.first)
+        XCTAssertEqual(result.rescanWarnings.map(\.documentName), ["b.txt"])
+        XCTAssertEqual(warning.missedPartyCount, 1)
+        XCTAssertEqual(warning.suppressedPartyCount, 1)
+        XCTAssertEqual(warning.rescannablePartyCount, 0)
+
+        let advice = try XCTUnwrap(
+            AnonymizeWorkflowPresentation.rescanAdvice(for: result.rescanWarnings)
+        )
+        XCTAssertTrue(advice.contains("b.txt"), "the banner must still name the document")
+        XCTAssertFalse(
+            advice.contains("Run Scan"),
+            "re-scanning sweeps the party in and suppression drops it again"
+        )
+        XCTAssertTrue(
+            advice.contains("Protect a missed item"),
+            "the honest action for a suppressed term is to confirm it by hand"
+        )
+    }
+
+    func testHandToAIStillPrescribesARescanForAPartyLearningNeverSuppressed() async throws {
+        // The control for the case above: an active learning store that has
+        // nothing to say about this party must not weaken the advice.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let learning = freshLearningStore()
+        learning.record(accepted: [], rejected: [("Schedule A", .company)])
+        session.configureNewModel = { $0.learningStore = learning }
+
+        let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([unscanned])
+        await session.anonymizeAll()
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        let warning = try XCTUnwrap(result.rescanWarnings.first)
+        XCTAssertEqual(warning.missedPartyCount, 1)
+        XCTAssertEqual(warning.suppressedPartyCount, 0)
+        let advice = try XCTUnwrap(
+            AnonymizeWorkflowPresentation.rescanAdvice(for: result.rescanWarnings)
+        )
+        XCTAssertTrue(advice.contains("Run Scan on it again"))
     }
 
     func testClientIdentitiesPersistAcrossSessions() async throws {

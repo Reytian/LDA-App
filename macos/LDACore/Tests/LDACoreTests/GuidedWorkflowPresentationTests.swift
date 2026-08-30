@@ -43,6 +43,72 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
+    func testRescanAdviceSendsSuppressedTermsToTheActionThatCanActuallyFixThem() {
+        // Learned suppression is applied after the rescan sweep, so Scan
+        // pulls this party in and drops it again. Prescribing Scan here is a
+        // banner the user can never clear.
+        let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: [
+            SessionModel.RescanWarning(
+                entryID: UUID(),
+                documentName: "b.txt",
+                missedPartyCount: 1,
+                suppressedPartyCount: 1
+            )
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "b.txt still contains 1 name you chose not to redact before. "
+                + "Scan will skip it again, so use Protect a missed item "
+                + "if it should be protected here."
+        )
+    }
+
+    func testRescanAdviceSeparatesTheRescannableGapFromTheSuppressedOne() {
+        // One document, both kinds of gap: each sentence must count only its
+        // own, so neither action is prescribed for a party it cannot fix.
+        let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: [
+            SessionModel.RescanWarning(
+                entryID: UUID(),
+                documentName: "b.txt",
+                missedPartyCount: 3,
+                suppressedPartyCount: 1
+            )
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "b.txt still contains 2 names protected elsewhere in this session. "
+                + "Run Scan on it again, then copy. "
+                + "b.txt still contains 1 name you chose not to redact before. "
+                + "Scan will skip it again, so use Protect a missed item "
+                + "if it should be protected here."
+        )
+    }
+
+    func testRescanAdviceGroupsDocumentsByTheActionThatFixesThem() {
+        // b.txt is fixable by re-scanning, c.txt is not. Listing them in one
+        // sentence would send the user to the wrong button for one of them.
+        let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: [
+            SessionModel.RescanWarning(entryID: UUID(), documentName: "b.txt", missedPartyCount: 1),
+            SessionModel.RescanWarning(
+                entryID: UUID(),
+                documentName: "c.txt",
+                missedPartyCount: 2,
+                suppressedPartyCount: 2
+            )
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "b.txt still contains 1 name protected elsewhere in this session. "
+                + "Run Scan on it again, then copy. "
+                + "c.txt still contains 2 names you chose not to redact before. "
+                + "Scan will skip them again, so use Protect a missed item "
+                + "if they should be protected here."
+        )
+    }
+
     func testSafePreviewReplacesAcceptedValuesAndLeavesRejectedValuesVisible() {
         let text = "Alice emailed bob@example.com."
         let entities = [

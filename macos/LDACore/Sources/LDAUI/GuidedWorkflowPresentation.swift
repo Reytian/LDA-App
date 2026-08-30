@@ -69,14 +69,50 @@ enum AnonymizeWorkflowPresentation {
     /// reach: which ones still carry a party another document confirmed, and
     /// the one action that fixes it. Value-free, so the banner never restates
     /// the PII it is warning about. Returns nil when there is nothing to say.
+    ///
+    /// Two sentences, because there are two different fixes. A party Scan
+    /// would surface is closed by re-scanning. A party the user has net
+    /// rejected before is dropped by learned suppression AFTER the sweep, so
+    /// re-scanning is a no-op and the honest advice is to confirm it by hand
+    /// (or forget the learned entry in Settings). Telling that user to run
+    /// Scan leaves a banner they can never clear.
     static func rescanAdvice(for warnings: [SessionModel.RescanWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        let sentences = [
+            rescanSentence(for: warnings.filter { $0.rescannablePartyCount > 0 }),
+            suppressedSentence(for: warnings.filter { $0.suppressedPartyCount > 0 })
+        ].compactMap { $0 }
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+
+    /// The gap a re-scan really would close.
+    private static func rescanSentence(
+        for warnings: [SessionModel.RescanWarning]
+    ) -> String? {
         guard !warnings.isEmpty else { return nil }
         let names = warnings.map(\.documentName).joined(separator: ", ")
         let subject = warnings.count == 1 ? "\(names) still contains" : "\(names) still contain"
-        let total = warnings.reduce(0) { $0 + $1.missedPartyCount }
+        let total = warnings.reduce(0) { $0 + $1.rescannablePartyCount }
         let object = total == 1 ? "1 name" : "\(total) names"
         let action = warnings.count == 1 ? "Run Scan on it again" : "Run Scan on them again"
         return "\(subject) \(object) protected elsewhere in this session. \(action), then copy."
+    }
+
+    /// The gap a re-scan would refuse to close, because the user already
+    /// decided against redacting the value.
+    private static func suppressedSentence(
+        for warnings: [SessionModel.RescanWarning]
+    ) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        let names = warnings.map(\.documentName).joined(separator: ", ")
+        let subject = warnings.count == 1 ? "\(names) still contains" : "\(names) still contain"
+        let total = warnings.reduce(0) { $0 + $1.suppressedPartyCount }
+        let object = total == 1 ? "1 name" : "\(total) names"
+        let skipped = total == 1 ? "it" : "them"
+        let candidate = total == 1 ? "it" : "they"
+        return "\(subject) \(object) you chose not to redact before. "
+            + "Scan will skip \(skipped) again, so use Protect a missed item "
+            + "if \(candidate) should be protected here."
     }
 }
 
