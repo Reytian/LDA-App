@@ -98,6 +98,16 @@ public enum LDAServiceError: Error, Equatable {
     /// NOT guaranteed PII-free and must not be presented as cleanly anonymized
     /// (LJE-001). `incompleteSegmentCount` is how many segments were affected.
     case incompleteExtraction(incompleteSegmentCount: Int)
+    /// The document was fully scanned, but values the model reported are present
+    /// in the source and could not be anchored there, even after repairing CJK
+    /// script-boundary space drift. They were detected and will survive into the
+    /// output, so the document is NOT guaranteed PII-free and must not be
+    /// presented as cleanly anonymized (LJE-001). This is a distinct failure
+    /// from truncation: the text was read, the removal is what failed. Values
+    /// the model invented do not reach here, since nothing in the document can
+    /// leak them. `unlocatableEntityCount` is how many distinct values were
+    /// affected.
+    case unanchoredEntities(unlocatableEntityCount: Int)
     /// restore was asked to write its output over the edited input file. The
     /// rewrite clears the destination before reading, so honoring this would
     /// destroy the user's redacted file; it must fail fast instead.
@@ -373,9 +383,15 @@ public enum LDAService {
     internal struct Detector {
         let extractor: LLMExtractor?
 
-        /// Primary detection over the main document text. Throws
-        /// LDAServiceError.incompleteExtraction when the LLM could not fully scan
-        /// the document, so a partial scan is never written out as clean (LJE-001).
+        /// Primary detection over the main document text. Throws when the
+        /// result cannot be presented as cleanly anonymized (LJE-001), so a
+        /// document that is not guaranteed PII-free is never written out as
+        /// clean. Two distinct failures qualify and each gets its own error, so
+        /// the caller's message names the one that happened.
+        ///
+        /// Truncation is checked first: when a segment was never scanned the
+        /// unanchored count is drawn from an incomplete sample and reporting it
+        /// would be misleading.
         func detectText(_ text: String) throws -> [Span] {
             let llm: [Span]
             if let extractor {
@@ -383,6 +399,11 @@ public enum LDAService {
                 guard result.fullyCovered else {
                     throw LDAServiceError.incompleteExtraction(
                         incompleteSegmentCount: result.incompleteSegmentCount
+                    )
+                }
+                guard result.fullyAnchored else {
+                    throw LDAServiceError.unanchoredEntities(
+                        unlocatableEntityCount: result.unlocatableEntityCount
                     )
                 }
                 llm = result.spans

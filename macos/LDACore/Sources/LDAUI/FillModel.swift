@@ -672,6 +672,11 @@ public final class FillModel: ObservableObject {
             case .incompleteExtraction(let count):
                 return "Extraction could not fully scan \(count) "
                     + (count == 1 ? "segment" : "segments") + "; some fields may be missing."
+            case .unanchoredEntities(let count):
+                return "\(count) detected "
+                    + (count == 1 ? "value is" : "values are")
+                    + " in the document in a form that could not be matched exactly, "
+                    + "so \(count == 1 ? "it" : "they") could not be removed."
             }
         default:
             return error.localizedDescription

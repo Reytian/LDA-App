@@ -251,6 +251,112 @@ final class LDAServiceLLMTests: XCTestCase {
         }
     }
 
+    // MARK: - Unanchorable values (LJE-001, second failure mode)
+
+    /// A complete, well-formed response: nothing is truncated. The document
+    /// really does contain this person, but the reported value has reflowed
+    /// whitespace, so the literal locator cannot anchor it and the name survives
+    /// into the output. That is the leak the gate exists to stop.
+    private struct UnanchorableValueCompleter: TextCompleter {
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},"# +
+                   #"{"value":"Robert  King","type":"PERSON"}],"redacted_text":""}"#
+        }
+    }
+
+    /// The same shape, except the second value appears nowhere in the document.
+    /// The model invented it, so there is nothing to redact and nothing to leak.
+    private struct InventedValueCompleter: TextCompleter {
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},"# +
+                   #"{"value":"Hallucinated Holdings","type":"COMPANY"}],"redacted_text":""}"#
+        }
+    }
+
+    /// Measured on the full-document benchmark, every model produced at least
+    /// one invented value on some document while producing zero real leaks after
+    /// the CJK repair. Gating on invented values would refuse to anonymize a
+    /// clean document, including with the model the app ships by default, so
+    /// this must succeed.
+    func testInventedValueDoesNotBlockAnonymize() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: InventedValueCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+        let outputDir = workDir.appendingPathComponent("out-invented", isDirectory: true)
+
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: MappingProtection.passphrase("a passphrase"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: Self.bogusModelPath
+        )
+        XCTAssertTrue(
+            result.entities.contains { $0.type == .company },
+            "the values that are really in the document must still be tokenized"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.redactedFileURL.path))
+    }
+
+    func testAnonymizeThrowsWhenAReportedValueCannotBeAnchored() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: UnanchorableValueCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+        let outputDir = workDir.appendingPathComponent("out-unanchored", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: inputURL,
+                outputDir: outputDir,
+                protection: MappingProtection.passphrase("a passphrase"),
+                createdAtISO8601: Self.createdAt,
+                llmModelPath: Self.bogusModelPath
+            )
+        ) { error in
+            guard case LDAServiceError.unanchoredEntities(let count) = error else {
+                XCTFail("expected LDAServiceError.unanchoredEntities, got \(error)")
+                return
+            }
+            XCTAssertEqual(count, 1)
+        }
+    }
+
+    func testDetectThrowsWhenAReportedValueCannotBeAnchored() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: UnanchorableValueCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+
+        XCTAssertThrowsError(
+            try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        ) { error in
+            guard case LDAServiceError.unanchoredEntities = error else {
+                XCTFail("expected LDAServiceError.unanchoredEntities, got \(error)")
+                return
+            }
+        }
+    }
+
+    /// The truncation gate must still win when both failures are present, since
+    /// an un-scanned segment makes the unanchored count unreliable anyway.
+    func testTruncationIsReportedAheadOfUnanchoredValues() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: AlwaysTruncatingCompleter())
+        }
+        let inputURL = try writeFuzzyFixture()
+
+        XCTAssertThrowsError(
+            try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        ) { error in
+            guard case LDAServiceError.incompleteExtraction = error else {
+                XCTFail("expected incompleteExtraction to take precedence, got \(error)")
+                return
+            }
+        }
+    }
+
     func testGenuinelyEmptyLLMExtractionDoesNotThrow() throws {
         // The model found no fuzzy PII (well-formed empty array). This is a clean
         // document, NOT an incomplete scan, so anonymize must succeed and still

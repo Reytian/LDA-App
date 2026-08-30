@@ -38,21 +38,42 @@ public struct ExtractionResult: Sendable {
     public let spans: [Span]
     /// How many segments could not be fully scanned even after retry/splitting.
     public let incompleteSegmentCount: Int
-    /// How many distinct reported values could not be anchored anywhere in the
-    /// source, even after repairing CJK script-boundary space drift. These were
-    /// seen by the model but cannot be redacted, so a non-zero count means the
-    /// document is not guaranteed PII-free.
+    /// How many distinct reported values are present in the source but could not
+    /// be anchored there, even after repairing CJK script-boundary space drift.
+    /// This is the leak: the text really does contain the value, in a surface
+    /// form the literal locator cannot match, so it is detected and survives
+    /// into the output. A non-zero count means the document is not guaranteed
+    /// PII-free.
     public let unlocatableEntityCount: Int
+    /// How many distinct reported values do not occur in the source at all, in
+    /// any surface form. The model invented them. There is nothing in the
+    /// document to redact, so this is a quality signal, NOT a safety one, and it
+    /// deliberately does not gate: blocking output over a value the document
+    /// does not contain would refuse clean work for no privacy benefit.
+    public let phantomEntityCount: Int
 
-    public init(spans: [Span], incompleteSegmentCount: Int, unlocatableEntityCount: Int = 0) {
+    public init(
+        spans: [Span],
+        incompleteSegmentCount: Int,
+        unlocatableEntityCount: Int = 0,
+        phantomEntityCount: Int = 0
+    ) {
         self.spans = spans
         self.incompleteSegmentCount = incompleteSegmentCount
         self.unlocatableEntityCount = unlocatableEntityCount
+        self.phantomEntityCount = phantomEntityCount
     }
 
     /// True when every segment was fully scanned. False means at least one
     /// segment was truncated and the document is not guaranteed PII-free.
     public var fullyCovered: Bool { incompleteSegmentCount == 0 }
+
+    /// True when no value that the source actually contains was left unanchored.
+    /// False means at least one value really in the document cannot be redacted,
+    /// so the document is not guaranteed PII-free even though it was fully
+    /// scanned. Invented values are excluded on purpose; see phantomEntityCount.
+    public var fullyAnchored: Bool { unlocatableEntityCount == 0 }
+
 }
 
 // MARK: - LLMExtractor
@@ -197,6 +218,12 @@ public final class LLMExtractor {
         var spans: [Span] = []
         var seenSpans = Set<SpanKey>()
         var unlocatableEntityCount = 0
+        var phantomEntityCount = 0
+        // Whitespace-stripped, lowercased copy of the document, built at most
+        // once and only if some value fails to anchor. Used purely to classify a
+        // failure; no span is ever derived from it, so it cannot cause a wrong
+        // redaction.
+        var foldedText: String?
 
         for entity in kept {
             let key = CanonicalKey(
@@ -225,7 +252,24 @@ public final class LLMExtractor {
                 }
             }
             if located.isEmpty {
-                unlocatableEntityCount += 1
+                // Two very different failures look identical here, and only one
+                // is a privacy problem. If the document really does contain this
+                // value in some other surface form, it will survive into the
+                // output: that is a leak. If the value appears nowhere at all,
+                // the model invented it and there is nothing to redact.
+                let folded: String
+                if let cached = foldedText {
+                    folded = cached
+                } else {
+                    folded = text.lowercased().filter { !$0.isWhitespace }
+                    foldedText = folded
+                }
+                let foldedValue = entity.value.lowercased().filter { !$0.isWhitespace }
+                if !foldedValue.isEmpty, folded.contains(foldedValue) {
+                    unlocatableEntityCount += 1
+                } else {
+                    phantomEntityCount += 1
+                }
             }
             for span in located {
                 let spanKey = SpanKey(start: span.start, end: span.end, type: span.type)
@@ -238,7 +282,8 @@ public final class LLMExtractor {
         return ExtractionResult(
             spans: spans,
             incompleteSegmentCount: incompleteSegmentCount,
-            unlocatableEntityCount: unlocatableEntityCount
+            unlocatableEntityCount: unlocatableEntityCount,
+            phantomEntityCount: phantomEntityCount
         )
     }
 

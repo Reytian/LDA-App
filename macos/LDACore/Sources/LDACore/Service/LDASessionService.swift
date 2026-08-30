@@ -76,7 +76,9 @@ extension LDAService {
     ///     mapping) whose identities the session keeps using.
     /// - Throws: DocumentIOError for unreadable inputs,
     ///   LDAServiceError.incompleteExtraction when the LLM could not fully
-    ///   scan a document (a partial scan is never presented as clean), or
+    ///   scan a document, LDAServiceError.unanchoredEntities when it scanned
+    ///   everything but reported values that anchor nowhere and so cannot be
+    ///   redacted (neither is ever presented as clean), or
     ///   LDAServiceError.noReadableSources for an empty input list.
     public static func anonymizeSession(
         inputs: [URL],

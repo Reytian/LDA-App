@@ -194,6 +194,23 @@ extension ReviewModel {
                     cancelled: false
                 )
             }
+            // The second way a pass can be incomplete: the text was read, but a
+            // value the model reported anchors nowhere, so there is nothing to
+            // redact. Keep the spans that did anchor and say what actually
+            // failed. A truncation message here would misdiagnose it.
+            guard result.fullyAnchored else {
+                let n = result.unlocatableEntityCount
+                return LLMPassOutcome(
+                    spans: result.spans,
+                    attempted: true,
+                    failure: "AI detected \(n) "
+                        + (n == 1 ? "value" : "values")
+                        + " it could not locate exactly in this document; "
+                        + "\(n == 1 ? "it is" : "they are") still present and were "
+                        + "not removed. Check for missed names or companies.",
+                    cancelled: false
+                )
+            }
             return LLMPassOutcome(spans: result.spans, attempted: true, failure: nil, cancelled: false)
         } catch is ExtractionCancelled {
             return LLMPassOutcome(spans: [], attempted: true, failure: nil, cancelled: true)

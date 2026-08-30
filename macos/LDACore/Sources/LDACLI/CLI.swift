@@ -392,6 +392,10 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
             return "Could not decrypt the mapping (wrong passphrase or tampered file)."
         case DocumentIOError.keychainError(let status):
             return "Keychain operation failed with status \(status)."
+        case LDAServiceError.incompleteExtraction(let count):
+            return "The document could not be fully scanned: \(count) segment(s) were truncated. Nothing was written, because an unscanned segment may still contain names, companies, or addresses."
+        case LDAServiceError.unanchoredEntities(let count):
+            return "\(count) detected value(s) are present in the document in a form that could not be matched exactly, so they could not be removed. Nothing was written, because the output would still contain them."
         case LDAServiceError.staleTarget(let detail):
             return "The target document changed since the plan was produced (\(detail)). Re-run fill --plan before applying."
         case LDAServiceError.noReadableSources:

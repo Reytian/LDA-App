@@ -452,6 +452,50 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertNotNil(model.aiWarning)
     }
 
+    /// The other way a pass can be incomplete: every segment was scanned, but a
+    /// value the model reported anchors nowhere in the document, so it cannot be
+    /// redacted. That is not a complete AI pass either, and the warning must say
+    /// what actually went wrong rather than blaming truncation.
+    func testUnanchorableValueSurfacesWarningAndIsNotACompleteAIPass() async throws {
+        let url = workDir.appendingPathComponent("unanchored.txt")
+        try Data("The seller is Acme Corp.".utf8).write(to: url)
+        let dummyModel = workDir.appendingPathComponent("dummy-unanchored.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+
+        struct ReportsUnanchorableValue: TextCompleter {
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                // Well-formed and complete: nothing is truncated. The company is
+                // really in the document, but the reported form has reflowed
+                // whitespace, so it cannot be anchored and would survive.
+                return #"{"entities":[{"value":"Acme  Corp","type":"COMPANY"}],"redacted_text":""}"#
+            }
+        }
+        ReviewModel.llmExtractorFactoryForTesting = { _, _ in
+            LLMExtractor(completer: ReportsUnanchorableValue())
+        }
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let model = ReviewModel(modelPath: dummyModel.path)
+        model.useLLM = true
+        await model.open(url)
+        await model.anonymize()
+
+        XCTAssertEqual(model.status, .ready)
+        XCTAssertFalse(
+            model.aiActive,
+            "a pass that left a detected value unredactable is not a complete AI pass"
+        )
+        let warning = try XCTUnwrap(model.aiWarning)
+        XCTAssertTrue(
+            warning.lowercased().contains("locate"),
+            "the warning must describe the anchoring failure, not truncation: \(warning)"
+        )
+        XCTAssertFalse(
+            warning.lowercased().contains("scan"),
+            "a truncation message here would misdiagnose the failure: \(warning)"
+        )
+    }
+
     // MARK: - Stop button (cancellation)
 
     /// A completer that blocks until the run's cancel token fires, then keeps
