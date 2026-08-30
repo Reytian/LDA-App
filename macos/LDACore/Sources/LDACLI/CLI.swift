@@ -102,12 +102,31 @@ public struct RestoreSummaryJSON: Codable, Equatable {
     public let restoredCount: Int
     public let orphanTokens: [String]
     public let suspectPlaceholders: [String]
+    /// Asterisk style only: masked forms shared by several entities, left
+    /// verbatim because substituting one would be a guess.
+    public let ambiguousReplacements: [String]
 
     public init(report: RestoreReport) {
         self.outputURL = report.outputURL.path
         self.restoredCount = report.restoredCount
         self.orphanTokens = report.orphanTokens
         self.suspectPlaceholders = report.suspectPlaceholders
+        self.ambiguousReplacements = report.ambiguousReplacements
+    }
+}
+
+// MARK: - Style argument
+
+/// Let --style parse directly into the engine enum ("token", "pseudonym",
+/// "asterisk").
+extension SubstitutionStyle: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument)
+    }
+
+    /// Shown by ArgumentParser in help output.
+    public static var allValueStrings: [String] {
+        SubstitutionStyle.allCases.map { $0.rawValue }
     }
 }
 
@@ -131,6 +150,7 @@ public enum LDACLI {
         outputDir: URL,
         passphrase: String?,
         llmModelPath: String? = nil,
+        style: SubstitutionStyle = .token,
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> AnonymizeResult {
         try requireExists(input)
@@ -143,7 +163,8 @@ public enum LDACLI {
             outputDir: outputDir,
             protection: protection,
             createdAtISO8601: timestamp(),
-            llmModelPath: llmModelPath
+            llmModelPath: llmModelPath,
+            style: style
         )
     }
 
@@ -271,6 +292,9 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Client profile label. The session reuses and extends that client's stored identities (same value, same placeholder, across sessions). Routes through session mode.")
     var client: String?
 
+    @Option(name: .long, help: "Output style: token emits {TYPE_N} placeholders (default). pseudonym emits natural-language stand-ins (Company A, 甲公司, 张某) that survive AI editing. asterisk emits masked values (张*明, 138****5678) for sending to a human reader; colliding masks restore as ambiguous, never guessed.")
+    var style: SubstitutionStyle = .token
+
     func run() throws {
         do {
             let inputs = try LDACLI.resolveSessionInputs(input.map { URL(fileURLWithPath: $0) })
@@ -282,7 +306,8 @@ struct Anonymize: ParsableCommand {
                     input: inputs[0],
                     outputDir: URL(fileURLWithPath: outputDir),
                     passphrase: passphrase,
-                    llmModelPath: model
+                    llmModelPath: model,
+                    style: style
                 )
                 print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
             } else {
@@ -291,7 +316,8 @@ struct Anonymize: ParsableCommand {
                     outputDir: URL(fileURLWithPath: outputDir),
                     passphrase: passphrase,
                     llmModelPath: model,
-                    clientLabel: client
+                    clientLabel: client,
+                    style: style
                 )
                 print(try CLIJSON.encode(result))
             }
