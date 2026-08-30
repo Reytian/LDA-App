@@ -79,6 +79,7 @@ extension ReviewModel {
         custom: [CustomPattern] = [],
         learnedRedact: [CustomPattern] = [],
         suppressKeys: Set<String> = [],
+        knownEntities: [Span] = [],
         cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> DetectionOutcome {
@@ -106,15 +107,21 @@ extension ReviewModel {
         }
         // The full-document literal rescan sweeps in repeat mentions of every
         // confirmed PERSON and COMPANY surface and of the document's defined
-        // short names, mirroring the LDAService detect pipeline. Suppression
-        // below still wins: a suppressed value's rescan spans carry the same
-        // (text, type) key and are filtered with it.
+        // short names, mirroring the LDAService detect pipeline. knownEntities
+        // carries the confirmed person and company spans of the session's
+        // OTHER documents (SessionModel wires them), mirroring the
+        // session-wide sweep in LDAService.anonymizeSession: their surfaces
+        // join the needle set, and every hit still enters the review list
+        // like any other detection. Suppression below still wins: a
+        // suppressed value's rescan spans carry the same (text, type) key and
+        // are filtered with it.
         let merged = EntityRescan.expand(
             SpanMerger.merge(
                 deterministic: deterministic,
                 llm: llm.spans
             ),
-            in: text
+            in: text,
+            knownEntities: knownEntities
         )
 
         // Suppress values the user has repeatedly rejected.

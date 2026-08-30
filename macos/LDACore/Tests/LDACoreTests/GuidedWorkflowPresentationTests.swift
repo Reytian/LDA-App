@@ -8,6 +8,41 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(AppMode.deanonymize.rawValue, "Restore")
     }
 
+    // MARK: - Cross-document re-scan advice
+
+    func testRescanAdviceIsSilentWhenEveryDocumentIsCovered() {
+        XCTAssertNil(AnonymizeWorkflowPresentation.rescanAdvice(for: []))
+    }
+
+    func testRescanAdviceNamesTheOneDocumentAndTheActionThatFixesIt() {
+        let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: [
+            SessionModel.RescanWarning(
+                entryID: UUID(),
+                documentName: "b.txt",
+                missedPartyCount: 1
+            )
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "b.txt still contains 1 name protected elsewhere in this session. "
+                + "Run Scan on it again, then copy."
+        )
+    }
+
+    func testRescanAdviceListsEveryUncoveredDocument() {
+        let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: [
+            SessionModel.RescanWarning(entryID: UUID(), documentName: "b.txt", missedPartyCount: 1),
+            SessionModel.RescanWarning(entryID: UUID(), documentName: "c.txt", missedPartyCount: 2)
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "b.txt, c.txt still contain 3 names protected elsewhere in this session. "
+                + "Run Scan on them again, then copy."
+        )
+    }
+
     func testSafePreviewReplacesAcceptedValuesAndLeavesRejectedValuesVisible() {
         let text = "Alice emailed bob@example.com."
         let entities = [

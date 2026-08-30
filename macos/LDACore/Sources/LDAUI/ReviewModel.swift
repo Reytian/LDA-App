@@ -142,6 +142,15 @@ public final class ReviewModel: ObservableObject {
     /// to the CustomPatternStore; the default is an empty list.
     public var customPatternProvider: () -> [CustomPattern] = { [] }
 
+    /// Supplies the confirmed PERSON and COMPANY spans of the session's OTHER
+    /// documents at anonymize time. Their surfaces join this document's
+    /// literal-rescan needles, so a party confirmed in one document surfaces
+    /// HERE as an ordinary review entity instead of leaking from the handoff
+    /// (the GUI half of the session-wide sweep in
+    /// LDAService.anonymizeSession). SessionModel wires this for every tray
+    /// document; a standalone model keeps the empty default.
+    public var sessionKnownEntitiesProvider: () -> [Span] = { [] }
+
     /// Supplies the output style at export and preview time. The default reads
     /// the persisted setting live, so a change in Settings applies to the next
     /// export without replumbing; tests inject a fixed closure.
@@ -363,6 +372,7 @@ public final class ReviewModel: ObservableObject {
         let shouldUseLLM = useLLM
         let path = modelPath
         let custom = customPatternProvider()
+        let knownEntities = sessionKnownEntitiesProvider()
         let learnedRedact = learningStore?.redactPatterns ?? []
         let suppress = learningStore?.suppressKeys ?? []
         let expectsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
@@ -394,6 +404,7 @@ public final class ReviewModel: ObservableObject {
                 custom: custom,
                 learnedRedact: learnedRedact,
                 suppressKeys: suppress,
+                knownEntities: knownEntities,
                 cancel: cancelToken,
                 onProgress: report
             )

@@ -113,6 +113,166 @@ final class EntityRescanTests: XCTestCase {
         XCTAssertTrue(expanded.allSatisfy { $0.text == "King" })
     }
 
+    // MARK: - Session known entities (cross-document needles)
+
+    func testKnownEntitiesAreSweptWithoutAnyLocalConfirmation() {
+        // The session-level recall gap: this document's own detection found
+        // nothing, yet a party confirmed in a partner document must be swept.
+        // The partner span's offsets belong to the partner's text and are
+        // meaningless here (they may even exceed this text's length); only
+        // the surface travels.
+        let text = "快帆科技确认收到全部款项。"
+        let partnerText = "本协议由杭州快帆科技有限公司（以下简称快帆科技）与张三签署。"
+        let partner = span("快帆科技", in: partnerText, occurrence: 1, type: .company)
+
+        let expanded = EntityRescan.expand([], in: text, knownEntities: [partner])
+
+        XCTAssertEqual(texts(of: expanded), ["快帆科技"])
+        XCTAssertEqual(expanded.first?.type, .company)
+    }
+
+    func testKnownEntityOffsetsNeverBlockLocalOccurrences() {
+        // A partner span whose range happens to coincide with this document's
+        // only mention of that surface must not block the sweep: blocking
+        // uses only THIS document's confirmed spans.
+        let text = "The annex names Meridian Works and the date 2026-01-01."
+        let date = span("2026-01-01", in: text, type: .date)
+        let foreign = span("Meridian Works", in: text, type: .company)
+
+        let expanded = EntityRescan.expand([date], in: text, knownEntities: [foreign])
+
+        XCTAssertEqual(expanded.filter { $0.text == "Meridian Works" }.count, 1)
+        XCTAssertEqual(expanded.count, 2, "the date span plus the swept company mention")
+    }
+
+    // MARK: - Unswept surfaces (cross-document recall check)
+
+    func testUnsweptSurfacesReportsAPartnerPartyTheDocumentStillCarries() {
+        // The whole point of the check: this document confirmed nothing about
+        // the party, and its text names them in the clear.
+        let text = "The filing was prepared for Jordan Marlowe this week."
+        let partnerText = "Witness statement: Jordan Marlowe attended the hearing."
+        let partner = span("Jordan Marlowe", in: partnerText, type: .person)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [],
+            knownEntities: [partner]
+        )
+
+        XCTAssertEqual(unswept, ["Jordan Marlowe"])
+    }
+
+    func testUnsweptSurfacesIgnoresPartnerOffsets() {
+        // Only the surface crosses documents. A partner span whose range runs
+        // past the end of THIS text must still be checked, not skipped or
+        // trapped into an out-of-range read.
+        let text = "Paid to Meridian Works."
+        let partnerText = String(repeating: "padding ", count: 40) + "Meridian Works closed."
+        let partner = span("Meridian Works", in: partnerText, type: .company)
+        XCTAssertGreaterThan(partner.start, (text as NSString).length)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [],
+            knownEntities: [partner]
+        )
+
+        XCTAssertEqual(unswept, ["Meridian Works"])
+    }
+
+    func testUnsweptSurfacesSkipsASurfaceTheDocumentAlreadyConfirmed() {
+        let text = "Meridian Works signed, and Meridian Works was paid."
+        let mine = span("Meridian Works", in: text, type: .company)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [mine],
+            knownEntities: [mine]
+        )
+
+        XCTAssertTrue(unswept.isEmpty)
+    }
+
+    func testUnsweptSurfacesSkipsOccurrencesInsideAConfirmedSpan() {
+        // The document confirmed the longer company name, so its only mention
+        // of the partner's person surface is already covered.
+        let text = "The filing was prepared by Jordan Marlowe Holdings this week."
+        let mine = span("Jordan Marlowe Holdings", in: text, type: .company)
+        let partnerText = "Witness statement: Jordan Marlowe attended."
+        let partner = span("Jordan Marlowe", in: partnerText, type: .person)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [mine],
+            knownEntities: [partner]
+        )
+
+        XCTAssertTrue(unswept.isEmpty)
+    }
+
+    func testUnsweptSurfacesSkipsNeedlesTooShortToRescan() {
+        let text = "Li reviewed the filing this week."
+        let partnerText = "Witness statement: Li attended the hearing."
+        let partner = span("Li", in: partnerText, type: .person)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [],
+            knownEntities: [partner]
+        )
+
+        XCTAssertTrue(unswept.isEmpty)
+    }
+
+    func testUnsweptSurfacesReportsATwoCharacterCJKShortName() {
+        // Two CJK characters clear the needle threshold, so a PRC short name
+        // is reportable where a two-letter Latin fragment is not.
+        let text = "快帆科技确认收到全部款项。"
+        let partnerText = "本协议由杭州快帆科技有限公司（以下简称快帆科技）签署。"
+        let partner = span("快帆科技", in: partnerText, occurrence: 1, type: .company)
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [],
+            knownEntities: [partner]
+        )
+
+        XCTAssertEqual(unswept, ["快帆科技"])
+    }
+
+    func testUnsweptSurfacesAgreesWithWhatExpandWouldSweep() {
+        // The contract that makes the warning trustworthy: every surface
+        // reported here is a surface expand() actually sweeps in, and nothing
+        // else is reported. A check that drifted from the sweep would send the
+        // user back to re-scan for something the re-scan refuses to find.
+        let text = "Li and Jordan Marlowe met at Jordan Marlowe Holdings about Meridian Works."
+        let holdings = span("Jordan Marlowe Holdings", in: text, type: .company)
+        let partnerText = "Li, Jordan Marlowe, Meridian Works and Wu were all named."
+        let partners = [
+            span("Li", in: partnerText, type: .person),
+            span("Jordan Marlowe", in: partnerText, type: .person),
+            span("Meridian Works", in: partnerText, type: .company),
+            span("Wu", in: partnerText, type: .person)
+        ]
+
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [holdings],
+            knownEntities: partners
+        )
+        let before = EntityRescan.expand([holdings], in: text)
+        let after = EntityRescan.expand([holdings], in: text, knownEntities: partners)
+        let swept = Set(after.map { $0.text }).subtracting(before.map { $0.text })
+
+        XCTAssertEqual(Set(unswept), swept)
+        XCTAssertEqual(
+            Set(unswept),
+            ["Jordan Marlowe", "Meridian Works"],
+            "the two-letter names stay out, and the mention outside the confirmed span counts"
+        )
+    }
+
     // MARK: - Needle safety
 
     func testShortLatinNeedleIsSkipped() {
@@ -333,5 +493,59 @@ final class EntityRescanTests: XCTestCase {
         // Generous budget: the pass must stay interactive on large documents.
         // Typical wall time on Apple Silicon is well under a second.
         XCTAssertLessThan(elapsed, 5.0, "rescan took \(elapsed)s on a 460 KB document")
+    }
+
+    func testUnsweptSurfacesStaysFastAcrossALargeSession() {
+        // The handoff runs this check once per ready document against the
+        // union of every OTHER document's parties, so the per-call cost is
+        // multiplied by the tray size and it runs on the main actor at a
+        // button press. This is an extreme single call: a 460 KB document
+        // against 600 partner surfaces, 120 of which it actually contains.
+        // Cost is one literal scan per distinct surface, so it grows with
+        // (document size x distinct parties in the session); a realistic tray
+        // of tens-of-KB documents and a few dozen parties lands two orders of
+        // magnitude below this. Typical wall time here on Apple Silicon is
+        // around 0.3s, so a tray of such documents is the case to watch.
+        var names: [String] = []
+        for index in 0..<120 {
+            names.append("Company Alpha\(index) Beta\(index) Holdings")
+        }
+        var blocks: [String] = []
+        for blockIndex in 0..<400 {
+            let name = names[blockIndex % names.count]
+            blocks.append(
+                "Section \(blockIndex). \(name) shall deliver the goods to the "
+                + "warehouse described in Schedule 3 and invoice the buyer within "
+                + "thirty days of acceptance, failing which penalties accrue daily."
+            )
+        }
+        let text = blocks.joined(separator: "\n")
+
+        // Partners from the rest of the tray: the 120 the document names, plus
+        // 480 parties that appear only in other documents.
+        var partners = names.map { span($0, in: text, type: .company) }
+        let absentText = (0..<480)
+            .map { "Absent Party Gamma\($0) Delta\($0) Limited" }
+            .joined(separator: ". ")
+        for index in 0..<480 {
+            partners.append(
+                span("Absent Party Gamma\(index) Delta\(index) Limited", in: absentText, type: .company)
+            )
+        }
+
+        let started = Date()
+        let unswept = EntityRescan.unsweptSurfaces(
+            in: text,
+            confirmed: [],
+            knownEntities: partners
+        )
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertEqual(unswept.count, 120, "only the parties the document names are reported")
+        XCTAssertLessThan(
+            elapsed,
+            1.0,
+            "cross-document check took \(elapsed)s for one document against 600 partner surfaces"
+        )
     }
 }

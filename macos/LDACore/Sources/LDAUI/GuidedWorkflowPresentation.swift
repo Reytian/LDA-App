@@ -64,6 +64,20 @@ enum AnonymizeWorkflowPresentation {
         guard let activeDocumentID else { return false }
         return includedDocumentIDs.contains(activeDocumentID)
     }
+
+    /// The banner sentence for documents the cross-document sweep did not
+    /// reach: which ones still carry a party another document confirmed, and
+    /// the one action that fixes it. Value-free, so the banner never restates
+    /// the PII it is warning about. Returns nil when there is nothing to say.
+    static func rescanAdvice(for warnings: [SessionModel.RescanWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        let names = warnings.map(\.documentName).joined(separator: ", ")
+        let subject = warnings.count == 1 ? "\(names) still contains" : "\(names) still contain"
+        let total = warnings.reduce(0) { $0 + $1.missedPartyCount }
+        let object = total == 1 ? "1 name" : "\(total) names"
+        let action = warnings.count == 1 ? "Run Scan on it again" : "Run Scan on them again"
+        return "\(subject) \(object) protected elsewhere in this session. \(action), then copy."
+    }
 }
 
 enum FillProfilePrimaryAction: Equatable {
