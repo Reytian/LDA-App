@@ -121,7 +121,8 @@ public struct DocumentPane: View {
         )
         let preview = ReviewModel.redactedPreviewText(
             text: model.documentText,
-            entities: entities
+            entities: entities,
+            style: model.outputStyleProvider()
         )
         safePreviewDocument = Self.styleTokenLiterals(in: preview)
     }
