@@ -381,9 +381,14 @@ public struct DocumentVault {
 
     /// Read the stored bytes of an entry. Routed through the plaintext
     /// chokepoint so phase 5 (encryption at rest) changes one function.
+    /// FileManager.contents is deliberate: unlike Data(contentsOf:) it has no
+    /// remote-URL capability, so the network chokepoint scan stays clean.
     public func readDocumentBytes(handle: String) throws -> Data {
         let found = try entry(handle: handle)
-        return try Data(contentsOf: plaintextFileURL(for: found))
+        guard let data = FileManager.default.contents(atPath: plaintextFileURL(for: found).path) else {
+            throw DocumentVaultError.unknownHandle(handle)
+        }
+        return data
     }
 
     /// Run body with a URL from which the entry's plaintext can be read.
@@ -518,13 +523,17 @@ public struct DocumentVault {
     }
 
     /// Load the registry, treating a missing file as empty. Called with the
-    /// registry lock held.
+    /// registry lock held. FileManager.contents is deliberate: unlike
+    /// Data(contentsOf:) it has no remote-URL capability, so the network
+    /// chokepoint scan stays clean.
     private func loadRegistryLocked() throws -> Registry {
         guard FileManager.default.fileExists(atPath: registryURL.path) else {
             return .empty
         }
-        let data = try Data(contentsOf: registryURL)
-        guard let registry = try? JSONDecoder().decode(Registry.self, from: data) else {
+        guard
+            let data = FileManager.default.contents(atPath: registryURL.path),
+            let registry = try? JSONDecoder().decode(Registry.self, from: data)
+        else {
             throw DocumentVaultError.corruptRegistry
         }
         return registry
