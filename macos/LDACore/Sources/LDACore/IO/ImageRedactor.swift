@@ -106,6 +106,7 @@ public enum ImageRedactor {
         // outset a little before painting: recognizer boxes can sit tight on
         // the glyphs, and clipped ascenders or descenders must not survive.
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        var paintedCount = 0
         for line in lines {
             let raw = CGRect(
                 x: line.normalizedBox.origin.x * CGFloat(width),
@@ -117,6 +118,7 @@ public enum ImageRedactor {
             let padded = raw.insetBy(dx: -outset, dy: -outset).intersection(bounds)
             guard !padded.isNull, !padded.isEmpty else { continue }
             context.fill(padded)
+            paintedCount += 1
         }
 
         guard let redacted = context.makeImage() else {
@@ -140,7 +142,7 @@ public enum ImageRedactor {
             )
         }
 
-        return lines.count
+        return paintedCount
     }
 
     // MARK: - Tunables
