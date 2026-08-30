@@ -90,6 +90,16 @@ else
 fi
 BIN="$BUILD_DIR/LDAApp"
 
+# Ship gate: the test seams are #if DEBUG, so a release binary must contain
+# ZERO *ForTesting symbols. The unit suite cannot catch a regression here
+# because it always builds debug; this scan is the only check that does.
+echo "==> Verifying no test seams in the release binary"
+if nm "$BIN" 2>/dev/null | grep -qi "ForTesting"; then
+  echo "!! Release binary contains test-seam symbols; refusing to package." >&2
+  nm "$BIN" | grep -i "ForTesting" | head -5 >&2
+  exit 1
+fi
+
 echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

@@ -219,35 +219,18 @@ public enum DocxRedactor {
     /// Replace all grammar-matched tokens in a single run's text with their
     /// mapped values. Tokens absent from tokenToValue are left untouched so the
     /// orphan guard downstream can flag them.
+    ///
+    /// The scan is shared with Restorer (see TokenSubstitution): a docx run and
+    /// a plain-text surface must agree on what a token is and on leaving an
+    /// unknown one verbatim, or the same document restores differently
+    /// depending on which surface it came back on.
     private static func replaceTokens(
         in text: String,
         using regex: NSRegularExpression,
         tokenToValue: [String: String]
     ) -> String {
-        let ns = text as NSString
-        let full = NSRange(location: 0, length: ns.length)
-        let matches = regex.matches(in: text, range: full)
-        guard !matches.isEmpty else { return text }
-
-        var result = ""
-        var cursor = 0
-        for match in matches {
-            let range = match.range
-            // Copy the text between the previous match and this one.
-            if range.location > cursor {
-                result += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
-            }
-            let token = ns.substring(with: range)
-            if let value = tokenToValue[token] {
-                result += value
-            } else {
-                result += token
-            }
-            cursor = range.location + range.length
-        }
-        if cursor < ns.length {
-            result += ns.substring(from: cursor)
-        }
-        return result
+        TokenSubstitution.substitute(in: text, matching: regex) { token in
+            tokenToValue[token]
+        }.text
     }
 }

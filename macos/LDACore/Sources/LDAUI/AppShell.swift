@@ -72,6 +72,11 @@ public struct AppShell: View {
     /// so one matter's live content cannot be relabeled as another matter.
     @State private var pendingClientSelection: PendingClientSelection?
 
+    /// Whether Touch ID protection actually took effect. Shown next to the
+    /// On-device badge when it did not, so the trust claim in the UI matches
+    /// what the Keychain is really doing.
+    @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+
     public init(
         session: SessionModel,
         isActive: Bool = true,
@@ -672,6 +677,18 @@ public struct AppShell: View {
                     + "LDA uses the network only to download a detection model "
                     + "you ask for, and only while that download runs.")
                 .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
+
+            // When the user-presence upgrade failed, say so here rather than
+            // letting the On-device badge imply a Touch ID gate that is not
+            // there. See KeychainAdvisoryStore.
+            if let advisory = keychainAdvisory.advisory {
+                Label("Touch ID inactive", systemImage: "exclamationmark.triangle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
+                    .help(advisory)
+                    .accessibilityLabel(Text(advisory))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

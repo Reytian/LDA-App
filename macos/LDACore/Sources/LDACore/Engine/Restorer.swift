@@ -77,50 +77,13 @@ public enum Restorer {
             return RestoreResult(text: text, restoredCount: 0, orphanTokens: [])
         }
 
-        // Offsets are UTF-16 code units because NSRegularExpression runs over the
-        // text as an NSString, matching the offset convention documented in
-        // CoreTypes.swift.
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        let matches = regex.matches(in: text, options: [], range: fullRange)
-
-        var result = ""
-        var cursor = 0
-        var restoredCount = 0
-        var seenOrphans = Set<String>()
-        var orphanTokens: [String] = []
-
-        for match in matches {
-            let range = match.range
-
-            // Copy the verbatim text between the previous match and this one.
-            if range.location > cursor {
-                result += nsText.substring(
-                    with: NSRange(location: cursor, length: range.location - cursor)
-                )
-            }
-
-            let token = nsText.substring(with: range)
-            if let value = tokenToValue[token] {
-                // Emit the restored value. The cursor advances past it below, so
-                // this value is never re-scanned for further substitution.
-                result += value
-                restoredCount += 1
-            } else {
-                // Unmapped token-shaped string: leave it verbatim and report it as
-                // an orphan for the user to review.
-                result += token
-                if seenOrphans.insert(token).inserted {
-                    orphanTokens.append(token)
-                }
-            }
-
-            cursor = range.location + range.length
-        }
-
-        // Copy any trailing verbatim text after the last match.
-        if cursor < nsText.length {
-            result += nsText.substring(from: cursor)
+        // The scan itself is shared with DocxRedactor's per-run substitution
+        // (see TokenSubstitution), so the token grammar and the "an unmapped
+        // token is left verbatim, never blanked" rule cannot drift between the
+        // text surface and the docx surface. Unmapped tokens come back as
+        // orphans for the user to review.
+        let outcome = TokenSubstitution.substitute(in: text, matching: regex) { token in
+            tokenToValue[token]
         }
 
         // Forensics pass: find near-miss placeholder shapes (an external AI may
@@ -131,9 +94,9 @@ public enum Restorer {
         let suspects = PlaceholderForensics.suspects(in: text, mapping: mapping)
 
         return RestoreResult(
-            text: result,
-            restoredCount: restoredCount,
-            orphanTokens: orphanTokens,
+            text: outcome.text,
+            restoredCount: outcome.substitutedCount,
+            orphanTokens: outcome.unmappedTokens,
             suspectPlaceholders: suspects
         )
     }

@@ -10,8 +10,9 @@
 //
 //  Stored properties (@Published state, test seams) STAY in ReviewModel.swift
 //  because stored properties cannot live in extensions. The methods here are
-//  all nonisolated static; they access test-seam properties declared
-//  nonisolated(unsafe) in ReviewModel.swift.
+//  all nonisolated static; they reach the test seams through the nonisolated
+//  effective* accessors in ReviewModel.swift, which are DEBUG-only TestSeam
+//  slots there and unconditionally nil in release builds.
 //
 //  Access-level note: DetectionOutcome, LLMPassOutcome, and describe are
 //  declared internal (not private) because private is file-scoped in Swift;
@@ -74,7 +75,7 @@ extension ReviewModel {
         cancel: ExtractionCancelToken? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) -> DetectionOutcome {
-        if let delay = detectDelayForTesting {
+        if let delay = effectiveDetectDelay {
             Thread.sleep(forTimeInterval: delay)
         }
         // Custom vocabulary and learned redactions join the deterministic list
@@ -177,7 +178,7 @@ extension ReviewModel {
         }
         do {
             let extractor: LLMExtractor
-            if let factory = llmExtractorFactoryForTesting {
+            if let factory = effectiveLLMExtractorFactory {
                 extractor = factory(modelPath, cancel)
             } else {
                 let engine = try LLMEngine(config: .init(modelPath: modelPath))
@@ -394,6 +395,8 @@ extension ReviewModel {
                 return "The document could not be decrypted."
             case .keychainError(let status):
                 return "A Keychain error occurred (status \(status))."
+            case .tooLarge(let detail):
+                return "That file is too large to open. \(detail)"
             }
         default:
             return error.localizedDescription

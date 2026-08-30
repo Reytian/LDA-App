@@ -64,6 +64,12 @@ final class CrossParagraphSpanTests: XCTestCase {
         }
     }
 
+    override func setUp() {
+        super.setUp()
+        // Fail here if an earlier suite leaked a process-wide test seam.
+        assertNoTestSeamsInstalled()
+    }
+
     override func tearDown() {
         LDAService.makeExtractorForTesting = nil
         super.tearDown()

@@ -54,6 +54,7 @@ public struct TextDocumentIO: DocumentImporter, Sendable {
     /// trying UTF-8 first and a small set of fallback encodings after. Throws
     /// DocumentIOError.unreadable when the file cannot be read or decoded.
     public func importDocument(_ url: URL) throws -> ImportedDocument {
+        try ImportLimits.enforceDocumentSize(at: url)
         let data: Data
         do {
             data = try Data(contentsOf: url)

@@ -146,6 +146,10 @@ public enum DocumentIOError: Error, LocalizedError, Sendable {
     case decryptionFailed
     /// A Keychain operation failed; carries the OSStatus from Security.framework.
     case keychainError(OSStatus)
+    /// The input exceeded an ImportLimits ceiling (document size, archive
+    /// payload, or archive entry count). Associated value is a user-facing
+    /// detail naming the file and the limit.
+    case tooLarge(String)
 
     public var errorDescription: String? {
         switch self {
@@ -161,6 +165,8 @@ public enum DocumentIOError: Error, LocalizedError, Sendable {
             return "Could not decrypt the document (wrong passphrase or tampered file)."
         case .keychainError(let status):
             return "Keychain operation failed with status \(status)."
+        case .tooLarge(let detail):
+            return "The file is too large to import: \(detail)"
         }
     }
 }

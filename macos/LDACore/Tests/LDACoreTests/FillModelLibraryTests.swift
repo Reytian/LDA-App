@@ -34,6 +34,8 @@ final class FillModelLibraryTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Fail here if an earlier suite leaked a process-wide test seam.
+        assertNoTestSeamsInstalled()
 
         // Probe the Keychain so library tests skip cleanly on unsigned processes.
         // Duplicated from FillModelTests (see file header for rationale).

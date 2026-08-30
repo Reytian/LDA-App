@@ -28,6 +28,7 @@
 //
 
 import Foundation
+import Security
 import LDACore
 
 // MARK: - MCPServer
@@ -47,7 +48,15 @@ public struct MCPServer {
     public static let serverName = "lda-mcp"
 
     /// The advertised server version.
-    public static let serverVersion = "0.1.0"
+    public static let serverVersion = "1.0.0"
+
+    /// Maximum bytes accepted for a single JSON-RPC line on stdin.
+    ///
+    /// The stdio loop accumulates bytes until it sees a newline, so a client
+    /// that never sends one would otherwise grow the buffer without bound. 10 MB
+    /// is far above any legitimate request (paths and options, never document
+    /// bytes) and far below a memory problem.
+    public static let maxRequestLineBytes = 10 * 1024 * 1024
 
     public init() {}
 
@@ -204,7 +213,11 @@ public struct MCPServer {
             "entityCount": result.entityCount,
             "entityTypes": entityTypeStrings(result.entities),
             "imageRedactionCount": result.imageRedactionCount,
-            "embeddedMediaCount": result.embeddedMediaCount
+            "embeddedMediaCount": result.embeddedMediaCount,
+            // Non-zero means the review PDF still SHOWS those values even though
+            // the edit surface and mapping have them tokenized. The host must
+            // relay this, not drop it.
+            "unboxedTokenCount": result.unboxedTokenCount
         ]
         if let visual = result.visualPdfURL {
             summary["visualPdf"] = visual.path
@@ -230,16 +243,34 @@ public struct MCPServer {
             )
         } catch {
             // Sidecars written by older builds were all encrypted under one
-            // shared Keychain account. When the per-document key cannot open
-            // the mapping (and no passphrase was supplied), retry once with
-            // the legacy account so old sidecars keep restoring.
-            guard case .keychain = protection else { throw error }
-            report = try LDAService.restore(
-                editedRedacted: editedRedacted,
-                mapping: mapping,
-                protection: .keychain(account: MCPServer.defaultKeychainAccount),
-                output: output
-            )
+            // shared Keychain account, so a MISSING per-document key is worth
+            // one retry against the legacy account.
+            //
+            // Only that case. The retry used to fire on any error, which meant a
+            // genuine decryptionFailed (wrong passphrase, tampered sidecar) was
+            // re-attempted and then reported as whatever the second attempt
+            // happened to fail with, hiding the real cause from the user. A
+            // tampered mapping must surface as tampering.
+            guard case .keychain = protection,
+                  case DocumentIOError.keychainError(errSecItemNotFound) = error
+            else {
+                throw error
+            }
+            do {
+                report = try LDAService.restore(
+                    editedRedacted: editedRedacted,
+                    mapping: mapping,
+                    protection: .keychain(account: MCPServer.defaultKeychainAccount),
+                    output: output
+                )
+            } catch let legacyError {
+                // Report both: the per-document key was absent AND the legacy
+                // account did not work either.
+                throw MCPToolError.restoreFailedAfterLegacyRetry(
+                    original: describe(error),
+                    retry: describe(legacyError)
+                )
+            }
         }
 
         return [
@@ -280,7 +311,24 @@ public struct MCPServer {
         guard let value = arguments[key] as? String, !value.isEmpty else {
             throw MCPToolError.missingArgument(key)
         }
-        return URL(fileURLWithPath: value)
+        return try allowedURL(value, key: key)
+    }
+
+    /// Build a file URL from a path argument and enforce the path allow-list.
+    ///
+    /// Every path a REQUEST supplies for a document, a mapping, a profile, or an
+    /// output goes through here. The one deliberate exception is the GGUF model
+    /// path: a distributed build reads its model from inside the .app bundle in
+    /// /Applications, which is outside the allow-list by design, and a model
+    /// path is handed to llama.cpp rather than read back into a response, so it
+    /// is not a route for reading a file the user did not name.
+    ///
+    /// Internal so the fill, session, and portfolio tool extensions use the same
+    /// gate instead of constructing URLs directly.
+    func allowedURL(_ path: String, key: String) throws -> URL {
+        let url = URL(fileURLWithPath: path)
+        try MCPPathPolicy.enforce(url, argumentKey: key)
+        return url
     }
 
     /// Choose the mapping protection mode from the arguments. A passphrase, when
@@ -331,6 +379,9 @@ public struct MCPServer {
         if let portfolioToolError = error as? MCPPortfolioToolError {
             return portfolioToolError.message
         }
+        if let pathError = error as? MCPPathPolicyError {
+            return pathError.message
+        }
         if let resolutionError = error as? PortfolioResolutionError {
             return describe(resolutionError)
         }
@@ -380,6 +431,8 @@ public struct MCPServer {
             return "Decryption failed (wrong passphrase or tampered mapping)"
         case .keychainError(let status):
             return "Keychain error with status \(status)"
+        case .tooLarge(let detail):
+            return "Input too large: \(detail)"
         }
     }
 
@@ -616,7 +669,6 @@ public struct MCPServer {
         // Accumulate bytes and split on newlines so a request may arrive in
         // several read chunks. The handler runs once per complete line.
         var buffer = Data()
-        let newline = UInt8(ascii: "\n")
 
         while true {
             let chunk = input.availableData
@@ -627,23 +679,85 @@ public struct MCPServer {
                 }
                 break
             }
-            buffer.append(chunk)
 
-            while let newlineIndex = buffer.firstIndex(of: newline) {
-                let line = buffer.subdata(in: buffer.startIndex..<newlineIndex)
-                // Advance past the consumed line and its newline.
-                let nextStart = buffer.index(after: newlineIndex)
-                buffer = buffer.subdata(in: nextStart..<buffer.endIndex)
+            let step = MCPServer.consume(buffer: buffer, appending: chunk)
+            buffer = step.buffer
+            if step.oversizeDiscarded {
+                writeOversizeLineError(to: output)
+            }
+            for line in step.lines {
                 processLine(line, to: output)
             }
         }
     }
 
+    // MARK: Buffer framing
+
+    /// What one read chunk produced: the complete lines to dispatch, whatever
+    /// remains buffered, and whether an oversize partial line was discarded.
+    struct StdioBufferStep {
+        var lines: [Data]
+        var buffer: Data
+        var oversizeDiscarded: Bool
+    }
+
+    /// Append a chunk to the accumulation buffer and split out complete lines.
+    ///
+    /// Pure, and internal rather than private, so the framing rules (including
+    /// the size cap) are unit-testable without driving real file handles.
+    ///
+    /// The cap exists because this loop accumulates until it sees a newline: a
+    /// client that never sends one would otherwise grow the buffer until the
+    /// process is killed. When the buffer passes the cap with no newline in it,
+    /// the accumulated bytes are dropped and the caller reports a parse error.
+    /// Resynchronizing at the next newline is the only sane recovery for a
+    /// line-delimited protocol.
+    static func consume(buffer: Data, appending chunk: Data) -> StdioBufferStep {
+        let newline = UInt8(ascii: "\n")
+        var working = buffer
+        working.append(chunk)
+
+        if working.count > maxRequestLineBytes, !working.contains(newline) {
+            return StdioBufferStep(lines: [], buffer: Data(), oversizeDiscarded: true)
+        }
+
+        var lines: [Data] = []
+        while let newlineIndex = working.firstIndex(of: newline) {
+            lines.append(working.subdata(in: working.startIndex..<newlineIndex))
+            // Advance past the consumed line and its newline.
+            let nextStart = working.index(after: newlineIndex)
+            working = working.subdata(in: nextStart..<working.endIndex)
+        }
+        return StdioBufferStep(lines: lines, buffer: working, oversizeDiscarded: false)
+    }
+
+    /// Emit a JSON-RPC parse error for a line that exceeded the size cap. The
+    /// id is null because the request was never parsed, so its id is unknown.
+    private func writeOversizeLineError(to output: FileHandle) {
+        let message = "Request line exceeded "
+            + "\(MCPServer.maxRequestLineBytes) bytes and was discarded."
+        guard let data = encode(
+            errorWithId: .null,
+            code: parseError,
+            message: message
+        ) else { return }
+        var out = data
+        out.append(UInt8(ascii: "\n"))
+        output.write(out)
+    }
+
     /// Hand one raw line to handle(_:) and write any non-nil response as a single
     /// newline-terminated line to stdout. Blank lines are ignored.
+    ///
+    /// A single complete line over the cap is rejected too: the cap has to hold
+    /// whether the oversize payload arrives with a newline or without one.
     private func processLine(_ line: Data, to output: FileHandle) {
         let trimmed = line.filter { $0 != UInt8(ascii: "\r") }
         if trimmed.isEmpty {
+            return
+        }
+        if trimmed.count > MCPServer.maxRequestLineBytes {
+            writeOversizeLineError(to: output)
             return
         }
         guard let response = handle(trimmed) else {
@@ -696,13 +810,20 @@ private enum RequestID {
 // MARK: - Tool errors
 
 /// Errors raised while validating tool-call arguments at the MCP edge.
-private enum MCPToolError: Error {
+enum MCPToolError: Error {
     case missingArgument(String)
+    /// The per-document key was absent and the legacy shared account did not
+    /// work either. Carries both descriptions so the user sees the real cause
+    /// rather than only the second failure.
+    case restoreFailedAfterLegacyRetry(original: String, retry: String)
 
     var message: String {
         switch self {
         case .missingArgument(let key):
             return "Missing or empty required argument: \(key)"
+        case .restoreFailedAfterLegacyRetry(let original, let retry):
+            return "Restore failed. Per-document key: \(original). "
+                + "Legacy shared key: \(retry)."
         }
     }
 }

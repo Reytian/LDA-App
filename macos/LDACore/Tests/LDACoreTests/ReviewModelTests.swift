@@ -50,6 +50,9 @@ final class ReviewModelTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        // Fail here if an earlier suite leaked a process-wide test seam; this
+        // suite installs ReviewModel seams itself, so it must start clean.
+        assertNoTestSeamsInstalled()
         XCTAssertTrue(
             DeterministicEngine.isValidChineseID(Self.validChineseID),
             "fixture national ID must be checksum-valid"

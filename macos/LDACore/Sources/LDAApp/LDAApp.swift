@@ -33,6 +33,13 @@ struct LDAApp: App {
         // Keychain if macOS rejects the biometric path for lack of a provisioned
         // application identifier. Headless surfaces leave this policy off.
         KeychainAccessPolicy.requireUserPresence = true
+
+        // Turn on the local encrypted audit trail for the GUI app. It records
+        // encryption and Keychain operations (timestamps, operation, store
+        // kind, success or failure) and never a document value, a file path, or
+        // a client label. Headless surfaces leave it off, so linking LDACore
+        // does not start writing an audit file.
+        SecurityEventLog.shared.isEnabled = true
     }
     // Both child models and the mode store are hoisted here so the CommandMenu
     // closures can capture and dispatch to the right model at call time.
@@ -120,6 +127,14 @@ struct LDAApp: App {
                 }
                 .onChange(of: detectionLevelRaw) { _, _ in
                     sessionModel.reapplyConfiguration()
+                }
+                .onDisappear {
+                    // Closing the window ends the session: documents unpacked
+                    // from a .zip are un-redacted originals and should not stay
+                    // in the temp directory, and any buffered audit events
+                    // should reach disk.
+                    sessionModel.discardExpandedArchives()
+                    SecurityEventLog.shared.flush()
                 }
         }
 

@@ -115,12 +115,26 @@ public final class LLMEngine {
         case contextCreationFailed
         case decodeFailed(Int32)
         case cancelled
+        /// llama_batch_init returned a batch whose per-token sequence-id rows
+        /// are not all allocated. Reported instead of force-unwrapped: a nil
+        /// row used to crash the process, which in the MCP server means the
+        /// host loses the connection mid-request and in the GUI means the app
+        /// disappears while a lawyer is mid-review.
+        case batchUnallocated(row: Int)
     }
 
     /// Optional cancellation flag. Checked once per generated token in both
     /// complete() and completeBatch(); when set, generation aborts by throwing
-    /// LLMError.cancelled. Set by the owner before starting a run; safe to
-    /// leave nil.
+    /// LLMError.cancelled. Safe to leave nil.
+    ///
+    /// THREADING CONTRACT. LLMEngine is not Sendable: it owns raw llama.cpp
+    /// pointers and one inference context, so exactly one thread may call into
+    /// it at a time. This property inherits that contract rather than relaxing
+    /// it. Assign it from the owning thread BEFORE starting a run, and do not
+    /// write it while complete() or completeBatch() is executing. Cross-thread
+    /// cancellation is the job of ExtractionCancelToken, which is itself
+    /// synchronized: hold a reference to the token and call cancel() on it from
+    /// wherever the stop button lives, instead of reassigning this property.
     public var cancelToken: ExtractionCancelToken?
 
     private let model: OpaquePointer
@@ -330,6 +344,23 @@ public final class LLMEngine {
         var batch = llama_batch_init(Int32(capacity), 0, 1)
         defer { llama_batch_free(batch) }
 
+        // llama_batch_init allocates one sequence-id row per token slot. Verify
+        // every row once here and keep the unwrapped pointers, so the two hot
+        // loops below index a non-optional array instead of force-unwrapping on
+        // each token. A failed allocation now surfaces as a thrown error the
+        // caller can report and retry, rather than a trap.
+        guard let seqIdBase = batch.seq_id else {
+            throw LLMError.batchUnallocated(row: 0)
+        }
+        var seqIdRows: [UnsafeMutablePointer<llama_seq_id>] = []
+        seqIdRows.reserveCapacity(capacity)
+        for row in 0 ..< capacity {
+            guard let rowPointer = seqIdBase[row] else {
+                throw LLMError.batchUnallocated(row: row)
+            }
+            seqIdRows.append(rowPointer)
+        }
+
         // Greedy sampler chain, shared across sequences (greedy is stateless).
         let sampler = llama_sampler_chain_init(llama_sampler_chain_default_params())
         defer { llama_sampler_free(sampler) }
@@ -372,7 +403,7 @@ public final class LLMEngine {
                     batch.token[batchIndex] = tokens[position]
                     batch.pos[batchIndex] = llama_pos(position)
                     batch.n_seq_id[batchIndex] = 1
-                    batch.seq_id[batchIndex]![0] = llama_seq_id(slot)
+                    seqIdRows[batchIndex][0] = llama_seq_id(slot)
                     batch.logits[batchIndex] = position == tokens.count - 1 ? 1 : 0
                     batchIndex += 1
                 }
@@ -424,7 +455,7 @@ public final class LLMEngine {
                 batch.token[row] = slotPending[slot]
                 batch.pos[row] = slotPos[slot]
                 batch.n_seq_id[row] = 1
-                batch.seq_id[row]![0] = llama_seq_id(slot)
+                seqIdRows[row][0] = llama_seq_id(slot)
                 batch.logits[row] = 1
                 slotPos[slot] += 1
             }

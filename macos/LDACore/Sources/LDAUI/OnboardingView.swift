@@ -99,7 +99,7 @@ public struct OnboardingView: View {
                     + "document.\n"
                     + "Restore Clipboard, in the menu-bar icon, is the one action that puts "
                     + "real values on your clipboard; it tries to clear them again about "
-                    + "\(Int(CompanionMenu.clipboardClearDelay)) seconds later, so paste "
+                    + "\(Int(SensitiveClipboard.autoClearAfter)) seconds later, so paste "
                     + "promptly and do not rely on the clearing.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)

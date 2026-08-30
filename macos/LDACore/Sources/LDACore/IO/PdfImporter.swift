@@ -67,6 +67,7 @@ public struct PdfImporter: DocumentImporter {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw DocumentIOError.unreadable("File not found at \(url.path)")
         }
+        try ImportLimits.enforceDocumentSize(at: url)
 
         guard let document = PDFDocument(url: url) else {
             throw DocumentIOError.corrupt("PDFKit could not open the document at \(url.path)")
@@ -123,6 +124,7 @@ public struct PdfImporter: DocumentImporter {
                 continue
             }
 
+            var boxesForEntry: [RedactionBox] = []
             let selections = document.findString(needle, withOptions: .caseInsensitive)
             for selection in selections {
                 for page in selection.pages {
@@ -131,13 +133,214 @@ public struct PdfImporter: DocumentImporter {
                     if rect.isNull || rect.isEmpty {
                         continue
                     }
-                    boxes.append(
+                    boxesForEntry.append(
                         RedactionBox(pageIndex: pageIndex, rect: rect, token: entry.token)
                     )
                 }
             }
+
+            // Fallback for visually split PII. PDFDocument.findString matches the
+            // needle only as a contiguous run in the text layer, so a name broken
+            // across two lines of a table cell, or across a column break, is
+            // detected in the extracted text (where the layout is already
+            // flattened) but produces NO selection here. The consequence is a
+            // review PDF that still SHOWS a value the app reports as redacted,
+            // which is the worst kind of miss in this app.
+            //
+            // The fallback searches each page with whitespace normalized on both
+            // sides, then converts the matched character range into one box PER
+            // LINE, so a two-line name gets two boxes that actually cover it
+            // rather than one rect spanning the gap between them.
+            if boxesForEntry.isEmpty {
+                boxesForEntry = normalizedSearchBoxes(
+                    needle: needle,
+                    token: entry.token,
+                    in: document
+                )
+            }
+
+            boxes.append(contentsOf: boxesForEntry)
         }
 
         return boxes
+    }
+
+    // MARK: - Whitespace-normalized fallback search
+
+    /// Find `needle` on every page with whitespace normalized, and return one
+    /// box per line of each match.
+    ///
+    /// Internal rather than private so the cross-line behavior is directly
+    /// testable; the production entry point is redactionBoxes(in:surfaceTexts:).
+    static func normalizedSearchBoxes(
+        needle: String,
+        token: String,
+        in document: PDFDocument
+    ) -> [RedactionBox] {
+        let normalizedNeedle = normalizeWhitespace(needle).text
+        guard !normalizedNeedle.isEmpty else { return [] }
+
+        var boxes: [RedactionBox] = []
+        for pageIndex in 0 ..< document.pageCount {
+            guard let page = document.page(at: pageIndex), let pageText = page.string else {
+                continue
+            }
+            let normalized = normalizeWhitespace(pageText)
+            guard !normalized.text.isEmpty else { continue }
+
+            // Search and index in ONE space: UTF-16 code units. NSString's
+            // case-insensitive search returns UTF-16 offsets directly, and
+            // originalIndexes carries one entry per UTF-16 unit of the
+            // normalized text, so the two line up by construction. The earlier
+            // version mixed spaces: it indexed the map with Character
+            // (grapheme) distances, so any decomposed accent in the page text
+            // (Jose + combining acute, which PDF ToUnicode maps do produce)
+            // shifted every later match and painted boxes over the WRONG
+            // glyphs while unboxedTokenCount stayed zero. Lowercasing the
+            // haystack was part of the same trap: lowercasing can change
+            // UTF-16 length (Turkish dotted I), so the search uses the
+            // caseInsensitive option instead of transforming either string.
+            let haystack = normalized.text as NSString
+            var searchStart = 0
+            while searchStart < haystack.length {
+                let found = haystack.range(
+                    of: normalizedNeedle,
+                    options: [.caseInsensitive],
+                    range: NSRange(location: searchStart, length: haystack.length - searchStart)
+                )
+                guard found.location != NSNotFound, found.length > 0 else { break }
+                let originalIndexes = Array(
+                    normalized.originalIndexes[found.location ..< found.location + found.length]
+                )
+                boxes.append(
+                    contentsOf: lineBoxes(
+                        for: originalIndexes,
+                        on: page,
+                        pageIndex: pageIndex,
+                        token: token
+                    )
+                )
+                searchStart = found.location + found.length
+            }
+        }
+        return boxes
+    }
+
+    /// A whitespace-normalized copy of text plus, for each UTF-16 code unit of
+    /// the normalized text, the UTF-16 index it came from in the original.
+    ///
+    /// Normalization collapses every run of whitespace to a single space and
+    /// trims the ends. INVARIANT: originalIndexes.count == text.utf16.count,
+    /// one entry per unit, so a UTF-16 search range over `text` indexes the map
+    /// directly. Keeping the map per-unit (not per-character) is what makes
+    /// decomposed accents and surrogate pairs safe: a combining mark is its own
+    /// unit with its own entry, and a supplementary-plane character contributes
+    /// two units and two entries.
+    static func normalizeWhitespace(_ text: String) -> (text: String, originalIndexes: [Int]) {
+        let source = text as NSString
+        var output = ""
+        var indexes: [Int] = []
+        var previousWasSpace = true // leading whitespace is dropped
+
+        var index = 0
+        while index < source.length {
+            let unit = source.character(at: index)
+
+            // Assemble a surrogate pair into its scalar so supplementary-plane
+            // characters survive normalization; both of the pair's units get an
+            // index entry to preserve the per-unit invariant. A lone surrogate
+            // (malformed text layer) is dropped, which keeps the map aligned.
+            let scalar: Unicode.Scalar
+            var unitWidth = 1
+            if UTF16.isLeadSurrogate(unit), index + 1 < source.length,
+               UTF16.isTrailSurrogate(source.character(at: index + 1)) {
+                // Combine the pair arithmetically (U+10000 plus the two 10-bit
+                // halves); both halves are range-checked above, so the scalar
+                // initializer cannot fail.
+                let high = UInt32(unit - 0xD800)
+                let low = UInt32(source.character(at: index + 1) - 0xDC00)
+                scalar = Unicode.Scalar(0x10000 + (high << 10) + low)!
+                unitWidth = 2
+            } else if let simple = Unicode.Scalar(unit), !UTF16.isLeadSurrogate(unit),
+                      !UTF16.isTrailSurrogate(unit) {
+                scalar = simple
+            } else {
+                index += 1
+                continue
+            }
+
+            if Character(scalar).isWhitespace {
+                if !previousWasSpace {
+                    output.append(" ")
+                    indexes.append(index)
+                    previousWasSpace = true
+                }
+                index += unitWidth
+                continue
+            }
+
+            output.unicodeScalars.append(scalar)
+            indexes.append(index)
+            if unitWidth == 2 {
+                indexes.append(index + 1)
+            }
+            previousWasSpace = false
+            index += unitWidth
+        }
+
+        // Drop a trailing collapsed space so a match at the end is not padded.
+        if output.hasSuffix(" ") {
+            output.removeLast()
+            indexes.removeLast()
+        }
+        return (output, indexes)
+    }
+
+    /// Convert a run of original character indexes into one rect per visual line.
+    ///
+    /// A new line starts when the next character's rect does not overlap the
+    /// current run vertically. Emitting per-line rects is the point: a single
+    /// union rect over a two-line match would paint a band across whatever sits
+    /// between the two lines, and a bounding rect of the two lines' extremes can
+    /// still leave the actual glyphs partly uncovered.
+    private static func lineBoxes(
+        for originalIndexes: [Int],
+        on page: PDFPage,
+        pageIndex: Int,
+        token: String
+    ) -> [RedactionBox] {
+        let characterCount = page.numberOfCharacters
+        var boxes: [RedactionBox] = []
+        var current: CGRect?
+
+        for index in originalIndexes {
+            guard index >= 0, index < characterCount else { continue }
+            let rect = page.characterBounds(at: index)
+            if rect.isNull || rect.isEmpty { continue }
+
+            guard let running = current else {
+                current = rect
+                continue
+            }
+            if verticallyOverlaps(running, rect) {
+                current = running.union(rect)
+            } else {
+                boxes.append(RedactionBox(pageIndex: pageIndex, rect: running, token: token))
+                current = rect
+            }
+        }
+        if let running = current {
+            boxes.append(RedactionBox(pageIndex: pageIndex, rect: running, token: token))
+        }
+        return boxes
+    }
+
+    /// True when two glyph rects share enough vertical extent to be the same
+    /// line of text. Compared against the shorter rect's height so a tall glyph
+    /// does not swallow the line below it.
+    private static func verticallyOverlaps(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        let overlap = min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY)
+        guard overlap > 0 else { return false }
+        return overlap >= min(lhs.height, rhs.height) * 0.5
     }
 }

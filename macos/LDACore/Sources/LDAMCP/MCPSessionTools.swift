@@ -32,14 +32,17 @@ extension MCPServer {
             throw MCPFillToolError.missingOrEmptyArgument("inputs")
         }
         let outputDirPath = try requireStringArgument(arguments, key: "outputDir")
-        let outputDir = URL(fileURLWithPath: outputDirPath)
+        let outputDir = try allowedURL(outputDirPath, key: "outputDir")
 
-        // Expand any .zip inputs into the session.
+        // Expand any .zip inputs into the session. The expansion holds the
+        // user's original documents in a temp directory; it is removed at the
+        // end of this request, once the session has been written out.
+        defer { ZipImporter.cleanUpAllExpansions() }
         var inputs: [URL] = []
         for raw in rawInputs {
-            let url = URL(fileURLWithPath: raw)
+            let url = try allowedURL(raw, key: "inputs")
             if ZipImporter.isZip(url) {
-                inputs.append(contentsOf: try ZipImporter.expand(url))
+                inputs.append(contentsOf: try ZipImporter.expand(url).documents)
             } else {
                 inputs.append(url)
             }

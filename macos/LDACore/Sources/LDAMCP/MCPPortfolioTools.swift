@@ -32,11 +32,34 @@ import LDACore
 // MARK: - Testing seam
 
 extension MCPServer {
-    /// Inject a custom library root for testing. Production code leaves this nil
-    /// (PortfolioLibrary then uses its ApplicationSupport default). Tests set this
-    /// to a hermetic temp directory before exercising portfolio_list or
+#if DEBUG
+    /// Debug-only injection of a custom library root. Production uses
+    /// PortfolioLibrary's Application Support default. Tests point this at a
+    /// hermetic temp directory before exercising portfolio_list or
     /// portfolio_show, and clear it in defer.
-    nonisolated(unsafe) internal static var libraryRootForTesting: URL? = nil
+    ///
+    /// Compiled out of release builds and lock guarded; see TestSeam. Before
+    /// this change the seam was a bare mutable static reachable in the shipped
+    /// MCP server, which is a redirect of where client portfolios are read
+    /// from.
+    internal static let librarySeam = TestSeam<URL>()
+
+    internal static var libraryRootForTesting: URL? {
+        get { librarySeam.value }
+        set { librarySeam.value = newValue }
+    }
+#endif
+
+    /// The library root the portfolio tools should use: the debug seam when a
+    /// test installed one, otherwise nil so PortfolioLibrary picks its own
+    /// Application Support default. Release builds always return nil.
+    static var effectiveLibraryRoot: URL? {
+#if DEBUG
+        return libraryRootForTesting
+#else
+        return nil
+#endif
+    }
 }
 
 // MARK: - Portfolio tool handlers (extension on MCPServer)
@@ -53,7 +76,7 @@ extension MCPServer {
     /// The array is sorted by label ascending (stable tiebreak by UUID string),
     /// matching the CLI's portfolio list output.
     func callPortfolioList(_ arguments: [String: Any]) throws -> [String: Any] {
-        let library = try PortfolioLibrary(rootDirectory: MCPServer.libraryRootForTesting)
+        let library = try PortfolioLibrary(rootDirectory: MCPServer.effectiveLibraryRoot)
         let summaries = try library.list()
 
         let portfolios: [[String: Any]] = summaries.map { summary in
@@ -74,7 +97,7 @@ extension MCPServer {
     func callPortfolioShow(_ arguments: [String: Any]) throws -> [String: Any] {
         let nameOrID = try requireStringArgument(arguments, key: "portfolio")
 
-        let library = try PortfolioLibrary(rootDirectory: MCPServer.libraryRootForTesting)
+        let library = try PortfolioLibrary(rootDirectory: MCPServer.effectiveLibraryRoot)
         let summaries = try library.list()
 
         let (id, _) = try PortfolioLibrary.resolve(nameOrID: nameOrID, from: summaries)

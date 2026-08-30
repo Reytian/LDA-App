@@ -456,6 +456,450 @@ final class DeterministicEngineTests: XCTestCase {
         assertOffsetsSliceBack(spans, in: text)
     }
 
+    // MARK: - AMOUNT (ISO currency codes, live recall gap 2026-08-27)
+
+    /// Exact reproduction of the live-model recall gap: a code-prefixed amount
+    /// like "GBP 45,000.00" stayed in cleartext because the AMOUNT pattern knew
+    /// only ¥ $ € RMB USD 人民币. AMOUNT is deterministic-only (the LLM never
+    /// emits it), so this gap meant the retainer leaked through anonymization.
+    func testISOCurrencyCodeAmountDetection() {
+        let text = "Signed on 2024-01-15 for a retainer of GBP 45,000.00."
+        let spans = engine.detect(text)
+
+        let span = assertHasSpan(spans, type: .amount, text: "GBP 45,000.00")
+        XCTAssertEqual(span.priority, 45)
+        XCTAssertEqual(span.confidence, 0.8, accuracy: 1e-9)
+        XCTAssertEqual(span.source, .deterministic)
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testEuroCodePlainNumberAmount() {
+        let text = "A filing fee of EUR 500 applies to the registration."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .amount, text: "EUR 500")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testPoundSymbolAmount() {
+        let text = "The deposit of £45,000 is due on signing."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .amount, text: "£45,000")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testFullWidthYenSymbolAmount() {
+        let text = "合同金额￥380,000.00已经支付。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .amount, text: "￥380,000.00")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A plain ungrouped digit run after a code must be captured whole, not cut
+    /// after three digits by the thousands-group shape.
+    func testCodeAmountWithPlainDigitRun() {
+        let text = "The fee of USD 45000 is payable at closing."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .amount, text: "USD 45000")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// European formatting: dot-grouped thousands with a decimal comma.
+    func testEuropeanFormattedAmount() {
+        let text = "A purchase price of EUR 45.000,00 was agreed."
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .amount, text: "EUR 45.000,00")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Guard against over-redaction: ISO codes that read as English words in
+    /// prose (TRY, ALL, PHP, RON, TOP, PEN) are deliberately not currency
+    /// prefixes, and a bare formatted number is never an AMOUNT.
+    func testCurrencyCodeWordCollisionsAreNotAmounts() {
+        for text in [
+            "The parties shall TRY 3 times before termination.",
+            "ALL 45,000 shares transfer at closing.",
+            "The system requires PHP 8.1 or newer.",
+            "Give Ron 500 of the documents.",
+            "She placed in the TOP 10 of her class.",
+            "Use PEN 2 for the signature page.",
+        ] {
+            let spans = engine.detect(text)
+            let amounts = spans.filter { $0.type == .amount }
+            XCTAssertTrue(
+                amounts.isEmpty,
+                "Expected no AMOUNT in \"\(text)\"; got \(amounts.map { $0.text })"
+            )
+        }
+    }
+
+    /// MOP and RUB read as ordinary English verbs, exactly the property that
+    /// kept ALL/TRY/TOP and the rest out of the code list, so they are excluded
+    /// too. A cleaning clause must not be redacted as a payment.
+    func testVerbLikeCurrencyCodesAreNotAmounts() {
+        for text in [
+            "The contractor shall mop 3 floors before handover.",
+            "The janitorial contract requires MOP 2 units per floor.",
+            "Please rub 500 times on the affected area.",
+        ] {
+            let spans = engine.detect(text)
+            let amounts = spans.filter { $0.type == .amount }
+            XCTAssertTrue(
+                amounts.isEmpty,
+                "Expected no AMOUNT in \"\(text)\"; got \(amounts.map { $0.text })"
+            )
+        }
+    }
+
+    /// Guard: a code embedded in a longer token (BUSD, USDT) is not a currency
+    /// prefix.
+    func testCurrencyCodeInsideLongerTokenIsNotAnAmount() {
+        let text = "Transfer 100 BUSD 200 tokens to the wallet."
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .amount && $0.text.hasPrefix("USD") },
+            "A code inside a longer token must not anchor an amount; got \(spans.filter { $0.type == .amount }.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    // MARK: - ADDRESS (Chinese street addresses, live recall gap 2026-08-27)
+
+    /// Exact reproduction of the live-model recall gap: the v2 model does not
+    /// extract Chinese street addresses, so 注册地址为上海市... stayed in
+    /// cleartext. The deterministic engine now owns the high-precision Chinese
+    /// street-address shape (admin division + road + number); fuzzy and
+    /// non-Chinese addresses remain LLM territory.
+    func testChineseRegisteredAddressDetection() {
+        let text = "甲方：上海明川科技有限公司，注册地址为上海市浦东新区张江高科技园区碧波路690号。"
+        let spans = engine.detect(text)
+
+        let span = assertHasSpan(
+            spans,
+            type: .address,
+            text: "上海市浦东新区张江高科技园区碧波路690号"
+        )
+        XCTAssertEqual(span.priority, 55)
+        XCTAssertEqual(span.confidence, 0.9, accuracy: 1e-9)
+        XCTAssertEqual(span.source, .deterministic)
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// The label 注册地址为 and 住址为 must NOT be absorbed into the span: the
+    /// match starts at the place name, not at the prose connector.
+    func testChineseAddressExcludesTheLeadingLabel() {
+        let text = "乙方：王雨桐，身份证号 110101199003071233，住址为北京市朝阳区建国路88号。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "北京市朝阳区建国路88号")
+        XCTAssertFalse(
+            spans.contains { $0.type == .address && $0.text.contains("住址") },
+            "The prose label must stay outside the address span"
+        )
+        // The national ID next to it must still be detected.
+        assertHasSpan(spans, type: .nationalID, text: "110101199003071233")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Shanghai lane addresses: 路 N 弄 M 号.
+    func testChineseAddressWithLane() {
+        let text = "公司位于上海市静安区南京西路1266弄15号。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "上海市静安区南京西路1266弄15号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Building, unit, and room suffixes after the street number are captured.
+    func testChineseAddressWithBuildingUnits() {
+        let text = "住所：北京市海淀区中关村南大街5号3号楼2单元801室，邮编100081。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "北京市海淀区中关村南大街5号3号楼2单元801室")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// An area segment ending in 街道 sits between the administrative segments
+    /// and the road. Two boundary characters then abut (外街道建国路), which a
+    /// walk that demands a name character before every boundary dead-ends on,
+    /// losing the whole address.
+    func testChineseAddressWithJiedaoArea() {
+        let text = "北京市朝阳区建国门外街道建国路88号"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "北京市朝阳区建国门外街道建国路88号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A village road puts a boundary character immediately before the road
+    /// marker (小湾村路), leaving no room for a road name.
+    func testChineseAddressWithVillageRoad() {
+        let text = "上海市浦东新区唐镇小湾村路100号"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "上海市浦东新区唐镇小湾村路100号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Qingdao's 市南区 puts 市 directly before 市南区, so two boundary
+    /// characters abut inside the administrative prefix.
+    func testChineseAddressWithRepeatedBoundaryCharacters() {
+        let text = "青岛市市南区香港中路12号"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "青岛市市南区香港中路12号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Administrative names run well past eight characters in practice, and a
+    /// per-segment cap that short starts the span mid-name.
+    func testChineseAddressWithLongAdministrativeName() {
+        let text = "地址：郑州航空港经济综合实验区华夏大道1号。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "郑州航空港经济综合实验区华夏大道1号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A Shanghai lane number is a complete address without a 号 at all.
+    func testChineseAddressWithLaneAndNoStreetNumber() {
+        let text = "注册地址为上海市静安区南京西路1266弄。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "上海市静安区南京西路1266弄")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Common road names may contain characters the first segment must exclude
+    /// as prose connectors (和平路 carries 和).
+    func testChineseAddressRoadNameWithConnectorCharacter() {
+        let text = "地址：天津市和平区和平路120号。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "天津市和平区和平路120号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A digit or a Latin letter between the last administrative marker and the
+    /// road used to drop the ENTIRE address, not just the connecting phrase:
+    /// the backward scan stopped at the first non-CJK character, so it never
+    /// reached a marker and rejected the core outright. "Near metro line N" and
+    /// a building letter are both ordinary ways to write a Chinese address, so
+    /// this lost the road and street number in cleartext.
+    /// The interrupted text is not a place name, so the span is the core alone,
+    /// and it starts at the road rather than reaching back across the number or
+    /// unit word that interrupted it.
+    func testAddressSurvivesAnInterruptedAdministrativePrefix() {
+        for (text, expected) in [
+            ("上海市浦东新区地铁2号线碧波路690号出口", "碧波路690号"),
+            ("北京市朝阳区A座建国路88号", "建国路88号"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+
+        // A parcel reference interrupts with prose rather than a marker, so the
+        // left edge is less tidy. What matters is that the road and street
+        // number are covered rather than left in cleartext.
+        let parcel = "上海市浦东新区张江镇1号地块碧波路690号"
+        let spans = engine.detect(parcel)
+        let addresses = spans.filter { $0.type == .address }
+        XCTAssertTrue(
+            addresses.contains { $0.text.hasSuffix("碧波路690号") },
+            "the road and number must not stay in cleartext; got \(addresses.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: parcel)
+    }
+
+    /// Administrative context must not be borrowed from arbitrarily far away, or
+    /// one city mention would turn every later number into an address.
+    func testAddressContextDoesNotReachAcrossUnrelatedText() {
+        let text = "上海市有关规定如下。" + String(repeating: "本条款适用于全部情形。", count: 6)
+            + "建国路88号方向前进。"
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .address },
+            "a distant city mention must not supply context; got \(spans.filter { $0.type == .address }.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Generic ways are not streets. A facilities or maintenance line
+    /// (人行道12号, 机动车道90号车位) must not be redacted as an address, while
+    /// real road types that merely end in the same character (华夏大道1号) must
+    /// still be caught.
+    func testGenericWayWordsAreNotStreetAddresses() {
+        for text in [
+            "上海市浦东新区人行道12号护栏损坏待修。",
+            "上海市浦东新区地下停车库机动车道90号车位。",
+            "上海市浦东新区隧道3号出口。",
+            "北京市朝阳区管道2号阀门检修。",
+        ] {
+            let spans = engine.detect(text)
+            let addresses = spans.filter { $0.type == .address }
+            XCTAssertTrue(
+                addresses.isEmpty,
+                "a generic way is not an address in \"\(text)\"; got \(addresses.map { $0.text })"
+            )
+        }
+
+        // Real road types must survive the filter.
+        for (text, expected) in [
+            ("地址：郑州航空港经济综合实验区华夏大道1号。", "郑州航空港经济综合实验区华夏大道1号"),
+            ("住址为上海市浦东新区沪南公路2000号。", "上海市浦东新区沪南公路2000号"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+        }
+    }
+
+    /// A bare 甲/乙 building suffix (690号甲, the Chinese convention for
+    /// No. 690-A) must be inside the span, or one disambiguating character sits
+    /// in cleartext right after the redaction. It must NOT be taken when it
+    /// starts a party label, since 甲方/乙方 are everywhere in Chinese
+    /// contracts and eating the 甲 would mangle the sentence.
+    func testBareBuildingLetterSuffix() {
+        let withSuffix = "住址为上海市浦东新区碧波路690号甲。"
+        assertHasSpan(
+            engine.detect(withSuffix), type: .address, text: "上海市浦东新区碧波路690号甲")
+
+        let partyLabel = "住址为上海市浦东新区碧波路690号甲方应当履行义务。"
+        assertHasSpan(
+            engine.detect(partyLabel), type: .address, text: "上海市浦东新区碧波路690号")
+
+        // A letter plus a building word must still be captured as a unit tail.
+        let building = "住址为上海市浦东新区碧波路690号甲栋。"
+        assertHasSpan(
+            engine.detect(building), type: .address, text: "上海市浦东新区碧波路690号甲栋")
+
+        for text in [withSuffix, partyLabel, building] {
+            assertOffsetsSliceBack(engine.detect(text), in: text)
+        }
+    }
+
+    /// An autonomous region carries the longest administrative prefixes.
+    func testChineseAddressWithAutonomousRegion() {
+        let text = "内蒙古自治区呼和浩特市赛罕区大学东街5号"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .address, text: "内蒙古自治区呼和浩特市赛罕区大学东街5号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Without a lexicon the walk cannot tell where a place name starts, so
+    /// prose that runs straight into an address with no punctuation and no
+    /// connector is absorbed. That is accepted (over-redaction is cosmetic
+    /// where a miss would be a leak), but it must stay BOUNDED so a whole
+    /// paragraph is never swallowed by one address.
+    func testAddressPrefixAbsorptionIsBounded() {
+        let prose = String(repeating: "甲", count: 200)
+        let text = prose + "上海市浦东新区碧波路690号"
+        let spans = engine.detect(text)
+
+        let addresses = spans.filter { $0.type == .address }
+        XCTAssertEqual(addresses.count, 1, "expected exactly one address span")
+        let span = addresses[0]
+        XCTAssertTrue(
+            span.text.hasSuffix("上海市浦东新区碧波路690号"),
+            "the address itself must still be covered; got \(span.text)"
+        )
+        XCTAssertLessThanOrEqual(
+            span.text.count,
+            30 + "上海市浦东新区碧波路690号".count,
+            "absorption must stay within the prefix bound; got \(span.text.count) characters"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Guard against over-redaction: city mentions without a road and street
+    /// number, and regulation numbers, are not addresses.
+    func testChineseProseWithCityButNoStreetIsNotAnAddress() {
+        for text in [
+            "本协议适用上海市有关法规。",
+            "合同在北京市签署。",
+            "依据上海市人民政府令第52号执行。",
+            "上海市市场监督管理局第9号文件另有规定。",
+        ] {
+            let spans = engine.detect(text)
+            let addresses = spans.filter { $0.type == .address }
+            XCTAssertTrue(
+                addresses.isEmpty,
+                "Expected no ADDRESS in \"\(text)\"; got \(addresses.map { $0.text })"
+            )
+        }
+    }
+
+    /// The backward walk does raw UTF-16 index arithmetic, so a surrogate pair
+    /// next to an address must never leave a span boundary inside the pair.
+    /// Splitting one would break the offset-integrity contract that the rest of
+    /// the pipeline relies on, and a supplementary-plane CJK character
+    /// (U+20BB7) is a real thing to find in a Chinese document.
+    func testSupplementaryPlaneCharacterKeepsOffsetsIntact() {
+        for text in [
+            "\u{20BB7}市浦东新区碧波路690号",
+            "住址为\u{20BB7}\u{20BB7}北京市朝阳区建国路88号。",
+            "上海市浦东新区碧波路690号\u{20BB7}",
+        ] {
+            let spans = engine.detect(text)
+            // The contract: whatever is detected, its offsets slice back
+            // exactly, which cannot hold if a boundary lands mid-pair.
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// Detection must stay linear on adversarial CJK input. The first version of
+    /// the Chinese-address matcher nested a quantified name run inside a
+    /// quantified segment chain, so a run of characters that can serve as both a
+    /// name character and an administrative suffix (市) partitioned
+    /// exponentially many ways and every partition failed at the road. A
+    /// 20-character run did not finish in three minutes, which on an untrusted
+    /// document is a hang rather than a slow scan.
+    ///
+    /// The budget is deliberately loose (five seconds for inputs that must take
+    /// microseconds) so this fails only on a true blowup, never on a slow CI
+    /// machine.
+    func testAdversarialCJKRunsDoNotBlowUpDetection() {
+        let inputs = [
+            String(repeating: "市", count: 200),
+            String(repeating: "市", count: 200) + "路",
+            String(repeating: "区", count: 120) + "路号",
+            String(repeating: "上海市浦东新区", count: 60),
+            String(repeating: "省市区县镇乡村", count: 60),
+            String(repeating: "北京市朝阳区建国路88号", count: 60),
+            String(repeating: "9", count: 400),
+            "北京市朝阳区建国路88号" + String(repeating: "1", count: 300),
+        ]
+
+        for input in inputs {
+            let finished = expectation(description: "detect returns for a \(input.count) char input")
+            DispatchQueue.global().async {
+                _ = self.engine.detect(input)
+                finished.fulfill()
+            }
+            wait(for: [finished], timeout: 5.0)
+        }
+    }
+
+    /// Guard: a bare road + number with no administrative segment stays LLM
+    /// territory; the deterministic shape requires 省/市/区/县 context.
+    func testBareRoadWithoutAdminSegmentIsNotDetected() {
+        let text = "沿建国路88号方向前进。"
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .address },
+            "A road with no admin division must not match deterministically"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
     // MARK: - Role-label suppression
 
     func testRoleLabelSuppression() {
@@ -476,7 +920,9 @@ final class DeterministicEngineTests: XCTestCase {
     }
 
     func testPersonCompanyAddressNotDetected() {
-        // PERSON, COMPANY, and ADDRESS are owned by the LLM, never by this engine.
+        // PERSON and COMPANY are owned by the LLM, never by this engine. For
+        // ADDRESS the engine owns only the Chinese street-address shape, so an
+        // English address must still produce no deterministic span.
         let text = "John Smith of Acme Corporation at 100 Main Street, New York."
         let spans = engine.detect(text)
 
