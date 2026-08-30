@@ -212,6 +212,69 @@ public enum EntityRescan {
         }
     }
 
+    // MARK: - Unswept surfaces (cross-document recall check)
+
+    /// The knownEntities surfaces that expand() WOULD sweep into this text and
+    /// that the confirmed span list does not already cover. In other words:
+    /// the parties a partner document has confirmed and this document still
+    /// holds in the clear.
+    ///
+    /// Read-only by design. It produces no spans and edits nothing, so a
+    /// caller can report the gap to a human without putting an unreviewed
+    /// redaction decision into the pipeline.
+    ///
+    /// It applies exactly the filters expand() applies, and that is the point:
+    /// the needle-safety threshold, the case-insensitive dedup against the
+    /// document's own confirmed surfaces, and the block on occurrences that
+    /// overlap a confirmed span. A check that drifted from the sweep would
+    /// send the user back to re-scan for something the re-scan would refuse to
+    /// find.
+    ///
+    /// - Parameters:
+    ///   - text: this document's full text.
+    ///   - confirmed: this document's own confirmed spans, overlap-free (the
+    ///     same precondition expand() carries).
+    ///   - knownEntities: PERSON and COMPANY spans confirmed in OTHER
+    ///     documents. Only their surfaces are read; their offsets belong to
+    ///     other documents and are never used here.
+    /// - Returns: the distinct uncovered surfaces, in knownEntities order.
+    ///   Empty when the document is already covered.
+    public static func unsweptSurfaces(
+        in text: String,
+        confirmed: [Span],
+        knownEntities: [Span]
+    ) -> [String] {
+        guard !text.isEmpty, !knownEntities.isEmpty else { return [] }
+
+        // A surface this document confirmed for itself is already one of its
+        // own needles in expand(), so it is never reported as unswept.
+        var seen = Set<String>()
+        for span in confirmed where span.type == .person || span.type == .company {
+            let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            seen.insert(value.lowercased())
+        }
+
+        let blocked = confirmed
+            .sorted { lhs, rhs in
+                lhs.start != rhs.start ? lhs.start < rhs.start : lhs.end < rhs.end
+            }
+            .map { (start: $0.start, end: $0.end) }
+
+        var unswept: [String] = []
+        for span in knownEntities where span.type == .person || span.type == .company {
+            let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, seen.insert(value.lowercased()).inserted else { continue }
+            guard isSafeNeedle(value, type: span.type) else { continue }
+            let hits = EntityLocator.spans(forValue: value, type: span.type, in: text)
+            guard hits.contains(where: { !overlapsAny($0, sortedBlocked: blocked) }) else {
+                continue
+            }
+            unswept.append(value)
+        }
+        return unswept
+    }
+
     // MARK: - Alias pairs
 
     /// Resolve the document's defined short names against the confirmed span

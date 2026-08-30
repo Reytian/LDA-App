@@ -326,7 +326,8 @@ public struct AppShell: View {
             exportMessage = nil
             handoffCompletion = .copied(
                 documentCount: handoff.documentCount,
-                skippedCount: handoff.skippedCount
+                skippedCount: handoff.skippedCount,
+                rescanWarnings: handoff.rescanWarnings
             )
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
@@ -407,7 +408,7 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
-            case .copied(let documentCount, let skippedCount):
+            case .copied(let documentCount, let skippedCount, let rescanWarnings):
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Safe text copied")
                         .font(.callout.weight(.semibold))
@@ -418,6 +419,16 @@ public struct AppShell: View {
                             ? CounselTheme.danger
                             : CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // The cross-document sweep runs at scan time, so a
+                    // document scanned before its partners were added can
+                    // still carry their names. Saying which ones is the whole
+                    // point: the user cannot see it from the copied text.
+                    if let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: rescanWarnings) {
+                        Text(advice)
+                            .font(.caption)
+                            .foregroundStyle(CounselTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
             case .exported(let result, let protection):
@@ -949,7 +960,11 @@ public struct AppShell: View {
 }
 
 private enum HandoffCompletion: Equatable {
-    case copied(documentCount: Int, skippedCount: Int)
+    case copied(
+        documentCount: Int,
+        skippedCount: Int,
+        rescanWarnings: [SessionModel.RescanWarning]
+    )
     case exported(result: ExportResult, protection: String)
 }
 

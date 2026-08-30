@@ -22,6 +22,30 @@ import ZIPFoundation
 @testable import LDACore
 @testable import LDAUI
 
+// MARK: - Scripted model fixtures
+
+/// One scripted reply of the fake model: when a prompt carries the marker, the
+/// model answers with this entity JSON.
+private struct ScriptedReply {
+    let marker: String
+    let json: String
+}
+
+/// A fake LLM whose reply depends on which document's text reached the prompt,
+/// so one session can hold documents the model treats differently. A document
+/// matching no marker gets an empty entity list, which is how a missed party is
+/// staged. File scope because several tests share it.
+private struct ScriptedCompleter: TextCompleter {
+    let replies: [ScriptedReply]
+
+    func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+        for reply in replies where prompt.contains(reply.marker) {
+            return reply.json
+        }
+        return #"{"entities":[]}"#
+    }
+}
+
 @MainActor
 final class SessionModelTests: XCTestCase {
 
@@ -75,6 +99,17 @@ final class SessionModelTests: XCTestCase {
         session.parkedMappingURL = { parkedURL }
         session.parkedProtection = { .passphrase("parked-pw") }
         return session
+    }
+
+    /// A session whose models run the AI pass against a scripted fake model.
+    /// The caller must clear ReviewModel.llmExtractorFactoryForTesting.
+    private func makeScriptedSession(_ replies: [ScriptedReply]) throws -> SessionModel {
+        let dummyModel = workDir.appendingPathComponent("dummy.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+        ReviewModel.llmExtractorFactoryForTesting = { _, _ in
+            LLMExtractor(completer: ScriptedCompleter(replies: replies))
+        }
+        return makeSession(modelPath: dummyModel.path)
     }
 
     // MARK: - Tray
@@ -248,6 +283,177 @@ final class SessionModelTests: XCTestCase {
         )
         XCTAssertTrue(md1.contains("{PERSON_1}"))
         XCTAssertTrue(md2.contains("{PERSON_1}"), "both documents share one token for the person")
+    }
+
+    // MARK: - Cross-document re-scan warning (handoff seam)
+
+    func testHandToAIWarnsWhenAPartnerPartyWasConfirmedAfterThisDocumentScanned() async throws {
+        // The residual gap the tray sweep leaves: it runs at DETECT time, so a
+        // document scanned while it was alone in the tray never sees the party
+        // a partner confirms afterwards, and nothing tells the user. The
+        // handoff, which holds every ready document at once, says so.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([unscanned])
+        await session.anonymizeAll()
+
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+
+        // Fixture guards: a.txt confirmed the party, and b.txt (scanned first)
+        // never picked it up.
+        XCTAssertTrue(
+            session.entries[1].model.entities.contains { $0.span.text == "Jordan Marlowe" },
+            "fixture: the model must report the person in a.txt"
+        )
+        XCTAssertFalse(
+            session.entries[0].model.entities.contains { $0.span.text == "Jordan Marlowe" },
+            "fixture: b.txt scanned before a.txt joined the tray, so it never swept the party"
+        )
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        XCTAssertEqual(result.rescanWarnings.map(\.documentName), ["b.txt"])
+        XCTAssertEqual(result.rescanWarnings.first?.entryID, session.entries[0].id)
+        XCTAssertEqual(result.rescanWarnings.first?.missedPartyCount, 1)
+    }
+
+    func testHandToAIRescanWarningNeverAddsSpansOrRedacts() async throws {
+        // The human-review invariant: the warning is advice, not an edit. The
+        // unscanned document keeps exactly the spans its own pass produced and
+        // its Markdown still carries the party in the clear, which is the
+        // leak the warning exists to point at.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([unscanned])
+        await session.anonymizeAll()
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+
+        let spansBefore = session.entries[0].model.entities.map(\.span)
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        XCTAssertFalse(result.rescanWarnings.isEmpty, "fixture: the seam must be reported")
+        XCTAssertEqual(
+            session.entries[0].model.entities.map(\.span),
+            spansBefore,
+            "building the handoff must not add a span the user never reviewed"
+        )
+        let markdown = try XCTUnwrap(result.perDocument[session.entries[0].id])
+        XCTAssertTrue(
+            markdown.contains("Jordan Marlowe"),
+            "the warning reports the leak, it does not silently redact it"
+        )
+    }
+
+    func testHandToAIDoesNotWarnWhenTheTraySweepAlreadyCoveredTheParty() async throws {
+        // The negative control for the warning: both documents were in the
+        // tray before Scan ran, so the sweep already pulled the party into
+        // b.txt's review list. Sending the user back to re-scan would be noise.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        let other = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([witness, other])
+        await session.anonymizeAll()
+
+        // Fixture guard: without this the test would also pass if the sweep
+        // itself stopped working and b.txt simply had no party to compare.
+        XCTAssertTrue(
+            session.entries[1].model.entities.contains { $0.span.text == "Jordan Marlowe" },
+            "fixture: the tray sweep must have pulled the party into b.txt"
+        )
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        XCTAssertTrue(result.rescanWarnings.isEmpty)
+    }
+
+    func testHandToAIDoesNotWarnForNeedlesTooShortToRescan() async throws {
+        // The warning reuses EntityRescan's needle-safety filter, so it can
+        // never report a gap the sweep would refuse to close. A two-character
+        // Latin surname is below the rescan threshold: flagging every document
+        // that happens to contain the word would train the user to ignore the
+        // banner.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Li","type":"PERSON"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let unscanned = try write("b.txt", "Li reviewed the filing this week.")
+        await session.addDocuments([unscanned])
+        await session.anonymizeAll()
+        let witness = try write("a.txt", "Witness statement: Li attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+
+        XCTAssertTrue(
+            session.entries[1].model.entities.contains { $0.span.text == "Li" },
+            "fixture: the short surname must be confirmed in a.txt for the filter to matter"
+        )
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        XCTAssertTrue(result.rescanWarnings.isEmpty)
+    }
+
+    func testHandToAIDoesNotWarnWhenTheSurfaceSitsInsideALongerAcceptedSpan() async throws {
+        // b.txt confirmed the company on its own, and its only mention of the
+        // partner's person surface sits inside that accepted span, so the text
+        // is already covered. The sweep blocks such occurrences and so must
+        // the warning.
+        let session = try makeScriptedSession([
+            ScriptedReply(
+                marker: "Witness statement",
+                json: #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+            ),
+            ScriptedReply(
+                marker: "The filing",
+                json: #"{"entities":[{"value":"Jordan Marlowe Holdings","type":"COMPANY"}]}"#
+            )
+        ])
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let company = try write("b.txt", "The filing was prepared by Jordan Marlowe Holdings this week.")
+        await session.addDocuments([company])
+        await session.anonymizeAll()
+        let witness = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        await session.addDocuments([witness])
+        await session.anonymizeAll()
+
+        XCTAssertTrue(
+            session.entries[0].model.entities.contains { $0.span.text == "Jordan Marlowe Holdings" },
+            "fixture: b.txt must confirm the longer company surface"
+        )
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        XCTAssertTrue(result.rescanWarnings.isEmpty)
     }
 
     func testClientIdentitiesPersistAcrossSessions() async throws {

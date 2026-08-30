@@ -360,6 +360,29 @@ public final class SessionModel: ObservableObject {
 
     // MARK: - Hand to AI (stage 3)
 
+    /// One ready document that still carries a party another ready document
+    /// has confirmed. Advice, never an edit: the fix is for the user to run
+    /// Scan on that document again, which is the only path that puts the
+    /// mention in front of a human before it is redacted.
+    ///
+    /// Value-free on purpose: the surfaces themselves stay out of the banner,
+    /// matching the session record. The document and the count are enough to
+    /// act on.
+    public struct RescanWarning: Equatable, Sendable {
+        /// The tray entry that should be re-scanned.
+        public let entryID: UUID
+        /// That entry's tray name, for the banner.
+        public let documentName: String
+        /// How many distinct partner-confirmed parties it still carries.
+        public let missedPartyCount: Int
+
+        public init(entryID: UUID, documentName: String, missedPartyCount: Int) {
+            self.entryID = entryID
+            self.documentName = documentName
+            self.missedPartyCount = missedPartyCount
+        }
+    }
+
     /// The outcome of building the session's redacted Markdown.
     public struct HandToAIResult {
         /// The combined Markdown for the clipboard (per-document headers when
@@ -373,6 +396,10 @@ public final class SessionModel: ObservableObject {
         /// anonymized yet. Surfaced so the user is never silently handed a
         /// partial session.
         public let skippedCount: Int
+        /// Included documents that still carry a party another included
+        /// document confirmed, so the user is never silently handed a session
+        /// the cross-document sweep did not reach. Empty in the ordinary case.
+        public let rescanWarnings: [RescanWarning]
     }
 
     /// Build the session's redacted Markdown intermediates against ONE shared
@@ -440,6 +467,16 @@ public final class SessionModel: ObservableObject {
             }
         }
 
+        // Cross-document recall check, read-only. The tray sweep runs at
+        // DETECT time and only ever looks backwards, so a document scanned
+        // before a partner confirmed a party never saw that party and nothing
+        // in the UI said so. Here every ready document's accepted spans are in
+        // hand at once, which makes the comparison order-independent like the
+        // headless sweep in LDAService.anonymizeSession. Reported, never
+        // acted on: adding the span or redacting it here would push a decision
+        // into the handoff that no human reviewed.
+        let rescanWarnings = crossDocumentRescanWarnings(ready: ready, documents: documents)
+
         var perDocument: [UUID: String] = [:]
         for (entry, document) in zip(ready, result.documents) {
             perDocument[entry.id] = document.tokenizedText
@@ -490,8 +527,45 @@ public final class SessionModel: ObservableObject {
             combined: combined,
             perDocument: perDocument,
             documentCount: ready.count,
-            skippedCount: entries.count - ready.count
+            skippedCount: entries.count - ready.count,
+            rescanWarnings: rescanWarnings
         )
+    }
+
+    /// The ready documents that literally still contain a party another ready
+    /// document confirmed, outside every span of their own. The needle safety
+    /// filters and the overlap block come from EntityRescan, so the warning
+    /// can never name a gap that re-running Scan would refuse to close.
+    private func crossDocumentRescanWarnings(
+        ready: [DocumentEntry],
+        documents: [SessionDocument]
+    ) -> [RescanWarning] {
+        guard documents.count > 1 else { return [] }
+
+        let partiesByDocument = documents.map { document in
+            document.spans.filter { $0.type == .person || $0.type == .company }
+        }
+        var warnings: [RescanWarning] = []
+        for (index, document) in documents.enumerated() {
+            let partners = partiesByDocument.enumerated()
+                .filter { $0.offset != index }
+                .flatMap { $0.element }
+            guard !partners.isEmpty else { continue }
+            let missed = EntityRescan.unsweptSurfaces(
+                in: document.text,
+                confirmed: document.spans,
+                knownEntities: partners
+            )
+            guard !missed.isEmpty else { continue }
+            warnings.append(
+                RescanWarning(
+                    entryID: ready[index].id,
+                    documentName: ready[index].name,
+                    missedPartyCount: missed.count
+                )
+            )
+        }
+        return warnings
     }
 
     /// The distinct accepted entity-type wire strings of one document model.
