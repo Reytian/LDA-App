@@ -182,15 +182,33 @@ final class AliasGroupingRoundTripTests: XCTestCase {
 
     // MARK: - One entity, many mentions, one placeholder
 
-    func testEntityMentionedFiveTimesMapsToOnePlaceholder() throws {
+    func testEntityMentionedFiveTimesAcrossChunksMapsToOnePlaceholder() throws {
         LDAService.makeExtractorForTesting = { _ in
             LLMExtractor(completer: SinglePersonCompleter())
         }
-        let text = """
-        Robert King appeared. Robert King testified twice.
-        The court heard Robert King, then Robert King rested.
-        Judgment for Robert King.
-        """
+        // Spread the five mentions over enough filler prose that SegmentPacker
+        // splits the document into several extraction windows (target window
+        // is 2000 characters), so the mentions genuinely live in different
+        // chunks and still collapse onto one placeholder.
+        let filler = String(
+            repeating: "The parties exchanged schedules and reviewed the annexes in detail. ",
+            count: 18
+        )
+        let text = [
+            "Robert King appeared before the tribunal.",
+            filler,
+            "Robert King testified about the delivery terms.",
+            filler,
+            "The court heard Robert King a second time.",
+            filler,
+            "Then Robert King rested his case.",
+            filler,
+            "Judgment was entered for Robert King."
+        ].joined(separator: "\n\n")
+        XCTAssertGreaterThan(
+            text.utf16.count, 4000,
+            "fixture must be large enough to span several extraction windows"
+        )
         let input = try write(text, name: "mentions.txt")
         let outputDir = workDir.appendingPathComponent("out5", isDirectory: true)
         let protection = MappingProtection.passphrase(Self.passphrase)
