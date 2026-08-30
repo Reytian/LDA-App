@@ -128,6 +128,73 @@ final class MCPHardeningTests: XCTestCase {
         )
     }
 
+    // MARK: - Model path policy
+
+    /// Every tool that takes a GGUF model path must reject one outside the
+    /// allowed roots BEFORE the engine touches the file. /Library/Caches is
+    /// writable by other software yet inside no allowed root, which is exactly
+    /// the staged-malicious-model case the policy exists for.
+    func testEveryModelTakingToolRejectsAModelOutsideTheAllowedRoots() throws {
+        let input = workDir.appendingPathComponent("doc.txt")
+        try Data("Mail someone@example.com now.".utf8).write(to: input)
+        let planted = "/Library/Caches/planted.gguf"
+
+        let calls: [(tool: String, key: String, arguments: [String: Any])] = [
+            ("detect_entities", "modelPath",
+             ["input": input.path, "modelPath": planted]),
+            ("anonymize_document", "modelPath",
+             ["input": input.path, "outputDir": workDir.path, "modelPath": planted]),
+            ("anonymize_session", "modelPath",
+             ["inputs": [input.path], "outputDir": workDir.path, "modelPath": planted]),
+            ("extract_profile", "model",
+             ["sources": [input.path], "label": "L",
+              "out": workDir.appendingPathComponent("p.ldaprofile").path,
+              "model": planted]),
+            ("fill", "model",
+             ["input": input.path, "mode": "plan",
+              "profile": workDir.appendingPathComponent("missing.ldaprofile").path,
+              "model": planted])
+        ]
+
+        for call in calls {
+            let response = try callText(tool: call.tool, arguments: call.arguments)
+            XCTAssertTrue(
+                response.isError,
+                "\(call.tool) must reject the planted model, got: \(response.text)"
+            )
+            XCTAssertTrue(
+                response.text.contains(call.key),
+                "\(call.tool): the message must name the offending argument, got: \(response.text)"
+            )
+            XCTAssertTrue(
+                response.text.contains("allowed directories for GGUF models"),
+                "\(call.tool): the rejection must come from the model path policy, "
+                    + "not from the engine failing to read the file, got: \(response.text)"
+            )
+        }
+    }
+
+    /// A model path inside the roots is NOT rejected by the policy: detection
+    /// proceeds (deterministic-only when the file is absent, per makeDetector's
+    /// documented fallback), which proves the gate lets legitimate paths
+    /// through rather than being an accidental blanket.
+    func testAModelPathInsideTheRootsPassesThePolicy() throws {
+        let input = workDir.appendingPathComponent("doc.txt")
+        try Data("Mail someone@example.com now.".utf8).write(to: input)
+        let missingButAllowed = workDir.appendingPathComponent("missing.gguf").path
+
+        let response = try callText(tool: "detect_entities", arguments: [
+            "input": input.path,
+            "modelPath": missingButAllowed
+        ])
+
+        XCTAssertFalse(response.isError, "an in-root model path must pass, got: \(response.text)")
+        XCTAssertFalse(
+            response.text.contains("allowed directories for GGUF models"),
+            "an in-root model path must not trip the policy, got: \(response.text)"
+        )
+    }
+
     // MARK: - Keychain snapshot helpers
 
     /// The raw key bytes stored for a generic-password item, or nil when absent.

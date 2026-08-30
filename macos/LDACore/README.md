@@ -295,8 +295,12 @@ sidecar must travel between tools or machines.
   `LDA_MCP_ALLOWED_ROOTS` (colon separated) when launching the server to allow
   additional locations. This is an environment variable set by whoever launches
   the server, not a value a request can supply: a policy a request can widen is
-  not a policy. The GGUF model path is deliberately exempt, since a distributed
-  build reads its model from inside the `.app` bundle.
+  not a policy. GGUF model paths are held to the same allow-list, widened by
+  one directory: the app bundle's `Resources`, where a distributed build ships
+  its model. A model anywhere else requires `LDA_MCP_ALLOWED_ROOTS`, so a
+  prompt-steered host cannot stage a malicious model in some other writable
+  location and point llama.cpp at it. The launcher itself stays trusted: it
+  controls the environment, the binary, and the bundled model.
 - **Review PDF coverage.** For PDF input, a value that is tokenized in the edit
   surface but whose position could not be established on the page is counted in
   `unboxedTokenCount` rather than being given an invented box. A non-zero count

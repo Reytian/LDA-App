@@ -15,6 +15,7 @@
 //
 
 import XCTest
+import CryptoKit
 @testable import LDACore
 
 final class SecurityEventLogTests: XCTestCase {
@@ -24,6 +25,7 @@ final class SecurityEventLogTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        assertNoTestSeamsInstalled()
         workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("SecurityEventLogTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -31,10 +33,18 @@ final class SecurityEventLogTests: XCTestCase {
         // start from a known-empty state for every test.
         log.isEnabled = false
         log.directory = workDir
+        // Digests are keyed by a per-install key held in the Keychain. Inject
+        // a fixed key so every test is deterministic and none of them reads or
+        // creates the real key.
+        SecurityEventLog.digestKeySeam.value = {
+            SymmetricKey(data: Data(repeating: 0xA5, count: 32))
+        }
     }
 
     override func tearDownWithError() throws {
-        // Never leak enablement or the directory into another suite.
+        // Never leak enablement, the directory, or the digest key into
+        // another suite.
+        SecurityEventLog.digestKeySeam.clear()
         log.isEnabled = false
         log.directory = SecurityEventLog.defaultDirectory()
         if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
@@ -231,6 +241,134 @@ final class SecurityEventLogTests: XCTestCase {
             first,
             SecurityEventLog.subjectDigest(service: "other", account: account),
             "the service must be part of the digest so stores stay distinct"
+        )
+    }
+
+    func testSubjectDigestIsKeyedByTheInstallKey() {
+        let account = "client-acme-holdings-litigation"
+
+        SecurityEventLog.digestKeySeam.value = {
+            SymmetricKey(data: Data(repeating: 0x01, count: 32))
+        }
+        let underKeyOne = SecurityEventLog.subjectDigest(service: "svc", account: account)
+
+        SecurityEventLog.digestKeySeam.value = {
+            SymmetricKey(data: Data(repeating: 0x02, count: 32))
+        }
+        let underKeyTwo = SecurityEventLog.subjectDigest(service: "svc", account: account)
+
+        XCTAssertNotEqual(
+            underKeyOne, underKeyTwo,
+            "the install key must participate in the digest: an unkeyed digest "
+                + "can be reversed by dictionary-testing candidate client labels"
+        )
+
+        // Neither may be the legacy unkeyed hash, which anyone can recompute.
+        let unkeyed = SHA256.hash(data: Data("svc\u{1F}\(account)".utf8))
+            .prefix(8).map { String(format: "%02x", $0) }.joined()
+        XCTAssertNotEqual(underKeyOne, unkeyed)
+        XCTAssertNotEqual(underKeyTwo, unkeyed)
+    }
+
+    func testSubjectDigestIsHMACSHA256UnderTheInstalledKey() {
+        let key = SymmetricKey(data: Data(repeating: 0x0B, count: 32))
+        SecurityEventLog.digestKeySeam.value = { key }
+
+        let digest = SecurityEventLog.subjectDigest(service: "svc", account: "acct")
+
+        let mac = HMAC<SHA256>.authenticationCode(
+            for: Data("svc\u{1F}acct".utf8),
+            using: key
+        )
+        let expected = Data(mac).prefix(8).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, expected, "the digest must be exactly the truncated HMAC")
+    }
+
+    func testThePersistentDigestKeyRoundTripsThroughTheKeychain() throws {
+        // The one test of the real Keychain path. Restore the pre-test state:
+        // when the key did not exist before, remove the one this test created.
+        let existedBefore = SecurityEventLog.persistentDigestKeyExistsForTesting()
+        defer {
+            if !existedBefore {
+                SecurityEventLog.deletePersistentDigestKeyForTesting()
+            }
+        }
+
+        guard let first = SecurityEventLog.loadOrCreatePersistentDigestKey() else {
+            throw XCTSkip("Keychain unavailable in this environment")
+        }
+        let second = SecurityEventLog.loadOrCreatePersistentDigestKey()
+
+        XCTAssertEqual(
+            first.withUnsafeBytes { Data($0) },
+            second?.withUnsafeBytes { Data($0) },
+            "one install must keep digesting under one key or correlation breaks"
+        )
+    }
+
+    func testADisabledLogComputesNoDigests() throws {
+        log.isEnabled = false
+        var digestKeyReads = 0
+        SecurityEventLog.digestKeySeam.value = {
+            digestKeyReads += 1
+            return SymmetricKey(data: Data(repeating: 0x03, count: 32))
+        }
+
+        // A keychain-protected operation on an audited container, with the
+        // log disabled: nothing will be recorded, so nothing may be digested.
+        // Distinct service and magic keep this fixture away from real stores.
+        let container = EncryptedContainer(
+            magic: Array("LDATST".utf8),
+            keychainService: "ai.openclaw.lda.test.digestguard",
+            containerDescription: "Digest guard fixture",
+            auditing: true
+        )
+        let url = workDir.appendingPathComponent("guard.bin")
+        let account = "seclog-disabled-guard"
+        do {
+            try container.save(Data("payload".utf8), to: url, protection: .keychain(account: account))
+        } catch DocumentIOError.keychainError(let status) {
+            throw XCTSkip("Keychain unavailable in this environment (status \(status))")
+        }
+        defer { try? container.deleteKeychainKey(account: account) }
+
+        XCTAssertEqual(
+            digestKeyReads, 0,
+            "a disabled log must not compute digests: that would read or create "
+                + "the digest key on every store operation in every headless tool"
+        )
+    }
+
+    func testAnEnabledLogRecordsTheKeyedDigest() throws {
+        log.isEnabled = true
+        let key = SymmetricKey(data: Data(repeating: 0x0C, count: 32))
+        SecurityEventLog.digestKeySeam.value = { key }
+
+        let container = EncryptedContainer(
+            magic: Array("LDATST".utf8),
+            keychainService: "ai.openclaw.lda.test.digestguard",
+            containerDescription: "Digest guard fixture",
+            auditing: true
+        )
+        let url = workDir.appendingPathComponent("enabled.bin")
+        let account = "seclog-enabled-digest"
+        do {
+            try container.save(Data("payload".utf8), to: url, protection: .keychain(account: account))
+        } catch DocumentIOError.keychainError(let status) {
+            throw XCTSkip("Keychain unavailable in this environment (status \(status))")
+        }
+        defer { try? container.deleteKeychainKey(account: account) }
+
+        let mac = HMAC<SHA256>.authenticationCode(
+            for: Data("ai.openclaw.lda.test.digestguard\u{1F}\(account)".utf8),
+            using: key
+        )
+        let expected = Data(mac).prefix(8).map { String(format: "%02x", $0) }.joined()
+
+        let sealed = try log.readAll().filter { $0.kind == .containerSealed }
+        XCTAssertEqual(
+            sealed.last?.subjectDigest, expected,
+            "a real store operation must record the keyed digest"
         )
     }
 

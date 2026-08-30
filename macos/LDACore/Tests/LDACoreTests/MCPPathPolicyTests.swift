@@ -167,4 +167,63 @@ final class MCPPathPolicyTests: XCTestCase {
 
         XCTAssertNotEqual(result["isError"] as? Bool, true)
     }
+
+    // MARK: - Model paths
+
+    func testModelRootsAreTheStandardRootsPlusTheBundleResources() {
+        let modelRoots = MCPPathPolicy.allowedModelRoots(environment: [:])
+        for root in MCPPathPolicy.allowedRoots(environment: [:]) {
+            XCTAssertTrue(
+                modelRoots.contains(root),
+                "every standard root must remain a model root: \(root.path)"
+            )
+        }
+        // A distributed build reads its model from inside the .app bundle, so
+        // the bundle's Resources directory is the one extra model root.
+        let resources = try? XCTUnwrap(Bundle.main.resourceURL)
+        XCTAssertTrue(
+            modelRoots.contains { $0.path == resources?.path },
+            "the bundle Resources directory must be a model root"
+        )
+    }
+
+    func testAModelPathOutsideTheRootsIsRefused() {
+        let planted = URL(fileURLWithPath: "/Library/Caches/planted.gguf")
+
+        XCTAssertFalse(MCPPathPolicy.isAllowedModelPath(planted, environment: [:]))
+        XCTAssertThrowsError(
+            try MCPPathPolicy.enforceModelPath(planted, argumentKey: "modelPath", environment: [:])
+        ) { error in
+            guard let policyError = error as? MCPPathPolicyError else {
+                return XCTFail("expected a path policy error, got \(error)")
+            }
+            XCTAssertTrue(policyError.message.contains("modelPath"))
+            XCTAssertTrue(
+                policyError.message.contains(MCPPathPolicy.extraRootsEnvironmentKey),
+                "the message must say how a launcher widens the policy"
+            )
+        }
+    }
+
+    func testAModelPathInsideHomeTempOrExtraRootsIsAllowed() {
+        XCTAssertTrue(
+            MCPPathPolicy.isAllowedModelPath(
+                workDir.appendingPathComponent("model.gguf"), environment: [:]
+            )
+        )
+        XCTAssertTrue(
+            MCPPathPolicy.isAllowedModelPath(
+                FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Developer/lda-models/model.gguf"),
+                environment: [:]
+            )
+        )
+        // LDA_MCP_ALLOWED_ROOTS widens model roots exactly like document roots.
+        XCTAssertTrue(
+            MCPPathPolicy.isAllowedModelPath(
+                URL(fileURLWithPath: "/Volumes/Models/model.gguf"),
+                environment: [MCPPathPolicy.extraRootsEnvironmentKey: "/Volumes/Models"]
+            )
+        )
+    }
 }

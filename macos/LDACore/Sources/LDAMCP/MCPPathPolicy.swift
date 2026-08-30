@@ -15,7 +15,9 @@
 //
 //  Allowed by default: anything under the user's home directory, and anything
 //  under the system temporary directory (which is per-user on macOS and is
-//  where the app's own .zip expansions and every test fixture live).
+//  where the app's own .zip expansions and every test fixture live). GGUF
+//  model paths are additionally allowed under the running bundle's Resources
+//  directory, where a distributed build ships its model.
 //
 //  Extending it: set LDA_MCP_ALLOWED_ROOTS to a colon-separated list of extra
 //  directories. This is deliberately an environment variable set by whoever
@@ -70,15 +72,7 @@ public enum MCPPathPolicy {
         _ url: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        let candidate = resolvedForComparison(url)
-        for root in allowedRoots(environment: environment) {
-            let rootPath = resolvedForComparison(root)
-            if candidate == rootPath { return true }
-            if candidate.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/") {
-                return true
-            }
-        }
-        return false
+        contains(url, roots: allowedRoots(environment: environment))
     }
 
     /// Throw MCPPathPolicyError.outsideAllowedRoots when url is not allowed.
@@ -93,6 +87,67 @@ public enum MCPPathPolicy {
                 path: url.path
             )
         }
+    }
+
+    // MARK: - Model paths
+
+    /// The directories a GGUF model path may point into: every standard root
+    /// plus the running bundle's Resources directory, because a distributed
+    /// build reads its model from inside the .app bundle in /Applications,
+    /// which no other rule covers.
+    ///
+    /// Model paths used to be exempt from the policy entirely on that bundle
+    /// rationale. The exemption was wider than its reason: a prompt-steered
+    /// host could stage a malicious GGUF anywhere writable and point llama.cpp
+    /// at it. Model paths now go through the same allow-list, widened by
+    /// exactly the one directory the rationale was about.
+    public static func allowedModelRoots(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        var roots = allowedRoots(environment: environment)
+        if let resources = Bundle.main.resourceURL {
+            roots.append(resources)
+        }
+        return roots
+    }
+
+    /// True when url may be used as a GGUF model path.
+    public static func isAllowedModelPath(
+        _ url: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        contains(url, roots: allowedModelRoots(environment: environment))
+    }
+
+    /// Throw MCPPathPolicyError.modelOutsideAllowedRoots when url may not be
+    /// used as a GGUF model path.
+    public static func enforceModelPath(
+        _ url: URL,
+        argumentKey: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
+        guard isAllowedModelPath(url, environment: environment) else {
+            throw MCPPathPolicyError.modelOutsideAllowedRoots(
+                argumentKey: argumentKey,
+                path: url.path
+            )
+        }
+    }
+
+    // MARK: - Containment
+
+    /// True when url is one of roots or sits inside one, compared on
+    /// normalized, symlink-resolved paths (see isAllowed for the rules).
+    private static func contains(_ url: URL, roots: [URL]) -> Bool {
+        let candidate = resolvedForComparison(url)
+        for root in roots {
+            let rootPath = resolvedForComparison(root)
+            if candidate == rootPath { return true }
+            if candidate.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/") {
+                return true
+            }
+        }
+        return false
     }
 
     /// A comparable absolute path: standardized, tilde expanded, and with
@@ -131,6 +186,7 @@ public enum MCPPathPolicy {
 /// Raised when a request names a path outside the allowed roots.
 public enum MCPPathPolicyError: Error {
     case outsideAllowedRoots(argumentKey: String, path: String)
+    case modelOutsideAllowedRoots(argumentKey: String, path: String)
 
     public var message: String {
         switch self {
@@ -138,6 +194,13 @@ public enum MCPPathPolicyError: Error {
             return "Argument \(argumentKey) points outside the allowed directories: "
                 + "\(path). The MCP server only reads and writes inside your home "
                 + "directory and the system temporary directory. Set "
+                + "\(MCPPathPolicy.extraRootsEnvironmentKey) when launching the "
+                + "server to allow additional locations."
+        case .modelOutsideAllowedRoots(let argumentKey, let path):
+            return "Argument \(argumentKey) points outside the allowed directories "
+                + "for GGUF models: \(path). Model files are read from your home "
+                + "directory, the system temporary directory, or the app bundle's "
+                + "Resources directory. Set "
                 + "\(MCPPathPolicy.extraRootsEnvironmentKey) when launching the "
                 + "server to allow additional locations."
         }

@@ -12,8 +12,10 @@
 //  success or failure, and a short PII-free detail. What is NEVER recorded:
 //  document text, entity values, file paths, client or matter labels, and the
 //  Keychain account itself (account names embed client labels, so only a
-//  salt-free SHA-256 prefix of the account is stored; it correlates repeated
-//  access to one key without naming it).
+//  truncated HMAC-SHA256 of the account, keyed by a per-install random key in
+//  the Keychain, is stored; it correlates repeated access to one key without
+//  naming it, and without the key it cannot be dictionary-tested against
+//  candidate labels).
 //
 //  Storage: the event array is JSON-encoded and written through
 //  EncryptedContainer under its own magic bytes and its own Keychain service,
@@ -40,6 +42,7 @@
 
 import Foundation
 import CryptoKit
+import Security
 
 // MARK: - Event kinds
 
@@ -80,9 +83,10 @@ public struct SecurityEvent: Codable, Sendable, Equatable {
     /// Which store kind it happened to, using the container's description noun
     /// (for example "Mapping sidecar"). A fixed vocabulary, never a path.
     public let scope: String
-    /// Truncated SHA-256 of "service\u{1F}account", or nil when the event is
-    /// not about a specific key. Correlates repeated access to one key without
-    /// recording the account, which embeds a client or matter label.
+    /// Truncated keyed digest (HMAC-SHA256 under the per-install digest key)
+    /// of "service\u{1F}account", or nil when the event is not about a
+    /// specific key. Correlates repeated access to one key without recording
+    /// the account, which embeds a client or matter label.
     public let subjectDigest: String?
     /// Whether the operation succeeded.
     public let succeeded: Bool
@@ -132,8 +136,15 @@ public final class SecurityEventLog {
     /// File name of the encrypted log inside the log directory.
     public static let fileName = "security-events.ldaaudit"
 
+    /// The Keychain service every audit key lives under: the log's own
+    /// encryption key and the subject digest key.
+    static let keychainService = "ai.openclaw.lda.audit"
+
     /// The Keychain account holding the log's own encryption key.
     static let keychainAccount = "security-event-log"
+
+    /// The Keychain account holding the per-install subject digest key.
+    static let digestKeyKeychainAccount = "subject-digest-key"
 
     // MARK: Container
 
@@ -142,7 +153,7 @@ public final class SecurityEventLog {
     /// cannot recurse into recording another one.
     private static let container = EncryptedContainer(
         magic: Array("LDAAUD".utf8),
-        keychainService: "ai.openclaw.lda.audit",
+        keychainService: SecurityEventLog.keychainService,
         containerDescription: "Security event log",
         auditing: false
     )
@@ -299,14 +310,121 @@ public final class SecurityEventLog {
 
     // MARK: Digest
 
-    /// A stable, truncated digest of a Keychain identity. Not a secret and not
-    /// reversible to the label it came from within this format's purpose: it
-    /// exists only so two events about the same key can be correlated.
+    #if DEBUG
+    /// Test seam: supplies the digest key, so unit tests are deterministic and
+    /// never read or create the real per-install key in the Keychain.
+    static let digestKeySeam = TestSeam<() -> SymmetricKey>()
+    #endif
+
+    private static let digestKeyLock = NSLock()
+    private static var cachedDigestKey: SymmetricKey?
+
+    /// A stable, truncated digest of a Keychain identity. It exists only so
+    /// two events about the same key can be correlated.
+    ///
+    /// The digest is an HMAC-SHA256 under a per-install random key, truncated
+    /// to 8 bytes. Account names embed client and matter labels, and labels
+    /// are guessable, so an unkeyed hash could be reversed by dictionary
+    /// testing candidate labels against a decrypted log. Keying closes that:
+    /// reading the log is not enough, the digest key would have to come out of
+    /// the Keychain too. Within one install the digest is still only a
+    /// pseudonym, not encryption of the account name.
     public static func subjectDigest(service: String, account: String) -> String {
         let input = Data("\(service)\u{1F}\(account)".utf8)
-        let digest = SHA256.hash(data: input)
-        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        let mac = HMAC<SHA256>.authenticationCode(for: input, using: digestKey())
+        return Data(mac).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
+
+    /// The per-install digest key: injected in tests, cached after the first
+    /// use, otherwise loaded from or created in the Keychain. When the
+    /// Keychain cannot serve or store it, the fallback is an ephemeral process
+    /// key, so digests still correlate within the run and are never unkeyed.
+    private static func digestKey() -> SymmetricKey {
+        #if DEBUG
+        if let injected = digestKeySeam.value {
+            return injected()
+        }
+        #endif
+        return digestKeyLock.withLock {
+            if let cached = cachedDigestKey {
+                return cached
+            }
+            let key = loadOrCreatePersistentDigestKey() ?? SymmetricKey(size: .bits256)
+            cachedDigestKey = key
+            return key
+        }
+    }
+
+    /// Load the digest key from the Keychain, creating and storing a fresh
+    /// random one on first use. Returns nil when the Keychain cannot serve or
+    /// store it; the caller falls back to an ephemeral key.
+    ///
+    /// Deliberately a silent Keychain item, never user-presence protected:
+    /// digests are computed in the middle of ordinary store operations, and
+    /// the audit trail must never raise a Touch ID prompt of its own. The key
+    /// guards log pseudonymity, not document content.
+    static func loadOrCreatePersistentDigestKey() -> SymmetricKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: digestKeyKeychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecSuccess, let data = item as? Data, !data.isEmpty {
+            return SymmetricKey(data: data)
+        }
+        guard status == errSecItemNotFound else {
+            return nil
+        }
+
+        let fresh = SymmetricKey(size: .bits256)
+        let attributes: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: digestKeyKeychainAccount,
+            kSecValueData as String: fresh.withUnsafeBytes { Data($0) },
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        if addStatus == errSecSuccess {
+            return fresh
+        }
+        if addStatus == errSecDuplicateItem {
+            // Another thread or process created it between the read and the
+            // add. Use theirs, so the whole install digests under one key.
+            var raced: CFTypeRef?
+            if SecItemCopyMatching(query as CFDictionary, &raced) == errSecSuccess,
+               let data = raced as? Data, !data.isEmpty {
+                return SymmetricKey(data: data)
+            }
+        }
+        return nil
+    }
+
+    #if DEBUG
+    /// Test support: whether the persistent digest key currently exists.
+    static func persistentDigestKeyExistsForTesting() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: digestKeyKeychainAccount
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// Test support: remove the persistent digest key and forget the cache.
+    static func deletePersistentDigestKeyForTesting() {
+        digestKeyLock.withLock { cachedDigestKey = nil }
+        SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: digestKeyKeychainAccount
+        ] as CFDictionary)
+    }
+    #endif
 
     // MARK: Private
 

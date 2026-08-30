@@ -48,7 +48,7 @@ extension MCPServer {
             }
         }
 
-        let modelPath = (arguments["modelPath"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let modelPath = try allowedModelPath(arguments, key: "modelPath")
         let createdAt = MCPServer.iso8601Now()
 
         // Client seeding (R10): when a client label is given, reuse and extend
