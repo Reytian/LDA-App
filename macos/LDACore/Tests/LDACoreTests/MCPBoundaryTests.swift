@@ -41,7 +41,7 @@ final class MCPBoundaryTests: XCTestCase {
             .appendingPathComponent("MCPBoundaryTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
         wireLog = []
     }
 
@@ -102,9 +102,43 @@ final class MCPBoundaryTests: XCTestCase {
     private func stage(named name: String, contents: String) throws -> (handle: String, sourceURL: URL) {
         let url = workDir.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url)
-        let entry = try DocumentVault(rootDirectory: vaultDir)
+        let entry = try VaultTestSupport.vault(root: vaultDir)
             .stage(fileURL: url, stagedAtISO8601: "2026-08-30T00:00:00Z")
         return (entry.handle, url)
+    }
+
+    /// Every regular file currently under the vault root, as (relative path,
+    /// raw bytes) pairs. This is the attacker's view of the store.
+    private func rawVaultFiles() throws -> [(relativePath: String, bytes: Data)] {
+        guard let subpaths = try? FileManager.default.subpathsOfDirectory(atPath: vaultDir.path) else {
+            return []
+        }
+        return subpaths.compactMap { relativePath in
+            let url = vaultDir.appendingPathComponent(relativePath)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue,
+                  let bytes = FileManager.default.contents(atPath: url.path) else {
+                return nil
+            }
+            return (relativePath, bytes)
+        }
+    }
+
+    /// Assert that no decrypted scratch file is left under the vault root.
+    /// Called after tool calls: the scratch lifetime is exactly one call.
+    private func assertNoScratchPlaintextRemains(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let scratch = vaultDir.appendingPathComponent(DocumentVault.scratchDirectoryName)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: scratch.path)) ?? []
+        XCTAssertTrue(
+            leftovers.isEmpty,
+            "decrypted scratch files survived a tool call: \(leftovers)",
+            file: file,
+            line: line
+        )
     }
 
     // MARK: - The round-trip boundary regression
@@ -170,7 +204,7 @@ final class MCPBoundaryTests: XCTestCase {
         // The restored bytes ARE back in the vault (with the edit applied),
         // proving the round trip worked without the wire carrying the values.
         let restoredText = String(
-            decoding: try DocumentVault(rootDirectory: vaultDir)
+            decoding: try VaultTestSupport.vault(root: vaultDir)
                 .readDocumentBytes(handle: restoredHandle),
             as: UTF8.self
         )
@@ -227,9 +261,12 @@ final class MCPBoundaryTests: XCTestCase {
 
         let staged = try stage(named: "matter.txt", contents: "Mail jane@example.com now.")
 
-        // Fresh server: everything zero.
+        // Fresh server: everything zero. The fresh vault encrypts everything
+        // it will ever store, so the phase 5 claim is true from the start,
+        // and the key protection names the injected passphrase mode honestly.
         var attest = try summary(of: try call(tool: "attest", arguments: [:]))
-        XCTAssertEqual(attest["vaultEncryptionAtRest"] as? Bool, false, "phase 5 has not shipped; attest must say so")
+        XCTAssertEqual(attest["vaultEncryptionAtRest"] as? Bool, true, "phase 5 shipped; attest must say so")
+        XCTAssertEqual(attest["vaultKeyProtection"] as? String, "passphrase")
         XCTAssertEqual(attest["keyACLMode"] as? String, "silent")
         XCTAssertEqual(attest["plaintextBytesReturnedThisSession"] as? Int, 0)
         XCTAssertEqual(attest["redactedBytesReturnedThisSession"] as? Int, 0)
@@ -322,7 +359,7 @@ final class MCPBoundaryTests: XCTestCase {
         ]))
         let restoredHandle = try XCTUnwrap(restored["restoredHandle"] as? String)
         let restoredText = String(
-            decoding: try DocumentVault(rootDirectory: vaultDir)
+            decoding: try VaultTestSupport.vault(root: vaultDir)
                 .readDocumentBytes(handle: restoredHandle),
             as: UTF8.self
         )
@@ -330,5 +367,104 @@ final class MCPBoundaryTests: XCTestCase {
 
         // And the wire never carried the shared value or any path.
         assertWireNeverContained([email, vaultDir.path, "/Users/"])
+    }
+
+    // MARK: - Encryption at rest, proven on the file system
+
+    /// The "cat returns ciphertext" proof: after a full
+    /// stage-anonymize-read-restore-export round trip, no file under the
+    /// vault root except the outbox contains the planted PII or the original
+    /// filename as raw bytes. This is the structural guarantee the deny-list
+    /// hook only approximates.
+    func testAfterAFullRoundTripNoVaultFileOutsideTheOutboxCarriesPlaintext() throws {
+        let email = "li.si.8842@example.com"
+        let phone = "(212) 555-0177"
+        let fileBase = "LiSi-v-WangWu-settlement-draft"
+        let contents = "Contact \(email) or call \(phone) about the settlement."
+        let staged = try stage(named: "\(fileBase).txt", contents: contents)
+
+        let anonymized = try summary(of: try call(tool: "anonymize", arguments: [
+            "handle": staged.handle, "passphrase": passphrase
+        ]))
+        let redactedHandle = try XCTUnwrap(anonymized["redactedHandle"] as? String)
+        let read = try summary(of: try call(tool: "read_redacted", arguments: [
+            "handle": redactedHandle
+        ]))
+        let redactedText = try XCTUnwrap(read["text"] as? String)
+        let restored = try summary(of: try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle,
+            "editedText": redactedText,
+            "passphrase": passphrase
+        ]))
+        let restoredHandle = try XCTUnwrap(restored["restoredHandle"] as? String)
+        try call(tool: "export", arguments: ["handle": restoredHandle])
+
+        let outboxPrefix = DocumentVault.outboxDirectoryName + "/"
+        var scannedOutsideOutbox = 0
+        var outboxCarriesTheRestoredValue = false
+        for (relativePath, bytes) in try rawVaultFiles() {
+            let text = String(decoding: bytes, as: UTF8.self)
+            if relativePath.hasPrefix(outboxPrefix) {
+                // The outbox is the deliberate human-facing exit; the export
+                // must be usable plaintext there.
+                outboxCarriesTheRestoredValue = outboxCarriesTheRestoredValue
+                    || text.contains(email)
+                continue
+            }
+            scannedOutsideOutbox += 1
+            for planted in [email, phone, fileBase] {
+                XCTAssertFalse(
+                    text.contains(planted),
+                    "\(relativePath) holds plaintext: \(planted)"
+                )
+            }
+        }
+        // Registry, staged original, redacted artifact, edited redacted
+        // artifact, restored artifact, and the mapping sidecar were all on
+        // disk; a scan that saw fewer files than that proved nothing.
+        XCTAssertGreaterThanOrEqual(scannedOutsideOutbox, 5, "the scan must cover the store")
+        XCTAssertTrue(
+            outboxCarriesTheRestoredValue,
+            "the exported outbox copy must be decrypted, restored plaintext"
+        )
+    }
+
+    /// The scratch lifetime rule: decrypted working copies live inside the
+    /// vault for exactly one tool call and are gone when the call returns,
+    /// on the plural (session) path too.
+    func testDecryptedScratchFilesAreGoneAfterEveryToolCall() throws {
+        let first = try stage(named: "matter.txt", contents: "Mail jane@example.com now.")
+        let second = try stage(named: "annex.txt", contents: "Reply to jane@example.com.")
+
+        try call(tool: "detect_entities", arguments: ["handle": first.handle])
+        assertNoScratchPlaintextRemains()
+
+        let anonymized = try summary(of: try call(tool: "anonymize", arguments: [
+            "handle": first.handle, "passphrase": passphrase
+        ]))
+        assertNoScratchPlaintextRemains()
+        let redactedHandle = try XCTUnwrap(anonymized["redactedHandle"] as? String)
+
+        try call(tool: "anonymize_session", arguments: [
+            "handles": [first.handle, second.handle], "passphrase": passphrase
+        ])
+        assertNoScratchPlaintextRemains()
+
+        try call(tool: "read_redacted", arguments: ["handle": redactedHandle])
+        assertNoScratchPlaintextRemains()
+
+        try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle, "passphrase": passphrase
+        ])
+        assertNoScratchPlaintextRemains()
+
+        // A FAILING call must clean up too: restore with the wrong protection
+        // mode decrypts the redacted artifact to scratch and then fails at
+        // the sidecar.
+        let failing = try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle
+        ])
+        XCTAssertTrue(failing.isError)
+        assertNoScratchPlaintextRemains()
     }
 }

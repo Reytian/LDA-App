@@ -40,7 +40,7 @@ final class MCPTests: XCTestCase {
             withIntermediateDirectories: true
         )
         vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
     }
 
     override func tearDownWithError() throws {
@@ -108,7 +108,7 @@ final class MCPTests: XCTestCase {
     private func stage(_ contents: String, named name: String = "matter.txt") throws -> String {
         let url = workDir.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url)
-        return try DocumentVault(rootDirectory: vaultDir)
+        return try VaultTestSupport.vault(root: vaultDir)
             .stage(fileURL: url, stagedAtISO8601: "2026-08-30T00:00:00Z")
             .handle
     }
@@ -285,7 +285,7 @@ final class MCPTests: XCTestCase {
 
         // The redacted edit surface must differ from the original (PII
         // tokenized). Read through the vault: the response carries no text.
-        let vault = DocumentVault(rootDirectory: vaultDir)
+        let vault = VaultTestSupport.vault(root: vaultDir)
         let redactedText = String(
             decoding: try vault.readDocumentBytes(handle: redactedHandle),
             as: UTF8.self

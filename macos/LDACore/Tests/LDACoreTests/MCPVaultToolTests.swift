@@ -9,9 +9,12 @@
 //
 //  Every server instance is pointed at a per-test vault via LDA_VAULT_DIR in
 //  its injected environment, so no test touches the real Application Support
-//  vault. Anonymize calls use passphrase protection so the unsigned test
-//  process never needs Keychain access (except the one test that is ABOUT
-//  per-document Keychain accounts, which cleans up its own unique accounts).
+//  vault. The vault itself is encrypted at rest; VaultTestSupport injects one
+//  shared passphrase (initializer parameter for direct vault access,
+//  LDA_VAULT_PASSPHRASE for servers) so the vault master key never touches
+//  the Keychain. Anonymize calls use passphrase protection for the mapping
+//  sidecars too (except the one test that is ABOUT per-document Keychain
+//  accounts, which cleans up its own unique accounts).
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -37,7 +40,7 @@ final class MCPVaultToolTests: XCTestCase {
             .appendingPathComponent("MCPVaultToolTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
         createdAccounts = []
     }
 
@@ -118,7 +121,7 @@ final class MCPVaultToolTests: XCTestCase {
     ) throws -> String {
         let url = workDir.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url)
-        let entry = try DocumentVault(rootDirectory: vaultDir)
+        let entry = try VaultTestSupport.vault(root: vaultDir)
             .stage(fileURL: url, stagedAtISO8601: "2026-08-30T00:00:00Z")
         return entry.handle
     }
@@ -150,10 +153,10 @@ final class MCPVaultToolTests: XCTestCase {
     }
 
     func testToolsListIncludesLegacyToolsOnlyWhenTheGateIsOpen() throws {
-        let gated = MCPServer(environment: [
-            DocumentVault.environmentKey: vaultDir.path,
-            MCPServer.legacyPathToolsEnvironmentKey: "1"
-        ])
+        let gated = MCPServer(environment: VaultTestSupport.serverEnvironment(
+            vaultDir: vaultDir,
+            extra: [MCPServer.legacyPathToolsEnvironmentKey: "1"]
+        ))
         let response = try roundTrip(
             ["jsonrpc": "2.0", "id": 3, "method": "tools/list"],
             via: gated
@@ -228,7 +231,7 @@ final class MCPVaultToolTests: XCTestCase {
         XCTAssertNil(summary["visualPdf"])
 
         // The redacted artifact and its sidecar are both inside the vault.
-        let redactedEntry = try DocumentVault(rootDirectory: vaultDir).entry(handle: redactedHandle)
+        let redactedEntry = try VaultTestSupport.vault(root: vaultDir).entry(handle: redactedHandle)
         XCTAssertEqual(redactedEntry.kind, .redacted)
         XCTAssertEqual(redactedEntry.sourceHandle, handle)
         XCTAssertNotNil(redactedEntry.mappingRelativePath)
@@ -362,7 +365,7 @@ final class MCPVaultToolTests: XCTestCase {
 
         // The restored PII lives in the vault, not in the response.
         XCTAssertNil(restored["text"])
-        let vault = DocumentVault(rootDirectory: vaultDir)
+        let vault = VaultTestSupport.vault(root: vaultDir)
         let restoredBytes = try vault.readDocumentBytes(handle: restoredHandle)
         let restoredText = String(decoding: restoredBytes, as: UTF8.self)
         XCTAssertTrue(restoredText.contains(email))
@@ -381,7 +384,7 @@ final class MCPVaultToolTests: XCTestCase {
         ])
         let restoredHandle = try XCTUnwrap(restored["restoredHandle"] as? String)
 
-        let bytes = try DocumentVault(rootDirectory: vaultDir)
+        let bytes = try VaultTestSupport.vault(root: vaultDir)
             .readDocumentBytes(handle: restoredHandle)
         XCTAssertEqual(String(decoding: bytes, as: UTF8.self), "Mail jane@example.com now.")
     }
@@ -408,7 +411,7 @@ final class MCPVaultToolTests: XCTestCase {
         XCTAssertEqual(exported["ok"] as? Bool, true)
         XCTAssertEqual(exported.count, 1, "the export response carries ok and nothing else")
 
-        let outbox = DocumentVault(rootDirectory: vaultDir).outboxDirectory
+        let outbox = VaultTestSupport.vault(root: vaultDir).outboxDirectory
         let names = try FileManager.default.contentsOfDirectory(atPath: outbox.path)
         XCTAssertEqual(names, ["client-matter_redacted.txt"])
     }
@@ -438,10 +441,10 @@ final class MCPVaultToolTests: XCTestCase {
     }
 
     func testLegacyToolsWorkAsBeforeWithTheGateOpen() throws {
-        let gated = MCPServer(environment: [
-            DocumentVault.environmentKey: vaultDir.path,
-            MCPServer.legacyPathToolsEnvironmentKey: "1"
-        ])
+        let gated = MCPServer(environment: VaultTestSupport.serverEnvironment(
+            vaultDir: vaultDir,
+            extra: [MCPServer.legacyPathToolsEnvironmentKey: "1"]
+        ))
 
         // fill with no arguments now reaches the tool itself, whose own
         // missing-argument error proves the dispatch went through.
@@ -483,7 +486,7 @@ final class MCPVaultToolTests: XCTestCase {
         XCTAssertTrue(account.contains(redactedHandle))
 
         // The sidecar decrypts under exactly that account.
-        let vault = DocumentVault(rootDirectory: vaultDir)
+        let vault = VaultTestSupport.vault(root: vaultDir)
         let mappingURL = try vault.mappingFileURL(forHandle: redactedHandle)
         XCTAssertNoThrow(
             try MappingStore.load(from: mappingURL, protection: .keychain(account: account))

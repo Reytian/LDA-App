@@ -123,7 +123,7 @@ final class MCPHardeningTests: XCTestCase {
         ]
         let payload = try JSONSerialization.data(withJSONObject: request)
         let effectiveServer = server
-            ?? MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+            ?? MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
         let responseData = try XCTUnwrap(effectiveServer.handle(payload))
         let response = try XCTUnwrap(
             JSONSerialization.jsonObject(with: responseData) as? [String: Any]
@@ -140,7 +140,7 @@ final class MCPHardeningTests: XCTestCase {
     private func stageFixture() throws -> String {
         let input = workDir.appendingPathComponent("doc.txt")
         try Data("Mail someone@example.com now.".utf8).write(to: input)
-        return try DocumentVault(rootDirectory: vaultDir)
+        return try VaultTestSupport.vault(root: vaultDir)
             .stage(fileURL: input, stagedAtISO8601: "2026-08-30T00:00:00Z")
             .handle
     }
@@ -157,13 +157,13 @@ final class MCPHardeningTests: XCTestCase {
         let input = workDir.appendingPathComponent("doc.txt")
         let planted = "/Library/Caches/planted.gguf"
 
-        let vaultServer = MCPServer(environment: [
-            DocumentVault.environmentKey: vaultDir.path
-        ])
-        let legacyServer = MCPServer(environment: [
-            DocumentVault.environmentKey: vaultDir.path,
-            MCPServer.legacyPathToolsEnvironmentKey: "1"
-        ])
+        let vaultServer = MCPServer(
+            environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir)
+        )
+        let legacyServer = MCPServer(environment: VaultTestSupport.serverEnvironment(
+            vaultDir: vaultDir,
+            extra: [MCPServer.legacyPathToolsEnvironmentKey: "1"]
+        ))
 
         let calls: [(tool: String, key: String, arguments: [String: Any], server: MCPServer)] = [
             ("detect_entities", "modelPath",

@@ -28,7 +28,7 @@ final class MCPStyleTests: XCTestCase {
             .appendingPathComponent("MCPStyleTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
     }
 
     override func tearDownWithError() throws {
@@ -86,7 +86,7 @@ final class MCPStyleTests: XCTestCase {
     private func stage(_ contents: String, named name: String) throws -> String {
         let url = workDir.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url)
-        return try DocumentVault(rootDirectory: vaultDir)
+        return try VaultTestSupport.vault(root: vaultDir)
             .stage(fileURL: url, stagedAtISO8601: "2026-08-30T00:00:00Z")
             .handle
     }
@@ -152,7 +152,7 @@ final class MCPStyleTests: XCTestCase {
         // The sidecar inside the vault records the style, so restore picks the
         // literal scan without being told. The test owns the vault dir, so
         // reaching into it is fine here; MCP clients never see this path.
-        let mappingURL = try DocumentVault(rootDirectory: vaultDir)
+        let mappingURL = try VaultTestSupport.vault(root: vaultDir)
             .mappingFileURL(forHandle: redactedHandle)
         let mapping = try MappingStore.load(
             from: mappingURL,
