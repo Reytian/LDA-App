@@ -96,9 +96,17 @@ extension ReviewModel {
                 aiRan: false, aiFailure: nil, cancelled: true
             )
         }
-        let merged = SpanMerger.merge(
-            deterministic: deterministic,
-            llm: llm.spans
+        // The full-document literal rescan sweeps in repeat mentions of every
+        // confirmed PERSON and COMPANY surface and of the document's defined
+        // short names, mirroring the LDAService detect pipeline. Suppression
+        // below still wins: a suppressed value's rescan spans carry the same
+        // (text, type) key and are filtered with it.
+        let merged = EntityRescan.expand(
+            SpanMerger.merge(
+                deterministic: deterministic,
+                llm: llm.spans
+            ),
+            in: text
         )
 
         // Suppress values the user has repeatedly rejected.
@@ -253,6 +261,13 @@ extension ReviewModel {
             spans: acceptedSpans,
             sourceFile: sourceFile,
             createdAtISO8601: createdAtISO8601
+        )
+        // Record the full-name/short-name grouping in the mapping, mirroring
+        // LDAService.anonymize. Tokens and values are untouched, so restore
+        // stays byte-identical at every site.
+        tokenized.mapping = EntityRescan.linkAliases(
+            in: tokenized.mapping,
+            pairs: EntityRescan.aliasPairs(in: text, confirmed: acceptedSpans)
         )
 
         let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"

@@ -40,6 +40,25 @@
 
 import Foundation
 
+// MARK: - AliasBinding
+
+/// A short-name definition found in the document: the alias surface exactly as
+/// written (quotes stripped), plus the UTF-16 offset of the opening parenthesis
+/// of the defining parenthetical. The offset is the anchor the pipeline uses to
+/// bind the alias to the detected entity span that immediately precedes the
+/// definition ("Full Company Name (hereinafter the short name)").
+public struct AliasBinding: Equatable, Sendable {
+    /// The alias surface exactly as written in the document, without quotes.
+    public let alias: String
+    /// UTF-16 offset of the opening parenthesis of the definition.
+    public let anchorOffset: Int
+
+    public init(alias: String, anchorOffset: Int) {
+        self.alias = alias
+        self.anchorOffset = anchorOffset
+    }
+}
+
 // MARK: - DefinedTermScanner
 
 /// Scans a document for quoted defined terms that are safe to drop from LLM
@@ -73,19 +92,9 @@ public enum DefinedTermScanner {
         var terms: Set<String> = []
 
         // Parenthetical definitions.
-        let parenPattern = "\\(\\s*" + leadInPattern + quoteClass + "([^\"\u{201C}\u{201D})]{2,70})" + quoteClass
-        if let regex = try? NSRegularExpression(pattern: parenPattern, options: [.caseInsensitive]) {
-            regex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
-                guard let match, match.numberOfRanges > 1 else { return }
-                let termRange = match.range(at: 1)
-                let term = ns.substring(with: termRange)
-                let windowStart = max(0, match.range.location - 90)
-                let preceding = ns.substring(
-                    with: NSRange(location: windowStart, length: match.range.location - windowStart)
-                )
-                if isDroppable(term: term, preceding: preceding) {
-                    terms.insert(normalize(term))
-                }
+        enumerateParentheticalDefinitions(in: text) { term, _, preceding in
+            if isDroppable(term: term, preceding: preceding) {
+                terms.insert(normalize(term))
             }
         }
 
@@ -99,6 +108,143 @@ public enum DefinedTermScanner {
         }
 
         return terms
+    }
+
+    // MARK: - Alias bindings
+
+    /// Lead-in phrases that mark a CJK short-name definition parenthetical:
+    /// （以下简称"X"）, （下称"X"）, (以下简称X), and close variants. Longer
+    /// alternatives come first so the regex matches greedily.
+    private static let cjkAliasLeadIn =
+        "(?:以下简称|以下合称|以下统称|以下称|下称|简称|合称|统称)"
+
+    /// Quote characters stripped from an alias term: straight and curly double
+    /// and single quotes plus CJK corner brackets.
+    private static let aliasQuoteCharacters = CharacterSet(
+        charactersIn: "\"\u{201C}\u{201D}'\u{2018}\u{2019}\u{300C}\u{300D}\u{300E}\u{300F}"
+    )
+
+    /// Collect the document's short-name definitions.
+    ///
+    /// Two definition families are recognized:
+    /// - CJK lead-in parentheticals: （以下简称"X"）, （下称"X"）, (以下简称X),
+    ///   with fullwidth or halfwidth parentheses, straight or curly quotes or
+    ///   none, an optional 为 and colon after the lead-in, and several quoted
+    ///   aliases in one parenthetical (each is emitted with the same anchor).
+    /// - Quoted parentheticals in the droppableTerms shape whose term is a
+    ///   real-name alias of the immediately preceding text ("Meridian Works",
+    ///   "IBM", or a CJK substring of the preceding name). Generic defined
+    ///   terms stay out: they are vocabulary, not identity.
+    ///
+    /// The returned aliases are raw document surfaces. Deciding whether an
+    /// alias is safe to rescan (role labels, boilerplate, length thresholds,
+    /// binding to a detected entity) is the caller's job (see EntityRescan).
+    public static func aliasBindings(in text: String) -> [AliasBinding] {
+        let ns = text as NSString
+        var bindings: [AliasBinding] = []
+        var seen = Set<SeenBinding>()
+
+        // CJK lead-in parentheticals.
+        let cjkPattern = "[\u{FF08}(]\\s*" + cjkAliasLeadIn
+            + "\u{4E3A}?\\s*[:\u{FF1A}]?\\s*([^\u{FF08}()\u{FF09}]{1,80}?)\\s*[)\u{FF09}]"
+        if let regex = try? NSRegularExpression(pattern: cjkPattern) {
+            regex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+                guard let match, match.numberOfRanges > 1 else { return }
+                let interior = ns.substring(with: match.range(at: 1))
+                for alias in aliasTerms(inInterior: interior) {
+                    let binding = AliasBinding(alias: alias, anchorOffset: match.range.location)
+                    if seen.insert(SeenBinding(binding)).inserted {
+                        bindings.append(binding)
+                    }
+                }
+            }
+        }
+
+        // Quoted parentheticals whose term is a real-name alias.
+        enumerateParentheticalDefinitions(in: text) { term, anchorOffset, preceding in
+            guard !isDroppable(term: term, preceding: preceding) else { return }
+            let binding = AliasBinding(
+                alias: term.trimmingCharacters(in: .whitespacesAndNewlines),
+                anchorOffset: anchorOffset
+            )
+            guard !binding.alias.isEmpty else { return }
+            if seen.insert(SeenBinding(binding)).inserted {
+                bindings.append(binding)
+            }
+        }
+
+        return bindings.sorted { lhs, rhs in
+            if lhs.anchorOffset != rhs.anchorOffset {
+                return lhs.anchorOffset < rhs.anchorOffset
+            }
+            return lhs.alias < rhs.alias
+        }
+    }
+
+    /// Dedup key for alias bindings (same alias at the same anchor can be found
+    /// by both the CJK pattern and the quoted-parenthetical pattern).
+    private struct SeenBinding: Hashable {
+        let alias: String
+        let anchorOffset: Int
+        init(_ binding: AliasBinding) {
+            self.alias = binding.alias
+            self.anchorOffset = binding.anchorOffset
+        }
+    }
+
+    /// Split a CJK definition parenthetical interior into individual alias
+    /// terms. When the interior carries quotes, each quoted run is one term
+    /// (connectors such as 或 between quoted runs are skipped naturally).
+    /// Without quotes the whole interior is a single term: splitting an
+    /// unquoted CJK name on connector characters would shred real names that
+    /// contain them (for example 和记).
+    private static func aliasTerms(inInterior interior: String) -> [String] {
+        let ns = interior as NSString
+        let quotedPattern = "[\"\u{201C}\u{201D}'\u{2018}\u{2019}\u{300C}\u{300E}]"
+            + "([^\"\u{201C}\u{201D}'\u{2018}\u{2019}\u{300C}\u{300D}\u{300E}\u{300F}]{1,60})"
+            + "[\"\u{201C}\u{201D}'\u{2018}\u{2019}\u{300D}\u{300F}]"
+        if interior.rangeOfCharacter(from: aliasQuoteCharacters) != nil,
+           let regex = try? NSRegularExpression(pattern: quotedPattern) {
+            var terms: [String] = []
+            regex.enumerateMatches(in: interior, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+                guard let match, match.numberOfRanges > 1 else { return }
+                let term = ns.substring(with: match.range(at: 1))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !term.isEmpty {
+                    terms.append(term)
+                }
+            }
+            return terms
+        }
+
+        let bare = interior.trimmingCharacters(in: .whitespacesAndNewlines)
+        return bare.isEmpty ? [] : [bare]
+    }
+
+    /// Enumerate every quoted parenthetical definition (`... (the "Term")`),
+    /// handing the handler the raw term, the UTF-16 offset of the opening
+    /// parenthesis, and the up-to-90-code-unit window of preceding text used
+    /// for alias classification. Shared by droppableTerms and aliasBindings so
+    /// the two views of the same definition never drift.
+    private static func enumerateParentheticalDefinitions(
+        in text: String,
+        handler: (String, Int, String) -> Void
+    ) {
+        let ns = text as NSString
+        let parenPattern = "[\u{FF08}(]\\s*" + leadInPattern + quoteClass
+            + "([^\"\u{201C}\u{201D})\u{FF09}]{2,70})" + quoteClass
+        guard let regex = try? NSRegularExpression(pattern: parenPattern, options: [.caseInsensitive]) else {
+            return
+        }
+        regex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match, match.numberOfRanges > 1 else { return }
+            let term = ns.substring(with: match.range(at: 1))
+            let windowStart = max(0, match.range.location - 90)
+            let preceding = ns.substring(
+                with: NSRange(location: windowStart, length: match.range.location - windowStart)
+            )
+            handler(term, match.range.location, preceding)
+        }
     }
 
     /// True when an LLM-reported value is covered by the document's droppable
@@ -144,8 +290,16 @@ public enum DefinedTermScanner {
         let significant = termWords.filter { !connectorWords.contains($0) }
         let isWordSubset = !significant.isEmpty && significant.allSatisfy { precedingSet.contains($0) }
         let isAcronymAlias = isAcronym(termWords: termWords, of: precedingLower)
+        // CJK real-name aliases: Chinese has no word delimiters, so the
+        // word-subset test above cannot see that 快帆科技 is derived from
+        // 杭州快帆科技有限公司. A CJK term that is a literal substring of the
+        // immediately preceding text is derived from the name it follows.
+        let trimmedTerm = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isCJKContained = !trimmedTerm.isEmpty
+            && containsCJK(trimmedTerm)
+            && preceding.contains(trimmedTerm)
 
-        guard isWordSubset || isAcronymAlias else {
+        guard isWordSubset || isAcronymAlias || isCJKContained else {
             // Not derived from the preceding text: a generic defined term.
             return true
         }
@@ -165,6 +319,52 @@ public enum DefinedTermScanner {
             }
         }
         return false
+    }
+
+    // MARK: - Derivation test (shared with EntityRescan)
+
+    /// True when an alias surface is derived from a canonical entity surface:
+    /// a CJK alias that is a literal substring of the canonical name, a Latin
+    /// alias whose significant words are a subset of the canonical name's
+    /// words, or an acronym of them. Used by the recall rescan to keep only
+    /// aliases that actually abbreviate the entity they are bound to; a
+    /// non-derived defined term (目标公司, "the Target") is document
+    /// vocabulary and stays unredacted, per this scanner's philosophy.
+    static func isDerivedAlias(_ alias: String, of canonical: String) -> Bool {
+        let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if containsCJK(trimmed) {
+            return canonical.contains(trimmed)
+        }
+
+        let aliasWords = words(of: trimmed)
+        let canonicalWords = words(of: canonical)
+        guard !aliasWords.isEmpty, !canonicalWords.isEmpty else { return false }
+
+        let significant = aliasWords.filter { !connectorWords.contains($0) }
+        let canonicalSet = Set(canonicalWords)
+        if !significant.isEmpty, significant.allSatisfy({ canonicalSet.contains($0) }) {
+            return true
+        }
+        return isAcronym(termWords: aliasWords, of: canonicalWords)
+    }
+
+    /// True when the string contains at least one CJK ideograph (Han ranges
+    /// plus the ideographic iteration and zero marks common in names).
+    static func containsCJK(_ s: String) -> Bool {
+        return s.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3005...0x3007,      // iteration mark, ideographic closing/zero
+                 0x3400...0x4DBF,      // CJK extension A
+                 0x4E00...0x9FFF,      // CJK unified ideographs
+                 0xF900...0xFAFF,      // CJK compatibility ideographs
+                 0x20000...0x2FA1F:    // extensions B and beyond
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     /// True when the single-word term is an acronym of the trailing significant

@@ -116,6 +116,17 @@ extension LDAService {
             seedMapping: seedMapping
         )
 
+        // Record the full-name/short-name grouping found in each document in
+        // the ONE shared mapping. Tokens and values are untouched, so restore
+        // stays byte-identical at every site.
+        var mapping = result.mapping
+        for document in sessionDocuments {
+            mapping = EntityRescan.linkAliases(
+                in: mapping,
+                pairs: EntityRescan.aliasPairs(in: document.text, confirmed: document.spans)
+            )
+        }
+
         let outputs = zip(inputs.indices, result.documents).map { index, document in
             SessionDocumentOutput(
                 sourceURL: inputs[index],
@@ -124,7 +135,7 @@ extension LDAService {
                 entities: spansByIndex[index]
             )
         }
-        return SessionAnonymizeResult(documents: outputs, mapping: result.mapping)
+        return SessionAnonymizeResult(documents: outputs, mapping: mapping)
     }
 
     /// Restore pasted AI output text against a saved mapping sidecar.

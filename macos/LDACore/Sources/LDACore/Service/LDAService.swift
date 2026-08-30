@@ -193,6 +193,15 @@ public enum LDAService {
             sourceFile: input.lastPathComponent,
             createdAtISO8601: createdAtISO8601
         )
+        // Record the full-name/short-name grouping (全称/简称归并) in the
+        // mapping: each defined short name's entry points at its canonical
+        // entry's token. Tokens and values are untouched, so restore stays
+        // byte-identical at every site. Pairs are derived from the pre-split
+        // spans because a docx line-break split never divides a name surface.
+        tokenized.mapping = EntityRescan.linkAliases(
+            in: tokenized.mapping,
+            pairs: EntityRescan.aliasPairs(in: imported.text, confirmed: detected)
+        )
 
         let redactedFileURL: URL
         var visualPdfURL: URL?
@@ -392,6 +401,12 @@ public enum LDAService {
         /// Truncation is checked first: when a segment was never scanned the
         /// unanchored count is drawn from an incomplete sample and reporting it
         /// would be misleading.
+        ///
+        /// After the merge, the confirmed spans seed the full-document literal
+        /// rescan (EntityRescan.expand): repeat mentions of every confirmed
+        /// PERSON and COMPANY surface, and of the document's defined short
+        /// names bound to them, are swept in with pure string search. This is
+        /// engine-level so the CLI, MCP, and app UI all benefit identically.
         func detectText(_ text: String) throws -> [Span] {
             let llm: [Span]
             if let extractor {
@@ -410,7 +425,8 @@ public enum LDAService {
             } else {
                 llm = []
             }
-            return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            return EntityRescan.expand(merged, in: text)
         }
 
         /// Secondary detection over short OCR'd image-origin text for the image-PII
