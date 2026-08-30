@@ -164,8 +164,10 @@ public struct RestoreResult: Sendable {
     public var orphanTokens: [String]
     /// Near-miss placeholder shapes found by the forensics scan: strings that
     /// look like a mangled session placeholder (bracket swap, lost brace, case
-    /// or space damage, bare TYPE_N). These are flagged for the user and NEVER
-    /// substituted, per the flag-don't-guess contract.
+    /// or space damage, bare TYPE_N, or separator drift in a known TYPE name
+    /// such as "{BANK_ACCOUNT_1}" for BANKACCOUNT or "{PERSON1}"). These are
+    /// flagged for the user and NEVER substituted, per the flag-don't-guess
+    /// contract.
     public var suspectPlaceholders: [String]
 
     public init(

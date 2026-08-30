@@ -124,8 +124,9 @@ public enum Restorer {
         }
 
         // Forensics pass: find near-miss placeholder shapes (an external AI may
-        // have swapped brackets, dropped a brace, changed case, or stripped the
-        // braces). Suspects are flagged for the user and never substituted. The
+        // have swapped brackets, dropped a brace, changed case, stripped the
+        // braces, or drifted the separators of a known TYPE name). Suspects
+        // are flagged for the user and never substituted. The
         // scan runs over the decoded INPUT text, where mangled shapes still sit
         // in their original form.
         let suspects = PlaceholderForensics.suspects(in: text, mapping: mapping)
