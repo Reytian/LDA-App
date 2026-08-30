@@ -440,6 +440,14 @@ public enum EntityJSONParser {
             return .uscc
         case "BANK_ACCOUNT":
             return .bankAccount
+        case "CASE_NUMBER":
+            return .caseNumber
+        case "LICENSE_PLATE":
+            return .licensePlate
+        case "WECHAT_ID":
+            return .wechatID
+        case "URL":
+            return .url
         default:
             return .unknown
         }

@@ -79,6 +79,14 @@ public enum CounselTheme {
             return dynamic(light: 0x9A5499, dark: 0xD18FCF)
         case .phone:
             return dynamic(light: 0xB05F5C, dark: 0xE09A97)
+        case .caseNumber:
+            return dynamic(light: 0x7A4A9E, dark: 0xB58FD9) // violet
+        case .licensePlate:
+            return dynamic(light: 0x2E7D6E, dark: 0x6FC4B4) // teal green
+        case .wechatID:
+            return dynamic(light: 0x4E7A2E, dark: 0x93C46F) // leaf
+        case .url:
+            return dynamic(light: 0x38618C, dark: 0x7FA8D9) // slate blue
         case .date, .unknown:
             return dynamic(light: 0x8A8175, dark: 0xBFB6A6)
         }

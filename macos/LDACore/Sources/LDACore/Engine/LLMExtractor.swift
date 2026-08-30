@@ -81,8 +81,9 @@ public struct ExtractionResult: Sendable {
 /// Drives the on-device LLM to produce fuzzy spans for SpanMerger's llm input.
 public final class LLMExtractor {
     /// The fuzzy types LDA keeps from the LLM. The DeterministicEngine owns the
-    /// structured types (EMAIL/PHONE/DATE/AMOUNT/BANK_ACCOUNT/USCC/NATIONAL_ID)
-    /// and wins conflicts via SpanMerger priority, so they are dropped here.
+    /// structured types (EMAIL/PHONE/DATE/AMOUNT/BANK_ACCOUNT/USCC/NATIONAL_ID
+    /// plus CASE_NUMBER/LICENSE_PLATE/WECHAT_ID/URL) and wins conflicts via
+    /// SpanMerger priority, so they are dropped here.
     /// ADDRESS stays kept even though the DeterministicEngine also emits the
     /// Chinese street-address shape: the LLM owns every other address form, and
     /// SpanMerger resolves the overlap when both engines find the same one.

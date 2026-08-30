@@ -43,7 +43,8 @@ Also required: macOS 14 or later, and Apple silicon.
 ## Design
 
 - Hybrid detection: deterministic regex plus checksum for structured PII
-  (EMAIL, PHONE, BANK_ACCOUNT, USCC, DATE, AMOUNT, NATIONAL_ID), and an LLM (in a
+  (EMAIL, PHONE, BANK_ACCOUNT, USCC, DATE, AMOUNT, NATIONAL_ID, CASE_NUMBER,
+  LICENSE_PLATE, WECHAT_ID, URL), and an LLM (in a
   later phase) for fuzzy entities (PERSON, COMPANY, ADDRESS).
 - On a type conflict, deterministic wins.
 - Role labels (Buyer, Seller, 甲方, 乙方, and the rest) are never redacted.
