@@ -7,9 +7,11 @@
 //  session, client seeding, skipped-document reporting), paste-based restore,
 //  and the add-a-missed-item correction on ReviewModel.
 //
-//  Deterministic-only (useLLM = false) so the GGUF model is never required.
-//  Hermetic: fixtures under FileManager.temporaryDirectory; the client store
-//  uses a temp root and passphrase protection (no Keychain access).
+//  Deterministic-only (useLLM = false) so the GGUF model is never required;
+//  the cross-document sweep test fakes the LLM layer through the extractor
+//  seam instead. Hermetic: fixtures under FileManager.temporaryDirectory; the
+//  client store uses a temp root and passphrase protection (no Keychain
+//  access).
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -45,14 +47,15 @@ final class SessionModelTests: XCTestCase {
         return url
     }
 
-    /// A session whose models run deterministic-only and whose client store
-    /// lives under the temp root with passphrase protection.
-    private func makeSession() -> SessionModel {
+    /// A session whose models run deterministic-only (or, when a model path is
+    /// given, with the AI pass enabled so the extractor seam can fake it) and
+    /// whose client store lives under the temp root with passphrase protection.
+    private func makeSession(modelPath: String? = nil) -> SessionModel {
         let clientRoot = workDir.appendingPathComponent("clients")
         let session = SessionModel(
             makeModel: {
-                let model = ReviewModel(modelPath: nil)
-                model.useLLM = false
+                let model = ReviewModel(modelPath: modelPath)
+                model.useLLM = modelPath != nil
                 return model
             },
             clientStore: { try ClientMappingStore(rootDirectory: clientRoot) }
@@ -188,6 +191,63 @@ final class SessionModelTests: XCTestCase {
         await session.addDocuments([doc])
 
         XCTAssertNil(try session.buildHandToAI(createdAtISO8601: Self.createdAt))
+    }
+
+    func testPersonConfirmedInOneDocumentSurfacesForReviewInTheOthers() async throws {
+        // Mirrors the headless session-wide sweep in LDAService.anonymizeSession
+        // (LDAServiceSessionTests): the model reports the person in document 1
+        // and misses them in document 2. In the GUI the swept mention must enter
+        // document 2's REVIEW list as an ordinary entity (visible and
+        // toggleable, never silently redacted) and then carry the shared token
+        // in the handoff instead of leaking.
+        let dummyModel = workDir.appendingPathComponent("dummy.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+
+        struct FirstDocumentOnlyCompleter: TextCompleter {
+            func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+                if prompt.contains("Witness statement") {
+                    return #"{"entities":[{"value":"Jordan Marlowe","type":"PERSON"}]}"#
+                }
+                return #"{"entities":[]}"#
+            }
+        }
+        ReviewModel.llmExtractorFactoryForTesting = { _, _ in
+            LLMExtractor(completer: FirstDocumentOnlyCompleter())
+        }
+        defer { ReviewModel.llmExtractorFactoryForTesting = nil }
+
+        let session = makeSession(modelPath: dummyModel.path)
+        let doc1 = try write("a.txt", "Witness statement: Jordan Marlowe attended the hearing.")
+        let doc2 = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
+        await session.addDocuments([doc1, doc2])
+        await session.anonymizeAll()
+
+        // Fixture guards: document 1 detected the person and document 2's AI
+        // pass ran cleanly (it just missed the party).
+        XCTAssertTrue(
+            session.entries[0].model.entities.contains { $0.span.text == "Jordan Marlowe" },
+            "fixture: the model must report the person in document 1"
+        )
+        XCTAssertNil(session.entries[1].model.aiWarning)
+
+        // The swept mention is an ordinary review entity in document 2.
+        let swept = session.entries[1].model.entities.filter { $0.span.text == "Jordan Marlowe" }
+        XCTAssertEqual(
+            swept.count,
+            1,
+            "the party confirmed in document 1 must surface in document 2's review list"
+        )
+        XCTAssertTrue(swept.allSatisfy { $0.accepted })
+
+        let result = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+        let md1 = try XCTUnwrap(result.perDocument[session.entries[0].id])
+        let md2 = try XCTUnwrap(result.perDocument[session.entries[1].id])
+        XCTAssertFalse(
+            md2.contains("Jordan Marlowe"),
+            "a party confirmed in document 1 must not leak from document 2"
+        )
+        XCTAssertTrue(md1.contains("{PERSON_1}"))
+        XCTAssertTrue(md2.contains("{PERSON_1}"), "both documents share one token for the person")
     }
 
     func testClientIdentitiesPersistAcrossSessions() async throws {
