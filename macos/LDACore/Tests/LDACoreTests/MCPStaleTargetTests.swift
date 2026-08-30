@@ -24,7 +24,11 @@ final class MCPStaleTargetTests: XCTestCase {
     // MARK: - Hermetic working directory
 
     private var workDir: URL!
-    private let server = MCPServer()
+    /// The legacy path tools under test are gated behind the launch-time
+    /// opt-in, so this suite runs its server with the gate open.
+    private let server = MCPServer(environment: [
+        MCPServer.legacyPathToolsEnvironmentKey: "1"
+    ])
     private var createdAccounts: [String] = []
 
     override func setUpWithError() throws {
@@ -55,17 +59,6 @@ final class MCPStaleTargetTests: XCTestCase {
             try? FileManager.default.removeItem(at: workDir)
         }
         try super.tearDownWithError()
-    }
-
-    /// True when a bare mapping key already exists for the account (existence
-    /// only, no key data is read). Service string per MappingStore's container.
-    private func mappingKeyExists(account: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "ai.openclaw.lda.mappingkey",
-            kSecAttrAccount as String: account
-        ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     /// Remove the bare silent mapping-key item for the account, and nothing
@@ -309,52 +302,9 @@ final class MCPStaleTargetTests: XCTestCase {
         )
     }
 
-    // MARK: - Sidecars and legacy (existing tests below, preserved)
-
-    /// Sidecars created by older builds under the single shared account must
-    /// still restore: the server falls back to the legacy account when the
-    /// per-document key cannot open the mapping.
-    func testRestoreFallsBackToLegacySharedKeychainAccount() throws {
-        // Build a sidecar encrypted under the LEGACY shared account directly.
-        let tokenized = Tokenizer.tokenize(
-            text: "Mail legacy@example.com now.",
-            spans: EntityLocator.spans(
-                forValue: "legacy@example.com", type: .email,
-                in: "Mail legacy@example.com now."
-            ),
-            sourceFile: "legacy.txt",
-            createdAtISO8601: "2026-01-01T00:00:00Z"
-        )
-        let redacted = workDir.appendingPathComponent("legacy_redacted.txt")
-        try CompanionWriter.writeText(tokenized.tokenizedText, to: redacted)
-        let mapping = workDir.appendingPathComponent("legacy_redacted.ldamap")
-        // The shared legacy account is a PRODUCTION account: on a developer
-        // machine its key may be the only thing that opens real pre-per-document
-        // sidecars. Remove it in tearDown only when this test created it.
-        let legacyExistedBefore = mappingKeyExists(account: MCPServer.defaultKeychainAccount)
-        try MappingStore.save(
-            tokenized.mapping, to: mapping,
-            protection: .keychain(account: MCPServer.defaultKeychainAccount)
-        )
-        if !legacyExistedBefore {
-            createdAccounts.append(MCPServer.defaultKeychainAccount)
-        }
-
-        let output = workDir.appendingPathComponent("legacy_restored.txt")
-        let response = try roundTrip([
-            "jsonrpc": "2.0", "id": 73, "method": "tools/call",
-            "params": [
-                "name": "restore_document",
-                "arguments": [
-                    "editedRedacted": redacted.path,
-                    "mapping": mapping.path,
-                    "output": output.path
-                ]
-            ]
-        ])
-        _ = try toolSummary(from: response)
-        let restored = try String(contentsOf: output, encoding: .utf8)
-        XCTAssertTrue(restored.contains("legacy@example.com"))
-    }
-
+    // NOTE: the old restore_document legacy-shared-account fallback test is
+    // gone with the tool itself: the handle-based restore only ever opens
+    // sidecars the vault created, so no legacy sidecar can reach it. Legacy
+    // sidecars at arbitrary paths still restore through the CLI, whose
+    // fallback is covered by CLIKeychainRoundTripTests.
 }

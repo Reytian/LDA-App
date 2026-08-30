@@ -2,13 +2,17 @@
 //  MCPTests.swift
 //  LDACoreTests
 //
-//  Tests for the MCP server's pure handle(_:) request dispatcher. Every fixture
-//  is generated under FileManager.temporaryDirectory so the tests are hermetic
-//  and commit no binaries. The server's stdio loop is not exercised here; the
-//  pure handler carries all the logic and is the testable seam.
+//  Tests for the MCP server's pure handle(_:) request dispatcher: the JSON-RPC
+//  envelope (initialize, notifications, ping, error paths) and the core
+//  handle-first round trip (stage, anonymize, restore) through the vault.
+//  Deeper per-tool behavior lives in MCPVaultToolTests; wire-byte boundary
+//  regressions live in MCPBoundaryTests.
 //
-//  The anonymize then restore round-trip uses passphrase protection rather than
-//  Keychain protection so the unsigned test process never needs Keychain access.
+//  Every fixture is generated under FileManager.temporaryDirectory and every
+//  server instance is pointed at a per-test vault via LDA_VAULT_DIR, so the
+//  tests are hermetic. The round trips use passphrase protection rather than
+//  Keychain protection so the unsigned test process never needs Keychain
+//  access.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -24,8 +28,8 @@ final class MCPTests: XCTestCase {
     // MARK: - Hermetic working directory
 
     private var workDir: URL!
-    private let server = MCPServer()
-    private var createdAccounts: [String] = []
+    private var vaultDir: URL!
+    private var server: MCPServer!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -35,15 +39,11 @@ final class MCPTests: XCTestCase {
             at: workDir,
             withIntermediateDirectories: true
         )
-        createdAccounts = []
+        vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
+        server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
     }
 
     override func tearDownWithError() throws {
-        // The Keychain outlives the process: every per-document key a test
-        // creates must go, or each run leaves another orphan account behind.
-        for account in createdAccounts {
-            try? MappingStore.deleteKeychainKey(account: account)
-        }
         if let workDir, FileManager.default.fileExists(atPath: workDir.path) {
             try? FileManager.default.removeItem(at: workDir)
         }
@@ -104,6 +104,15 @@ final class MCPTests: XCTestCase {
         return dict
     }
 
+    /// Stage a text fixture into this test's vault and return its handle.
+    private func stage(_ contents: String, named name: String = "matter.txt") throws -> String {
+        let url = workDir.appendingPathComponent(name)
+        try Data(contents.utf8).write(to: url)
+        return try DocumentVault(rootDirectory: vaultDir)
+            .stage(fileURL: url, stagedAtISO8601: "2026-08-30T00:00:00Z")
+            .handle
+    }
+
     // MARK: - initialize
 
     func testInitializeReturnsProtocolVersionAndServerInfo() throws {
@@ -136,7 +145,7 @@ final class MCPTests: XCTestCase {
 
     // MARK: - tools/list
 
-    func testToolsListAdvertisesAllThreeToolsWithRequiredFields() throws {
+    func testToolsListAdvertisesTheHandleFirstCoreTools() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 2,
@@ -148,25 +157,31 @@ final class MCPTests: XCTestCase {
         let tools = try XCTUnwrap(result["tools"] as? [[String: Any]])
 
         let names = tools.compactMap { $0["name"] as? String }
-        XCTAssertTrue(names.contains("anonymize_document"))
-        XCTAssertTrue(names.contains("restore_document"))
+        XCTAssertTrue(names.contains("anonymize"))
+        XCTAssertTrue(names.contains("restore"))
         XCTAssertTrue(names.contains("detect_entities"))
-        // The fill tools add two more; total is now 5.
-        XCTAssertGreaterThanOrEqual(names.count, 3)
+        XCTAssertTrue(names.contains("list_pending"))
+        XCTAssertTrue(names.contains("read_redacted"))
+        XCTAssertTrue(names.contains("export"))
+        XCTAssertTrue(names.contains("attest"))
 
-        // Confirm each of the three original tools exposes a JSON-Schema with
-        // the documented required fields.
+        // The old path-based names are gone from the advertised surface.
+        XCTAssertFalse(names.contains("anonymize_document"))
+        XCTAssertFalse(names.contains("restore_document"))
+
+        // Confirm the core tools expose a JSON-Schema with the documented
+        // required fields, all handle-shaped.
         let requiredByTool: [String: Set<String>] = [
-            "anonymize_document": ["input", "outputDir"],
-            "restore_document": ["editedRedacted", "mapping", "output"],
-            "detect_entities": ["input"]
+            "anonymize": ["handle"],
+            "restore": ["redactedHandle"],
+            "detect_entities": ["handle"],
+            "read_redacted": ["handle"],
+            "export": ["handle"]
         ]
 
         for tool in tools {
             let name = try XCTUnwrap(tool["name"] as? String)
             guard let expected = requiredByTool[name] else {
-                // extract_profile and fill are tested in a dedicated test;
-                // skip them here to keep the assertion tight.
                 continue
             }
             let schema = try XCTUnwrap(tool["inputSchema"] as? [String: Any])
@@ -186,12 +201,10 @@ final class MCPTests: XCTestCase {
 
     func testDetectEntitiesReportsDetectedTypes() throws {
         // A fixture rich in deterministic PII: email, phone, date, amount.
-        let content = """
+        let handle = try stage("""
         Contact jane.doe@example.com or call (212) 555-0147.
         Signed on 2024-01-15 for an amount of USD 1,250,000.
-        """
-        let fixture = workDir.appendingPathComponent("detect.txt")
-        try content.data(using: .utf8)!.write(to: fixture)
+        """)
 
         let request: [String: Any] = [
             "jsonrpc": "2.0",
@@ -199,7 +212,7 @@ final class MCPTests: XCTestCase {
             "method": "tools/call",
             "params": [
                 "name": "detect_entities",
-                "arguments": ["input": fixture.path]
+                "arguments": ["handle": handle]
             ]
         ]
         let response = try roundTrip(request)
@@ -212,57 +225,6 @@ final class MCPTests: XCTestCase {
 
         let count = try XCTUnwrap(summary["entityCount"] as? Int)
         XCTAssertGreaterThanOrEqual(count, 3)
-    }
-
-    /// The context boundary rule for detect_entities: the response carries
-    /// types and offsets ONLY. The detected surface text (a name, an ID
-    /// number, an account number) must never ride back to the MCP client,
-    /// because everything in a tool result enters the model context and
-    /// leaves the machine. The offsets let a local caller slice the text
-    /// itself; a remote model has no legitimate use for the plaintext.
-    func testDetectEntitiesNeverReturnsSurfaceText() throws {
-        let email = "jane.doe@example.com"
-        let phone = "(212) 555-0147"
-        let account = "6225880100000000123"
-        let content = """
-        Contact \(email) or call \(phone).
-        Wire the retainer to account \(account) by 2024-03-01.
-        """
-        let fixture = workDir.appendingPathComponent("detect-no-text.txt")
-        try content.data(using: .utf8)!.write(to: fixture)
-
-        let request: [String: Any] = [
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": [
-                "name": "detect_entities",
-                "arguments": ["input": fixture.path]
-            ]
-        ]
-        let response = try roundTrip(request)
-        let summary = try toolSummary(from: response)
-
-        // Structure: every entity entry is offsets and type, with no text key.
-        let entities = try XCTUnwrap(summary["entities"] as? [[String: Any]])
-        XCTAssertFalse(entities.isEmpty, "fixture should produce detections")
-        for entity in entities {
-            XCTAssertNil(entity["text"], "entity payload must not carry surface text: \(entity)")
-            XCTAssertNotNil(entity["type"])
-            XCTAssertNotNil(entity["start"])
-            XCTAssertNotNil(entity["end"])
-        }
-
-        // Belt and braces: the raw wire bytes of the whole response must not
-        // contain any detected value, no matter which key would carry it.
-        let wire = try encode(response)
-        let wireText = try XCTUnwrap(String(data: wire, encoding: .utf8))
-        for value in [email, phone, account] {
-            XCTAssertFalse(
-                wireText.contains(value),
-                "response wire bytes leaked detected value \(value)"
-            )
-        }
     }
 
     // MARK: - Notifications
@@ -296,9 +258,7 @@ final class MCPTests: XCTestCase {
         Wire the retainer to account 6225880100000000123 by 2024-03-01.
         Questions to counsel@example.com or +1 415 555 0199.
         """
-        let inputURL = workDir.appendingPathComponent("matter.txt")
-        try original.data(using: .utf8)!.write(to: inputURL)
-
+        let handle = try stage(original)
         let passphrase = "correct horse battery staple"
 
         // Step 1: anonymize. Passphrase protection avoids Keychain access.
@@ -307,10 +267,9 @@ final class MCPTests: XCTestCase {
             "id": 10,
             "method": "tools/call",
             "params": [
-                "name": "anonymize_document",
+                "name": "anonymize",
                 "arguments": [
-                    "input": inputURL.path,
-                    "outputDir": workDir.path,
+                    "handle": handle,
                     "passphrase": passphrase
                 ]
             ]
@@ -322,26 +281,27 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(anonymizeResult["isError"] as? Bool, false, "anonymize reported an error: \(anonymizeResult)")
 
         let anonymizeSummary = try toolSummary(from: anonymizeResponse)
-        let redactedPath = try XCTUnwrap(anonymizeSummary["redactedFile"] as? String)
-        let mappingPath = try XCTUnwrap(anonymizeSummary["mappingFile"] as? String)
+        let redactedHandle = try XCTUnwrap(anonymizeSummary["redactedHandle"] as? String)
 
-        // The redacted edit surface must differ from the original (PII tokenized).
-        let redactedText = try String(contentsOfFile: redactedPath, encoding: .utf8)
+        // The redacted edit surface must differ from the original (PII
+        // tokenized). Read through the vault: the response carries no text.
+        let vault = DocumentVault(rootDirectory: vaultDir)
+        let redactedText = String(
+            decoding: try vault.readDocumentBytes(handle: redactedHandle),
+            as: UTF8.self
+        )
         XCTAssertNotEqual(redactedText, original)
         XCTAssertTrue(redactedText.contains("{"), "expected tokens in redacted surface")
 
-        // Step 2: restore the (unedited) redacted surface back to the original.
-        let outputURL = workDir.appendingPathComponent("restored.txt")
+        // Step 2: restore the (unedited) redacted artifact back to the original.
         let restoreRequest: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 11,
             "method": "tools/call",
             "params": [
-                "name": "restore_document",
+                "name": "restore",
                 "arguments": [
-                    "editedRedacted": redactedPath,
-                    "mapping": mappingPath,
-                    "output": outputURL.path,
+                    "redactedHandle": redactedHandle,
                     "passphrase": passphrase
                 ]
             ]
@@ -351,23 +311,25 @@ final class MCPTests: XCTestCase {
         XCTAssertEqual(restoreResult["isError"] as? Bool, false, "restore reported an error: \(restoreResult)")
 
         let restoreSummary = try toolSummary(from: restoreResponse)
-        let restoredPath = try XCTUnwrap(restoreSummary["output"] as? String)
+        let restoredHandle = try XCTUnwrap(restoreSummary["restoredHandle"] as? String)
 
-        let restoredText = try String(contentsOfFile: restoredPath, encoding: .utf8)
+        let restoredText = String(
+            decoding: try vault.readDocumentBytes(handle: restoredHandle),
+            as: UTF8.self
+        )
         XCTAssertEqual(restoredText, original, "restored text must equal the original")
     }
 
     // MARK: - tools/call error path
 
-    func testToolsCallOnMissingFileReturnsIsErrorNotCrash() throws {
-        let missing = workDir.appendingPathComponent("does-not-exist.txt")
+    func testToolsCallOnAnUnknownHandleReturnsIsErrorNotCrash() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 12,
             "method": "tools/call",
             "params": [
                 "name": "detect_entities",
-                "arguments": ["input": missing.path]
+                "arguments": ["handle": "doc_ffffffffffff"]
             ]
         ]
         let response = try roundTrip(request)
@@ -379,67 +341,4 @@ final class MCPTests: XCTestCase {
         let text = try XCTUnwrap(content.first?["text"] as? String)
         XCTAssertFalse(text.isEmpty)
     }
-    // MARK: - Per-document Keychain accounts
-
-    /// Two documents anonymized without a passphrase must NOT share one
-    /// Keychain key: a single shared account is a single point of failure and
-    /// each new key would orphan every earlier sidecar. The account derives
-    /// from the mapping base name; restore still works through the server.
-    func testKeychainProtectedMappingsUsePerDocumentAccountsAndRestore() throws {
-        let inputA = workDir.appendingPathComponent("alpha.txt")
-        try Data("Mail alpha@example.com now.".utf8).write(to: inputA)
-        let inputB = workDir.appendingPathComponent("beta.txt")
-        try Data("Mail beta@example.com now.".utf8).write(to: inputB)
-
-        for input in [inputA, inputB] {
-            let response = try roundTrip([
-                "jsonrpc": "2.0", "id": 71, "method": "tools/call",
-                "params": [
-                    "name": "anonymize_document",
-                    "arguments": ["input": input.path, "outputDir": workDir.path]
-                ]
-            ])
-            let summary = try toolSummary(from: response)
-            let mappingPath = try XCTUnwrap(summary["mappingFile"] as? String)
-
-            // The sidecar decrypts under its own per-document account.
-            let account = MCPServer.keychainAccount(
-                forMappingBaseName: URL(fileURLWithPath: mappingPath)
-                    .deletingPathExtension().lastPathComponent
-            )
-            createdAccounts.append(account)
-            XCTAssertNoThrow(
-                try MappingStore.load(
-                    from: URL(fileURLWithPath: mappingPath),
-                    protection: .keychain(account: account)
-                )
-            )
-        }
-
-        // The two accounts must differ.
-        XCTAssertNotEqual(
-            MCPServer.keychainAccount(forMappingBaseName: "alpha_redacted"),
-            MCPServer.keychainAccount(forMappingBaseName: "beta_redacted")
-        )
-
-        // And restore through the server round-trips document A.
-        let redactedA = workDir.appendingPathComponent("alpha_redacted.txt")
-        let mappingA = workDir.appendingPathComponent("alpha_redacted.ldamap")
-        let outputA = workDir.appendingPathComponent("alpha_restored.txt")
-        let restore = try roundTrip([
-            "jsonrpc": "2.0", "id": 72, "method": "tools/call",
-            "params": [
-                "name": "restore_document",
-                "arguments": [
-                    "editedRedacted": redactedA.path,
-                    "mapping": mappingA.path,
-                    "output": outputA.path
-                ]
-            ]
-        ])
-        _ = try toolSummary(from: restore)
-        let restored = try String(contentsOf: outputA, encoding: .utf8)
-        XCTAssertTrue(restored.contains("alpha@example.com"))
-    }
-
 }

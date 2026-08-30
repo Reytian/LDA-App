@@ -68,6 +68,13 @@ public enum SecurityEventKind: String, Codable, Sendable {
     case userPresenceUpgradeFailed
     /// The in-process key cache was purged (policy change or explicit lock).
     case keyCachePurged
+    /// A source document was copied into the staging vault and given a handle.
+    case vaultDocumentStaged
+    /// A derived artifact (redacted or restored) was registered in the vault.
+    case vaultArtifactStored
+    /// A vault artifact was copied to the outbox (or an export was refused,
+    /// recorded as a failure with a short reason).
+    case vaultArtifactExported
 }
 
 // MARK: - Event

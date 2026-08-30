@@ -110,7 +110,10 @@ final class MCPPathPolicyTests: XCTestCase {
 
     // MARK: - Enforcement surfaces in the tools
 
-    /// Send one tools/call and return the decoded result object.
+    /// The only tools that still take document paths are the gated legacy
+    /// ones, so the tool-level enforcement is exercised through them with the
+    /// gate open. The handle-first tools take no document paths at all (their
+    /// modelPath gate is covered in MCPHardeningTests).
     private func call(tool: String, arguments: [String: Any]) throws -> [String: Any] {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
@@ -119,17 +122,22 @@ final class MCPPathPolicyTests: XCTestCase {
             "params": ["name": tool, "arguments": arguments]
         ]
         let payload = try JSONSerialization.data(withJSONObject: request)
-        let responseData = try XCTUnwrap(MCPServer().handle(payload))
+        let server = MCPServer(environment: [
+            MCPServer.legacyPathToolsEnvironmentKey: "1"
+        ])
+        let responseData = try XCTUnwrap(server.handle(payload))
         let response = try XCTUnwrap(
             JSONSerialization.jsonObject(with: responseData) as? [String: Any]
         )
         return try XCTUnwrap(response["result"] as? [String: Any])
     }
 
-    func testAnonymizeRefusesAnInputOutsideTheAllowedRoots() throws {
-        let result = try call(tool: "anonymize_document", arguments: [
-            "input": "/etc/hosts",
-            "outputDir": workDir.path
+    func testExtractProfileRefusesASourceOutsideTheAllowedRoots() throws {
+        let result = try call(tool: "extract_profile", arguments: [
+            "sources": ["/etc/hosts"],
+            "label": "L",
+            "out": workDir.appendingPathComponent("p.ldaprofile").path,
+            "model": workDir.appendingPathComponent("model.gguf").path
         ])
 
         XCTAssertEqual(result["isError"] as? Bool, true)
@@ -141,31 +149,55 @@ final class MCPPathPolicyTests: XCTestCase {
         )
     }
 
-    func testAnonymizeRefusesAnOutputDirectoryOutsideTheAllowedRoots() throws {
+    func testExtractProfileRefusesAnOutputOutsideTheAllowedRoots() throws {
         let source = workDir.appendingPathComponent("brief.txt")
         try Data("Acme Corp".utf8).write(to: source)
 
-        let result = try call(tool: "anonymize_document", arguments: [
-            "input": source.path,
-            "outputDir": "/Library/LDAOutput"
+        let result = try call(tool: "extract_profile", arguments: [
+            "sources": [source.path],
+            "label": "L",
+            "out": "/Library/LDAOutput/p.ldaprofile",
+            "model": workDir.appendingPathComponent("model.gguf").path
         ])
 
         XCTAssertEqual(result["isError"] as? Bool, true)
     }
 
-    func testDetectRefusesAPathOutsideTheAllowedRoots() throws {
-        let result = try call(tool: "detect_entities", arguments: ["input": "/etc/hosts"])
+    func testFillRefusesAnInputOutsideTheAllowedRoots() throws {
+        let result = try call(tool: "fill", arguments: [
+            "input": "/etc/hosts",
+            "mode": "plan",
+            "profile": workDir.appendingPathComponent("missing.ldaprofile").path
+        ])
         XCTAssertEqual(result["isError"] as? Bool, true)
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = (content.first?["text"] as? String) ?? ""
+        XCTAssertTrue(text.contains("outside the allowed directories"), text)
     }
 
-    func testAnAllowedPathStillWorks() throws {
-        // The policy must not break the normal case.
+    func testAnAllowedPathStillPassesTheGate() throws {
+        // The policy must not blanket-refuse: with every path inside the
+        // roots, validation proceeds past the path gate to the tool's own
+        // argument checks (here, the missing model argument).
         let source = workDir.appendingPathComponent("brief.txt")
         try Data("Contact jane@example.test about the matter.".utf8).write(to: source)
 
-        let result = try call(tool: "detect_entities", arguments: ["input": source.path])
+        let result = try call(tool: "extract_profile", arguments: [
+            "sources": [source.path],
+            "label": "L",
+            "out": workDir.appendingPathComponent("p.ldaprofile").path
+        ])
 
-        XCTAssertNotEqual(result["isError"] as? Bool, true)
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = (content.first?["text"] as? String) ?? ""
+        XCTAssertFalse(
+            text.contains("outside the allowed directories"),
+            "allowed paths must pass the policy, got: \(text)"
+        )
+        XCTAssertTrue(
+            text.contains("model"),
+            "validation should reach the tool's own missing-model check, got: \(text)"
+        )
     }
 
     // MARK: - Model paths

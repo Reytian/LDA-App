@@ -30,7 +30,11 @@ final class MCPFillToolTests: XCTestCase {
     // MARK: - Hermetic working directory
 
     private var workDir: URL!
-    private let server = MCPServer()
+    /// The legacy path tools under test are gated behind the launch-time
+    /// opt-in, so this suite runs its server with the gate open.
+    private let server = MCPServer(environment: [
+        MCPServer.legacyPathToolsEnvironmentKey: "1"
+    ])
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -210,11 +214,11 @@ final class MCPFillToolTests: XCTestCase {
         return !tolerated.contains(status)
     }
 
-    // MARK: - tools/list includes extract_profile and fill
+    // MARK: - tools/list includes extract_profile and fill (gate open)
 
-    // NOTE: tool count updated to 8 (added anonymize_session for the
-    // multi-document session feature).
-    func testToolsListAdvertisesEightToolsIncludingSessionTool() throws {
+    // NOTE: with the legacy gate open the surface is the 8 handle-first vault
+    // tools plus the 4 gated legacy tools.
+    func testToolsListWithTheGateOpenAdvertisesVaultPlusLegacyTools() throws {
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": 20,
@@ -230,8 +234,11 @@ final class MCPFillToolTests: XCTestCase {
         XCTAssertTrue(names.contains("portfolio_list"), "tools/list must include portfolio_list")
         XCTAssertTrue(names.contains("portfolio_show"), "tools/list must include portfolio_show")
         XCTAssertTrue(names.contains("anonymize_session"), "tools/list must include anonymize_session")
-        // Sanctioned update: was 7, now 8 (added anonymize_session).
-        XCTAssertEqual(names.count, 8, "expected exactly 8 tools, got \(names.count): \(names)")
+        XCTAssertEqual(
+            names.count,
+            MCPServer.vaultToolNames.count + MCPServer.legacyGatedToolNames.count,
+            "expected the vault surface plus the gated legacy tools, got \(names)"
+        )
 
         // Confirm extract_profile schema required fields.
         let epTool = try XCTUnwrap(tools.first(where: { $0["name"] as? String == "extract_profile" }))
