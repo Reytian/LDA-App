@@ -6,8 +6,12 @@
 //  passes over the input text (as NSString, so all ranges are UTF-16 code-unit
 //  offsets matching Span.start and Span.end) and emits candidate Spans for the
 //  structured PII types that can be matched and validated without an LLM:
-//  EMAIL, PHONE, NATIONAL_ID, USCC, BANK_ACCOUNT, DATE, AMOUNT, and the
-//  high-precision Chinese street-address shape of ADDRESS.
+//  EMAIL, PHONE, NATIONAL_ID, USCC, BANK_ACCOUNT, DATE, AMOUNT, CASE_NUMBER,
+//  LICENSE_PLATE, WECHAT_ID, URL, and the high-precision Chinese
+//  street-address shape of ADDRESS. The four types added for the 2026-08-29
+//  roadmap (CASE_NUMBER, LICENSE_PLATE, WECHAT_ID, URL) live in
+//  StructuredEntityDetectors.swift; this file remains the ordering and
+//  priority authority.
 //
 //  PERSON and COMPANY are intentionally NOT detected here; those fuzzy entity
 //  types are owned by the LLM engine. ADDRESS is split by shape: Chinese street
@@ -59,8 +63,12 @@ public struct DeterministicEngine: Sendable {
         // every valid match regardless of order; SpanMerger applies priority.
         spans.append(contentsOf: detectNationalID(ns, fullRange))
         spans.append(contentsOf: detectUSCC(ns, fullRange))
+        spans.append(contentsOf: detectCaseNumber(ns, fullRange))
+        spans.append(contentsOf: detectLicensePlate(ns, fullRange))
         spans.append(contentsOf: detectEmail(ns, fullRange))
+        spans.append(contentsOf: detectURL(ns, fullRange))
         spans.append(contentsOf: detectPhone(ns, fullRange))
+        spans.append(contentsOf: detectWechatID(ns, fullRange))
         spans.append(contentsOf: detectChineseAddress(ns, fullRange))
         spans.append(contentsOf: detectBankAccount(ns, fullRange))
         spans.append(contentsOf: detectAmount(ns, fullRange))
@@ -71,22 +79,39 @@ public struct DeterministicEngine: Sendable {
 
     // MARK: - Priority and confidence constants
 
-    private enum Pri {
+    /// Overlap-resolution priorities for every deterministic type, kept in one
+    /// table so relative order is auditable. CASE_NUMBER and LICENSE_PLATE sit
+    /// just below the checksum-validated types because their structure is
+    /// nearly as unambiguous. URL sits above PHONE so a phone-shaped digit run
+    /// inside a URL path resolves to the URL. WECHAT_ID sits below EMAIL so a
+    /// local part never beats the email that contains it. Internal (not
+    /// private) because the detectors in StructuredEntityDetectors.swift read
+    /// this table.
+    enum Pri {
         static let nationalID = 100
         static let uscc = 95
+        static let caseNumber = 90
+        static let licensePlate = 85
         static let email = 80
+        static let url = 75
         static let phone = 60
+        static let wechatID = 58
         static let address = 55
         static let bankAccount = 50
         static let amount = 45
         static let date = 40
     }
 
-    private enum Conf {
+    /// Detection confidences per type. Internal for the same reason as Pri.
+    enum Conf {
         static let nationalID = 1.0
         static let uscc = 0.98
+        static let caseNumber = 0.99
+        static let licensePlate = 0.95
         static let email = 0.99
+        static let url = 0.9
         static let phone = 0.9
+        static let wechatID = 0.9
         static let address = 0.9
         static let bankAccount = 0.85
         static let amount = 0.8
@@ -98,7 +123,9 @@ public struct DeterministicEngine: Sendable {
     /// Compile a pattern once and enumerate its matches over the given range,
     /// invoking the body with each match. Failures to compile are swallowed and
     /// produce no spans; a bad literal pattern should never crash detection.
-    private func enumerate(
+    /// Internal (not private) so the detectors in
+    /// StructuredEntityDetectors.swift share it.
+    func enumerate(
         _ pattern: String,
         options: NSRegularExpression.Options = [],
         in ns: NSString,
@@ -116,7 +143,9 @@ public struct DeterministicEngine: Sendable {
 
     /// Build a span from an NSRange and a type, slicing the surface text out of the
     /// NSString so the text is exactly the UTF-16 substring the offsets describe.
-    private func makeSpan(
+    /// Internal (not private) so the detectors in
+    /// StructuredEntityDetectors.swift share it.
+    func makeSpan(
         _ ns: NSString,
         range: NSRange,
         type: EntityType,

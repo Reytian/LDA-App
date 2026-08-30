@@ -645,7 +645,9 @@ private struct PatternRow: View {
 
     private static let assignableTypes: [EntityType] = [
         .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc, .amount, .date, .unknown
+        .bankAccount, .nationalID, .uscc,
+        .caseNumber, .licensePlate, .wechatID, .url,
+        .amount, .date, .unknown
     ]
 
     var body: some View {

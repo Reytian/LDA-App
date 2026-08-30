@@ -558,7 +558,9 @@ public final class ReviewModel: ObservableObject {
     /// so the walk order always matches what the sidebar shows.
     public static let groupTypeOrder: [EntityType] = [
         .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc, .amount, .date, .unknown
+        .bankAccount, .nationalID, .uscc,
+        .caseNumber, .licensePlate, .wechatID, .url,
+        .amount, .date, .unknown
     ]
 
     /// Every review group in display order: sections follow groupTypeOrder and

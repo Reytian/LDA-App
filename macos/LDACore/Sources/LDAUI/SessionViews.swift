@@ -101,7 +101,9 @@ struct AddTermPopover: View {
     /// The kinds a user can assign by hand.
     private static let assignableTypes: [EntityType] = [
         .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc, .amount, .date
+        .bankAccount, .nationalID, .uscc,
+        .caseNumber, .licensePlate, .wechatID, .url,
+        .amount, .date
     ]
 
     var body: some View {
