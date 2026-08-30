@@ -113,6 +113,38 @@ final class EntityRescanTests: XCTestCase {
         XCTAssertTrue(expanded.allSatisfy { $0.text == "King" })
     }
 
+    // MARK: - Session known entities (cross-document needles)
+
+    func testKnownEntitiesAreSweptWithoutAnyLocalConfirmation() {
+        // The session-level recall gap: this document's own detection found
+        // nothing, yet a party confirmed in a partner document must be swept.
+        // The partner span's offsets belong to the partner's text and are
+        // meaningless here (they may even exceed this text's length); only
+        // the surface travels.
+        let text = "快帆科技确认收到全部款项。"
+        let partnerText = "本协议由杭州快帆科技有限公司（以下简称快帆科技）与张三签署。"
+        let partner = span("快帆科技", in: partnerText, occurrence: 1, type: .company)
+
+        let expanded = EntityRescan.expand([], in: text, knownEntities: [partner])
+
+        XCTAssertEqual(texts(of: expanded), ["快帆科技"])
+        XCTAssertEqual(expanded.first?.type, .company)
+    }
+
+    func testKnownEntityOffsetsNeverBlockLocalOccurrences() {
+        // A partner span whose range happens to coincide with this document's
+        // only mention of that surface must not block the sweep: blocking
+        // uses only THIS document's confirmed spans.
+        let text = "The annex names Meridian Works and the date 2026-01-01."
+        let date = span("2026-01-01", in: text, type: .date)
+        let foreign = span("Meridian Works", in: text, type: .company)
+
+        let expanded = EntityRescan.expand([date], in: text, knownEntities: [foreign])
+
+        XCTAssertEqual(expanded.filter { $0.text == "Meridian Works" }.count, 1)
+        XCTAssertEqual(expanded.count, 2, "the date span plus the swept company mention")
+    }
+
     // MARK: - Needle safety
 
     func testShortLatinNeedleIsSkipped() {

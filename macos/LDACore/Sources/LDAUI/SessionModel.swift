@@ -280,6 +280,16 @@ public final class SessionModel: ObservableObject {
             let model = makeModel()
             configureNewModel?(model)
             let entry = DocumentEntry(id: UUID(), url: url, model: model)
+            // Cross-document recall sweep (the GUI half of the session-wide
+            // sweep in LDAService.anonymizeSession): when this document
+            // detects, the partners' confirmed person and company surfaces
+            // join its rescan needles, and every hit enters ITS review list
+            // as an ordinary entity. Only the id is captured; capturing the
+            // entry would retain the model through its own closure.
+            let entryID = entry.id
+            model.sessionKnownEntitiesProvider = { [weak self] in
+                self?.partnerConfirmedEntities(excludingEntryID: entryID) ?? []
+            }
             entries.append(entry)
             selectedID = entry.id
             await openDocument(model, url)
@@ -314,7 +324,11 @@ public final class SessionModel: ObservableObject {
     }
 
     /// Detect entities in every document that has not run yet, sequentially so
-    /// only one model pass is in flight at a time.
+    /// only one model pass is in flight at a time. The sequential order also
+    /// feeds the cross-document sweep: each document's pass sees the partners
+    /// confirmed so far, so a party found in an earlier document surfaces in
+    /// every later one. Re-running Scan on a document picks up partners
+    /// confirmed after its first pass.
     public func anonymizeAll() async {
         for entry in entries {
             switch entry.model.status {
@@ -324,6 +338,24 @@ public final class SessionModel: ObservableObject {
                 continue
             }
         }
+    }
+
+    /// The confirmed (accepted) PERSON and COMPANY spans of every session
+    /// document except the given entry, used as that document's extra
+    /// literal-rescan needles. Mirrors the session-wide sweep in
+    /// LDAService.anonymizeSession with one GUI difference: hits become
+    /// ordinary review entities instead of being redacted outright, so the
+    /// human-review invariant holds. Only the surfaces cross documents; the
+    /// offsets stay meaningless outside their own document and EntityRescan
+    /// never uses them for blocking.
+    private func partnerConfirmedEntities(excludingEntryID id: UUID) -> [Span] {
+        entries
+            .filter { $0.id != id }
+            .flatMap { entry in
+                entry.model.entities
+                    .filter { $0.accepted && ($0.span.type == .person || $0.span.type == .company) }
+                    .map { $0.span }
+            }
     }
 
     // MARK: - Hand to AI (stage 3)
