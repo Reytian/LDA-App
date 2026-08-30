@@ -214,6 +214,57 @@ final class MCPTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(count, 3)
     }
 
+    /// The context boundary rule for detect_entities: the response carries
+    /// types and offsets ONLY. The detected surface text (a name, an ID
+    /// number, an account number) must never ride back to the MCP client,
+    /// because everything in a tool result enters the model context and
+    /// leaves the machine. The offsets let a local caller slice the text
+    /// itself; a remote model has no legitimate use for the plaintext.
+    func testDetectEntitiesNeverReturnsSurfaceText() throws {
+        let email = "jane.doe@example.com"
+        let phone = "(212) 555-0147"
+        let account = "6225880100000000123"
+        let content = """
+        Contact \(email) or call \(phone).
+        Wire the retainer to account \(account) by 2024-03-01.
+        """
+        let fixture = workDir.appendingPathComponent("detect-no-text.txt")
+        try content.data(using: .utf8)!.write(to: fixture)
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": [
+                "name": "detect_entities",
+                "arguments": ["input": fixture.path]
+            ]
+        ]
+        let response = try roundTrip(request)
+        let summary = try toolSummary(from: response)
+
+        // Structure: every entity entry is offsets and type, with no text key.
+        let entities = try XCTUnwrap(summary["entities"] as? [[String: Any]])
+        XCTAssertFalse(entities.isEmpty, "fixture should produce detections")
+        for entity in entities {
+            XCTAssertNil(entity["text"], "entity payload must not carry surface text: \(entity)")
+            XCTAssertNotNil(entity["type"])
+            XCTAssertNotNil(entity["start"])
+            XCTAssertNotNil(entity["end"])
+        }
+
+        // Belt and braces: the raw wire bytes of the whole response must not
+        // contain any detected value, no matter which key would carry it.
+        let wire = try encode(response)
+        let wireText = try XCTUnwrap(String(data: wire, encoding: .utf8))
+        for value in [email, phone, account] {
+            XCTAssertFalse(
+                wireText.contains(value),
+                "response wire bytes leaked detected value \(value)"
+            )
+        }
+    }
+
     // MARK: - Notifications
 
     func testNotificationWithoutIdReturnsNil() throws {

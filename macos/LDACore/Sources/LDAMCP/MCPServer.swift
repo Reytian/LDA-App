@@ -282,6 +282,14 @@ public struct MCPServer {
     }
 
     /// detect_entities: run LDAService.detect and summarize the detected spans.
+    ///
+    /// Context boundary rule: the response carries entity TYPES and OFFSETS
+    /// only, never span.text. Everything a tool returns enters the model
+    /// context of whatever agent host launched this server, so returning the
+    /// detected surface text (a name, an ID number, an account number) would
+    /// upload the exact bytes this product exists to keep on the machine. A
+    /// local caller can slice the document with the offsets; a remote model
+    /// has no legitimate use for the plaintext.
     private func callDetect(_ arguments: [String: Any]) throws -> [String: Any] {
         let input = try requireURL(arguments, key: "input")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
@@ -290,7 +298,6 @@ public struct MCPServer {
         let entities: [[String: Any]] = spans.map { span in
             [
                 "type": span.type.rawValue,
-                "text": span.text,
                 "start": span.start,
                 "end": span.end
             ]
@@ -596,7 +603,7 @@ public struct MCPServer {
         ],
         [
             "name": "detect_entities",
-            "description": "Detect PII entities in a document without writing any files.",
+            "description": "Detect PII entities in a document without writing any files. Returns entity types, counts, and character offsets only; the detected text itself never leaves the machine.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
