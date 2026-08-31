@@ -700,6 +700,16 @@ public final class ReviewModel: ObservableObject {
         let shouldUseLLM = useLLM
         let path = modelPath
         let style = outputStyleProvider()
+        // Snapshot WHERE the decisions are recorded, not just WHAT is
+        // exported. An LLM export runs for seconds to minutes, and the user
+        // can switch matter while it runs: that rebuilds the session's scoped
+        // facades and flips the write target back to .global. Reading either
+        // value after the await would land matter A's accept and reject
+        // decisions in whichever layer is selected when the export finishes,
+        // which inverts the exact privacy boundary matter scoping exists to
+        // provide. The export writes where it was started.
+        let learningLayer = learningStore
+        let learningTarget = learningWriteTarget()
 
         let result = try await Task.detached(priority: .userInitiated) {
             try Self.performExport(
@@ -726,16 +736,17 @@ public final class ReviewModel: ObservableObject {
 
         // Learn from this export: the accept and reject decisions the user just
         // committed reinforce future auto-redaction and suppression, in the
-        // layer the session's matter-scope toggle selects.
-        if let learningStore {
+        // layer the session's matter-scope toggle selected when this export
+        // STARTED (both values were snapshotted above).
+        if let learningLayer {
             let accepted = entities.filter { $0.accepted }
                 .map { (value: $0.span.text, type: $0.span.type) }
             let rejected = entities.filter { !$0.accepted }
                 .map { (value: $0.span.text, type: $0.span.type) }
-            learningStore.record(
+            learningLayer.record(
                 accepted: accepted,
                 rejected: rejected,
-                to: learningWriteTarget()
+                to: learningTarget
             )
         }
 
