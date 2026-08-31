@@ -77,7 +77,13 @@ public enum ZipImporter {
     private static let registryLock = NSLock()
     private static var liveExpansions: Set<URL> = []
 
-    private static func register(_ directory: URL) {
+    /// Put a temporary expansion directory under the cleanup contract.
+    ///
+    /// Internal rather than private because the workspace reader unpacks its
+    /// own documents and must land under the SAME contract: one registry, one
+    /// set of boundaries, no second way for un-redacted originals to be left
+    /// behind in /var/folders.
+    static func register(_ directory: URL) {
         registryLock.lock()
         liveExpansions.insert(directory)
         registryLock.unlock()
@@ -242,6 +248,10 @@ public enum ZipImporter {
     /// Extract one entry to `target`, charging `remainingBudget` for each
     /// inflated chunk and aborting with tooLarge the moment the budget runs
     /// out. Returns the budget left after the entry.
+    ///
+    /// The metering itself lives in ZipExtraction so the workspace reader
+    /// charges bytes the same way; see that file for why the DECLARED size can
+    /// never be the enforcement.
     private static func extractMetered(
         _ entry: Entry,
         from archive: Archive,
@@ -249,24 +259,13 @@ public enum ZipImporter {
         remainingBudget: UInt64,
         budgetMessage: String
     ) throws -> UInt64 {
-        guard FileManager.default.createFile(atPath: target.path, contents: nil) else {
-            throw DocumentIOError.unreadable(
-                "Could not create \(target.lastPathComponent) in the expansion directory."
-            )
-        }
-        let handle = try FileHandle(forWritingTo: target)
-        defer { try? handle.close() }
-
-        var budget = remainingBudget
-        _ = try archive.extract(entry) { chunk in
-            let produced = UInt64(chunk.count)
-            guard produced <= budget else {
-                throw DocumentIOError.tooLarge(budgetMessage)
-            }
-            budget -= produced
-            try handle.write(contentsOf: chunk)
-        }
-        return budget
+        try ZipExtraction.extractMetered(
+            entry,
+            from: archive,
+            to: target,
+            remainingBudget: remainingBudget,
+            budgetMessage: budgetMessage
+        )
     }
 
     /// True when an archive entry path denotes a supported, non-junk document.
