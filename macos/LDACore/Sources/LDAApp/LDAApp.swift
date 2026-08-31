@@ -18,7 +18,9 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import LDAUI
 import LDACore
 
@@ -125,6 +127,19 @@ struct LDAApp: App {
                     // Keychain-protected, and a Keychain prompt at app launch
                     // is exactly the kind of surprise dialog users distrust.
                 }
+                .onOpenURL { url in
+                    // Double-clicking a .ldawork file in Finder arrives here.
+                    // The app does NOT open it directly: the review shell owns
+                    // the passphrase prompt and the "this replaces what is
+                    // open" question, so a double-click can never discard live
+                    // work on its own. Anything else is ignored, because
+                    // ordinary documents come in through the open panel, which
+                    // is where the import budgets are applied.
+                    guard url.pathExtension.lowercased() == WorkspaceArchive.fileExtension
+                    else { return }
+                    modeStore.activeMode = .anonymize
+                    sessionModel.pendingWorkspaceURL = url
+                }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
                     AISettings.apply(to: fillModel)
@@ -153,6 +168,15 @@ struct LDAApp: App {
                     sessionModel.requestOpen()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+
+                // A workspace usually arrives by double-click, but the file
+                // association only exists once the app is installed and
+                // registered, so the menu is the reliable route.
+                Button("Open Workspace\u{2026}") {
+                    modeStore.activeMode = .anonymize
+                    presentWorkspaceOpenPanel()
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
 
             CommandGroup(after: .saveItem) {
@@ -267,4 +291,19 @@ struct LDAApp: App {
     // to: the container copy, then the bundled Quick model, then nil. See
     // docs/design/model-tiers-prd.md section 6 and model-management-prd.md.
 
+    /// Choose a .ldawork file and hand it to the review shell, which owns the
+    /// passphrase prompt and the replace-live-work question.
+    private func presentWorkspaceOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let type = UTType(filenameExtension: WorkspaceArchive.fileExtension) {
+            panel.allowedContentTypes = [type]
+        }
+        panel.message = "Choose a saved LDA workspace file."
+        panel.prompt = "Open Workspace"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sessionModel.pendingWorkspaceURL = url
+    }
 }

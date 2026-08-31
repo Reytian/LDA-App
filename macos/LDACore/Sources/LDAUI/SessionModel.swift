@@ -87,6 +87,12 @@ public final class SessionModel: ObservableObject {
     /// Bumped when the File > Open menu command fires.
     @Published public var openRequestToken = 0
 
+    /// A .ldawork file the app has been asked to open, from a double-click in
+    /// Finder or the File menu. The shell consumes it (clearing it) and runs
+    /// the passphrase flow; the session never opens a workspace on its own,
+    /// because doing so would replace live work without asking.
+    @Published public var pendingWorkspaceURL: URL?
+
     /// The menu-bar companion's last-action note ("Restored 4 values.").
     @Published public var companionNote: String?
 
