@@ -239,6 +239,15 @@ public struct AppShell: View {
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
                 .help("Save a redacted document plus the encrypted mapping needed to restore it")
+
+                Button {
+                    beginReportExport()
+                } label: {
+                    Label("Export Report", systemImage: "list.clipboard")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(!session.canExportComplianceReport)
+                .help("Save a processing report (Markdown and PDF) of what this session's record holds")
             }
         }
     }
@@ -900,6 +909,34 @@ public struct AppShell: View {
         isPromptingPassphrase = false
         pendingExportDir = nil
         passphrase = ""
+    }
+
+    /// Export the session's compliance report (report.md plus report.pdf)
+    /// into a chosen directory. Mirrors beginExport's directory flow; there is
+    /// no passphrase sheet because the report is value-free by construction
+    /// (see ComplianceReport).
+    private func beginReportExport() {
+        guard session.canExportComplianceReport else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder for the processing report (Markdown and PDF)."
+        panel.prompt = "Export Here"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let needsScope = dir.startAccessingSecurityScopedResource()
+        defer { if needsScope { dir.stopAccessingSecurityScopedResource() } }
+        do {
+            let written = try session.exportComplianceReport(
+                to: dir,
+                generatedAtISO8601: ISO8601DateFormatter().string(from: Date())
+            )
+            exportMessage = "Report saved: \(written.markdown.lastPathComponent) and "
+                + "\(written.pdf.lastPathComponent)."
+        } catch {
+            exportMessage = "Report export failed. \(error.localizedDescription)"
+        }
     }
 
     private func confirmExport() {

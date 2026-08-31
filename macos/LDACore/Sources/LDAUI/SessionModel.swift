@@ -137,6 +137,13 @@ public final class SessionModel: ObservableObject {
         SessionRecordStore.defaultProtection()
     }
 
+    /// The app version stamped into session records for the compliance
+    /// report. Injectable so record tests stay deterministic; the production
+    /// default reads the bundle's short version string.
+    public var appVersionProvider: () -> String? = {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
     /// Encrypted matter names, aliases, and archive state for the workspace.
     /// Access is user-initiated from Matters so Keychain prompts do not appear
     /// during an ordinary app launch.
@@ -473,22 +480,12 @@ public final class SessionModel: ObservableObject {
 
         // Per-session record (R18): what was protected, value-free. Best
         // effort: a record failure must not block the handoff itself.
-        let record = SessionRecord(
+        saveSessionRecord(
             createdAtISO8601: createdAtISO8601,
-            clientLabel: clientLabel,
-            documents: ready.map { entry in
-                SessionRecordDocument(
-                    name: entry.name,
-                    entityCount: entry.model.redactedCount,
-                    entityTypes: distinctTypes(of: entry.model)
-                )
-            },
-            protectedValueCount: result.mapping.entries.count
+            ready: ready,
+            mapping: linkedMapping,
+            rescanWarnings: rescanWarnings
         )
-        if let store = try? recordStore() {
-            try? store.save(record, protection: recordProtection())
-            currentRecordID = record.id
-        }
 
         // Park the session (awaiting-AI state): the mapping survives the user
         // quitting while the AI works, so the round-trip has no dead end.
@@ -520,6 +517,97 @@ public final class SessionModel: ObservableObject {
             }
         }
         return ordered
+    }
+
+    /// Accepted entity counts of one document model, keyed by entity-type wire
+    /// string, for the compliance report's per-document breakdown.
+    private func entityCountsByType(of model: ReviewModel) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for entity in model.entities where entity.accepted {
+            counts[entity.span.type.rawValue, default: 0] += 1
+        }
+        return counts
+    }
+
+    /// Build and best-effort persist the session record (R18) for one handoff,
+    /// including the compliance report fields (F6): style, model, app version,
+    /// per-type counts, and the scan-side verification summary.
+    private func saveSessionRecord(
+        createdAtISO8601: String,
+        ready: [DocumentEntry],
+        mapping: Mapping,
+        rescanWarnings: [RescanWarning]
+    ) {
+        let record = SessionRecord(
+            createdAtISO8601: createdAtISO8601,
+            clientLabel: clientLabel,
+            documents: ready.map { entry in
+                SessionRecordDocument(
+                    name: entry.name,
+                    entityCount: entry.model.redactedCount,
+                    entityTypes: distinctTypes(of: entry.model),
+                    entityCountsByType: entityCountsByType(of: entry.model)
+                )
+            },
+            protectedValueCount: mapping.entries.count,
+            substitutionStyle: mapping.style,
+            modelName: ready.first?.model.modelPath.map {
+                URL(fileURLWithPath: $0).lastPathComponent
+            },
+            appVersion: appVersionProvider(),
+            // Scan-side verification counts. The literal rescan hits are
+            // folded into ordinary review entities at detect time and are not
+            // separable here without re-running the sweep, so the hit count
+            // records 0 until detection surfaces it. Forensics suspects are a
+            // restore-side signal (SessionRestoreEvent.suspectCount), so the
+            // scan-side count is 0 by construction.
+            scanVerification: SessionScanVerification(
+                rescanHitCount: 0,
+                rescanWarningCount: rescanWarnings.count,
+                forensicsSuspectCount: 0
+            )
+        )
+        if let store = try? recordStore() {
+            try? store.save(record, protection: recordProtection())
+            currentRecordID = record.id
+        }
+    }
+
+    // MARK: - Compliance report (F6)
+
+    /// Whether the session has a record to report on. Set by the hand-to-AI
+    /// build; cleared when the matter boundary changes.
+    public var canExportComplianceReport: Bool { currentRecordID != nil }
+
+    /// Render the current session's record as the exportable compliance
+    /// report and write BOTH deliverables (report.md and report.pdf) into the
+    /// chosen directory. The caller supplies the generation timestamp so the
+    /// Markdown render stays deterministic.
+    @discardableResult
+    public func exportComplianceReport(
+        to directory: URL,
+        generatedAtISO8601: String
+    ) throws -> (markdown: URL, pdf: URL) {
+        guard let recordID = currentRecordID else {
+            throw DocumentIOError.unreadable(
+                "No session record exists yet. Use Copy for AI first."
+            )
+        }
+        guard let record = try recordStore().load(
+            id: recordID,
+            protection: recordProtection()
+        ) else {
+            throw DocumentIOError.unreadable("The session record could not be read.")
+        }
+        let markdown = ComplianceReport.markdown(
+            record: record,
+            generatedAtISO8601: generatedAtISO8601
+        )
+        let markdownURL = directory.appendingPathComponent("report.md")
+        let pdfURL = directory.appendingPathComponent("report.pdf")
+        try Data(markdown.utf8).write(to: markdownURL)
+        try ComplianceReportPDF.render(markdown: markdown).write(to: pdfURL)
+        return (markdownURL, pdfURL)
     }
 
     /// Resume an awaiting-AI parked session after a relaunch: reload the
