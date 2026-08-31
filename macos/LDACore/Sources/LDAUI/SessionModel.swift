@@ -759,9 +759,14 @@ public final class SessionModel: ObservableObject {
     /// too, because the outgoing session's unpacked originals have nothing left
     /// to read them.
     ///
-    /// Call this only after the incoming workspace has been decrypted and
-    /// validated. It destroys live work.
-    func resetForWorkspaceOpen() {
+    /// Call this only after the incoming workspace has been decrypted,
+    /// validated AND unpacked. It destroys live work.
+    ///
+    /// Takes the expansions to discard rather than clearing the whole
+    /// registry: by the time this runs the incoming workspace has already
+    /// registered its own unpacked directory, and clearing everything would
+    /// delete the very documents about to be adopted.
+    func resetForWorkspaceOpen(discardingExpansions expansions: Set<URL>) {
         documentImportGeneration += 1
         entries.removeAll()
         selectedID = nil
@@ -773,7 +778,7 @@ public final class SessionModel: ObservableObject {
         clientLabel = nil
         hasExplicitClientSelection = true
         adoptMatterScope(id: nil)
-        discardExpandedArchives()
+        ZipImporter.cleanUpExpansions(expansions)
     }
 
     /// Adopt the scope identity of a newly selected matter (nil for no
