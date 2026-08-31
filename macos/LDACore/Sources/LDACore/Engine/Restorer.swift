@@ -434,38 +434,69 @@ public enum Restorer {
         )
     }
 
+    /// One decided restore site on a surface that substitutes on its own.
+    ///
+    /// The decision is already taken: `value` is the original text to write,
+    /// or nil when the site keeps its bytes because the style refuses it or
+    /// no single entity owns the replacement.
+    internal struct LiteralRestoreSite {
+        /// Where the site sits in the scanned text, in UTF-16 offsets.
+        let range: NSRange
+        /// The replacement the text spells at this site.
+        let replacement: String
+        /// The original value to write, or nil to leave the site verbatim.
+        let value: String?
+    }
+
+    /// Decide every literal restore site in `text` under `plan`.
+    ///
+    /// The single decision function every literal surface shares. The report
+    /// scan, the plain-string substitution, and the DOCX run walker all run
+    /// it over the SAME text, so one site can never be substituted on one
+    /// surface and refused on another. Deciding on a smaller slice (one docx
+    /// run rather than the whole part) is exactly the drift this prevents: an
+    /// isolated run can hide the longer replacement that makes the site
+    /// ambiguous, and the walker would then write a name the report says was
+    /// never guessed.
+    internal static func literalRestoreSites(
+        in text: String,
+        plan: LiteralRestorePlan
+    ) -> [LiteralRestoreSite] {
+        acceptedLiteralMatches(
+            in: text,
+            replacements: Array(plan.allReplacements)
+        ).map { match in
+            let refused = plan.refusesPrefixConflicts && match.shadowsShorterReplacement
+            return LiteralRestoreSite(
+                range: match.range,
+                replacement: match.replacement,
+                value: refused ? nil : plan.replacementToValue[match.replacement]
+            )
+        }
+    }
+
     /// Substitute every literal replacement in a plain string that belongs to
     /// exactly one entity, leaving every other site verbatim.
     ///
-    /// The single-pass emit mirrors restoreLiteralStyle without the report:
-    /// used by the DOCX run walker, which restores run by run and reports
-    /// separately from the whole-document scan.
+    /// The single-pass emit mirrors restoreLiteralStyle without the report.
     internal static func substituteLiteralReplacements(
         in text: String,
         plan: LiteralRestorePlan
     ) -> String {
-        let accepted = acceptedLiteralMatches(
-            in: text,
-            replacements: Array(plan.allReplacements)
-        )
-        guard !accepted.isEmpty else { return text }
+        let sites = literalRestoreSites(in: text, plan: plan)
+        guard !sites.isEmpty else { return text }
 
         let nsText = text as NSString
         var result = ""
         var cursor = 0
-        for match in accepted {
-            if match.range.location > cursor {
+        for site in sites {
+            if site.range.location > cursor {
                 result += nsText.substring(
-                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                    with: NSRange(location: cursor, length: site.range.location - cursor)
                 )
             }
-            if plan.refusesPrefixConflicts && match.shadowsShorterReplacement {
-                result += nsText.substring(with: match.range)
-            } else {
-                result += plan.replacementToValue[match.replacement]
-                    ?? nsText.substring(with: match.range)
-            }
-            cursor = match.range.location + match.range.length
+            result += site.value ?? nsText.substring(with: site.range)
+            cursor = site.range.location + site.range.length
         }
         if cursor < nsText.length {
             result += nsText.substring(from: cursor)
