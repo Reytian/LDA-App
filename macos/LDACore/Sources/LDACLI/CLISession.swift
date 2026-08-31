@@ -28,6 +28,13 @@ public struct SessionSummaryJSON: Codable, Equatable {
     public let documents: [DocumentJSON]
     public let mappingFile: String
     public let totalEntityCount: Int
+    /// Sites that would restore to the WRONG entity, one readable line each.
+    ///
+    /// Empty in every normal run. Non-empty means the redacted files and the
+    /// sidecar were still written, but restoring them puts a different
+    /// party's name at one of these sites. Reported, never repaired here:
+    /// the engine already tried every remint available to it.
+    public let unresolvedSeams: [String]
 }
 
 // MARK: - Session helpers
@@ -152,8 +159,35 @@ extension LDACLI {
         return SessionSummaryJSON(
             documents: documents,
             mappingFile: mappingURL.path,
-            totalEntityCount: session.documents.reduce(0) { $0 + $1.entityCount }
+            totalEntityCount: session.documents.reduce(0) { $0 + $1.entityCount },
+            unresolvedSeams: session.unresolvedSeams
         )
+    }
+
+    /// The stderr advisory for a session the seam pass could not clean up.
+    ///
+    /// The JSON summary already carries these lines, but a field in a JSON
+    /// blob is exactly how this defect stayed invisible, so the terminal gets
+    /// it in plain words too. Says the consequence first: the files look
+    /// finished and nothing downstream can tell a mis-restore from a correct
+    /// one, so the only place this can be caught is here.
+    ///
+    /// Returns nil when the session is clean, which is the ordinary case.
+    public static func unresolvedSeamNotice(for seams: [String]) -> String? {
+        guard !seams.isEmpty else { return nil }
+        let subject = seams.count == 1
+            ? "1 redacted site"
+            : "\(seams.count) redacted sites"
+        let sites = seams.count == 1 ? "that site" : "those sites"
+        let detail = seams.map { "  \($0)" }.joined(separator: "\n")
+        return "Warning: \(subject) in this session would restore to the WRONG party.\n"
+            + detail + "\n"
+            + "The redacted files and the mapping sidecar were still written and "
+            + "look ordinary, so nothing later in the round trip will catch this: "
+            + "restoring puts a different party's name at \(sites). Most often the "
+            + "cause is a --client profile whose saved identities were minted under "
+            + "a different --style; re-run with that style, or without --client, and "
+            + "read the restored text before you rely on it.\n"
     }
 
     /// The first free URL of the form base.ext, base-2.ext, base-3.ext in the

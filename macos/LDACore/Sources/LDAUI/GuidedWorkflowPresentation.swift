@@ -114,6 +114,33 @@ enum AnonymizeWorkflowPresentation {
             + "Scan will skip \(skipped) again, so use Protect a missed item "
             + "if \(candidate) should be protected here."
     }
+
+    /// The lead sentence for seams the session pass could not repair: what
+    /// goes wrong on the way back, and the two levers that can move it.
+    /// Returns nil when the session is clean, which is the ordinary case.
+    ///
+    /// Deliberately harsher than the rescan advice, because the failure is
+    /// worse and completely invisible. A rescan warning means a name stayed
+    /// visible, which the user can find by reading the copied text. An
+    /// unresolved seam means a name was replaced correctly but will come back
+    /// as SOMEBODY ELSE, and nothing the user can look at shows it: the
+    /// copied text reads fine, the AI's reply reads fine, and the swap only
+    /// exists in the restored document. So the sentence opens by telling the
+    /// user not to send it, before explaining anything.
+    ///
+    /// The action names both levers without claiming which one applies. The
+    /// pass gives up for exactly two reasons, replacement text the user typed
+    /// by hand and a stored identity carried in from another output style,
+    /// and the readable lines it hands back do not say which, so guessing one
+    /// here would send half of these users to a control that cannot help.
+    static func unresolvedSeamAdvice(for seams: [String]) -> String? {
+        guard !seams.isEmpty else { return nil }
+        let sites = seams.count == 1 ? "1 redacted site" : "\(seams.count) redacted sites"
+        return "Do not send this copy. Restoring the AI's reply would put the "
+            + "wrong party's name at \(sites). Clear any replacement text you "
+            + "typed by hand for these names (Use Automatic), or change Output style "
+            + "in Settings, then copy again."
+    }
 }
 
 enum FillProfilePrimaryAction: Equatable {
