@@ -53,24 +53,31 @@ public final class LearningStore: ObservableObject {
     private let defaults: UserDefaults
     private let storageKey: String
 
+    /// The production UserDefaults key of the GLOBAL learned-terms blob.
+    /// Nonisolated so scope derivation and matter cleanup can run anywhere.
+    public nonisolated static var defaultStorageKey: String {
+        "com.haotianyi.LDA.learnedTerms"
+    }
+
     /// UserDefaults key for the encrypted blob. The bare storageKey is the
     /// LEGACY plaintext location, migrated away on first load.
-    private var sealedKey: String { storageKey + ".sealed" }
+    private var sealedKey: String { StoreBlobKeys.sealed(storageKey) }
 
     /// Keychain account for this store's vault key.
-    private var vaultAccount: String { "store.\(storageKey)" }
+    private var vaultAccount: String { StoreBlobKeys.vaultAccount(storageKey) }
 
     public init(
         defaults: UserDefaults = .standard,
-        storageKey: String = "com.haotianyi.LDA.learnedTerms"
+        storageKey: String = LearningStore.defaultStorageKey
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
 
-        // Preferred path: the encrypted blob. (Local constants: computed
-        // properties are unavailable before stored properties initialize.)
-        if let sealed = defaults.data(forKey: storageKey + ".sealed"),
-           let data = try? LocalDataVault.open(sealed, account: "store.\(storageKey)"),
+        // Preferred path: the encrypted blob. (Static helpers here: instance
+        // computed properties are unavailable before stored properties
+        // initialize.)
+        if let sealed = defaults.data(forKey: StoreBlobKeys.sealed(storageKey)),
+           let data = try? LocalDataVault.open(sealed, account: StoreBlobKeys.vaultAccount(storageKey)),
            let decoded = try? JSONDecoder().decode([String: LearnedTerm].self, from: data) {
             self.terms = decoded
             return
@@ -86,6 +93,29 @@ public final class LearningStore: ObservableObject {
         }
 
         self.terms = [:]
+    }
+
+    /// Open the store for one scope over the same defaults. Global scope uses
+    /// the existing storage key unchanged, byte for byte; matter scope derives
+    /// a key that embeds only the matter's random id, never its label.
+    public convenience init(
+        scope: StoreScope,
+        defaults: UserDefaults = .standard,
+        baseKey: String = LearningStore.defaultStorageKey
+    ) {
+        self.init(defaults: defaults, storageKey: scope.storageKey(base: baseKey))
+    }
+
+    /// Delete this store's persisted blob and vault key for one matter. Call
+    /// when the matter itself is deleted. The global blob and every other
+    /// matter are structurally out of reach: the storage key embeds the id.
+    public nonisolated static func removeMatterScope(
+        id: UUID,
+        defaults: UserDefaults = .standard,
+        baseKey: String = LearningStore.defaultStorageKey
+    ) {
+        let storageKey = StoreScope.matter(id: id).storageKey(base: baseKey)
+        StoreBlobKeys.removeAll(storageKey: storageKey, defaults: defaults)
     }
 
     /// A stable key for a value and type. Pure, so usable off the main actor.
