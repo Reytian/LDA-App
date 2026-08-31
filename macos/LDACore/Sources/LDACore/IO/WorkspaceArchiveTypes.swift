@@ -50,6 +50,14 @@ public enum WorkspaceArchiveError: Error, LocalizedError, Sendable, Equatable {
     /// session zip import enforces.
     case tooLarge(String)
 
+    /// The manifest names a document whose type this app does not open.
+    ///
+    /// LDA's own writer only ever records the tray's document types, so a
+    /// workspace naming anything else was not written by LDA. The one that
+    /// matters is a nested archive: unpacking it would put a second, unmetered
+    /// expansion behind a single user gesture. See WorkspaceArchiveReader.
+    case unsupportedDocumentKind(name: String)
+
     /// The finished archive could not be written to the chosen location.
     case writeFailed(String)
 
@@ -67,6 +75,9 @@ public enum WorkspaceArchiveError: Error, LocalizedError, Sendable, Equatable {
             return "Could not read \(name) while saving the workspace. \(detail)"
         case .tooLarge(let detail):
             return detail
+        case .unsupportedDocumentKind(let name):
+            return "This workspace file lists \(name), which is not a document "
+                + "type LDA opens. It was not written by LDA and has not been opened."
         case .writeFailed(let detail):
             return "The workspace file could not be saved. \(detail)"
         }

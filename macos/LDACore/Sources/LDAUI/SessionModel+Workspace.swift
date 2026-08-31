@@ -125,7 +125,16 @@ extension SessionModel {
     /// - Throws: WorkspaceArchiveError from the format layer.
     @discardableResult
     public func openWorkspace(at url: URL, passphrase: String) async throws -> WorkspaceOpenSummary {
-        let prepared = try WorkspaceArchive.prepare(from: url, passphrase: passphrase)
+        // One ledger for the whole open: the workspace's own members and the
+        // tray import that follows spend the SAME unpacking allowance, so a
+        // single user gesture cannot inflate more than the ceiling however the
+        // file is nested.
+        let budget = ArchiveBudget()
+        let prepared = try WorkspaceArchive.prepare(
+            from: url,
+            passphrase: passphrase,
+            budget: budget
+        )
         // Unpack BEFORE discarding live work. prepare() proves the passphrase
         // and the format version, but unpacking can still fail on a damaged
         // member or the inflated-size budget, and a tray emptied ahead of that
@@ -135,7 +144,10 @@ extension SessionModel {
         resetForWorkspaceOpen(discardingExpansions: outgoingExpansions)
 
         var warnings = adoptWorkspaceMatter(opened)
-        await addDocuments(opened.orderedDocumentURLs)
+        await addDocuments(opened.orderedDocumentURLs, budget: budget)
+        if let failure = importFailure {
+            warnings.append(failure)
+        }
 
         let restoredCount = applyWorkspaceSnapshots(opened, warnings: &warnings)
         adoptWorkspaceMapping(opened.mapping)

@@ -43,11 +43,15 @@ extension LDACLI {
     /// un-redacted documents; it cannot be cleaned here because the caller has
     /// not read them yet.
     public static func resolveSessionInputs(_ raw: [URL]) throws -> [URL] {
+        // One ledger for the whole command: every archive named on the command
+        // line spends the same unpacking allowance, so passing twenty of them
+        // cannot inflate twenty times the ceiling.
+        let budget = ArchiveBudget()
         var resolved: [URL] = []
         for url in raw {
             try requireExists(url)
             if ZipImporter.isZip(url) {
-                resolved.append(contentsOf: try ZipImporter.expand(url).documents)
+                resolved.append(contentsOf: try ZipImporter.expand(url, budget: budget).documents)
             } else {
                 resolved.append(url)
             }

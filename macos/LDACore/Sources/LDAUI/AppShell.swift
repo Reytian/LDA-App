@@ -1008,14 +1008,16 @@ public struct AppShell: View {
     /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
     /// on the same view conflict and silently fail to present. Folders are
     /// selectable too (F3): each one contributes its supported documents
-    /// recursively, budget-checked before anything enters the tray.
+    /// recursively, budget-checked before anything enters the tray. A .zip
+    /// INSIDE a folder is not one of them; only an archive the user picks
+    /// directly expands. See FolderImporter.supportedExtensions.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of documents. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
@@ -1043,6 +1045,12 @@ public struct AppShell: View {
             // mid-import; leaking one can make later opens of the same URL fail.
             defer { releaseScopes() }
             await session.addDocuments(resolved)
+            // A refused archive shows where a refused folder shows. Without
+            // this the document would simply not appear and the user would be
+            // left guessing which of their files the app dropped.
+            if let failure = session.importFailure {
+                exportMessage = failure
+            }
         }
     }
 
