@@ -82,6 +82,11 @@ public struct AppShell: View {
     /// WorkspaceFlow so this file does not grow another set of sheets.
     @StateObject private var workspaceFlow = WorkspaceFlowModel()
 
+    /// Which step of the export-or-open compliance report flow is on screen.
+    /// Same arrangement as the workspace flow, and for the same reason: the
+    /// panels and sheets live in ComplianceReportFlow, not in this file.
+    @StateObject private var reportFlow = ComplianceReportFlowModel()
+
     public init(
         session: SessionModel,
         isActive: Bool = true,
@@ -116,6 +121,9 @@ public struct AppShell: View {
             passphraseSheet
         }
         .workspaceFlow(session: session, flow: workspaceFlow) { message in
+            exportMessage = message
+        }
+        .complianceReportFlow(session: session, flow: reportFlow) { message in
             exportMessage = message
         }
         .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
@@ -267,7 +275,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canExportComplianceReport)
-                .help("Save a processing report (Markdown and PDF) of what this session's record holds")
+                .help(ComplianceReportPresentation.exportHelp)
             }
         }
     }
@@ -1000,32 +1008,15 @@ public struct AppShell: View {
         passphrase = ""
     }
 
-    /// Export the session's compliance report (report.md plus report.pdf)
-    /// into a chosen directory. Mirrors beginExport's directory flow; there is
-    /// no passphrase sheet because the report is value-free by construction
-    /// (see ComplianceReport).
+    /// Export the session's compliance report. The report carries NO protected
+    /// value, but it does carry the matter label and every document name, and
+    /// in PRC legal practice those names are the parties, which is why the
+    /// record it renders is encrypted at rest. So the export is passphrase
+    /// protected by default, like the workspace file, and the readable pair is
+    /// an explicit choice on the sheet. The panels and the sheet live in
+    /// ComplianceReportFlow.
     private func beginReportExport() {
-        guard session.canExportComplianceReport else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for the processing report (Markdown and PDF)."
-        panel.prompt = "Export Here"
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
-        let needsScope = dir.startAccessingSecurityScopedResource()
-        defer { if needsScope { dir.stopAccessingSecurityScopedResource() } }
-        do {
-            let written = try session.exportComplianceReport(
-                to: dir,
-                generatedAtISO8601: ISO8601DateFormatter().string(from: Date())
-            )
-            exportMessage = "Report saved: \(written.markdown.lastPathComponent) and "
-                + "\(written.pdf.lastPathComponent)."
-        } catch {
-            exportMessage = "Report export failed. \(error.localizedDescription)"
-        }
+        reportFlow.requestExport()
     }
 
     private func confirmExport() {
