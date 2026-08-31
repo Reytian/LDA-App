@@ -86,6 +86,61 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Unresolved seam advice
+    //
+    // The plumbing that gets these lines to the banner is covered in
+    // SessionSeamWarningTests; this is the sentence itself.
+
+    func testSeamAdviceIsSilentWhenTheSessionIsClean() {
+        XCTAssertNil(AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: []))
+    }
+
+    func testSeamAdviceOpensByTellingTheUserNotToSendTheCopy() {
+        // The user cannot find this one by reading the copied text, so the
+        // sentence has to lead with the instruction, not the explanation.
+        let advice = AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: [
+            "a.txt: the redacted text spells X across the site holding Y, "
+                + "so that site would restore to the wrong entity."
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "Do not send this copy. Restoring the AI's reply would put the "
+                + "wrong party's name at 1 redacted site. Clear any replacement text you "
+                + "typed by hand for these names (Use Automatic), or change Output style "
+                + "in Settings, then copy again."
+        )
+    }
+
+    func testSeamAdviceCountsEverySite() {
+        let advice = AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: [
+            "a.txt: first.",
+            "b.txt: second.",
+            "b.txt: third."
+        ])
+
+        XCTAssertEqual(
+            advice,
+            "Do not send this copy. Restoring the AI's reply would put the "
+                + "wrong party's name at 3 redacted sites. Clear any replacement text you "
+                + "typed by hand for these names (Use Automatic), or change Output style "
+                + "in Settings, then copy again."
+        )
+    }
+
+    func testSeamAdviceNamesBothLeversBecauseTheLinesNeverSayWhichOneApplies() throws {
+        // The pass gives up for two reasons, hand typed replacement text and
+        // an identity carried in from another output style, and the line it
+        // hands back does not distinguish them. Prescribing one control would
+        // send half of these users somewhere that cannot help.
+        let advice = try XCTUnwrap(
+            AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: ["a.txt: only seam."])
+        )
+
+        XCTAssertTrue(advice.contains("Use Automatic"), advice)
+        XCTAssertTrue(advice.contains("Output style"), advice)
+    }
+
     func testRescanAdviceGroupsDocumentsByTheActionThatFixesThem() {
         // b.txt is fixable by re-scanning, c.txt is not. Listing them in one
         // sentence would send the user to the wrong button for one of them.

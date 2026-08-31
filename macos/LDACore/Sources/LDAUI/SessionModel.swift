@@ -456,6 +456,19 @@ public final class SessionModel: ObservableObject {
         /// document confirmed, so the user is never silently handed a session
         /// the cross-document sweep did not reach. Empty in the ordinary case.
         public let rescanWarnings: [RescanWarning]
+        /// Sites in the copied text that would restore to a DIFFERENT entity
+        /// than the one protected there, one readable line each
+        /// (SessionTokenizeResult.unresolvedSeams). Empty in the ordinary
+        /// case.
+        ///
+        /// The sibling channel to rescanWarnings, and the more serious of the
+        /// two. A rescan warning says a name was left visible, which the user
+        /// can see in the copied text. This says a name was replaced and will
+        /// come BACK as somebody else, which the user cannot see anywhere:
+        /// the copy looks correct, and the swap only appears once the AI's
+        /// reply is restored into a real document. So it is carried out to
+        /// the banner rather than left for the engine to know alone.
+        public let unresolvedSeams: [String]
     }
 
     /// Build the session's redacted Markdown intermediates against ONE shared
@@ -576,7 +589,8 @@ public final class SessionModel: ObservableObject {
             perDocument: perDocument,
             documentCount: ready.count,
             skippedCount: entries.count - ready.count,
-            rescanWarnings: rescanWarnings
+            rescanWarnings: rescanWarnings,
+            unresolvedSeams: result.unresolvedSeams
         )
     }
 

@@ -390,7 +390,8 @@ public struct AppShell: View {
             handoffCompletion = .copied(
                 documentCount: handoff.documentCount,
                 skippedCount: handoff.skippedCount,
-                rescanWarnings: handoff.rescanWarnings
+                rescanWarnings: handoff.rescanWarnings,
+                unresolvedSeams: handoff.unresolvedSeams
             )
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
@@ -471,7 +472,12 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
-            case .copied(let documentCount, let skippedCount, let rescanWarnings):
+            case .copied(
+                let documentCount,
+                let skippedCount,
+                let rescanWarnings,
+                let unresolvedSeams
+            ):
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Safe text copied")
                         .font(.callout.weight(.semibold))
@@ -491,6 +497,25 @@ public struct AppShell: View {
                             .font(.caption)
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // A seam the session pass could not repair. Unlike every
+                    // other warning on this card, the user cannot verify it
+                    // by reading the copied text: the copy is correct and the
+                    // damage only appears once the AI's reply is restored. So
+                    // the engine's own line is shown verbatim under the
+                    // advice, naming the document and the swap.
+                    if let seamAdvice = AnonymizeWorkflowPresentation
+                        .unresolvedSeamAdvice(for: unresolvedSeams) {
+                        Text(seamAdvice)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(CounselTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(Array(unresolvedSeams.enumerated()), id: \.offset) { _, seam in
+                            Text(seam)
+                                .font(.caption2)
+                                .foregroundStyle(CounselTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
 
@@ -1150,7 +1175,8 @@ private enum HandoffCompletion: Equatable {
     case copied(
         documentCount: Int,
         skippedCount: Int,
-        rescanWarnings: [SessionModel.RescanWarning]
+        rescanWarnings: [SessionModel.RescanWarning],
+        unresolvedSeams: [String]
     )
     case exported(result: ExportResult, protection: String)
 }
