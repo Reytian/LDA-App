@@ -260,6 +260,7 @@ public struct CompanionMenu: View {
                 + " on the clipboard. "
                 + SensitiveClipboard.expiryNote
             let flagged = restored.orphanTokens.count + restored.suspectPlaceholders.count
+                + restored.ambiguousReplacements.count
             if flagged > 0 {
                 note += " \(flagged) placeholder"
                     + (flagged == 1 ? " needs" : "s need")
@@ -377,6 +378,13 @@ struct PasteRestoreSheet: View {
                 )
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
+            }
+
+            if let ambiguous = RestoreResultPresentation
+                .ambiguousSentence(result.ambiguousReplacements) {
+                Label(ambiguous, systemImage: "questionmark.square.dashed")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
             }
         }
         .accessibilityElement(children: .combine)

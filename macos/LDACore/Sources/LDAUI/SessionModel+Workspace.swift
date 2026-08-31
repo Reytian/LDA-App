@@ -118,15 +118,21 @@ extension SessionModel {
 
     /// Replace this session with the one stored in a workspace file.
     ///
-    /// The file is decrypted and validated BEFORE anything live is discarded,
-    /// so a wrong passphrase or a file from a newer LDA costs the user nothing.
+    /// The file is decrypted, validated AND unpacked BEFORE anything live is
+    /// discarded, so a wrong passphrase, a file from a newer LDA, a damaged
+    /// member or an over-budget archive all cost the user nothing.
     ///
     /// - Throws: WorkspaceArchiveError from the format layer.
     @discardableResult
     public func openWorkspace(at url: URL, passphrase: String) async throws -> WorkspaceOpenSummary {
         let prepared = try WorkspaceArchive.prepare(from: url, passphrase: passphrase)
-        resetForWorkspaceOpen()
+        // Unpack BEFORE discarding live work. prepare() proves the passphrase
+        // and the format version, but unpacking can still fail on a damaged
+        // member or the inflated-size budget, and a tray emptied ahead of that
+        // failure is unrecoverable user work.
+        let outgoingExpansions = ZipImporter.registeredExpansions()
         let opened = try prepared.unpack()
+        resetForWorkspaceOpen(discardingExpansions: outgoingExpansions)
 
         var warnings = adoptWorkspaceMatter(opened)
         await addDocuments(opened.orderedDocumentURLs)
