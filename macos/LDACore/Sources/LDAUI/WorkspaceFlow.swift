@@ -115,17 +115,25 @@ struct WorkspaceFlow: ViewModifier {
             .onChange(of: session.pendingWorkspaceURL) { _, url in
                 guard let url else { return }
                 session.pendingWorkspaceURL = nil
-                flow.requestOpen(url, hasActiveWork: session.canSaveWorkspace)
+                // hasActiveMatterWork, not just the tray: an unfinished restore
+                // context is work too, and opening a workspace discards it.
+                flow.requestOpen(url, hasActiveWork: session.hasActiveMatterWork)
             }
     }
 
     @ViewBuilder
     private var confirmationButtons: some View {
         if let url = flow.confirmationURL {
-            Button("Save Current Work First\u{2026}") {
-                flow.pendingOpenAfterSave = url
-                flow.stage = .idle
-                flow.requestSave()
+            // Offered only when there is something saveable. Unfinished restore
+            // context without documents still triggers the prompt, because
+            // opening would discard it, but it cannot be written to a
+            // workspace, so the button would be dead.
+            if session.canSaveWorkspace {
+                Button("Save Current Work First\u{2026}") {
+                    flow.pendingOpenAfterSave = url
+                    flow.stage = .idle
+                    flow.requestSave()
+                }
             }
             Button("Discard and Open", role: .destructive) {
                 flow.stage = .opening(url)
@@ -173,7 +181,12 @@ struct WorkspaceFlow: ViewModifier {
             panel.allowedContentTypes = [type]
         }
         guard panel.runModal() == .OK, let url = panel.url else {
-            flow.pendingOpenAfterSave = nil
+            // Cancelling the save must not silently swallow the open it
+            // interrupted; put the user back on the question they answered.
+            if let pending = flow.pendingOpenAfterSave {
+                flow.pendingOpenAfterSave = nil
+                flow.stage = .confirmReplacement(pending)
+            }
             return
         }
         flow.resetInput()
