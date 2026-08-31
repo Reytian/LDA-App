@@ -1036,7 +1036,8 @@ public final class SessionModel: ObservableObject {
                 atISO8601: ISO8601DateFormatter().string(from: Date()),
                 restoredCount: result.restoredCount,
                 orphanCount: result.orphanTokens.count,
-                suspectCount: result.suspectPlaceholders.count
+                suspectCount: result.suspectPlaceholders.count,
+                ambiguousCount: result.ambiguousReplacements.count
             )
             try? store.appendRestoreEvent(
                 to: recordID,

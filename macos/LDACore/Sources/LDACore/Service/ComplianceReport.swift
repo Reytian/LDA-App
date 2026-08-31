@@ -113,12 +113,16 @@ public enum ComplianceReport {
         if record.restoreEvents.isEmpty {
             lines.append(noRestoreLine)
         } else {
-            lines.append("| Restored at | Restored | Orphan placeholders | Suspect placeholders |")
-            lines.append("| --- | --- | --- | --- |")
+            lines.append(
+                "| Restored at | Restored | Orphan placeholders | Suspect placeholders"
+                    + " | Unattributable masks |"
+            )
+            lines.append("| --- | --- | --- | --- | --- |")
             for event in record.restoreEvents {
                 lines.append(
                     "| \(cell(event.atISO8601)) | \(event.restoredCount)"
-                        + " | \(event.orphanCount) | \(event.suspectCount) |"
+                        + " | \(event.orphanCount) | \(event.suspectCount)"
+                        + " | \(event.ambiguousCount) |"
                 )
             }
         }
