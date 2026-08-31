@@ -335,17 +335,34 @@ public final class SessionModel: ObservableObject {
         ZipImporter.cleanUpAllExpansions()
     }
 
+    /// Whether the Scan All action can start: at least one document is
+    /// waiting in the imported state, and no pass is currently running
+    /// anywhere in the tray (only one model pass may be in flight).
+    public var canScanAll: Bool {
+        entries.contains { $0.model.status == .imported }
+            && !entries.contains { $0.model.status == .detecting }
+    }
+
     /// Detect entities in every document that has not run yet, sequentially so
     /// only one model pass is in flight at a time. The sequential order also
     /// feeds the cross-document sweep: each document's pass sees the partners
     /// confirmed so far, so a party found in an earlier document surfaces in
     /// every later one. Re-running Scan on a document picks up partners
     /// confirmed after its first pass.
+    ///
+    /// Selection follows the document being scanned so the pane shows the
+    /// live pass and the banner's Stop button always reaches it. Stopping
+    /// cancels the current document (restored to imported, nothing partial
+    /// shown) and ends the queue, leaving the remainder imported.
     public func anonymizeAll() async {
         for entry in entries {
             switch entry.model.status {
             case .imported:
+                selectedID = entry.id
                 await entry.model.anonymize()
+                // A user stop restores this document to .imported instead of
+                // .ready; that is the signal to stop the whole queue.
+                if entry.model.status == .imported { return }
             default:
                 continue
             }

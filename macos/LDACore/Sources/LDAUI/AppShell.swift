@@ -601,10 +601,34 @@ public struct AppShell: View {
                 // sentence that names it: it can never vanish into toolbar
                 // overflow on a narrow window.
                 if case .imported = model.status {
+                    if session.entries.count > 1 {
+                        scanAllButton
+                    }
                     scanButton(title: "Scan for PII", prominent: true)
                 }
             }
         }
+    }
+
+    /// Scan every not-yet-scanned document in tray order (F3). Sequential by
+    /// design: one model pass at a time, and the order feeds the
+    /// cross-document sweep. The banner's Stop cancels the current document
+    /// and leaves the rest of the queue imported.
+    private var scanAllButton: some View {
+        Button {
+            Task { await session.anonymizeAll() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "text.magnifyingglass")
+                Text("Scan All")
+            }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!session.canScanAll)
+        .help("Scan every document in the session that has not been scanned yet, one after another")
+        .accessibilityIdentifier("scanAllDocuments")
     }
 
     /// The primary Scan for PII action, rendered with symmetric padding so the
@@ -708,6 +732,11 @@ public struct AppShell: View {
                     .lineLimit(1)
             }
 
+            // The active document is reviewed, but unscanned tray partners
+            // can still be swept from here.
+            if session.entries.count > 1 {
+                scanAllButton
+            }
             scanButton(title: "Re-scan", prominent: false)
         }
     }
@@ -887,29 +916,43 @@ public struct AppShell: View {
 
     /// Present a native open panel for the session's documents. NSOpenPanel is
     /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
-    /// on the same view conflict and silently fail to present.
+    /// on the same view conflict and silently fail to present. Folders are
+    /// selectable too (F3): each one contributes its supported documents
+    /// recursively, budget-checked before anything enters the tray.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of them. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
         handoffCompletion = nil
         hasSharedOutput = false
         let scoped = panel.urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
+        let releaseScopes = {
+            for item in scoped where item.needsScope {
+                item.url.stopAccessingSecurityScopedResource()
+            }
+        }
+        // Folder discovery and the batch budgets run BEFORE anything enters
+        // the tray, inside the selection's sandbox scopes. A budget breach
+        // rejects the whole batch; documents already in the tray stay put.
+        let resolved: [URL]
+        do {
+            resolved = try FolderImporter.expandSelection(panel.urls)
+        } catch {
+            releaseScopes()
+            exportMessage = error.localizedDescription
+            return
+        }
         Task {
             // defer releases the sandbox scopes even if the Task is cancelled
             // mid-import; leaking one can make later opens of the same URL fail.
-            defer {
-                for item in scoped where item.needsScope {
-                    item.url.stopAccessingSecurityScopedResource()
-                }
-            }
-            await session.addDocuments(scoped.map { $0.url })
+            defer { releaseScopes() }
+            await session.addDocuments(resolved)
         }
     }
 

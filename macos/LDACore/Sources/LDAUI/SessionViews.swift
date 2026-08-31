@@ -86,6 +86,25 @@ struct DocumentTrayRow: View {
     }
 }
 
+// MARK: - Assignable entity kinds
+
+/// The entity kinds a user can assign by hand, shared by the missed-item
+/// popover and the vocabulary editor so the two pickers can never drift.
+/// Order mirrors ReviewModel.groupTypeOrder; SEAL sits with the other
+/// identifier kinds so a stamp or chop mention can be protected manually.
+enum AssignableEntityTypes {
+    /// Kinds assignable to a manually protected item.
+    static let manual: [EntityType] = [
+        .person, .company, .address, .email, .phone,
+        .bankAccount, .nationalID, .uscc,
+        .caseNumber, .licensePlate, .wechatID, .url, .seal,
+        .amount, .date
+    ]
+
+    /// Kinds assignable to a vocabulary term (adds the neutral bucket).
+    static let vocabulary: [EntityType] = manual + [.unknown]
+}
+
 // MARK: - Add a missed term (R5)
 
 /// A small popover to protect a value the detector missed: type or paste the
@@ -99,12 +118,7 @@ struct AddTermPopover: View {
     @State private var feedback: String?
 
     /// The kinds a user can assign by hand.
-    private static let assignableTypes: [EntityType] = [
-        .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc,
-        .caseNumber, .licensePlate, .wechatID, .url,
-        .amount, .date
-    ]
+    private static let assignableTypes: [EntityType] = AssignableEntityTypes.manual
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
