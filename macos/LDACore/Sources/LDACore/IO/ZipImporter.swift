@@ -95,6 +95,38 @@ public enum ZipImporter {
         registryLock.unlock()
     }
 
+    /// The expansion directories registered right now.
+    ///
+    /// For a caller that must clean up exactly the expansions that existed
+    /// BEFORE it created its own: snapshot first, create, then clean up the
+    /// snapshot. Opening a workspace does this, so a failure while unpacking
+    /// the incoming file cannot destroy the session it was going to replace.
+    public static func registeredExpansions() -> Set<URL> {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return liveExpansions
+    }
+
+    /// Delete the given expansions and leave every other registered expansion
+    /// alone. Same cleanup contract as cleanUpAllExpansions, narrower scope.
+    ///
+    /// - Returns: how many expansion directories were removed.
+    @discardableResult
+    public static func cleanUpExpansions(_ directories: Set<URL>) -> Int {
+        registryLock.lock()
+        liveExpansions.subtract(directories)
+        registryLock.unlock()
+
+        var removed = 0
+        for directory in directories {
+            guard FileManager.default.fileExists(atPath: directory.path) else { continue }
+            if (try? FileManager.default.removeItem(at: directory)) != nil {
+                removed += 1
+            }
+        }
+        return removed
+    }
+
     /// Delete every expansion this process has created and not yet cleaned up.
     ///
     /// Call this at a boundary where no expanded document is still in use: the

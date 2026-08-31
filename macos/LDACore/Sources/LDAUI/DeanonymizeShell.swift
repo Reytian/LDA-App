@@ -252,7 +252,8 @@ public struct DeanonymizeShell: View {
     }
 
     private func showRestoreResult(_ report: RestoreReport) {
-        if report.orphanTokens.isEmpty && report.suspectPlaceholders.isEmpty {
+        if report.orphanTokens.isEmpty && report.suspectPlaceholders.isEmpty
+            && report.ambiguousReplacements.isEmpty {
             resultMessage = "Restored \(report.restoredCount) value"
                 + (report.restoredCount == 1 ? "" : "s")
                 + " to \(report.outputURL.lastPathComponent)."
@@ -274,6 +275,10 @@ public struct DeanonymizeShell: View {
                         + (report.suspectPlaceholders.count == 1 ? " looks" : "s look")
                         + " damaged by editing: \(sample)."
                 )
+            }
+            if let ambiguous = RestoreResultPresentation
+                .ambiguousSentence(report.ambiguousReplacements) {
+                problems.append(ambiguous)
             }
             resultMessage = "Restored \(report.restoredCount) values with warnings. "
                 + problems.joined(separator: " ")

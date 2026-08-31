@@ -45,6 +45,7 @@ final class WorkspaceSessionTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        ImportLimits.archiveBudgetSeam.clear()
         ZipImporter.cleanUpAllExpansions()
         for name in suiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
@@ -396,6 +397,49 @@ final class WorkspaceSessionTests: XCTestCase {
     }
 
     // MARK: - Save gating and cleanup
+
+    func testAnUnpackFailureDoesNotDisturbTheOpenSession() async throws {
+        // prepare() proves the passphrase and the format version, but the
+        // inflated-size budget can only be enforced while unpacking. Emptying
+        // the tray before that failure would destroy work the user cannot get
+        // back, so the unpack has to finish before anything live is discarded.
+        let (origin, _, _) = try await makeReviewedSession()
+        let fileURL = workDir.appendingPathComponent("matter.ldawork")
+        try origin.session.saveWorkspace(
+            to: fileURL,
+            passphrase: Self.passphrase,
+            createdAtISO8601: Self.createdAt
+        )
+
+        let colleague = makeFixture("colleague")
+        let doc = try write("colleague-own.txt", "Their own work in progress.")
+        await colleague.session.addDocuments([doc])
+        let expansionsBefore = ZipImporter.liveExpansionCount
+
+        // The budget meters ACTUAL inflated bytes, so this fails inside
+        // unpack(), after prepare() has already succeeded.
+        ImportLimits.archiveBudgetSeam.value = 1_024
+
+        do {
+            _ = try await colleague.session.openWorkspace(
+                at: fileURL,
+                passphrase: Self.passphrase
+            )
+            XCTFail("an over-budget workspace opened")
+        } catch {
+            guard case WorkspaceArchiveError.tooLarge = error else {
+                return XCTFail("expected tooLarge, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(colleague.session.entries.count, 1)
+        XCTAssertEqual(colleague.session.entries[0].name, "colleague-own.txt")
+        XCTAssertEqual(
+            ZipImporter.liveExpansionCount,
+            expansionsBefore,
+            "a failed unpack must leave no expansion behind"
+        )
+    }
 
     func testSaveWorkspaceNeedsAtLeastOneDocument() async throws {
         let fixture = makeFixture("origin")
