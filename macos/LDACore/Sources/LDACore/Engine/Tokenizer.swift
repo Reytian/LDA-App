@@ -19,6 +19,24 @@
 
 import Foundation
 
+/// A tokenize result plus the emit internals an auditing caller needs.
+///
+/// Only SessionTokenizer's seam pass uses this: to tell a substitution site
+/// apart from a coincidence in the redacted text you have to know what was
+/// emitted where, and neither the tokenized text nor the mapping records it
+/// (the mapping is keyed by replacement, and the same surface can be reached
+/// through a value, a surfaceText or an alias).
+struct DetailedTokenizeResult {
+    /// The public result, unchanged.
+    let result: TokenizeResult
+    /// Surface text to the replacement actually emitted for it, including
+    /// bindings reused from the seed mapping.
+    let replacementBySurface: [String: String]
+    /// The spans after validity filtering, overlap resolution and sorting by
+    /// start, which is the order the emit walk used.
+    let acceptedSpans: [Span]
+}
+
 /// Builds tokenized text and the token map from a set of located spans.
 ///
 /// The tokenizer is a pure function: it never reads the clock and never touches
@@ -146,6 +164,43 @@ public enum Tokenizer {
         uniquenessCorpus: [String],
         overrides: [String: String]
     ) -> TokenizeResult {
+        tokenizeDetailed(
+            text: text,
+            spans: spans,
+            sourceFile: sourceFile,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            uniquenessCorpus: uniquenessCorpus,
+            overrides: overrides,
+            forbiddenReplacements: [:]
+        ).result
+    }
+
+    /// tokenizeCore plus the two internals a caller needs to audit what was
+    /// emitted: the surface to replacement assignment actually used, and the
+    /// spans it was emitted at.
+    ///
+    /// `forbiddenReplacements` maps a surface to replacement strings it must
+    /// NOT receive, by seed reuse or by minting. SessionTokenizer fills it
+    /// from a verification pass over a COMPLETED fold, which is the only
+    /// place a cross-document seam becomes visible (see SessionSeamVerifier),
+    /// and re-folds so the surface changes identity in every document at
+    /// once. Each ban names one concrete string that the finite document text
+    /// was observed to break, never a relation between replacement strings,
+    /// so the generator's unbounded candidate sequence always escapes it and
+    /// minting still terminates.
+    static func tokenizeDetailed(
+        text: String,
+        spans: [Span],
+        sourceFile: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping?,
+        style: SubstitutionStyle,
+        uniquenessCorpus: [String],
+        overrides: [String: String],
+        forbiddenReplacements: [String: Set<String>]
+    ) -> DetailedTokenizeResult {
         let utf16Count = text.utf16.count
 
         // Step 1: keep only spans with valid, in-bounds, non-empty ranges.
@@ -217,6 +272,12 @@ public enum Tokenizer {
 
                 for surface in [entry.value, entry.surfaceText] + entry.aliases
                 where !surface.isEmpty && textToToken[surface] == nil {
+                    // A banned pairing must not come back in through seed
+                    // reuse: the surface has to be reminted, and the fold
+                    // that re-mints it starts from this same seed.
+                    if forbiddenReplacements[surface]?.contains(entry.token) == true {
+                        continue
+                    }
                     guard canReuseSeedReplacement(
                         entry,
                         surface: surface,
@@ -299,8 +360,10 @@ public enum Tokenizer {
                         spans: accepted,
                         replacementBySurface: emitted
                     )
+                    let banned = forbiddenReplacements[surfaceText] ?? []
                     replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
                         usedReplacements.contains(candidate)
+                            || banned.contains(candidate)
                             || reservedLiterals.contains(candidate)
                             || text.contains(candidate)
                             || uniquenessCorpus.contains { $0.contains(candidate) }
@@ -371,7 +434,11 @@ public enum Tokenizer {
             style: style
         )
 
-        return TokenizeResult(tokenizedText: tokenizedText, mapping: mapping)
+        return DetailedTokenizeResult(
+            result: TokenizeResult(tokenizedText: tokenizedText, mapping: mapping),
+            replacementBySurface: textToToken,
+            acceptedSpans: accepted
+        )
     }
 
     /// Whether a seed entry's replacement may be re-emitted for a known
