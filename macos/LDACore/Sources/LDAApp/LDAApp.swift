@@ -128,17 +128,25 @@ struct LDAApp: App {
                     // is exactly the kind of surprise dialog users distrust.
                 }
                 .onOpenURL { url in
-                    // Double-clicking a .ldawork file in Finder arrives here.
-                    // The app does NOT open it directly: the review shell owns
-                    // the passphrase prompt and the "this replaces what is
-                    // open" question, so a double-click can never discard live
-                    // work on its own. Anything else is ignored, because
-                    // ordinary documents come in through the open panel, which
-                    // is where the import budgets are applied.
-                    guard url.pathExtension.lowercased() == WorkspaceArchive.fileExtension
-                    else { return }
-                    modeStore.activeMode = .anonymize
-                    sessionModel.pendingWorkspaceURL = url
+                    // Double-clicking a .ldawork or .ldareport file in Finder
+                    // arrives here. The app does NOT open either directly: the
+                    // review shell owns the passphrase prompt, the "this
+                    // replaces what is open" question, and the choice of where
+                    // readable report copies land, so a double-click can never
+                    // discard live work or write names in the clear on its
+                    // own. Anything else is ignored, because ordinary
+                    // documents come in through the open panel, which is where
+                    // the import budgets are applied.
+                    switch url.pathExtension.lowercased() {
+                    case WorkspaceArchive.fileExtension:
+                        modeStore.activeMode = .anonymize
+                        sessionModel.pendingWorkspaceURL = url
+                    case ComplianceReportArchive.fileExtension:
+                        modeStore.activeMode = .anonymize
+                        sessionModel.pendingReportURL = url
+                    default:
+                        break
+                    }
                 }
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
@@ -177,6 +185,14 @@ struct LDAApp: App {
                     presentWorkspaceOpenPanel()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+
+                // An encrypted compliance report needs LDA to read it, so the
+                // app has to offer a way in. No shortcut: this is a rare,
+                // recipient-side action, not part of the daily loop.
+                Button("Open Report\u{2026}") {
+                    modeStore.activeMode = .anonymize
+                    presentReportOpenPanel()
+                }
             }
 
             CommandGroup(after: .saveItem) {
@@ -305,5 +321,21 @@ struct LDAApp: App {
         panel.prompt = "Open Workspace"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         sessionModel.pendingWorkspaceURL = url
+    }
+
+    /// Choose a .ldareport file and hand it to the review shell, which owns
+    /// the passphrase prompt and asks where the readable copies should land.
+    private func presentReportOpenPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if let type = UTType(filenameExtension: ComplianceReportArchive.fileExtension) {
+            panel.allowedContentTypes = [type]
+        }
+        panel.message = "Choose an encrypted LDA report file."
+        panel.prompt = "Open Report"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sessionModel.pendingReportURL = url
     }
 }

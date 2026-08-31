@@ -14,9 +14,11 @@
 //  Where these are enforced: each concrete DocumentImporter calls
 //  enforceDocumentSize(at:) as its first statement, so no import path can
 //  bypass the check by calling an importer directly instead of going through
-//  the service facade. ZipImporter enforces the archive ceilings itself, using
-//  each entry's DECLARED uncompressed size, which is what makes the check
-//  effective against a bomb: the budget is spent before anything is written.
+//  the service facade. The archive ceiling is enforced by ArchiveBudget, a
+//  ledger the import entry point creates once and every expansion spends: the
+//  charge is for bytes ACTUALLY inflated (a declared size is attacker
+//  controlled), and one ledger per user gesture is what stops nesting from
+//  multiplying the ceiling.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -34,7 +36,10 @@ public enum ImportLimits {
     /// import can allocate.
     public static let maxDocumentBytes: Int = 200 * 1024 * 1024
 
-    /// Largest total UNCOMPRESSED payload accepted from one archive (500 MB).
+    /// Largest total UNCOMPRESSED payload accepted from one IMPORT (500 MB).
+    ///
+    /// Per import, not per archive: an ArchiveBudget created at the entry point
+    /// is spent by every archive that gesture expands, however they nest.
     public static let maxArchiveUncompressedBytes: Int = 500 * 1024 * 1024
 
 #if DEBUG
@@ -46,7 +51,8 @@ public enum ImportLimits {
 
     /// The archive budget in force: the debug override when a test installed
     /// one, otherwise maxArchiveUncompressedBytes. Release builds always return
-    /// the constant.
+    /// the constant. Read when an ArchiveBudget is CREATED, so a test installs
+    /// the seam before the import it wants to bound.
     static var effectiveArchiveUncompressedBytes: Int {
 #if DEBUG
         return archiveBudgetSeam.value ?? maxArchiveUncompressedBytes

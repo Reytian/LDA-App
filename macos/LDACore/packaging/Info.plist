@@ -16,12 +16,14 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>Legal Document Anonymizer. Documents stay on this Mac.</string>
 
-  <!-- The portable workspace (.ldawork): one encrypted file holding a matter's
-       documents, review decisions, and replacements. Declared as a document
-       type so a double-click reaches the app, and exported as an owned type so
-       Finder names it rather than calling it a generic document. It conforms to
+  <!-- The two encrypted files LDA writes for handover. The portable workspace
+       (.ldawork) holds a matter's documents, review decisions, and
+       replacements; the compliance report (.ldareport) holds the processing
+       report a lawyer hands over. Both are declared as document types so a
+       double-click reaches the app, and exported as owned types so Finder
+       names them rather than calling them generic documents. Both conform to
        public.data only: the contents are ciphertext, and nothing outside LDA
-       can read further into it. -->
+       can read further into them. -->
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
@@ -31,6 +33,15 @@
       <key>LSItemContentTypes</key>
       <array>
         <string>com.haotianyi.LDA.workspace</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>LDA Report</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.haotianyi.LDA.compliancereport</string>
       </array>
     </dict>
   </array>
@@ -49,6 +60,21 @@
         <key>public.filename-extension</key>
         <array>
           <string>ldawork</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.haotianyi.LDA.compliancereport</string>
+      <key>UTTypeDescription</key><string>LDA Report</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>ldareport</string>
         </array>
       </dict>
     </dict>
