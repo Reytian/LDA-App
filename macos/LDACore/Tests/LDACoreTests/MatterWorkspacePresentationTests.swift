@@ -37,7 +37,8 @@ final class MatterWorkspacePresentationTests: XCTestCase {
                     atISO8601: "2026-07-18T12:00:00Z",
                     restoredCount: 4,
                     orphanCount: 0,
-                    suspectCount: 1
+                    suspectCount: 1,
+                    ambiguousCount: 2
                 )
             ]
         )
@@ -72,7 +73,9 @@ final class MatterWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(garcia.documentCount, 3)
         XCTAssertEqual(garcia.protectedValueCount, 4)
         XCTAssertEqual(garcia.restoreCount, 2)
-        XCTAssertEqual(garcia.flaggedCount, 2)
+        // One orphan, one suspect, and two masks the restorer refused to
+        // attribute: all four are things a person has to look at.
+        XCTAssertEqual(garcia.flaggedCount, 4)
         XCTAssertEqual(garcia.lastActivityISO8601, "2026-07-18T12:00:00Z")
 
         XCTAssertNil(summaries.last?.lastActivityISO8601)

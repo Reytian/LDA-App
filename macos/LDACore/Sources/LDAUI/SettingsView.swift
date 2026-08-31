@@ -163,7 +163,9 @@ private struct HistoryTab: View {
         guard !record.restoreEvents.isEmpty else {
             return "Not restored yet."
         }
-        let flagged = record.restoreEvents.reduce(0) { $0 + $1.orphanCount + $1.suspectCount }
+        let flagged = record.restoreEvents.reduce(0) {
+            $0 + $1.orphanCount + $1.suspectCount + $1.ambiguousCount
+        }
         let restored = record.restoreEvents.reduce(0) { $0 + $1.restoredCount }
         var line = "\(record.restoreEvents.count) restore"
             + (record.restoreEvents.count == 1 ? "" : "s")

@@ -94,6 +94,47 @@ final class SessionRecordComplianceFieldsTests: XCTestCase {
         XCTAssertNil(record.documents[0].entityCountsByType)
     }
 
+    /// A restore event written before asterisk refusals were reported carries
+    /// no ambiguousCount. Old history must keep loading, read as none refused.
+    func testOldFormatRestoreEventDecodesWithoutAmbiguousCount() throws {
+        let oldJSON = """
+        {
+          "atISO8601": "2026-06-11T09:00:00Z",
+          "orphanCount": 1,
+          "restoredCount": 4,
+          "suspectCount": 2
+        }
+        """
+
+        let event = try JSONDecoder().decode(
+            SessionRestoreEvent.self,
+            from: Data(oldJSON.utf8)
+        )
+
+        XCTAssertEqual(event.restoredCount, 4)
+        XCTAssertEqual(event.orphanCount, 1)
+        XCTAssertEqual(event.suspectCount, 2)
+        XCTAssertEqual(event.ambiguousCount, 0)
+    }
+
+    func testAmbiguousCountSurvivesEncodeDecodeRoundTrip() throws {
+        let event = SessionRestoreEvent(
+            atISO8601: "2026-08-31T09:00:00Z",
+            restoredCount: 1,
+            orphanCount: 0,
+            suspectCount: 0,
+            ambiguousCount: 3
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRestoreEvent.self,
+            from: try JSONEncoder().encode(event)
+        )
+
+        XCTAssertEqual(decoded, event)
+        XCTAssertEqual(decoded.ambiguousCount, 3)
+    }
+
     func testComplianceFieldsSurviveEncodeDecodeRoundTrip() throws {
         let record = makeFullRecord()
 
@@ -187,7 +228,8 @@ final class ComplianceReportTests: XCTestCase {
                     atISO8601: "2026-08-30T11:30:00Z",
                     restoredCount: 6,
                     orphanCount: 0,
-                    suspectCount: 1
+                    suspectCount: 1,
+                    ambiguousCount: 2
                 )
             ],
             substitutionStyle: .pseudonym,
@@ -256,9 +298,9 @@ final class ComplianceReportTests: XCTestCase {
 
         ### Restore events
 
-        | Restored at | Restored | Orphan placeholders | Suspect placeholders |
-        | --- | --- | --- | --- |
-        | 2026-08-30T11:30:00Z | 6 | 0 | 1 |
+        | Restored at | Restored | Orphan placeholders | Suspect placeholders | Unattributable masks |
+        | --- | --- | --- | --- | --- |
+        | 2026-08-30T11:30:00Z | 6 | 0 | 1 | 2 |
 
         ## Scope and boundary
 

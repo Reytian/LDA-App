@@ -409,6 +409,12 @@ struct Anonymize: ParsableCommand {
                     style: style
                 )
                 print(try CLIJSON.encode(result))
+                // A seam the engine could not repair means one of the files
+                // just written restores to the wrong party. It is on stdout
+                // as JSON either way; stderr is what a person actually reads.
+                if let notice = LDACLI.unresolvedSeamNotice(for: result.unresolvedSeams) {
+                    fputs(notice, stderr)
+                }
             }
         } catch {
             throw CLIRuntimeError(error)

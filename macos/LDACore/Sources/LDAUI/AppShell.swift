@@ -390,7 +390,8 @@ public struct AppShell: View {
             handoffCompletion = .copied(
                 documentCount: handoff.documentCount,
                 skippedCount: handoff.skippedCount,
-                rescanWarnings: handoff.rescanWarnings
+                rescanWarnings: handoff.rescanWarnings,
+                unresolvedSeams: handoff.unresolvedSeams
             )
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
@@ -471,7 +472,12 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
-            case .copied(let documentCount, let skippedCount, let rescanWarnings):
+            case .copied(
+                let documentCount,
+                let skippedCount,
+                let rescanWarnings,
+                let unresolvedSeams
+            ):
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Safe text copied")
                         .font(.callout.weight(.semibold))
@@ -491,6 +497,25 @@ public struct AppShell: View {
                             .font(.caption)
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // A seam the session pass could not repair. Unlike every
+                    // other warning on this card, the user cannot verify it
+                    // by reading the copied text: the copy is correct and the
+                    // damage only appears once the AI's reply is restored. So
+                    // the engine's own line is shown verbatim under the
+                    // advice, naming the document and the swap.
+                    if let seamAdvice = AnonymizeWorkflowPresentation
+                        .unresolvedSeamAdvice(for: unresolvedSeams) {
+                        Text(seamAdvice)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(CounselTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(Array(unresolvedSeams.enumerated()), id: \.offset) { _, seam in
+                            Text(seam)
+                                .font(.caption2)
+                                .foregroundStyle(CounselTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
 
@@ -1008,14 +1033,16 @@ public struct AppShell: View {
     /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
     /// on the same view conflict and silently fail to present. Folders are
     /// selectable too (F3): each one contributes its supported documents
-    /// recursively, budget-checked before anything enters the tray.
+    /// recursively, budget-checked before anything enters the tray. A .zip
+    /// INSIDE a folder is not one of them; only an archive the user picks
+    /// directly expands. See FolderImporter.supportedExtensions.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of documents. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
@@ -1043,6 +1070,12 @@ public struct AppShell: View {
             // mid-import; leaking one can make later opens of the same URL fail.
             defer { releaseScopes() }
             await session.addDocuments(resolved)
+            // A refused archive shows where a refused folder shows. Without
+            // this the document would simply not appear and the user would be
+            // left guessing which of their files the app dropped.
+            if let failure = session.importFailure {
+                exportMessage = failure
+            }
         }
     }
 
@@ -1142,7 +1175,8 @@ private enum HandoffCompletion: Equatable {
     case copied(
         documentCount: Int,
         skippedCount: Int,
-        rescanWarnings: [SessionModel.RescanWarning]
+        rescanWarnings: [SessionModel.RescanWarning],
+        unresolvedSeams: [String]
     )
     case exported(result: ExportResult, protection: String)
 }

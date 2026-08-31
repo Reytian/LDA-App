@@ -48,10 +48,24 @@ public struct SessionDocumentOutput: Sendable {
 public struct SessionAnonymizeResult: Sendable {
     public var documents: [SessionDocumentOutput]
     public var mapping: Mapping
+    /// Seams the session seam pass could not repair, one readable line each
+    /// (SessionTokenizeResult.unresolvedSeams).
+    ///
+    /// Empty in every normal run. A non-empty list means a redacted site in
+    /// one of these documents would restore to a DIFFERENT entity than the
+    /// one protected there, so the caller must show it: the redacted files
+    /// and the sidecar are still written, and nothing downstream can tell
+    /// the mis-restore from a correct one.
+    public var unresolvedSeams: [String]
 
-    public init(documents: [SessionDocumentOutput], mapping: Mapping) {
+    public init(
+        documents: [SessionDocumentOutput],
+        mapping: Mapping,
+        unresolvedSeams: [String] = []
+    ) {
         self.documents = documents
         self.mapping = mapping
+        self.unresolvedSeams = unresolvedSeams
     }
 }
 
@@ -77,6 +91,10 @@ extension LDAService {
     ///     a different style contributes restore entries only; the session
     ///     mints fresh replacements in its own style for those surfaces.
     ///   - style: how replacements are rendered across the whole session.
+    /// - Returns: the per-document intermediates, the shared mapping, and
+    ///   unresolvedSeams: any site the seam pass could not stop from
+    ///   restoring to the wrong entity. That list is a correctness warning,
+    ///   not a diagnostic, and callers must put it in front of the user.
     /// - Throws: DocumentIOError for unreadable inputs,
     ///   LDAServiceError.incompleteExtraction when the LLM could not fully
     ///   scan a document, LDAServiceError.unanchoredEntities when it scanned
@@ -159,7 +177,15 @@ extension LDAService {
                 entities: spansByIndex[index]
             )
         }
-        return SessionAnonymizeResult(documents: outputs, mapping: mapping)
+        // Carry the seam pass's verdict out with the result. A seam it could
+        // not repair means one of these documents restores a redacted site to
+        // the wrong entity, and the output files look perfectly ordinary, so
+        // dropping this here would make the failure silent.
+        return SessionAnonymizeResult(
+            documents: outputs,
+            mapping: mapping,
+            unresolvedSeams: result.unresolvedSeams
+        )
     }
 
     /// Restore pasted AI output text against a saved mapping sidecar.
