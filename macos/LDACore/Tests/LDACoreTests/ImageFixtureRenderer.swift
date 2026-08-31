@@ -82,12 +82,37 @@ enum ImageFixtureRenderer {
         return url
     }
 
-    /// Render text lines into a white-background CGImage, top to bottom.
+    /// Render the given lines PLUS a solid red ellipse: the stamped-document
+    /// fixture the seal candidate channel is exercised against. The stamp rect
+    /// is in CG bottom-left pixel space, so keep it clear of the text lines.
+    static func writeStampedPNG(
+        lines: [String],
+        stamp: CGRect,
+        width: Int = 1800,
+        fontSize: CGFloat = 64,
+        lineHeight: Int = 110
+    ) throws -> URL {
+        let image = try render(
+            lines: lines,
+            width: width,
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            stamp: stamp
+        )
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("image-fixture-stamped-\(UUID().uuidString).png")
+        try write(image: image, to: url, typeIdentifier: UTType.png.identifier)
+        return url
+    }
+
+    /// Render text lines into a white-background CGImage, top to bottom, with
+    /// an optional red stamp ellipse painted over the page.
     static func render(
         lines: [String],
         width: Int = 1800,
         fontSize: CGFloat = 64,
-        lineHeight: Int = 110
+        lineHeight: Int = 110,
+        stamp: CGRect? = nil
     ) throws -> CGImage {
         let topMargin = 80
         let leftMargin = 80
@@ -111,6 +136,12 @@ enum ImageFixtureRenderer {
             let ctLine = CTLineCreateWithAttributedString(attributed as CFAttributedString)
             context.textPosition = CGPoint(x: CGFloat(leftMargin), y: y)
             CTLineDraw(ctLine, context)
+        }
+
+        // Seal ink red, well inside SealCandidateDetector's threshold.
+        if let stamp {
+            context.setFillColor(CGColor(red: 0.87, green: 0.17, blue: 0.15, alpha: 1))
+            context.fillEllipse(in: stamp)
         }
 
         guard let image = context.makeImage() else {

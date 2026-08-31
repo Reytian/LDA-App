@@ -487,38 +487,7 @@ public struct AppShell: View {
                 }
 
             case .exported(let result, let protection):
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Redacted document saved")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Document: \(result.redactedURL.lastPathComponent)")
-                        .font(.caption)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(result.redactedURL.lastPathComponent)
-                    Text("Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)")
-                        .font(.caption)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help("\(result.mappingURL.lastPathComponent), \(protection)")
-                    if let imageURL = result.redactedImageURL {
-                        Text("Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable")
-                            .font(.caption)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(imageURL.lastPathComponent)
-                    }
-                    if result.embeddedMediaCount > 0 {
-                        Text("Warning: \(result.embeddedMediaCount) embedded image"
-                            + (result.embeddedMediaCount == 1 ? " was" : "s were")
-                            + " copied without scanning.")
-                            .font(.caption)
-                            .foregroundStyle(CounselTheme.danger)
-                    }
-                }
+                exportedCompletionDetails(result: result, protection: protection)
             }
 
             Spacer(minLength: 12)
@@ -743,6 +712,10 @@ public struct AppShell: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
+            if model.canChooseSealCandidates {
+                sealCandidateToggle
+            }
+
             Spacer(minLength: 0)
 
             if let exportMessage {
@@ -759,6 +732,95 @@ public struct AppShell: View {
             }
             scanButton(title: "Re-scan", prominent: false)
         }
+    }
+
+    /// What one finished export wrote, and what the user still has to check.
+    /// Informational lines and warnings are deliberately different colors: a
+    /// boxed candidate is the feature working, an unboxed value is something
+    /// the exported image may still show.
+    @ViewBuilder
+    private func exportedCompletionDetails(
+        result: ExportResult,
+        protection: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Redacted document saved")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            completionFileLine(
+                "Document: \(result.redactedURL.lastPathComponent)",
+                help: result.redactedURL.lastPathComponent
+            )
+            completionFileLine(
+                "Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)",
+                help: "\(result.mappingURL.lastPathComponent), \(protection)"
+            )
+            if let imageURL = result.redactedImageURL {
+                completionFileLine(
+                    "Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable",
+                    help: imageURL.lastPathComponent
+                )
+            }
+            if let candidates = ImageExportPresentation
+                .sealCandidateDetail(count: result.sealCandidateCount) {
+                completionNote(candidates, color: CounselTheme.textSecondary)
+            }
+            if let unboxed = ImageExportPresentation
+                .unboxedWarning(count: result.unboxedTokenCount) {
+                completionNote(unboxed, color: CounselTheme.danger)
+            }
+            if result.embeddedMediaCount > 0 {
+                completionNote(
+                    "Warning: \(result.embeddedMediaCount) embedded image"
+                        + (result.embeddedMediaCount == 1 ? " was" : "s were")
+                        + " copied without scanning.",
+                    color: CounselTheme.danger
+                )
+            }
+        }
+    }
+
+    /// One written-file line: single line, middle-truncated, full name on hover.
+    private func completionFileLine(_ text: String, help: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(CounselTheme.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(help)
+    }
+
+    /// One wrapping note under the written-file lines.
+    private func completionNote(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The per-document seal candidate choice. Shown only for image
+    /// documents, through the model's gate rather than a local condition, so
+    /// every entry point agrees on when the choice exists.
+    private var sealCandidateToggle: some View {
+        Toggle(
+            ImageExportPresentation.sealCandidateToggleTitle,
+            isOn: sealCandidateBinding
+        )
+        .toggleStyle(.checkbox)
+        .font(.callout)
+        .foregroundStyle(CounselTheme.textSecondary)
+        .help(ImageExportPresentation.sealCandidateToggleHelp)
+    }
+
+    /// Reads and writes the choice on whichever document is active NOW. The
+    /// binding deliberately does not capture the ReviewModel: the tray can
+    /// change the active document under an open banner, and a captured model
+    /// would keep writing to the document the user left.
+    private var sealCandidateBinding: Binding<Bool> {
+        Binding(
+            get: { session.activeModel.includeSealCandidates },
+            set: { session.activeModel.includeSealCandidates = $0 }
+        )
     }
 
     /// Shared banner container chrome. Every banner row ends with the labeled
