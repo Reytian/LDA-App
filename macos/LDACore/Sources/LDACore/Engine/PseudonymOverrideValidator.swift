@@ -9,7 +9,12 @@
 //  verbatim could break the literal restore scan: restore substitutes every
 //  literal occurrence of a mapping replacement, so a replacement that occurs
 //  naturally in the session corpus, or that two entities share, would make
-//  substitution sites indistinguishable from ordinary text.
+//  substitution sites indistinguishable from ordinary text. The same is true
+//  of a replacement in a strict prefix relation with another one: the
+//  document text following the shorter one can complete the longer one, so
+//  the redacted text spells a replacement that was never emitted there.
+//  Minted pseudonyms escape that by advancing to another candidate (see
+//  PseudonymSeamGuard); forced text has no next candidate, so it is rejected.
 //
 //  Overrides are a pseudonym-style feature only. Under the token style a
 //  non-brace replacement is invisible to the token-grammar restore scan and
@@ -40,6 +45,16 @@ public enum PseudonymOverrideError: Error, LocalizedError, Equatable, Sendable {
     /// so the literal restore scan could not tell a substitution site from
     /// the natural occurrence.
     case occursNaturallyInCorpus(surface: String, replacement: String)
+    /// The replacement and another replacement are in a strict prefix
+    /// relation (one starts with the other). Where the shorter one is
+    /// emitted, the document text that follows it can complete the longer
+    /// one, and the longest-match-wins restore scan then substitutes the
+    /// wrong entity over that site. See PseudonymSeamGuard.
+    case prefixOfAnotherReplacement(
+        surface: String,
+        replacement: String,
+        other: String
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -55,6 +70,8 @@ public enum PseudonymOverrideError: Error, LocalizedError, Equatable, Sendable {
             return "The custom replacement \"\(replacement)\" for \"\(surface)\" is already used for another entity."
         case .occursNaturallyInCorpus(let surface, let replacement):
             return "The custom replacement \"\(replacement)\" for \"\(surface)\" already appears in the session documents."
+        case .prefixOfAnotherReplacement(let surface, let replacement, let other):
+            return "The custom replacement \"\(replacement)\" for \"\(surface)\" and the replacement \"\(other)\" are in a prefix relation: one of them starts with the other, so the document text next to the shorter one could complete the longer one and restore would substitute the wrong entity. Choose text that neither starts with nor begins another replacement."
         }
     }
 }
@@ -132,12 +149,56 @@ public enum PseudonymOverrideValidator {
                 replacement: replacement
             )
         }
+        if let other = prefixPartner(
+            replacement,
+            surface: surface,
+            claimed: claimed,
+            entries: existingEntries
+        ) {
+            throw PseudonymOverrideError.prefixOfAnotherReplacement(
+                surface: surface,
+                replacement: replacement,
+                other: other
+            )
+        }
         claimed.insert(replacement)
         if corpus.contains(where: { $0.contains(replacement) }) {
             throw PseudonymOverrideError.occursNaturallyInCorpus(
                 surface: surface,
                 replacement: replacement
             )
+        }
+    }
+
+    /// The first replacement already spoken for that is in a strict prefix
+    /// relation with this one, or nil when there is none.
+    ///
+    /// Corpus containment is not enough to keep the literal restore scan
+    /// honest. Where the shorter of two replacements is emitted, the document
+    /// text right after it can complete the longer one, so the redacted text
+    /// spells a replacement that was never emitted there and the scan
+    /// restores the wrong entity. Minted pseudonyms dodge this by advancing
+    /// to a candidate the redacted document does not spell; forced text has
+    /// no next candidate, so it is rejected instead, per the reject-never-
+    /// adjust rule for overrides.
+    ///
+    /// Equal replacements are not a prefix relation: exact reuse and exact
+    /// collision are decided by the checks above. Candidates are visited in
+    /// sorted order so the reported partner is deterministic.
+    private static func prefixPartner(
+        _ replacement: String,
+        surface: String,
+        claimed: Set<String>,
+        entries: [String: MappingEntry]
+    ) -> String? {
+        var others = claimed
+        for entry in entries.values
+        where !entry.token.isEmpty && !covers(entry, surface: surface) {
+            others.insert(entry.token)
+        }
+        return others.sorted().first { other in
+            other != replacement
+                && (other.hasPrefix(replacement) || replacement.hasPrefix(other))
         }
     }
 

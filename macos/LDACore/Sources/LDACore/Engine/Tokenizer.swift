@@ -271,16 +271,47 @@ public enum Tokenizer {
                     replacement = token
 
                 case .pseudonym:
-                    // A pseudonym must be free four ways: never used by another
-                    // entity, never a token literal, and never occurring in this
-                    // document or in any companion document of the session, so
+                    // A pseudonym must be free six ways: never used by another
+                    // entity, never a token literal, never occurring in this
+                    // document or in any companion document of the session,
+                    // and never spelled by a SEAM of the redacted document, so
                     // the literal restore scan can only ever hit substitution
                     // sites.
+                    //
+                    // The last two rules are the seam guard. The four natural
+                    // text rules all read the ORIGINAL document, but restore
+                    // reads the REDACTED one, where an emitted replacement
+                    // butts up against the text that follows it. That join can
+                    // spell another replacement that was never emitted there,
+                    // and the longest-match-wins scan then restores the wrong
+                    // entity over the site. See PseudonymSeamGuard.
+                    //
+                    // Overrides are folded in whether or not their span has
+                    // been walked yet: forced text is emitted verbatim at
+                    // every one of its sites, so its seams are already known
+                    // and a pseudonym minted for an EARLIER span must see
+                    // them too.
+                    let emitted = textToToken.merging(overrides) { _, forced in
+                        forced
+                    }
+                    let provisional = PseudonymSeamGuard.renderProvisional(
+                        text: text,
+                        spans: accepted,
+                        replacementBySurface: emitted
+                    )
                     replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
                         usedReplacements.contains(candidate)
                             || reservedLiterals.contains(candidate)
                             || text.contains(candidate)
                             || uniquenessCorpus.contains { $0.contains(candidate) }
+                            || provisional.text.contains(candidate)
+                            || PseudonymSeamGuard.completesLongerReplacement(
+                                candidate: candidate,
+                                surface: surfaceText,
+                                spans: accepted,
+                                document: provisional,
+                                replacements: usedReplacements
+                            )
                     }
 
                 case .asterisk:
