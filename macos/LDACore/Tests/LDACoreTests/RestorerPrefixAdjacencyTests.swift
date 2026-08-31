@@ -11,10 +11,16 @@
 //  longest-match-wins literal scan then restores the wrong entity over the
 //  site and swallows the adjacent document characters.
 //
-//  These tests pin the fixed shapes and, at the end, the two related shapes
-//  the seam guard cannot reach. Those last two are labelled KNOWN GAP and
-//  assert today's wrong output on purpose, so the residue stays visible and
-//  a future fix trips them loudly rather than passing silently.
+//  Asterisk masks are a pure function of the surface, so the mint-time guard
+//  has no second candidate to offer there and the conflict has to be settled
+//  at restore time: a site the redacted text spells with two different masks
+//  is refused and flagged rather than guessed.
+//
+//  These tests pin the fixed shapes, the refusal and its blast radius, and,
+//  at the end, the one related shape the seam guard cannot reach. That last
+//  one is labelled KNOWN GAP and asserts today's wrong output on purpose, so
+//  the residue stays visible and a future fix trips it loudly rather than
+//  passing silently.
 //
 //  House rules: all comments and strings in English. Fixture strings and
 //  generated pseudonyms may be Chinese. No em-dash and no
@@ -415,20 +421,30 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
         XCTAssertLessThan(elapsed, 5.0)
     }
 
-    // MARK: - KNOWN GAPS (asserting today's wrong output on purpose)
+    // MARK: - Asterisk prefix conflicts: refuse and flag
 
-    /// KNOWN GAP, asterisk style. Masks are a pure function of the surface, so
-    /// the tokenizer has no second candidate to advance to and the seam guard
-    /// has no lever: a two character CJK name always masks to a strict prefix
-    /// of a three character name sharing its surname (张三 masks to 张*, 张伟明
-    /// masks to 张*明). Where 张三 is followed by 明, the redacted text spells
-    /// 张*明 and restore silently swaps one real person for another.
-    ///
-    /// Closing this needs a restore-side decision (refuse and flag a prefix
-    /// conflict, the way asterisk collisions are already refused), which
-    /// would also make every 张*/张*明 pair unrestorable. That trade is not
-    /// this change's to make.
-    func testKnownGapAsteriskMaskPrefixIsCompletedByAdjacentText() {
+    private func literalMapping(
+        _ entries: [MappingEntry],
+        style: SubstitutionStyle
+    ) -> Mapping {
+        Mapping(
+            entries: Dictionary(uniqueKeysWithValues: entries.map { ($0.token, $0) }),
+            createdAtISO8601: "2026-08-31T00:00:00Z",
+            sourceFile: "doc.txt",
+            style: style
+        )
+    }
+
+    /// The asterisk mask is a pure function of the surface, so a two
+    /// character CJK name always masks to a strict prefix of a three
+    /// character name sharing its surname (张三 masks to 张*, 张伟明 masks to
+    /// 张*明). Where 张三 is followed by 明 the redacted text spells 张*明 at
+    /// that site, and longest-match-wins used to restore a DIFFERENT real
+    /// person over it. The site is now refused: the bytes stay verbatim and
+    /// the mask is flagged, the same treatment exact mask collisions already
+    /// get. This test replaces the known-gap pin that asserted the old wrong
+    /// output.
+    func testAsteriskMaskCompletedByAdjacentTextIsRefusedNeverGuessed() {
         let document = "张三明确表示同意，张伟明另有说法。"
         let tokenized = Tokenizer.tokenize(
             text: document,
@@ -446,10 +462,210 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
             text: tokenized.tokenizedText,
             mapping: tokenized.mapping
         )
-        // Wanted: the original document. 张三's site is swallowed by 张*明.
-        XCTAssertEqual(restored.text, "张伟明确表示同意，张伟明另有说法。")
-        XCTAssertNotEqual(restored.text, document)
+        // Both sites read 张*明, which either name could have produced, so
+        // neither is restored and the text comes back unchanged.
+        XCTAssertEqual(restored.text, tokenized.tokenizedText)
+        XCTAssertEqual(restored.restoredCount, 0)
+        XCTAssertEqual(restored.ambiguousReplacements, ["张*明"])
+        XCTAssertFalse(restored.text.contains("张三"), "a refused site must never name a person")
+        XCTAssertFalse(restored.text.contains("张伟明"), "a refused site must never name a person")
+        // 张* never substituted: the longer mask shadowed both of its sites,
+        // which the orphan report already covers.
+        XCTAssertEqual(restored.orphanTokens, ["张*"])
     }
+
+    /// The blast radius of the refusal, pinned. Refusing is per POSITION:
+    /// every site whose text spells the longer mask is refused (whichever
+    /// name produced it), and every other site of the shorter mask restores
+    /// normally. The shorter mask is NOT disabled document wide.
+    func testAsteriskPrefixRefusalIsPerPositionNotPerReplacement() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "张*", value: "张三", type: .person),
+                entry(replacement: "张*明", value: "张伟明", type: .person)
+            ],
+            style: .asterisk
+        )
+
+        // Site one is 张三 followed by 到 and is unambiguous. Site two is
+        // 张伟明. Site three is 张三 followed by 明, which spells the longer
+        // mask at that position.
+        let restored = Restorer.restore(
+            text: "张*到场。张*明另有说法。张*明确表示同意。",
+            mapping: mapping
+        )
+        XCTAssertEqual(restored.text, "张三到场。张*明另有说法。张*明确表示同意。")
+        XCTAssertEqual(restored.restoredCount, 1)
+        XCTAssertEqual(restored.ambiguousReplacements, ["张*明"])
+        XCTAssertTrue(restored.orphanTokens.isEmpty)
+        XCTAssertFalse(restored.text.contains("张伟明"), "the longer name must not reach a refused site")
+    }
+
+    /// No false refusals: the longer mask is in the mapping, but no site in
+    /// this text spells it, so every shorter-mask site restores.
+    func testAsteriskShortMaskRestoresWhereTheLongMaskIsNotSpelled() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "张*", value: "张三", type: .person),
+                entry(replacement: "张*明", value: "张伟明", type: .person)
+            ],
+            style: .asterisk
+        )
+
+        let restored = Restorer.restore(text: "张*到场，张*未签字。", mapping: mapping)
+        XCTAssertEqual(restored.text, "张三到场，张三未签字。")
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.ambiguousReplacements.isEmpty)
+        XCTAssertEqual(restored.orphanTokens, ["张*明"], "the absent mask is an orphan, not an ambiguity")
+    }
+
+    /// No collision in the mapping, no refusal. Only 张三 is an entity here,
+    /// so 明 is ordinary document text and 张*明 is not a mask at all.
+    func testAsteriskRestoreIsNormalWhenOnlyOneCollidingNameIsMapped() {
+        let mapping = literalMapping(
+            [entry(replacement: "张*", value: "张三", type: .person)],
+            style: .asterisk
+        )
+
+        let restored = Restorer.restore(
+            text: "张*明确表示同意，张*到场。",
+            mapping: mapping
+        )
+        XCTAssertEqual(restored.text, "张三明确表示同意，张三到场。")
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.ambiguousReplacements.isEmpty)
+        XCTAssertTrue(restored.orphanTokens.isEmpty)
+    }
+
+    // MARK: - The other styles are untouched by the refusal
+
+    /// Pseudonym uniqueness is established at mint time by
+    /// PseudonymSeamGuard, so longest-match-wins stays correct there and the
+    /// refusal must not reach the style.
+    func testPseudonymPrefixCollisionStillTakesTheLongestMatch() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "某地址A", value: "1 Main St", type: .address),
+                entry(replacement: "某地址AA", value: "27 Long Rd", type: .address)
+            ],
+            style: .pseudonym
+        )
+
+        let restored = Restorer.restore(text: "送达：某地址AA；抄送：某地址A。", mapping: mapping)
+        XCTAssertEqual(restored.text, "送达：27 Long Rd；抄送：1 Main St。")
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.ambiguousReplacements.isEmpty)
+        XCTAssertTrue(restored.orphanTokens.isEmpty)
+    }
+
+    /// Token style scans the brace grammar, which matches a whole token, so
+    /// one token being a prefix of another is not a conflict there either.
+    func testTokenStyleWithPrefixSharingTokensIsUntouched() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "{PERSON_1}", value: "张三", type: .person),
+                entry(replacement: "{PERSON_12}", value: "张伟明", type: .person)
+            ],
+            style: .token
+        )
+
+        let restored = Restorer.restore(text: "{PERSON_12}与{PERSON_1}到场。", mapping: mapping)
+        XCTAssertEqual(restored.text, "张伟明与张三到场。")
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.ambiguousReplacements.isEmpty)
+    }
+
+    /// The style gate itself. Only the asterisk style refuses prefix
+    /// conflicts; the other two keep longest-match-wins.
+    func testOnlyTheAsteriskStyleRefusesPrefixConflicts() {
+        XCTAssertTrue(Restorer.refusesPrefixConflicts(literalMapping([], style: .asterisk)))
+        XCTAssertFalse(Restorer.refusesPrefixConflicts(literalMapping([], style: .pseudonym)))
+        XCTAssertFalse(Restorer.refusesPrefixConflicts(literalMapping([], style: .token)))
+    }
+
+    // MARK: - The docx run surface refuses the same sites
+
+    /// The docx restore substitutes run by run through this helper rather
+    /// than through the reporting scan, so it has to refuse the same sites.
+    /// Otherwise the report would say a site was left verbatim while the
+    /// written document had already named the wrong person there.
+    func testDocxRunSubstitutionRefusesAsteriskPrefixConflicts() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "张*", value: "张三", type: .person),
+                entry(replacement: "张*明", value: "张伟明", type: .person)
+            ],
+            style: .asterisk
+        )
+
+        let restored = Restorer.substituteLiteralReplacements(
+            in: "张*到场。张*明另有说法。",
+            plan: Restorer.literalRestorePlan(for: mapping)
+        )
+        XCTAssertEqual(restored, "张三到场。张*明另有说法。")
+    }
+
+    func testDocxRunSubstitutionKeepsLongestMatchWinsForPseudonyms() {
+        let mapping = literalMapping(
+            [
+                entry(replacement: "某地址A", value: "1 Main St", type: .address),
+                entry(replacement: "某地址AA", value: "27 Long Rd", type: .address)
+            ],
+            style: .pseudonym
+        )
+
+        let restored = Restorer.substituteLiteralReplacements(
+            in: "送达：某地址AA；抄送：某地址A。",
+            plan: Restorer.literalRestorePlan(for: mapping)
+        )
+        XCTAssertEqual(restored, "送达：27 Long Rd；抄送：1 Main St。")
+    }
+
+    /// The run surface has to scan the masks it may NOT substitute too. Two
+    /// people share 张* outright here, so it is never substituted, but
+    /// dropping it from the scan would leave 张*明 looking unambiguous and the
+    /// walker would write 张伟明 over a site the text may have meant as 张三
+    /// or 张万 followed by an ordinary 明.
+    func testDocxRunSubstitutionScansTheMasksItCannotSubstitute() {
+        let mapping = sharedMaskMapping()
+
+        let restored = Restorer.substituteLiteralReplacements(
+            in: "张*到场。张*明另有说法。",
+            plan: Restorer.literalRestorePlan(for: mapping)
+        )
+        XCTAssertEqual(restored, "张*到场。张*明另有说法。")
+    }
+
+    /// The two refusal reasons coexist in one report: 张* is shared outright,
+    /// 张*明 is spelled by two different masks at its site.
+    func testSharedMaskAndPrefixConflictAreBothFlagged() {
+        let restored = Restorer.restore(
+            text: "张*到场。张*明另有说法。",
+            mapping: sharedMaskMapping()
+        )
+        XCTAssertEqual(restored.text, "张*到场。张*明另有说法。")
+        XCTAssertEqual(restored.restoredCount, 0)
+        XCTAssertEqual(restored.ambiguousReplacements, ["张*", "张*明"])
+        XCTAssertTrue(restored.orphanTokens.isEmpty)
+    }
+
+    /// Two people sharing 张* plus a third whose mask 张*明 extends it. The
+    /// colliding pair is keyed the way Tokenizer keys an asterisk collision:
+    /// a disambiguated KEY, with the shared mask kept in the entry's token.
+    private func sharedMaskMapping() -> Mapping {
+        Mapping(
+            entries: [
+                "张*": entry(replacement: "张*", value: "张三", type: .person),
+                "张*#2": entry(replacement: "张*", value: "张万", type: .person),
+                "张*明": entry(replacement: "张*明", value: "张伟明", type: .person)
+            ],
+            createdAtISO8601: "2026-08-31T00:00:00Z",
+            sourceFile: "doc.txt",
+            style: .asterisk
+        )
+    }
+
+    // MARK: - KNOWN GAP (asserting today's wrong output on purpose)
 
     /// KNOWN GAP, pseudonym style, preceding-text seam in the unfixable mint
     /// order. This is the mirror of

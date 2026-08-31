@@ -505,13 +505,14 @@ public enum LDAService {
 
             // Literal styles: the report comes from the PRE-restore text (a
             // post-restore scan could no longer see which replacements were
-            // present), and the docx rewrite substitutes only the unambiguous
-            // replacements so a colliding asterisk mask is never guessed.
+            // present), and the docx rewrite follows the same restore plan as
+            // that scan, so an ambiguous asterisk mask is left verbatim in the
+            // written document exactly where the report flags it.
             let preRestoreText = try DocxImporter().importDocument(editedRedacted).text
             let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
             try DocxRedactor.restoreLiteral(
                 redactedDocx: editedRedacted,
-                replacementToValue: Restorer.unambiguousReplacementMap(loadedMapping),
+                plan: Restorer.literalRestorePlan(for: loadedMapping),
                 to: output
             )
             return RestoreReport(

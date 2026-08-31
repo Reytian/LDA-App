@@ -237,9 +237,13 @@ public struct RestoreResult: Sendable {
     /// flagged for the user and NEVER substituted, per the flag-don't-guess
     /// contract. Token style only.
     public var suspectPlaceholders: [String]
-    /// Asterisk style only: masked forms shared by two or more different
-    /// entities. Substituting one would be a guess, so those sites are left
-    /// verbatim and reported here (flag, never guess).
+    /// Asterisk style only: masked forms whose sites could not be attributed
+    /// to one entity. Either two or more different entities share the mask
+    /// outright, or the site's text is spelled by two masks at once because
+    /// one mask is a prefix of the other (张三 masks to 张*, 张伟明 masks to
+    /// 张*明, so the site 张*明 is both of them). Substituting either would be
+    /// a guess, so those sites are left verbatim and reported here (flag,
+    /// never guess).
     public var ambiguousReplacements: [String]
 
     public init(
