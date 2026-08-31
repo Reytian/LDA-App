@@ -699,12 +699,7 @@ private struct VocabularyTab: View {
 private struct PatternRow: View {
     @Binding var pattern: CustomPattern
 
-    private static let assignableTypes: [EntityType] = [
-        .person, .company, .address, .email, .phone,
-        .bankAccount, .nationalID, .uscc,
-        .caseNumber, .licensePlate, .wechatID, .url,
-        .amount, .date, .unknown
-    ]
+    private static let assignableTypes: [EntityType] = AssignableEntityTypes.vocabulary
 
     var body: some View {
         HStack(spacing: 8) {
