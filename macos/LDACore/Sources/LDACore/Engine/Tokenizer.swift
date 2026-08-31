@@ -71,6 +71,81 @@ public enum Tokenizer {
         style: SubstitutionStyle = .token,
         uniquenessCorpus: [String] = []
     ) -> TokenizeResult {
+        tokenizeCore(
+            text: text,
+            spans: spans,
+            sourceFile: sourceFile,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            uniquenessCorpus: uniquenessCorpus,
+            overrides: [:]
+        )
+    }
+
+    /// Tokenize with caller-forced replacement text for specific surfaces
+    /// (pseudonym style only).
+    ///
+    /// `overrides` maps exact surface text to the replacement the caller
+    /// wants emitted verbatim wherever that surface is tokenized (for
+    /// example forcing 买受人 for one company name). Overrides do not create
+    /// detections: a surface with no accepted span emits nothing, but its
+    /// forced replacement is still reserved so nothing else can mint it.
+    ///
+    /// The whole override set is validated up front by
+    /// PseudonymOverrideValidator (see its typed errors). A non-pseudonym
+    /// style with a non-empty override set is rejected with
+    /// styleNotPseudonym: forcing arbitrary text under the token style would
+    /// recreate the mixed-style trap where the token-grammar restore scan
+    /// cannot see non-brace replacements and values silently fail to
+    /// restore. An empty override set is valid for every style and behaves
+    /// exactly like the non-throwing entry point.
+    ///
+    /// - Throws: PseudonymOverrideError when any override is rejected.
+    public static func tokenize(
+        text: String,
+        spans: [Span],
+        sourceFile: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping? = nil,
+        style: SubstitutionStyle,
+        uniquenessCorpus: [String] = [],
+        overrides: [String: String]
+    ) throws -> TokenizeResult {
+        try PseudonymOverrideValidator.validate(
+            overrides: overrides,
+            style: style,
+            corpus: [text] + uniquenessCorpus,
+            existingEntries: seedMapping?.entries ?? [:]
+        )
+        return tokenizeCore(
+            text: text,
+            spans: spans,
+            sourceFile: sourceFile,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            uniquenessCorpus: uniquenessCorpus,
+            overrides: overrides
+        )
+    }
+
+    /// Shared core behind both public entry points and SessionTokenizer.
+    ///
+    /// `overrides` must already be validated by PseudonymOverrideValidator
+    /// against the FULL corpus this text belongs to; the core reserves and
+    /// applies them without revalidating. Internal rather than private so
+    /// SessionTokenizer can fold a session it validated once as a whole.
+    static func tokenizeCore(
+        text: String,
+        spans: [Span],
+        sourceFile: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping?,
+        style: SubstitutionStyle,
+        uniquenessCorpus: [String],
+        overrides: [String: String]
+    ) -> TokenizeResult {
         let utf16Count = text.utf16.count
 
         // Step 1: keep only spans with valid, in-bounds, non-empty ranges.
@@ -158,6 +233,11 @@ public enum Tokenizer {
         // Every replacement string already spoken for (seed entries included),
         // so a pseudonym can never collide with one.
         var usedReplacements = Set(entries.values.map { $0.token })
+        registerOverrides(
+            overrides,
+            usedReplacements: &usedReplacements,
+            textToToken: &textToToken
+        )
         var pseudonyms = PseudonymGenerator()
 
         for span in accepted {
@@ -167,41 +247,48 @@ public enum Tokenizer {
             }
 
             let replacement: String
-            switch style {
-            case .token:
-                let typeToken = TokenGrammar.sanitizeType(span.type.rawValue)
+            if let forced = overrides[surfaceText] {
+                // Caller-forced text (pre-validated, pseudonym style only):
+                // emitted verbatim. Already reserved by registerOverrides, so
+                // no minted pseudonym can collide with it.
+                replacement = forced
+            } else {
+                switch style {
+                case .token:
+                    let typeToken = TokenGrammar.sanitizeType(span.type.rawValue)
 
-                // Advance the per-type counter, skipping any value that would collide
-                // with a token-shaped literal already in the source. This keeps minted
-                // tokens in a numbering range disjoint from any literal {TYPE_N}, so
-                // the tokenized edit surface is unambiguous and restore stays lossless.
-                var nextCount = (typeCounters[typeToken] ?? 0) + 1
-                var token = "{\(typeToken)_\(nextCount)}"
-                while reservedLiterals.contains(token) {
-                    nextCount += 1
-                    token = "{\(typeToken)_\(nextCount)}"
+                    // Advance the per-type counter, skipping any value that would collide
+                    // with a token-shaped literal already in the source. This keeps minted
+                    // tokens in a numbering range disjoint from any literal {TYPE_N}, so
+                    // the tokenized edit surface is unambiguous and restore stays lossless.
+                    var nextCount = (typeCounters[typeToken] ?? 0) + 1
+                    var token = "{\(typeToken)_\(nextCount)}"
+                    while reservedLiterals.contains(token) {
+                        nextCount += 1
+                        token = "{\(typeToken)_\(nextCount)}"
+                    }
+                    typeCounters[typeToken] = nextCount
+                    replacement = token
+
+                case .pseudonym:
+                    // A pseudonym must be free four ways: never used by another
+                    // entity, never a token literal, and never occurring in this
+                    // document or in any companion document of the session, so
+                    // the literal restore scan can only ever hit substitution
+                    // sites.
+                    replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
+                        usedReplacements.contains(candidate)
+                            || reservedLiterals.contains(candidate)
+                            || text.contains(candidate)
+                            || uniquenessCorpus.contains { $0.contains(candidate) }
+                    }
+
+                case .asterisk:
+                    // Masking is a pure function of the surface. Collisions are
+                    // allowed by design and preserved as distinct entries below;
+                    // restore refuses the ambiguous ones.
+                    replacement = AsteriskMasking.mask(surfaceText, type: span.type)
                 }
-                typeCounters[typeToken] = nextCount
-                replacement = token
-
-            case .pseudonym:
-                // A pseudonym must be free four ways: never used by another
-                // entity, never a token literal, and never occurring in this
-                // document or in any companion document of the session, so
-                // the literal restore scan can only ever hit substitution
-                // sites.
-                replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
-                    usedReplacements.contains(candidate)
-                        || reservedLiterals.contains(candidate)
-                        || text.contains(candidate)
-                        || uniquenessCorpus.contains { $0.contains(candidate) }
-                }
-
-            case .asterisk:
-                // Masking is a pure function of the surface. Collisions are
-                // allowed by design and preserved as distinct entries below;
-                // restore refuses the ambiguous ones.
-                replacement = AsteriskMasking.mask(surfaceText, type: span.type)
             }
 
             usedReplacements.insert(replacement)
@@ -290,6 +377,33 @@ public enum Tokenizer {
                 && !uniquenessCorpus.contains { $0.contains(entry.token) }
         case .asterisk:
             return entry.token == AsteriskMasking.mask(surface, type: entry.type)
+        }
+    }
+
+    /// Reserve pre-validated overrides before any minting happens.
+    ///
+    /// Every override replacement enters usedReplacements, so a minted
+    /// pseudonym can never equal a forced replacement, including one whose
+    /// surface appears only in a companion document of the session. An
+    /// override also beats seed reuse for its surface: a stale binding is
+    /// dropped so the mint loop emits the forced text instead (the seed ENTRY
+    /// stays in the union, so earlier documents keep restoring). A binding
+    /// that already equals the forced text is kept, which is what makes
+    /// re-running a build with unchanged overrides idempotent: the mint loop
+    /// then skips the surface and no duplicate entry is inserted.
+    private static func registerOverrides(
+        _ overrides: [String: String],
+        usedReplacements: inout Set<String>,
+        textToToken: inout [String: String]
+    ) {
+        for surface in overrides.keys.sorted() {
+            guard let forced = overrides[surface] else {
+                continue
+            }
+            usedReplacements.insert(forced)
+            if textToToken[surface] != forced {
+                textToToken[surface] = nil
+            }
         }
     }
 

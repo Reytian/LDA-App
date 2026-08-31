@@ -82,6 +82,64 @@ public enum SessionTokenizer {
         seedMapping: Mapping? = nil,
         style: SubstitutionStyle = .token
     ) -> SessionTokenizeResult {
+        tokenizeCore(
+            documents: documents,
+            sourceLabel: sourceLabel,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            overrides: [:]
+        )
+    }
+
+    /// Tokenize a session with caller-forced replacement text for specific
+    /// surfaces (pseudonym style only).
+    ///
+    /// See the override contract on Tokenizer.tokenize(overrides:). The
+    /// session variant validates the override set ONCE against every
+    /// document's text plus the seed mapping, then folds with the same
+    /// shared-mapping semantics as the plain entry point. Validating against
+    /// the full corpus up front is what makes the fold safe: every override
+    /// is reserved in every document before minting, so a pseudonym minted
+    /// in document 1 can never collide with an override whose surface
+    /// appears only in document 2.
+    ///
+    /// - Throws: PseudonymOverrideError when any override is rejected.
+    public static func tokenize(
+        documents: [SessionDocument],
+        sourceLabel: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping? = nil,
+        style: SubstitutionStyle,
+        overrides: [String: String]
+    ) throws -> SessionTokenizeResult {
+        try PseudonymOverrideValidator.validate(
+            overrides: overrides,
+            style: style,
+            corpus: documents.map { $0.text },
+            existingEntries: seedMapping?.entries ?? [:]
+        )
+        return tokenizeCore(
+            documents: documents,
+            sourceLabel: sourceLabel,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            overrides: overrides
+        )
+    }
+
+    /// Shared fold behind both entry points. Overrides must already be
+    /// validated against every document of the session (see the throwing
+    /// entry point); the fold passes them into every per-document call.
+    private static func tokenizeCore(
+        documents: [SessionDocument],
+        sourceLabel: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping?,
+        style: SubstitutionStyle,
+        overrides: [String: String]
+    ) -> SessionTokenizeResult {
         var mapping = seedMapping ?? Mapping(
             entries: [:],
             createdAtISO8601: createdAtISO8601,
@@ -99,14 +157,15 @@ public enum SessionTokenizer {
         for (index, document) in documents.enumerated() {
             var corpus = allTexts
             corpus.remove(at: index)
-            let result = Tokenizer.tokenize(
+            let result = Tokenizer.tokenizeCore(
                 text: document.text,
                 spans: document.spans,
                 sourceFile: sourceLabel,
                 createdAtISO8601: createdAtISO8601,
                 seedMapping: mapping,
                 style: style,
-                uniquenessCorpus: corpus
+                uniquenessCorpus: corpus,
+                overrides: overrides
             )
             mapping = result.mapping
             tokenized.append(
