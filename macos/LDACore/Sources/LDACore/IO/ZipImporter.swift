@@ -28,6 +28,11 @@
 //     any I/O, but enforcement never trusts it. Entry count is capped too.
 //     See ImportLimits.
 //
+//     The allowance is an ArchiveBudget the CALLER owns, so every archive in
+//     one user-initiated import spends the same ledger. Minting a fresh one
+//     per call was the defect that let a folder of high-ratio archives, or a
+//     workspace carrying them, multiply the ceiling by the number of files.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -185,7 +190,19 @@ public enum ZipImporter {
     /// - Throws: DocumentIOError.unreadable when the file is not a readable
     ///   zip archive, DocumentIOError.tooLarge when the archive exceeds an
     ///   ImportLimits ceiling, or the underlying write error during extraction.
+    ///
+    /// This overload expands ONE archive on its own allowance. A caller
+    /// expanding several archives for one user gesture must use the
+    /// budget-taking overload instead, or the ceiling stops compounding.
     public static func expand(_ zipURL: URL) throws -> ExpandedArchive {
+        try expand(zipURL, budget: ArchiveBudget())
+    }
+
+    /// Expand the archive, spending the given import's allowance.
+    ///
+    /// - Parameter budget: the ledger for the whole user-initiated import.
+    ///   Pass the SAME instance for every archive in that import.
+    public static func expand(_ zipURL: URL, budget: ArchiveBudget) throws -> ExpandedArchive {
         try ImportLimits.enforceDocumentSize(at: zipURL)
 
         let archive: Archive
@@ -206,12 +223,7 @@ public enum ZipImporter {
 
         var extracted: [(entryPath: String, url: URL)] = []
         var examinedEntries = 0
-        // The budget is UInt64 and every comparison stays in UInt64: a crafted
-        // ZIP64 entry can declare a size above Int.max, and a non-truncating
-        // Int conversion of that value would trap before any guard ran.
-        var remainingBudget = UInt64(ImportLimits.effectiveArchiveUncompressedBytes)
-        let budgetMessage = "\(zipURL.lastPathComponent) expands to more than "
-            + "\(ImportLimits.describe(bytes: ImportLimits.effectiveArchiveUncompressedBytes))."
+        let budgetMessage = budget.refusalMessage(for: zipURL.lastPathComponent)
 
         do {
             for entry in archive {
@@ -231,7 +243,7 @@ public enum ZipImporter {
                 // oversize archive fails before any I/O. This is an
                 // optimization, not the defense: the declared size is attacker
                 // controlled, so the enforcement below meters actual bytes.
-                guard entry.uncompressedSize <= remainingBudget else {
+                guard !budget.cannotFit(declared: entry.uncompressedSize) else {
                     throw DocumentIOError.tooLarge(budgetMessage)
                 }
 
@@ -252,11 +264,11 @@ public enum ZipImporter {
                 // size, so this mid-stream abort is the only place a
                 // lying-declaration bomb can be stopped; the write cost before
                 // the abort is bounded by the remaining budget.
-                remainingBudget = try extractMetered(
+                try extractMetered(
                     entry,
                     from: archive,
                     to: target,
-                    remainingBudget: remainingBudget,
+                    budget: budget,
                     budgetMessage: budgetMessage
                 )
                 extracted.append((entryPath, target))
@@ -277,9 +289,8 @@ public enum ZipImporter {
         )
     }
 
-    /// Extract one entry to `target`, charging `remainingBudget` for each
-    /// inflated chunk and aborting with tooLarge the moment the budget runs
-    /// out. Returns the budget left after the entry.
+    /// Extract one entry to `target`, charging the import's ledger for each
+    /// inflated chunk and aborting with tooLarge the moment it runs out.
     ///
     /// The metering itself lives in ZipExtraction so the workspace reader
     /// charges bytes the same way; see that file for why the DECLARED size can
@@ -288,14 +299,14 @@ public enum ZipImporter {
         _ entry: Entry,
         from archive: Archive,
         to target: URL,
-        remainingBudget: UInt64,
+        budget: ArchiveBudget,
         budgetMessage: String
-    ) throws -> UInt64 {
+    ) throws {
         try ZipExtraction.extractMetered(
             entry,
             from: archive,
             to: target,
-            remainingBudget: remainingBudget,
+            budget: budget,
             budgetMessage: budgetMessage
         )
     }

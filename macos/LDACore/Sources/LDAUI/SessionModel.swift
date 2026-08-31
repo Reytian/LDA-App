@@ -100,6 +100,16 @@ public final class SessionModel: ObservableObject {
     /// resumed-parked-session hint).
     @Published public var sessionNote: String?
 
+    /// Why the most recent addDocuments refused the batch, or nil when it did
+    /// not. Cleared at the start of every import.
+    ///
+    /// A refusal used to be swallowed by a `try?`, so an archive that breached
+    /// the unpacking ceiling simply vanished from the tray and the user was
+    /// left to notice a missing document. The shell reads this and shows it
+    /// where it shows the folder-budget refusal, so both halves of one import
+    /// fail the same visible way.
+    @Published public private(set) var importFailure: String?
+
     /// The current session's record id (R18), set by the hand-to-AI build so
     /// later restores append their events to the same record.
     @Published public private(set) var currentRecordID: UUID?
@@ -275,22 +285,20 @@ public final class SessionModel: ObservableObject {
     /// Add documents to the session. A .zip expands into its supported
     /// documents. Each document gets its own configured ReviewModel and is
     /// imported immediately; the last added document becomes selected.
-    public func addDocuments(_ urls: [URL]) async {
+    ///
+    /// - Parameter budget: the unpacking allowance for this whole import. One
+    ///   ledger covers every archive in the batch, so selecting many small
+    ///   high-ratio archives cannot multiply the ceiling. A caller that is
+    ///   already expanding something for the same user gesture (opening a
+    ///   workspace) passes ITS ledger in.
+    public func addDocuments(_ urls: [URL], budget: ArchiveBudget = ArchiveBudget()) async {
         let importGeneration = documentImportGeneration
+        importFailure = nil
         // A .zip expands into a temp directory whose files stay readable for
         // as long as the tray holds them (re-scan and export both re-read the
         // source), so the expansion is cleaned when the tray empties and at
         // termination, not here. See discardExpandedArchives().
-        var resolved: [URL] = []
-        for url in urls {
-            if ZipImporter.isZip(url) {
-                if let expanded = try? ZipImporter.expand(url) {
-                    resolved.append(contentsOf: expanded.documents)
-                }
-            } else {
-                resolved.append(url)
-            }
-        }
+        guard let resolved = expandArchives(in: urls, budget: budget) else { return }
 
         for url in resolved {
             guard importGeneration == documentImportGeneration else { return }
@@ -313,6 +321,36 @@ public final class SessionModel: ObservableObject {
             await openDocument(model, url)
             guard importGeneration == documentImportGeneration else { return }
         }
+    }
+
+    /// Expand every archive in the selection against one shared ledger, or
+    /// report the refusal and return nil.
+    ///
+    /// Whole-batch semantics, matching FolderImporter.expandSelection: nothing
+    /// reaches the tray unless the entire selection resolved, and the archives
+    /// that DID expand before the refusal are deleted rather than left as
+    /// un-redacted originals in the system temp directory. Only this import's
+    /// expansions are swept: the snapshot taken first protects an expansion an
+    /// earlier import (or the workspace being opened) still holds.
+    private func expandArchives(in urls: [URL], budget: ArchiveBudget) -> [URL]? {
+        let inheritedExpansions = ZipImporter.registeredExpansions()
+        var resolved: [URL] = []
+        for url in urls {
+            guard ZipImporter.isZip(url) else {
+                resolved.append(url)
+                continue
+            }
+            do {
+                resolved.append(contentsOf: try ZipImporter.expand(url, budget: budget).documents)
+            } catch {
+                ZipImporter.cleanUpExpansions(
+                    ZipImporter.registeredExpansions().subtracting(inheritedExpansions)
+                )
+                importFailure = error.localizedDescription
+                return nil
+            }
+        }
+        return resolved
     }
 
     /// Remove a document from the tray.
