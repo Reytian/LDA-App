@@ -120,6 +120,47 @@ final class SealDetectorTests: XCTestCase {
         }
     }
 
+    /// Common PRC seal signers the original closed set missed. Each is a real
+    /// stamping body, so without its suffix the whole seal stays undetected.
+    func testExtendedOrgSuffixesQualifyPayload() {
+        let payloads = [
+            "中国某某银行北京分行",
+            "中国某某银行某某支行",
+            "某某市某某区人民政府",
+            "某某省财政厅",
+            "某某新闻出版社",
+            "某某市消费者协会",
+            "某某市工商业联合会",
+            "某某市商会",
+            "某某公司工会",
+            "某某标准化学会",
+            "某某教育基金会",
+            "某某大学",
+            "某某实验学校",
+            "某某市第一中学",
+            "某某区中心小学",
+            "某某集团北京办事处",
+            "某某电力科学研究所",
+            "某某市某某派出所"
+        ]
+        for payload in payloads {
+            let text = "见：" + payload + "公章"
+            assertSingleSeal(in: text, equals: payload + "公章")
+        }
+    }
+
+    /// Bare 所, 会, 学, and 处 are deliberately ABSENT from the suffix set:
+    /// 本所, 开会, and 盖章处 are ordinary words, and admitting the bare form
+    /// would mint a seal span over pure boilerplate. Only the explicit
+    /// 事务所 / 研究所 / 派出所, 协会 / 商会 / 工会 / 学会 / 基金会 / 联合会,
+    /// 大学 / 中学 / 小学 / 学校, and 办事处 forms qualify.
+    func testBareSuffixLookalikesStayClear() {
+        XCTAssertTrue(sealSpans(in: "本所公章由主任保管。").isEmpty)
+        XCTAssertTrue(sealSpans(in: "开会公章未带。").isEmpty)
+        XCTAssertTrue(sealSpans(in: "盖章处公章由前台保管。").isEmpty)
+        XCTAssertTrue(sealSpans(in: "本条所有公章均须登记。").isEmpty)
+    }
+
     /// Detection carries the deterministic source and the SEAL type constants.
     func testSealSpanMetadata() {
         let spans = sealSpans(in: "杭州某某信息技术有限公司财务专用章")
@@ -170,10 +211,21 @@ final class SealDetectorTests: XCTestCase {
         )
     }
 
-    /// A Latin run stops the walk: the CJK tail is covered, the Latin name
-    /// part stays out (same accepted limitation as the address walk).
-    func testNonCJKStopsTheWalk() {
-        assertSingleSeal(in: "ABC科技有限公司公章", equals: "科技有限公司公章")
+    /// A Latin or digit initial belongs to the organization name, so the walk
+    /// absorbs it. Truncating there used to emit a span covering only the CJK
+    /// tail, and the uncovered initial then survived into the redacted file.
+    func testLatinInitialIsAbsorbedByTheWalk() {
+        assertSingleSeal(in: "ABC科技有限公司公章", equals: "ABC科技有限公司公章")
+        assertSingleSeal(in: "3M中国有限公司公章", equals: "3M中国有限公司公章")
+        assertSingleSeal(in: "TCL集团股份有限公司公章", equals: "TCL集团股份有限公司公章")
+    }
+
+    /// Absorbing Latin and digits does not weaken the other stops: symbols,
+    /// whitespace, and CJK punctuation still pin the left edge.
+    func testSymbolsAndWhitespaceStillStopTheWalk() {
+        assertSingleSeal(in: "见/ABC科技有限公司公章", equals: "ABC科技有限公司公章")
+        assertSingleSeal(in: "见 ABC科技有限公司公章", equals: "ABC科技有限公司公章")
+        assertSingleSeal(in: "（ABC科技有限公司公章）", equals: "ABC科技有限公司公章")
     }
 
     /// A newline immediately before the anchor defeats the suffix adjacency,
@@ -206,6 +258,17 @@ final class SealDetectorTests: XCTestCase {
         )
     }
 
+    /// The named boilerplate case: 经办部门为总公司公章 carries no organization
+    /// name at all, yet the walk absorbs the lead-in and emits a span. Left as
+    /// is DELIBERATELY, and pinned here so the decision stays explicit. Every
+    /// character that could act as a stop (为, 门, 部, 办, 经) is a legal name
+    /// character somewhere else, so a stop list would truncate real names, and
+    /// a truncated name is exactly the leak this detector must not produce.
+    /// The cost is a redundant review row, which a human clears in one click.
+    func testBoilerplateOverCaptureIsAcceptedNotTightened() {
+        assertSingleSeal(in: "经办部门为总公司公章", equals: "经办部门为总公司公章")
+    }
+
     /// Two seals in one line are two separate spans.
     func testTwoSealsYieldTwoSpans() {
         let text = "北京某公司公章、上海某银行财务专用章"
@@ -233,6 +296,75 @@ final class SealDetectorTests: XCTestCase {
         let overlapping = merged.filter { $0.text.contains("北京某某科技有限公司") }
         XCTAssertEqual(overlapping.map { $0.type }, [.seal])
         XCTAssertEqual(overlapping.map { $0.text }, ["北京某某科技有限公司合同专用章"])
+    }
+
+    // MARK: - The redacted OUTPUT must not leak the organization name
+
+    /// Anonymize a fixture the way the CLI does: deterministic detections plus
+    /// the LLM company claim, merged, then tokenized. Returns the redacted text
+    /// and the restored text so a test can assert on both.
+    private func redactAndRestore(
+        _ text: String,
+        llmCompany: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> (redacted: String, restored: String) {
+        let llm = EntityLocator.spans(forValue: llmCompany, type: .company, in: text)
+        XCTAssertFalse(
+            llm.isEmpty,
+            "fixture must produce the competing company span",
+            file: file,
+            line: line
+        )
+        let spans = SpanMerger.merge(deterministic: engine.detect(text), llm: llm)
+        let tokenized = Tokenizer.tokenize(
+            text: text,
+            spans: spans,
+            sourceFile: "seal-leak-fixture.txt",
+            createdAtISO8601: "2026-08-31T00:00:00Z"
+        )
+        let restored = Restorer.restore(text: tokenized.tokenizedText, mapping: tokenized.mapping)
+        return (tokenized.tokenizedText, restored.text)
+    }
+
+    /// The shipped regression, asserted on the OUTPUT TEXT. A truncated SEAL
+    /// span evicted the wider COMPANY span, so the uncovered organization
+    /// prefix survived into the file handed to an AI. Span types and counts all
+    /// looked right while this leaked, so only an output assertion catches it.
+    func testOrganizationInitialsNeverReachRedactedText() {
+        let fixtures: [(text: String, company: String, redLine: String)] = [
+            ("落款：ABC科技有限公司公章。\n经办人：王小明。\n", "ABC科技有限公司", "ABC"),
+            ("落款：3M中国有限公司公章。\n", "3M中国有限公司", "3M"),
+            ("落款：TCL集团股份有限公司公章。\n", "TCL集团股份有限公司", "TCL")
+        ]
+        for fixture in fixtures {
+            let output = redactAndRestore(fixture.text, llmCompany: fixture.company)
+            XCTAssertFalse(
+                output.redacted.contains(fixture.redLine),
+                "leaked \(fixture.redLine) into: \(output.redacted)"
+            )
+            XCTAssertFalse(
+                output.redacted.contains(fixture.company),
+                "leaked the whole name into: \(output.redacted)"
+            )
+            XCTAssertEqual(output.restored, fixture.text, "restore must stay byte-identical")
+        }
+    }
+
+    /// A registered name longer than the payload bound: the walk can only reach
+    /// its tail, so the merge has to keep the LLM company claim's extra
+    /// coverage or the most identifying head of the name leaks.
+    func testOverlongOrganizationNameNeverReachesRedactedText() {
+        let company =
+            "中国某某石油化工集团有限责任公司北京燕山分公司石油化工科学研究院技术开发中心"
+        let text = "用印单位：" + company + "公章。\n"
+        let output = redactAndRestore(text, llmCompany: company)
+        XCTAssertFalse(
+            output.redacted.contains("中国某某石油化工"),
+            "leaked the name head into: \(output.redacted)"
+        )
+        XCTAssertFalse(output.redacted.contains("燕山"), "leaked into: \(output.redacted)")
+        XCTAssertEqual(output.restored, text, "restore must stay byte-identical")
     }
 
     // MARK: - Round trip
@@ -305,7 +437,14 @@ final class SealDetectorTests: XCTestCase {
             String(repeating: "公司", count: 150) + "公章",
             String(repeating: "公章", count: 150),
             String(repeating: "委员会", count: 100) + "公章",
-            String(repeating: "厂院局", count: 100) + "财务专用章"
+            String(repeating: "厂院局", count: 100) + "财务专用章",
+            // The walk now absorbs Latin and digits, so their runs are
+            // adversarial input too.
+            String(repeating: "A", count: 300) + "公司公章",
+            String(repeating: "9", count: 300) + "公司公章",
+            String(repeating: "分行", count: 150) + "公章",
+            String(repeating: "研究所", count: 100) + "公章",
+            String(repeating: "办事处", count: 100) + "财务专用章"
         ]
 
         for input in adversarialInputs {

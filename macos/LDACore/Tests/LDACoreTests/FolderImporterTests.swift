@@ -4,10 +4,16 @@
 //
 //  Directory batch import discovery and budgets (F3). Discovery must find
 //  exactly the supported document set in deterministic sorted-path order,
-//  skipping hidden entries, package internals, and symlinks; the batch
-//  budgets must reject an oversize folder selection as a whole, with an
+//  skipping hidden entries, package internals, symlinks, and archives; the
+//  batch budgets must reject an oversize folder selection as a whole, with an
 //  error naming the budget and the offending measure, while pure file
 //  selections keep today's unbudgeted behavior.
+//
+//  Archives are not discovered inside a folder (see FolderImporter.
+//  supportedExtensions and NestedArchiveBudgetTests): the batch budgets count
+//  bytes on disk, which a high-ratio archive makes meaningless, and the file
+//  count budget would stop bounding the tray. A directly chosen .zip still
+//  expands, metered by the import's ArchiveBudget.
 //
 //  The oversize byte fixtures are sparse files, so the 500 MB ceiling is
 //  exercised without writing 500 MB.
@@ -74,15 +80,16 @@ final class FolderImporterTests: XCTestCase {
 
     func testDiscoveryFindsExactlyTheSupportedSetInSortedPathOrder() throws {
         let root = workDir.appendingPathComponent("case-folder", isDirectory: true)
-        // Supported documents, including a nested one, an uppercase
-        // extension, and an archive.
+        // Supported documents, including a nested one and an uppercase
+        // extension.
         try makeFile("b.txt", under: root)
         try makeFile("A/nested.pdf", under: root)
         try makeFile("z.docx", under: root)
         try makeFile("photo.JPG", under: root)
         try makeFile("scan.jpeg", under: root)
+        // Unsupported types. An archive is deliberately among them: a folder
+        // import must not open a container the user never chose.
         try makeFile("bundle.zip", under: root)
-        // Unsupported types.
         try makeFile("notes.md", under: root)
         try makeFile("data.rtf", under: root)
         // Hidden file and hidden directory.
@@ -105,7 +112,7 @@ final class FolderImporterTests: XCTestCase {
 
         XCTAssertEqual(
             relativePaths(discovered, under: root),
-            ["A/nested.pdf", "b.txt", "bundle.zip", "photo.JPG", "scan.jpeg", "z.docx"],
+            ["A/nested.pdf", "b.txt", "photo.JPG", "scan.jpeg", "z.docx"],
             "discovery must return exactly the supported set, sorted by path"
         )
     }

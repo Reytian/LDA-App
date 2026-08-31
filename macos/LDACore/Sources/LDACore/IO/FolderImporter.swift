@@ -9,9 +9,10 @@
 //  Discovery rules: hidden files and hidden directories are skipped, package
 //  directories (.app and friends) are opaque and never descended into,
 //  symlinks are never followed (file or directory, so a cycle cannot recurse
-//  and a link cannot reach outside the folder the user granted), and the
-//  result is sorted by full path so the tray order, and with it the
-//  cross-document sweep order, is reproducible run to run.
+//  and a link cannot reach outside the folder the user granted), archives are
+//  not collected (see supportedExtensions), and the result is sorted by full
+//  path so the tray order, and with it the cross-document sweep order, is
+//  reproducible run to run.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -21,11 +22,19 @@ import Foundation
 
 public enum FolderImporter {
 
-    /// The document types a directory import collects: text, Word, PDF,
-    /// evidence images, and archives. A .zip found in a folder expands
-    /// through the same ZipImporter path as a directly chosen one.
+    /// The document types a directory import collects: text, Word, PDF, and
+    /// evidence images.
+    ///
+    /// Archives are deliberately NOT collected. A folder import is the app's
+    /// lowest-trust entry point (the user picks a folder somebody sent them,
+    /// with no passphrase and no per-file decision), and a .zip inside it is a
+    /// container the user never chose to open. Recursing into one would also
+    /// make maxBatchFileCount meaningless, since each of the 200 permitted
+    /// entries could fan out to hundreds of tray documents. A user who does
+    /// want an archive's contents drops the .zip on the app directly, which
+    /// still expands, metered by the import's ArchiveBudget.
     public static let supportedExtensions: Set<String> =
-        ["txt", "docx", "pdf", "png", "jpg", "jpeg", "zip"]
+        ["txt", "docx", "pdf", "png", "jpg", "jpeg"]
 
     /// The most files one directory import may add to the tray.
     ///
@@ -39,6 +48,9 @@ public enum FolderImporter {
     /// The most total bytes one directory import may reference (500 MB).
     /// Matches ImportLimits.maxArchiveUncompressedBytes, so a folder cannot
     /// bring in more than a zip of the same content would be allowed to.
+    /// This budget counts bytes ON DISK, which is only a true measure because
+    /// discovery collects no archives; an inflating file type would need the
+    /// ArchiveBudget ledger instead.
     public static let maxBatchTotalBytes = 500 * 1024 * 1024
 
     /// The resource metadata one discovery pass reads per entry.

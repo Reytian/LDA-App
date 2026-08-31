@@ -28,6 +28,11 @@
 //     any I/O, but enforcement never trusts it. Entry count is capped too.
 //     See ImportLimits.
 //
+//     The allowance is an ArchiveBudget the CALLER owns, so every archive in
+//     one user-initiated import spends the same ledger. Minting a fresh one
+//     per call was the defect that let a folder of high-ratio archives, or a
+//     workspace carrying them, multiply the ceiling by the number of files.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -185,82 +190,38 @@ public enum ZipImporter {
     /// - Throws: DocumentIOError.unreadable when the file is not a readable
     ///   zip archive, DocumentIOError.tooLarge when the archive exceeds an
     ///   ImportLimits ceiling, or the underlying write error during extraction.
+    ///
+    /// This overload expands ONE archive on its own allowance. A caller
+    /// expanding several archives for one user gesture must use the
+    /// budget-taking overload instead, or the ceiling stops compounding.
     public static func expand(_ zipURL: URL) throws -> ExpandedArchive {
+        try expand(zipURL, budget: ArchiveBudget())
+    }
+
+    /// Expand the archive, spending the given import's allowance.
+    ///
+    /// - Parameter budget: the ledger for the whole user-initiated import.
+    ///   Pass the SAME instance for every archive in that import.
+    public static func expand(_ zipURL: URL, budget: ArchiveBudget) throws -> ExpandedArchive {
         try ImportLimits.enforceDocumentSize(at: zipURL)
-
-        let archive: Archive
-        do {
-            archive = try Archive(url: zipURL, accessMode: .read)
-        } catch {
-            throw DocumentIOError.unreadable(
-                "\(zipURL.lastPathComponent) is not a readable zip archive: \(error)"
-            )
-        }
-
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lda-zip-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let archive = try openArchive(at: zipURL)
+        let destination = try makeExpansionDirectory()
         register(destination)
         let expansion = ExpandedArchive(directory: destination, documents: [])
-        let destinationPath = destination.standardizedFileURL.path
-
-        var extracted: [(entryPath: String, url: URL)] = []
-        var examinedEntries = 0
-        // The budget is UInt64 and every comparison stays in UInt64: a crafted
-        // ZIP64 entry can declare a size above Int.max, and a non-truncating
-        // Int conversion of that value would trap before any guard ran.
-        var remainingBudget = UInt64(ImportLimits.effectiveArchiveUncompressedBytes)
-        let budgetMessage = "\(zipURL.lastPathComponent) expands to more than "
-            + "\(ImportLimits.describe(bytes: ImportLimits.effectiveArchiveUncompressedBytes))."
 
         do {
-            for entry in archive {
-                examinedEntries += 1
-                guard examinedEntries <= ImportLimits.maxArchiveEntries else {
-                    throw DocumentIOError.tooLarge(
-                        "\(zipURL.lastPathComponent) declares more than "
-                            + "\(ImportLimits.maxArchiveEntries) entries."
-                    )
-                }
-                guard entry.type == .file else { continue }
-
-                let entryPath = entry.path
-                guard isSupportedEntryPath(entryPath) else { continue }
-
-                // Fast pre-check on the DECLARED size so an honestly-labeled
-                // oversize archive fails before any I/O. This is an
-                // optimization, not the defense: the declared size is attacker
-                // controlled, so the enforcement below meters actual bytes.
-                guard entry.uncompressedSize <= remainingBudget else {
-                    throw DocumentIOError.tooLarge(budgetMessage)
-                }
-
-                let target = destination.appendingPathComponent(entryPath)
-                // Zip-slip guard: the normalized target must stay inside the
-                // expansion directory.
-                let normalized = target.standardizedFileURL.path
-                guard normalized.hasPrefix(destinationPath + "/") else { continue }
-
-                try FileManager.default.createDirectory(
-                    at: target.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-
-                // Stream the entry through a counting consumer and charge the
-                // budget for what the inflater ACTUALLY produces. ZIPFoundation
-                // inflates to end-of-stream without consulting the declared
-                // size, so this mid-stream abort is the only place a
-                // lying-declaration bomb can be stopped; the write cost before
-                // the abort is bounded by the remaining budget.
-                remainingBudget = try extractMetered(
-                    entry,
-                    from: archive,
-                    to: target,
-                    remainingBudget: remainingBudget,
-                    budgetMessage: budgetMessage
-                )
-                extracted.append((entryPath, target))
-            }
+            let extracted = try extractSupportedEntries(
+                of: archive,
+                named: zipURL.lastPathComponent,
+                into: destination,
+                budget: budget
+            )
+            return ExpandedArchive(
+                directory: destination,
+                documents: extracted
+                    .sorted { $0.entryPath < $1.entryPath }
+                    .map { $0.url }
+            )
         } catch {
             // A rejected or failed expansion must not leave the partially
             // written originals behind; that is exactly the residue this unit
@@ -268,18 +229,107 @@ public enum ZipImporter {
             expansion.cleanUp()
             throw error
         }
-
-        return ExpandedArchive(
-            directory: destination,
-            documents: extracted
-                .sorted { $0.entryPath < $1.entryPath }
-                .map { $0.url }
-        )
     }
 
-    /// Extract one entry to `target`, charging `remainingBudget` for each
-    /// inflated chunk and aborting with tooLarge the moment the budget runs
-    /// out. Returns the budget left after the entry.
+    /// Open an archive for reading, in this unit's error vocabulary.
+    private static func openArchive(at zipURL: URL) throws -> Archive {
+        do {
+            return try Archive(url: zipURL, accessMode: .read)
+        } catch {
+            throw DocumentIOError.unreadable(
+                "\(zipURL.lastPathComponent) is not a readable zip archive: \(error)"
+            )
+        }
+    }
+
+    /// A fresh temporary directory for one expansion.
+    private static func makeExpansionDirectory() throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lda-zip-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        return destination
+    }
+
+    /// Write every supported entry into `destination`, in archive order.
+    ///
+    /// Throws on a ceiling breach and leaves cleanup to the caller, which owns
+    /// the expansion directory.
+    private static func extractSupportedEntries(
+        of archive: Archive,
+        named archiveName: String,
+        into destination: URL,
+        budget: ArchiveBudget
+    ) throws -> [(entryPath: String, url: URL)] {
+        let budgetMessage = budget.refusalMessage(for: archiveName)
+        var extracted: [(entryPath: String, url: URL)] = []
+        var examinedEntries = 0
+
+        for entry in archive {
+            examinedEntries += 1
+            guard examinedEntries <= ImportLimits.maxArchiveEntries else {
+                throw DocumentIOError.tooLarge(
+                    "\(archiveName) declares more than "
+                        + "\(ImportLimits.maxArchiveEntries) entries."
+                )
+            }
+            guard entry.type == .file, isSupportedEntryPath(entry.path) else { continue }
+            guard let target = try writeEntry(
+                entry,
+                from: archive,
+                into: destination,
+                budget: budget,
+                budgetMessage: budgetMessage
+            ) else { continue }
+            extracted.append((entry.path, target))
+        }
+        return extracted
+    }
+
+    /// Write one admitted entry, or return nil when its destination would fall
+    /// outside the expansion directory.
+    private static func writeEntry(
+        _ entry: Entry,
+        from archive: Archive,
+        into destination: URL,
+        budget: ArchiveBudget,
+        budgetMessage: String
+    ) throws -> URL? {
+        // Fast pre-check on the DECLARED size so an honestly-labeled oversize
+        // archive fails before any I/O. This is an optimization, not the
+        // defense: the declared size is attacker controlled, so the
+        // enforcement below meters actual bytes.
+        guard !budget.cannotFit(declared: entry.uncompressedSize) else {
+            throw DocumentIOError.tooLarge(budgetMessage)
+        }
+
+        // Zip-slip guard: the normalized target must stay inside the expansion
+        // directory.
+        let target = destination.appendingPathComponent(entry.path)
+        let root = destination.standardizedFileURL.path
+        guard target.standardizedFileURL.path.hasPrefix(root + "/") else { return nil }
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        // Stream the entry through a counting consumer and charge the ledger
+        // for what the inflater ACTUALLY produces. ZIPFoundation inflates to
+        // end-of-stream without consulting the declared size, so this
+        // mid-stream abort is the only place a lying-declaration bomb can be
+        // stopped; the write cost before the abort is bounded by the budget
+        // still remaining.
+        try extractMetered(
+            entry,
+            from: archive,
+            to: target,
+            budget: budget,
+            budgetMessage: budgetMessage
+        )
+        return target
+    }
+
+    /// Extract one entry to `target`, charging the import's ledger for each
+    /// inflated chunk and aborting with tooLarge the moment it runs out.
     ///
     /// The metering itself lives in ZipExtraction so the workspace reader
     /// charges bytes the same way; see that file for why the DECLARED size can
@@ -288,14 +338,14 @@ public enum ZipImporter {
         _ entry: Entry,
         from archive: Archive,
         to target: URL,
-        remainingBudget: UInt64,
+        budget: ArchiveBudget,
         budgetMessage: String
-    ) throws -> UInt64 {
+    ) throws {
         try ZipExtraction.extractMetered(
             entry,
             from: archive,
             to: target,
-            remainingBudget: remainingBudget,
+            budget: budget,
             budgetMessage: budgetMessage
         )
     }

@@ -13,6 +13,14 @@
 //  restore: because each token sits within a single run after redaction, do a
 //  per-run find/replace of token -> value across all w:t runs and re-zip to out.
 //
+//  restoreLiteral: the pseudonym and asterisk styles have no brace grammar, so
+//  a replacement is an ordinary string that Word may have split across runs and
+//  whose ambiguity can only be judged against its neighbours. That pass decides
+//  over the part's WHOLE concatenated text, the same string the compliance
+//  report scans, and writes the accepted sites back through the run planner. A
+//  per-run decision would read a different string than the report and could
+//  name the wrong party at a site the report calls untouched.
+//
 //  Offset convention: Replacement.span offsets are UTF-16 code units into the
 //  text produced by DocxImporter, matching Span in CoreTypes.swift.
 //
@@ -100,6 +108,16 @@ public enum DocxRedactor {
         var insertText: String
     }
 
+    /// One edit expressed against the concatenated document text: replace the
+    /// UTF-16 range [start, end) with insertText. Redaction writes tokens over
+    /// detected spans, restoration writes values over replacement sites, and
+    /// both land on the runs through the same planner.
+    struct TextEdit {
+        var start: Int
+        var end: Int
+        var insertText: String
+    }
+
     /// Turn replacements into a map of segment index to the list of run-local
     /// edits for that segment. The FIRST overlapped run of each replacement gets
     /// the token; every other overlapped run has its covered text deleted.
@@ -111,11 +129,28 @@ public enum DocxRedactor {
         runs: [DocxRun],
         segments: [DocxSegment]
     ) throws -> [(Int, [RunEdit])] {
+        try planRunEdits(
+            replacements.map {
+                TextEdit(start: $0.span.start, end: $0.span.end, insertText: $0.token)
+            },
+            runs: runs,
+            segments: segments
+        )
+    }
+
+    /// Turn document-text edits into per-segment run-local edits. The FIRST
+    /// overlapped run of each edit receives the inserted text; every other
+    /// overlapped run has its covered text deleted.
+    static func planRunEdits(
+        _ edits: [TextEdit],
+        runs: [DocxRun],
+        segments: [DocxSegment]
+    ) throws -> [(Int, [RunEdit])] {
         var bySegment: [Int: [RunEdit]] = [:]
 
-        for replacement in replacements {
-            let spanStart = replacement.span.start
-            let spanEnd = replacement.span.end
+        for edit in edits {
+            let spanStart = edit.start
+            let spanEnd = edit.end
             guard spanEnd > spanStart else { continue }
 
             // Runs that overlap the span, in document order.
@@ -131,7 +166,7 @@ public enum DocxRedactor {
                 let runEnd = run.charStart + run.charLength
                 let localStart = max(spanStart, runStart) - runStart
                 let localEnd = min(spanEnd, runEnd) - runStart
-                let insert = offset == 0 ? replacement.token : ""
+                let insert = offset == 0 ? edit.insertText : ""
                 bySegment[run.textSegmentIndex, default: []].append(
                     RunEdit(localStart: localStart, localEnd: localEnd, insertText: insert)
                 )
@@ -216,6 +251,22 @@ public enum DocxRedactor {
         )
     }
 
+    /// What a literal restore did to one part, in the same terms the
+    /// whole-document report uses, so caller and report can be compared.
+    public struct LiteralRestoreOutcome: Sendable, Equatable {
+        /// Occurrences substituted with their original value.
+        public let restoredCount: Int
+        /// Replacements left verbatim because their site could not be
+        /// attributed to one entity, in first-seen document order.
+        public let ambiguousReplacements: [String]
+
+        /// Nothing was substituted and nothing was refused.
+        static let unchanged = LiteralRestoreOutcome(
+            restoredCount: 0,
+            ambiguousReplacements: []
+        )
+    }
+
     /// Replace every literal replacement string in a redacted .docx with its
     /// value and write to out. The literal-style counterpart of restore: used
     /// for pseudonym and asterisk mappings, whose replacements are ordinary
@@ -224,25 +275,20 @@ public enum DocxRedactor {
     /// The plan (Restorer.literalRestorePlan) carries which replacements may
     /// be substituted and whether the style refuses a prefix conflict at a
     /// site, so an ambiguous asterisk mask stays verbatim in the document and
-    /// this surface reaches the same verdicts as the report. Like the token
-    /// path this substitutes run by run, so a replacement split across runs
-    /// by later editing does not restore (the whole-text report scan still
-    /// counts it).
+    /// this surface reaches the same verdicts as the report.
+    ///
+    /// Returns what the BODY part did. The report scans the body text, so the
+    /// returned outcome is directly comparable with it; the other text parts
+    /// are restored on the same plan but have never been part of that report.
+    @discardableResult
     public static func restoreLiteral(
         redactedDocx: URL,
         plan: Restorer.LiteralRestorePlan,
         to out: URL
-    ) throws {
+    ) throws -> LiteralRestoreOutcome {
         let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
         var layout = try DocxDocumentXML.parse(data)
-
-        for index in layout.segments.indices {
-            guard case .runText(let text) = layout.segments[index] else { continue }
-            let replaced = Restorer.substituteLiteralReplacements(in: text, plan: plan)
-            if replaced != text {
-                layout.segments[index] = .runText(replaced)
-            }
-        }
+        let outcome = try restoreLiteralInLayout(&layout, plan: plan)
 
         var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
         // Restore literal replacements in the non-body text parts too.
@@ -256,6 +302,85 @@ public enum DocxRedactor {
             replacing: rewriteParts,
             to: out
         )
+        return outcome
+    }
+
+    /// Restore literal replacements across one whole parsed part.
+    ///
+    /// The decision runs over the part's CONCATENATED text, which is exactly
+    /// the string the report scan reads, and the accepted sites are written
+    /// back into the runs they cover. Deciding run by run instead is the
+    /// defect this closes in both directions: a mask split across runs looked
+    /// unambiguous on an isolated run, so the writer named a person the report
+    /// reported as never guessed, and a replacement split across runs matched
+    /// nowhere, so the writer restored nothing the report had counted.
+    ///
+    /// Exposed at internal access so DocxParts restores the non-body parts the
+    /// same way.
+    static func restoreLiteralInLayout(
+        _ layout: inout DocxLayout,
+        plan: Restorer.LiteralRestorePlan
+    ) throws -> LiteralRestoreOutcome {
+        let sites = Restorer.literalRestoreSites(in: layout.text, plan: plan)
+        guard !sites.isEmpty else { return .unchanged }
+
+        var edits: [TextEdit] = []
+        var restoredCount = 0
+        var refusedSeen: Set<String> = []
+        var refused: [String] = []
+
+        for site in sites {
+            guard let value = site.value else {
+                if refusedSeen.insert(site.replacement).inserted {
+                    refused.append(site.replacement)
+                }
+                continue
+            }
+            guard runsCover(site.range, runs: layout.runs) else { continue }
+            edits.append(
+                TextEdit(
+                    start: site.range.location,
+                    end: site.range.location + site.range.length,
+                    insertText: value
+                )
+            )
+            restoredCount += 1
+        }
+
+        for (segmentIndex, segmentEdits) in try planRunEdits(
+            edits,
+            runs: layout.runs,
+            segments: layout.segments
+        ) {
+            try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
+        }
+
+        return LiteralRestoreOutcome(
+            restoredCount: restoredCount,
+            ambiguousReplacements: refused
+        )
+    }
+
+    /// Whether run text covers `range` end to end with no gap.
+    ///
+    /// Every character of a part's concatenated text is either run text or a
+    /// synthetic paragraph newline that belongs to no run. A site straddling
+    /// such a newline cannot be written back faithfully: the value would land
+    /// in the first run while the newline stayed behind. Detected spans are
+    /// split at line breaks before tokenization (see SpanSplitter), so no
+    /// replacement the pipeline mints carries one and this guard never fires
+    /// in practice. When it does, leaving the bytes alone is the safe
+    /// direction: the document keeps the redacted text rather than gaining a
+    /// value in the wrong place.
+    private static func runsCover(_ range: NSRange, runs: [DocxRun]) -> Bool {
+        let end = range.location + range.length
+        var covered = range.location
+        for run in runs where run.charStart <= covered
+            && run.charStart + run.charLength > covered {
+            covered = run.charStart + run.charLength
+            if covered >= end { return true }
+        }
+        return false
     }
 
     /// Replace all grammar-matched tokens in a single run's text with their
