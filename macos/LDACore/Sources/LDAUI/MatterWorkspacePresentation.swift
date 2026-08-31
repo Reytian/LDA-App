@@ -84,7 +84,7 @@ enum MatterWorkspacePresentation {
             )
             summary.restoreCount += record.restoreEvents.count
             summary.flaggedCount += record.restoreEvents.reduce(0) {
-                $0 + $1.orphanCount + $1.suspectCount
+                $0 + $1.orphanCount + $1.suspectCount + $1.ambiguousCount
             }
             summary.lastActivityISO8601 = maxISO8601(
                 summary.lastActivityISO8601,

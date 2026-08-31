@@ -754,7 +754,9 @@ private struct MatterActivityRow: View {
     }
 
     private var recordFlagCount: Int {
-        record.restoreEvents.reduce(0) { $0 + $1.orphanCount + $1.suspectCount }
+        record.restoreEvents.reduce(0) {
+            $0 + $1.orphanCount + $1.suspectCount + $1.ambiguousCount
+        }
     }
 
     private var restoreLine: String {

@@ -262,7 +262,9 @@ public struct CompanionMenu: View {
             let flagged = restored.orphanTokens.count + restored.suspectPlaceholders.count
                 + restored.ambiguousReplacements.count
             if flagged > 0 {
-                note += " \(flagged) placeholder"
+                // "item", not "placeholder": a refused mask is counted here
+                // too, and it is not a placeholder.
+                note += " \(flagged) item"
                     + (flagged == 1 ? " needs" : "s need")
                     + " review; use Restore from AI in the app."
             }

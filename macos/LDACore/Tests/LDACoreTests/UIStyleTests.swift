@@ -3,9 +3,11 @@
 //  LDACoreTests
 //
 //  Tests for the GUI side of the output styles: the persisted AISettings
-//  value, the export path (performExport), the Safe Preview, and the session
+//  value, the export path (performExport), the Safe Preview, the session
 //  Copy for AI + paste-restore round trip in pseudonym style, including the
-//  simulated AI rewrite that breaks brace tokens.
+//  simulated AI rewrite that breaks brace tokens, and the asterisk mask that
+//  fits two people and is therefore refused, reported to the user, and
+//  recorded on the session's restore event.
 //
 //  House rules: all comments and strings in English. Fixture strings and
 //  generated pseudonyms may be Chinese. No em-dash and no
@@ -202,6 +204,48 @@ final class SessionModelStyleTests: XCTestCase {
         let restored = try XCTUnwrap(session.restorePasted(afterAI))
         XCTAssertTrue(restored.text.contains("john@acme.com"))
         XCTAssertEqual(restored.restoredCount, 1)
+    }
+
+    /// End to end for the GUI's ambiguity reporting: two phone numbers that
+    /// share one asterisk mask. The restorer refuses both sites, so the user
+    /// must be told the document came back still masked, and the session
+    /// record must carry the refusal count.
+    func testAmbiguousAsteriskMaskIsReportedToTheUserAndRecorded() async throws {
+        let session = makeSession()
+        session.outputStyleProvider = { .asterisk }
+
+        let doc = try write("a.txt", "A: 13812345678 B: 13887655678.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+
+        let handoff = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+        XCTAssertTrue(handoff.combined.contains("138****5678"), handoff.combined)
+        let recordID = try XCTUnwrap(session.currentRecordID)
+
+        let restored = try XCTUnwrap(session.restorePasted(handoff.combined))
+
+        // Neither number is guessed back in; both sites stay masked.
+        XCTAssertFalse(restored.text.contains("13812345678"))
+        XCTAssertFalse(restored.text.contains("13887655678"))
+        XCTAssertEqual(restored.restoredCount, 0)
+        XCTAssertEqual(restored.ambiguousReplacements, ["138****5678"])
+
+        // The GUI says why, rather than reporting a clean restore.
+        let sentence = try XCTUnwrap(
+            RestoreResultPresentation.ambiguousSentence(restored.ambiguousReplacements)
+        )
+        XCTAssertTrue(sentence.contains("138****5678"), sentence)
+        XCTAssertTrue(sentence.contains("rather than guessed"), sentence)
+
+        // And the session record keeps the refusal count for the report.
+        let store = try SessionRecordStore(
+            rootDirectory: workDir.appendingPathComponent("records")
+        )
+        let record = try XCTUnwrap(store.load(id: recordID, protection: .passphrase("pw")))
+        XCTAssertEqual(record.restoreEvents.count, 1)
+        XCTAssertEqual(record.restoreEvents[0].ambiguousCount, 1)
+        XCTAssertEqual(record.restoreEvents[0].orphanCount, 0)
+        XCTAssertEqual(record.restoreEvents[0].suspectCount, 0)
     }
 
     func testClipboardCompanionFollowsStyle() throws {

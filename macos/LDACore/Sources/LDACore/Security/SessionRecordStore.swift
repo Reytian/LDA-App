@@ -65,8 +65,8 @@ public struct SessionRecordDocument: Codable, Equatable, Sendable {
 }
 
 /// Scan-side verification counts recorded when the handoff was built. The
-/// restore-side twin is SessionRestoreEvent, which records orphanCount and
-/// suspectCount per restore.
+/// restore-side twin is SessionRestoreEvent, which records orphanCount,
+/// suspectCount, and ambiguousCount per restore.
 public struct SessionScanVerification: Codable, Equatable, Sendable {
     /// Additional occurrences the literal rescan recall pass surfaced.
     public var rescanHitCount: Int
@@ -88,12 +88,46 @@ public struct SessionRestoreEvent: Codable, Equatable, Sendable {
     public var restoredCount: Int
     public var orphanCount: Int
     public var suspectCount: Int
+    /// Asterisk style only: masked forms the restorer refused to substitute
+    /// because their sites fit more than one protected person. Those sites
+    /// came back still masked, so the count belongs in the record next to the
+    /// two placeholder counts. Zero for every other style.
+    public var ambiguousCount: Int
 
-    public init(atISO8601: String, restoredCount: Int, orphanCount: Int, suspectCount: Int) {
+    public init(
+        atISO8601: String,
+        restoredCount: Int,
+        orphanCount: Int,
+        suspectCount: Int,
+        ambiguousCount: Int = 0
+    ) {
         self.atISO8601 = atISO8601
         self.restoredCount = restoredCount
         self.orphanCount = orphanCount
         self.suspectCount = suspectCount
+        self.ambiguousCount = ambiguousCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case atISO8601
+        case restoredCount
+        case orphanCount
+        case suspectCount
+        case ambiguousCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.atISO8601 = try container.decode(String.self, forKey: .atISO8601)
+        self.restoredCount = try container.decode(Int.self, forKey: .restoredCount)
+        self.orphanCount = try container.decode(Int.self, forKey: .orphanCount)
+        self.suspectCount = try container.decode(Int.self, forKey: .suspectCount)
+        // Events written before asterisk refusals were reported carry no
+        // ambiguous count; decode those as none refused.
+        self.ambiguousCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .ambiguousCount
+        ) ?? 0
     }
 }
 
