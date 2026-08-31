@@ -195,8 +195,10 @@ public final class SessionModel: ObservableObject {
         didSet {
             guard let configure = configureNewModel else { return }
             configure(emptyModel)
+            applyScopedStores(to: emptyModel)
             for entry in entries {
                 configure(entry.model)
+                applyScopedStores(to: entry.model)
             }
         }
     }
@@ -233,8 +235,10 @@ public final class SessionModel: ObservableObject {
     public func reapplyConfiguration() {
         guard let configure = configureNewModel else { return }
         configure(emptyModel)
+        applyScopedStores(to: emptyModel)
         for entry in entries {
             configure(entry.model)
+            applyScopedStores(to: entry.model)
         }
     }
 
@@ -286,6 +290,7 @@ public final class SessionModel: ObservableObject {
             guard importGeneration == documentImportGeneration else { return }
             let model = makeModel()
             configureNewModel?(model)
+            applyScopedStores(to: model)
             let entry = DocumentEntry(id: UUID(), url: url, model: model)
             // Cross-document recall sweep (the GUI half of the session-wide
             // sweep in LDAService.anonymizeSession): when this document
@@ -610,6 +615,136 @@ public final class SessionModel: ObservableObject {
         return (markdownURL, pdfURL)
     }
 
+    // MARK: - Matter-scoped learned rules (F4)
+
+    /// The app-owned global store layers, attached once at launch. They stay
+    /// shared with the Settings window. nil in sessions that never attach
+    /// stores (most tests wire models directly), which keeps those paths
+    /// byte-identical to the pre-scoping behavior.
+    private var globalLearningStore: LearningStore?
+    private var globalPatternStore: CustomPatternStore?
+
+    /// The active matter's stable metadata id (MatterMetadata.id). nil when
+    /// no matter is selected, or the matter has no metadata entry yet: one is
+    /// created the first time the user scopes rules to the matter.
+    @Published public private(set) var matterScopeID: UUID?
+
+    /// Whether learned-rule writes from this session land in the matter layer
+    /// instead of the global one. Persisted per matter under a key that
+    /// embeds only the matter's random id, never its label.
+    @Published public private(set) var scopeLearnedRulesToMatter = false
+
+    /// Where the per-matter toggle persists. Injectable for hermetic tests.
+    public var scopeDefaults: () -> UserDefaults = { .standard }
+
+    /// Matter-layer store factories. Injectable so tests can pin a defaults
+    /// suite and test-only base keys instead of the production vault accounts.
+    public var makeMatterLearningStore: (UUID) -> LearningStore = {
+        LearningStore(scope: .matter(id: $0))
+    }
+    public var makeMatterPatternStore: (UUID) -> CustomPatternStore = {
+        CustomPatternStore(scope: .matter(id: $0))
+    }
+
+    /// The scoped facades the document models read. Rebuilt whenever the
+    /// matter scope changes; nil until the app attaches the global layers.
+    public private(set) var scopedLearningStore: ScopedLearningStore?
+    public private(set) var scopedPatternStore: ScopedCustomPatternStore?
+
+    /// The layer learned-rule writes land in right now. Matter writes require
+    /// both the toggle and an attached matter layer; everything else is the
+    /// pre-scoping global behavior.
+    public var learnedRuleWriteTarget: ScopeTarget {
+        scopeLearnedRulesToMatter && scopedLearningStore?.matter != nil
+            ? .matter
+            : .global
+    }
+
+    /// The per-matter UserDefaults key for the scope toggle. Derived like
+    /// StoreScope.storageKey: the key embeds only the matter's random id, so
+    /// a matter label can never leak into UserDefaults.
+    public static func matterScopeToggleKey(for id: UUID) -> String {
+        StoreScope.matter(id: id)
+            .storageKey(base: "com.haotianyi.LDA.scopeLearnedRulesToMatter")
+    }
+
+    /// Attach the app's global vocabulary and learning layers and start
+    /// injecting the scoped facades into every document model.
+    public func attachStores(
+        learning: LearningStore,
+        patterns: CustomPatternStore
+    ) {
+        globalLearningStore = learning
+        globalPatternStore = patterns
+        rebuildScopedStores()
+    }
+
+    /// Turn matter scoping on or off for the active matter, creating the
+    /// matter's metadata entry (its stable id) on first use and persisting
+    /// the choice per matter. A session without a matter has nothing to
+    /// scope to, so the call is a no-op there.
+    public func setScopeLearnedRulesToMatter(_ enabled: Bool) throws {
+        guard let clientLabel else { return }
+        if enabled, matterScopeID == nil {
+            matterScopeID = try matterStore().ensure(
+                label: clientLabel,
+                protection: matterProtection()
+            ).id
+        }
+        scopeLearnedRulesToMatter = enabled && matterScopeID != nil
+        if let id = matterScopeID {
+            scopeDefaults().set(
+                scopeLearnedRulesToMatter,
+                forKey: Self.matterScopeToggleKey(for: id)
+            )
+        }
+        rebuildScopedStores()
+    }
+
+    /// Adopt the scope identity of a newly selected matter (nil for no
+    /// matter) and restore its persisted toggle state.
+    private func adoptMatterScope(id: UUID?) {
+        matterScopeID = id
+        scopeLearnedRulesToMatter = id.map {
+            scopeDefaults().bool(forKey: Self.matterScopeToggleKey(for: $0))
+        } ?? false
+        rebuildScopedStores()
+    }
+
+    /// Rebuild the scoped facades for the current scope and inject them into
+    /// every model. No-op until the app attaches the global layers.
+    private func rebuildScopedStores() {
+        guard let globalLearning = globalLearningStore,
+              let globalPatterns = globalPatternStore else { return }
+        let matterLearning = matterScopeID.map { makeMatterLearningStore($0) }
+        let matterPatterns = matterScopeID.map { makeMatterPatternStore($0) }
+        scopedLearningStore = ScopedLearningStore(
+            global: globalLearning,
+            matter: matterLearning
+        )
+        scopedPatternStore = ScopedCustomPatternStore(
+            global: globalPatterns,
+            matter: matterPatterns
+        )
+        applyScopedStores(to: emptyModel)
+        for entry in entries {
+            applyScopedStores(to: entry.model)
+        }
+    }
+
+    /// Wire one model to the current facades. No-op until stores attach, so
+    /// tests that configure model stores directly keep full control.
+    private func applyScopedStores(to model: ReviewModel) {
+        guard scopedLearningStore != nil else { return }
+        model.learningStore = scopedLearningStore
+        model.customPatternProvider = { [weak self] in
+            self?.scopedPatternStore?.activePatterns ?? []
+        }
+        model.learningWriteTarget = { [weak self] in
+            self?.learnedRuleWriteTarget ?? .global
+        }
+    }
+
     /// Resume an awaiting-AI parked session after a relaunch: reload the
     /// parked mapping (and its client label) so Restore from AI works without
     /// redoing anything. No-op when nothing is parked.
@@ -630,6 +765,15 @@ public final class SessionModel: ObservableObject {
         sessionMapping = parked.mapping
         if clientLabel == nil {
             clientLabel = parked.clientLabel
+            // A resume bypasses selectMatter, so adopt the resumed matter's
+            // scope here too. canonicalizedParkedSession already resolved the
+            // metadata, so this read stays within the same user action.
+            if let label = parked.clientLabel {
+                adoptMatterScope(
+                    id: (try? matterMetadata())?.metadata
+                        .first { $0.label == label }?.id
+                )
+            }
         }
         sessionNote = "Resumed your last session. When the AI answer is ready, "
             + "use Restore to bring the real values back."
@@ -838,6 +982,10 @@ public final class SessionModel: ObservableObject {
         sessionMapping = nil
         currentRecordID = nil
         sessionNote = nil
+        // The matter boundary moved: drop the outgoing matter's scope. When a
+        // matter is being selected, selectMatter adopts its real scope id and
+        // persisted toggle right after this call.
+        adoptMatterScope(id: nil)
 
         for index in emptyModel.entities.indices {
             emptyModel.entities[index].token = nil
@@ -888,7 +1036,16 @@ public final class SessionModel: ObservableObject {
             guard discardingDocuments else { return false }
             try discardParkedSession(parked)
         }
-        return selectClient(label, discardingDocuments: discardingDocuments)
+        let selected = selectClient(label, discardingDocuments: discardingDocuments)
+        if selected {
+            // Adopt the matter's scope identity (its stable metadata id) and
+            // its persisted matter-scope toggle. A matter without metadata
+            // has no id yet; it gains one on the first scope-toggle use.
+            adoptMatterScope(
+                id: metadataResolution.metadata.first { $0.label == label }?.id
+            )
+        }
+        return selected
     }
 
     /// Exact decrypted client labels for the explicit Matters workspace.

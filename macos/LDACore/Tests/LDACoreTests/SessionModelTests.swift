@@ -485,7 +485,7 @@ final class SessionModelTests: XCTestCase {
             learning.suppressKeys.contains(LearningStore.key(value: "Jordan Marlowe", type: .person)),
             "fixture: a single net rejection must suppress the term"
         )
-        session.configureNewModel = { $0.learningStore = learning }
+        session.configureNewModel = { $0.learningStore = ScopedLearningStore(global: learning) }
 
         let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
         await session.addDocuments([unscanned])
@@ -547,7 +547,7 @@ final class SessionModelTests: XCTestCase {
 
         let learning = freshLearningStore()
         learning.record(accepted: [], rejected: [("Schedule A", .company)])
-        session.configureNewModel = { $0.learningStore = learning }
+        session.configureNewModel = { $0.learningStore = ScopedLearningStore(global: learning) }
 
         let unscanned = try write("b.txt", "The filing was prepared for Jordan Marlowe this week.")
         await session.addDocuments([unscanned])

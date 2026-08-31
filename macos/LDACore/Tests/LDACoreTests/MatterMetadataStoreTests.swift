@@ -24,6 +24,27 @@ final class MatterMetadataStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testEnsureCreatesAndThenReturnsTheSameStableIdentity() throws {
+        let created = try store.ensure(label: "Acme v. Beta", protection: .passphrase("pw"))
+        let again = try store.ensure(label: "Acme v. Beta", protection: .passphrase("pw"))
+
+        XCTAssertEqual(created.id, again.id, "ensure must be idempotent on the id")
+        let resolution = try store.list(protection: .passphrase("pw"))
+        XCTAssertEqual(resolution.metadata.map(\.id), [created.id])
+        XCTAssertEqual(resolution.metadata.first?.isArchived, false)
+    }
+
+    func testEnsureResolvesARenameAliasToTheExistingEntry() throws {
+        let created = try store.ensure(label: "Old Name", protection: .passphrase("pw"))
+        try store.rename(from: "Old Name", to: "New Name", protection: .passphrase("pw"))
+
+        let viaAlias = try store.ensure(label: "Old Name", protection: .passphrase("pw"))
+
+        XCTAssertEqual(viaAlias.id, created.id, "an alias must not mint a second identity")
+        XCTAssertEqual(viaAlias.label, "New Name")
+        XCTAssertEqual(try store.list(protection: .passphrase("pw")).metadata.count, 1)
+    }
+
     func testArchiveStateRoundTripsWithoutWritingTheLabelInPlaintext() throws {
         try store.setArchived(
             label: "Acme Privileged Matter",

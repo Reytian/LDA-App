@@ -276,10 +276,36 @@ public struct AppShell: View {
             Button("New Matter\u{2026}") {
                 promptNewClient()
             }
+
+            // Matter-scoped learned rules (F4): where this session's accept
+            // and reject decisions are remembered. Only meaningful with a
+            // matter selected, so the item hides without one.
+            if session.clientLabel != nil {
+                Divider()
+                Toggle(
+                    "Apply learned rules to this matter only",
+                    isOn: matterScopeBinding
+                )
+            }
         } label: {
             Label(session.clientLabel ?? "No Matter", systemImage: "person.crop.square")
         }
         .help("Work under a matter keeps the same placeholders for the same values, every time")
+    }
+
+    /// Routes the matter-scope toggle through the session, which persists the
+    /// choice per matter and creates the matter's scope identity on first use.
+    private var matterScopeBinding: Binding<Bool> {
+        Binding(
+            get: { session.scopeLearnedRulesToMatter },
+            set: { enabled in
+                do {
+                    try session.setScopeLearnedRulesToMatter(enabled)
+                } catch {
+                    exportMessage = "Could not change the matter scope. \(error.localizedDescription)"
+                }
+            }
+        )
     }
 
     /// Ask for a new client label with a small input alert and select it.

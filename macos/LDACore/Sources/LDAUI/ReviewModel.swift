@@ -157,8 +157,14 @@ public final class ReviewModel: ObservableObject {
     public var outputStyleProvider: () -> SubstitutionStyle = { AISettings.outputStyle() }
 
     /// On-device learning. When set, the model applies learned redactions and
-    /// suppressions during anonymize and records the user's decisions on export.
-    public var learningStore: LearningStore?
+    /// suppressions during anonymize (the union of the global layer and any
+    /// active matter layer) and records the user's decisions on export.
+    public var learningStore: ScopedLearningStore?
+
+    /// The layer export decisions are recorded into. The session wires this
+    /// to the matter-scope toggle; the default preserves the pre-scoping
+    /// behavior, where every write lands in the global layer.
+    public var learningWriteTarget: () -> ScopeTarget = { .global }
 
     /// A short summary of what learning contributed to the last run, for example
     /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
@@ -719,13 +725,18 @@ public final class ReviewModel: ObservableObject {
         }
 
         // Learn from this export: the accept and reject decisions the user just
-        // committed reinforce future auto-redaction and suppression.
+        // committed reinforce future auto-redaction and suppression, in the
+        // layer the session's matter-scope toggle selects.
         if let learningStore {
             let accepted = entities.filter { $0.accepted }
                 .map { (value: $0.span.text, type: $0.span.type) }
             let rejected = entities.filter { !$0.accepted }
                 .map { (value: $0.span.text, type: $0.span.type) }
-            learningStore.record(accepted: accepted, rejected: rejected)
+            learningStore.record(
+                accepted: accepted,
+                rejected: rejected,
+                to: learningWriteTarget()
+            )
         }
 
         return result.export
