@@ -361,25 +361,41 @@ public final class SessionModel: ObservableObject {
     // MARK: - Hand to AI (stage 3)
 
     /// One ready document that still carries a party another ready document
-    /// has confirmed. Advice, never an edit: the fix is for the user to run
-    /// Scan on that document again, which is the only path that puts the
-    /// mention in front of a human before it is redacted.
+    /// has confirmed. Advice, never an edit: the mention has to reach a human
+    /// before it is redacted, so the warning only ever names the document and
+    /// the action that puts it there.
     ///
     /// Value-free on purpose: the surfaces themselves stay out of the banner,
-    /// matching the session record. The document and the count are enough to
+    /// matching the session record. The document and the counts are enough to
     /// act on.
     public struct RescanWarning: Equatable, Sendable {
-        /// The tray entry that should be re-scanned.
+        /// The tray entry the warning is about.
         public let entryID: UUID
         /// That entry's tray name, for the banner.
         public let documentName: String
         /// How many distinct partner-confirmed parties it still carries.
         public let missedPartyCount: Int
+        /// How many of those the user has net rejected before. Learned
+        /// suppression runs AFTER the rescan sweep (ReviewModelDetection), so
+        /// Scan pulls these in and then drops them again: re-scanning cannot
+        /// close their gap, and the banner must not send the user there.
+        public let suppressedPartyCount: Int
 
-        public init(entryID: UUID, documentName: String, missedPartyCount: Int) {
+        /// The parties a re-scan really would surface for review.
+        public var rescannablePartyCount: Int {
+            max(0, missedPartyCount - suppressedPartyCount)
+        }
+
+        public init(
+            entryID: UUID,
+            documentName: String,
+            missedPartyCount: Int,
+            suppressedPartyCount: Int = 0
+        ) {
             self.entryID = entryID
             self.documentName = documentName
             self.missedPartyCount = missedPartyCount
+            self.suppressedPartyCount = suppressedPartyCount
         }
     }
 
@@ -536,6 +552,12 @@ public final class SessionModel: ObservableObject {
     /// document confirmed, outside every span of their own. The needle safety
     /// filters and the overlap block come from EntityRescan, so the warning
     /// can never name a gap that re-running Scan would refuse to close.
+    ///
+    /// One filter EntityRescan cannot see is learned suppression: it lives in
+    /// the UI's LearningStore and is applied after the sweep, so a net
+    /// rejected party is swept in and dropped again. Those surfaces are still
+    /// reported (the document does carry them) but counted separately, so the
+    /// banner can prescribe the action that actually works.
     private func crossDocumentRescanWarnings(
         ready: [DocumentEntry],
         documents: [SessionDocument]
@@ -561,11 +583,45 @@ public final class SessionModel: ObservableObject {
                 RescanWarning(
                     entryID: ready[index].id,
                     documentName: ready[index].name,
-                    missedPartyCount: missed.count
+                    missedPartyCount: missed.count,
+                    suppressedPartyCount: suppressedCount(
+                        of: missed,
+                        partners: partners,
+                        entry: ready[index]
+                    )
                 )
             )
         }
         return warnings
+    }
+
+    /// How many of one document's unswept surfaces its own detection pass
+    /// would suppress again. A surface is only counted when EVERY type it
+    /// could be swept as is suppressed: if any candidate type survives, the
+    /// re-scan produces a span the user can review, and Scan is still the
+    /// right advice.
+    private func suppressedCount(
+        of missed: [String],
+        partners: [Span],
+        entry: DocumentEntry
+    ) -> Int {
+        guard let suppressKeys = entry.model.learningStore?.suppressKeys,
+              !suppressKeys.isEmpty else {
+            return 0
+        }
+        var typesBySurface: [String: Set<EntityType>] = [:]
+        for span in partners {
+            let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            typesBySurface[value.lowercased(), default: []].insert(span.type)
+        }
+        return missed.filter { surface in
+            let types = typesBySurface[surface.lowercased()] ?? []
+            guard !types.isEmpty else { return false }
+            return types.allSatisfy {
+                suppressKeys.contains(LearningStore.key(value: surface, type: $0))
+            }
+        }.count
     }
 
     /// The distinct accepted entity-type wire strings of one document model.
