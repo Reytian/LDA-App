@@ -79,7 +79,12 @@ public struct PdfImporter: DocumentImporter {
         var scannedPages: [Int] = []
 
         for index in 0..<pageCount {
-            let pageText = document.page(at: index)?.string ?? ""
+            // Repair PDFKit non-breaking-space extraction artifacts (a source
+            // nbsp can surface as a spurious "A with circumflex"). Done here so
+            // detection, the redacted edit surface, and the restored output all
+            // see the same clean text. normalizeWhitespace below collapses the
+            // same artifact so the box locator still matches this repaired text.
+            let pageText = PdfTextNormalizer.normalize(document.page(at: index)?.string ?? "")
             texts.append(pageText)
             if pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 scannedPages.append(index)
@@ -266,6 +271,28 @@ public struct PdfImporter: DocumentImporter {
                 scalar = simple
             } else {
                 index += 1
+                continue
+            }
+
+            // Collapse the PDFKit non-breaking-space artifact ("A with
+            // circumflex" followed by a space-like unit) to one space, the same
+            // repair PdfTextNormalizer applied on import. Without this the
+            // needle searched here comes from repaired text while the page
+            // haystack still carries the marker, so the needle never matches:
+            // the value would be detected and reported yet never boxed, leaving
+            // it VISIBLE in a PDF the app calls redacted. The marker is a
+            // letter, so no whitespace rule would collapse it. Both units map
+            // to the marker index, which keeps the per-unit invariant and lets
+            // the box cover the artifact glyph itself.
+            if scalar.value == 0x00C2, index + 1 < source.length,
+               let next = Unicode.Scalar(source.character(at: index + 1)),
+               next.value == 0x00A0 || next.value == 0x0020 {
+                if !previousWasSpace {
+                    output.append(" ")
+                    indexes.append(index)
+                    previousWasSpace = true
+                }
+                index += 2
                 continue
             }
 
