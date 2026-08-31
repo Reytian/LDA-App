@@ -586,7 +586,7 @@ public final class ReviewModel: ObservableObject {
     public static let groupTypeOrder: [EntityType] = [
         .person, .company, .address, .email, .phone,
         .bankAccount, .nationalID, .uscc,
-        .caseNumber, .licensePlate, .wechatID, .url,
+        .caseNumber, .licensePlate, .wechatID, .url, .seal,
         .amount, .date, .unknown
     ]
 

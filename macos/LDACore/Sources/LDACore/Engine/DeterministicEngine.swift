@@ -7,9 +7,9 @@
 //  offsets matching Span.start and Span.end) and emits candidate Spans for the
 //  structured PII types that can be matched and validated without an LLM:
 //  EMAIL, PHONE, NATIONAL_ID, USCC, BANK_ACCOUNT, DATE, AMOUNT, CASE_NUMBER,
-//  LICENSE_PLATE, WECHAT_ID, URL, and the high-precision Chinese
+//  LICENSE_PLATE, WECHAT_ID, URL, SEAL, and the high-precision Chinese
 //  street-address shape of ADDRESS. The four types added for the 2026-08-29
-//  roadmap (CASE_NUMBER, LICENSE_PLATE, WECHAT_ID, URL) live in
+//  roadmap (CASE_NUMBER, LICENSE_PLATE, WECHAT_ID, URL) and SEAL live in
 //  StructuredEntityDetectors.swift; this file remains the ordering and
 //  priority authority.
 //
@@ -69,6 +69,7 @@ public struct DeterministicEngine: Sendable {
         spans.append(contentsOf: detectURL(ns, fullRange))
         spans.append(contentsOf: detectPhone(ns, fullRange))
         spans.append(contentsOf: detectWechatID(ns, fullRange))
+        spans.append(contentsOf: detectSeal(ns, fullRange))
         spans.append(contentsOf: detectChineseAddress(ns, fullRange))
         spans.append(contentsOf: detectBankAccount(ns, fullRange))
         spans.append(contentsOf: detectAmount(ns, fullRange))
@@ -96,6 +97,11 @@ public struct DeterministicEngine: Sendable {
         static let url = 75
         static let phone = 60
         static let wechatID = 58
+        // SEAL sits between WECHAT_ID and ADDRESS: its anchor is a closed
+        // literal set and its payload must end in an organization suffix, so
+        // it is more anchored than the address walk, and any deterministic
+        // priority already beats the LLM COMPANY spans it overlaps.
+        static let seal = 56
         static let address = 55
         static let bankAccount = 50
         static let amount = 45
@@ -112,6 +118,7 @@ public struct DeterministicEngine: Sendable {
         static let url = 0.9
         static let phone = 0.9
         static let wechatID = 0.9
+        static let seal = 0.9
         static let address = 0.9
         static let bankAccount = 0.85
         static let amount = 0.8

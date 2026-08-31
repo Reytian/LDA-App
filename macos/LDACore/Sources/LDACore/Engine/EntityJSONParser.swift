@@ -448,6 +448,8 @@ public enum EntityJSONParser {
             return .wechatID
         case "URL":
             return .url
+        case "SEAL":
+            return .seal
         default:
             return .unknown
         }
