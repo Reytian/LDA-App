@@ -30,8 +30,18 @@
 //    follows one of the candidate's own sites (the shorter replacement minted
 //    after the longer one).
 //
-//  Both rules only ever reject candidates that the finite document spells, so
-//  the generator's unbounded candidate sequence always escapes them.
+//  User-supplied replacement text (overrides) reaches the same analysis
+//  through overrideSeamConflict, which renders the corpus with the forced
+//  text in place and checks that the restore scan still attributes every
+//  emission site to the override that produced it. Forced text has no next
+//  candidate, so its caller rejects rather than advances.
+//
+//  Every rule here only ever rejects text that the finite document spells at
+//  an actual emission site, so the generator's unbounded candidate sequence
+//  always escapes them. A rule keyed on the abstract prefix RELATION between
+//  two replacement strings must never be added to the mint path: once the
+//  short candidates are spent it blocks every longer one and mint stops
+//  terminating.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -169,5 +179,143 @@ enum PseudonymSeamGuard {
             }
         }
         return false
+    }
+
+    // MARK: - Forced text (overrides)
+
+    /// One override emission site the literal restore scan would not
+    /// attribute to the override that produced it.
+    struct OverrideSeamConflict: Equatable {
+        /// The surface whose forced replacement lands on the bad site.
+        let surface: String
+        /// The forced replacement emitted there.
+        let replacement: String
+        /// The replacement the restore scan matches over that site instead.
+        let other: String
+    }
+
+    /// One override emission in the rendered document.
+    private struct OverrideSite {
+        let range: NSRange
+        let surface: String
+        let replacement: String
+    }
+
+    /// The first override site in `text` that the literal restore scan would
+    /// attribute to something other than the override that produced it.
+    ///
+    /// `text` is first rendered as the redacted document will read it: every
+    /// occurrence of an override surface becomes its forced replacement, the
+    /// longest surface winning at any shared position, exactly as Tokenizer
+    /// emits. That rendering is then scanned with the SAME accept rule the
+    /// restorer uses, and every emission site must come back as an exact
+    /// match for its own replacement. A site the scan misses, or attributes
+    /// to another replacement, is a seam: the document text before or after
+    /// the site runs together with the emitted replacement and spells
+    /// something else, which then wins the site.
+    ///
+    /// One condition covers both seam directions, because a match can only
+    /// take a site by starting at or before it. Minted pseudonyms answer a
+    /// seam by advancing to the next candidate; forced text has no next
+    /// candidate, so a caller rejects it instead.
+    ///
+    /// This reads only what the finite corpus spells at actual emission
+    /// sites, never the abstract relation between two replacement strings, so
+    /// it must never be wired into the unbounded mint loop: a rule keyed on
+    /// that relation blocks every longer candidate once the short ones are
+    /// spent, and minting stops terminating.
+    static func overrideSeamConflict(
+        in text: String,
+        overrides: [String: String],
+        otherReplacements: Set<String>
+    ) -> OverrideSeamConflict? {
+        let rendered = renderOverrides(in: text, overrides: overrides)
+        guard !rendered.sites.isEmpty else { return nil }
+
+        let scanned = otherReplacements.union(overrides.values)
+        let accepted = Restorer.acceptedLiteralMatches(
+            in: rendered.text,
+            replacements: Array(scanned)
+        )
+        var acceptedByLocation: [Int: String] = [:]
+        for match in accepted {
+            acceptedByLocation[match.range.location] = match.replacement
+        }
+
+        for site in rendered.sites {
+            if acceptedByLocation[site.range.location] == site.replacement {
+                continue
+            }
+            guard let stealer = accepted.first(where: {
+                NSIntersectionRange($0.range, site.range).length > 0
+            }) else { continue }
+            return OverrideSeamConflict(
+                surface: site.surface,
+                replacement: site.replacement,
+                other: stealer.replacement
+            )
+        }
+        return nil
+    }
+
+    /// The document with every override surface rendered as its forced
+    /// replacement, plus where each emission landed.
+    private struct RenderedOverrides {
+        let text: String
+        let sites: [OverrideSite]
+    }
+
+    /// Render every occurrence of every override surface as its replacement.
+    ///
+    /// Occurrences are found with the restorer's own accept rule, so the
+    /// longest surface wins at a shared position and no emitted text is ever
+    /// re-scanned. Rendering EVERY occurrence rather than only the detected
+    /// spans is deliberate: the caller validates before detection has run,
+    /// and a superset of the emission sites can only reject more.
+    private static func renderOverrides(
+        in text: String,
+        overrides: [String: String]
+    ) -> RenderedOverrides {
+        let matches = Restorer.acceptedLiteralMatches(
+            in: text,
+            replacements: Array(overrides.keys)
+        )
+        guard !matches.isEmpty else {
+            return RenderedOverrides(text: text, sites: [])
+        }
+
+        let nsText = text as NSString
+        var pieces: [String] = []
+        var sites: [OverrideSite] = []
+        var cursor = 0
+        var renderedLength = 0
+
+        // The generic matcher searches for whatever strings it is handed, so
+        // here match.replacement holds the override SURFACE it found.
+        for match in matches {
+            guard let replacement = overrides[match.replacement] else { continue }
+            if match.range.location > cursor {
+                let gap = nsText.substring(
+                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                )
+                pieces.append(gap)
+                renderedLength += gap.utf16.count
+            }
+            pieces.append(replacement)
+            sites.append(
+                OverrideSite(
+                    range: NSRange(location: renderedLength, length: replacement.utf16.count),
+                    surface: match.replacement,
+                    replacement: replacement
+                )
+            )
+            renderedLength += replacement.utf16.count
+            cursor = match.range.location + match.range.length
+        }
+
+        if cursor < nsText.length {
+            pieces.append(nsText.substring(from: cursor))
+        }
+        return RenderedOverrides(text: pieces.joined(), sites: sites)
     }
 }
