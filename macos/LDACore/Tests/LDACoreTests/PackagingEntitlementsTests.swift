@@ -48,6 +48,32 @@ final class PackagingEntitlementsTests: XCTestCase {
         )
     }
 
+    func testInfoPlistDeclaresTheReportDocumentType() throws {
+        // The encrypted report needs LDA to open it, so the app has to be the
+        // thing a double-click reaches. Without this declaration the format's
+        // "hand it to a colleague" promise stops at the Finder.
+        let info = try plist("Info.plist")
+
+        let documentTypes = try XCTUnwrap(info["CFBundleDocumentTypes"] as? [[String: Any]])
+        let report = try XCTUnwrap(documentTypes.first {
+            ($0["LSItemContentTypes"] as? [String])?
+                .contains(ComplianceReportArchive.uniformTypeIdentifier) == true
+        })
+        XCTAssertEqual(report["LSHandlerRank"] as? String, "Owner")
+
+        let exported = try XCTUnwrap(info["UTExportedTypeDeclarations"] as? [[String: Any]])
+        let declaration = try XCTUnwrap(exported.first {
+            $0["UTTypeIdentifier"] as? String == ComplianceReportArchive.uniformTypeIdentifier
+        })
+        XCTAssertEqual(declaration["UTTypeConformsTo"] as? [String], ["public.data"])
+        let tags = try XCTUnwrap(declaration["UTTypeTagSpecification"] as? [String: Any])
+        XCTAssertEqual(
+            tags["public.filename-extension"] as? [String],
+            [ComplianceReportArchive.fileExtension],
+            "the declared extension must match the one the app writes"
+        )
+    }
+
     func testSandboxEntitlementsAreExactlyWhatWeIntend() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let packageRoot = testFileURL

@@ -260,7 +260,8 @@ extension ReviewModel {
         outputDir: URL,
         passphrase: String?,
         createdAtISO8601: String,
-        style: SubstitutionStyle = .token
+        style: SubstitutionStyle = .token,
+        includeSealCandidates: Bool = true
     ) throws -> (export: ExportResult, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
@@ -302,6 +303,8 @@ extension ReviewModel {
         let redactedURL = outputDir.appendingPathComponent("\(redactedBaseName).\(redactedExt)")
         var embeddedMediaCount = 0
         var redactedImageURL: URL?
+        var sealCandidateCount = 0
+        var unboxedTokenCount = 0
 
         if sourceExt == "docx", let source {
             embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
@@ -331,33 +334,19 @@ extension ReviewModel {
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
         }
 
-        // Image source: also render the redacted PNG. The image is re-read
-        // here (export is a separate call from open, and the model stores no
-        // geometry); when its recognized text no longer matches the reviewed
-        // text, the ranges cannot be trusted to sit on the right lines, so
-        // the export fails closed instead of shipping a leaking "redacted"
-        // image. Whole observation boxes are covered; over-covering is
-        // acceptable, under-covering is a leak.
+        // Image source: also render the redacted PNG, and carry its two
+        // counts out for the window to report.
         if isImageSource, let source {
-            let extraction = try ImageTextExtractor().extract(source)
-            guard extraction.text == text else {
-                throw DocumentIOError.corrupt(
-                    "The image's recognized text no longer matches the reviewed "
-                        + "text (the file may have changed on disk). Re-open "
-                        + "\(source.lastPathComponent) and export again."
-                )
-            }
-            let coverage = ImageRedactor.coverage(
-                lines: extraction.lines,
-                replacedRanges: acceptedSpans.map { $0.start..<$0.end }
+            let artifact = try renderImageArtifact(
+                source: source,
+                reviewedText: text,
+                acceptedSpans: acceptedSpans,
+                includeSealCandidates: includeSealCandidates,
+                to: outputDir.appendingPathComponent("\(redactedBaseName).png")
             )
-            let imageURL = outputDir.appendingPathComponent("\(redactedBaseName).png")
-            try ImageRedactor.renderRedactedPNG(
-                originalImageAt: source,
-                covering: coverage.coveredLines,
-                to: imageURL
-            )
-            redactedImageURL = imageURL
+            redactedImageURL = artifact.url
+            sealCandidateCount = artifact.sealCandidateCount
+            unboxedTokenCount = artifact.unboxedTokenCount
         }
 
         let mappingURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
@@ -371,9 +360,64 @@ extension ReviewModel {
             mappingURL: mappingURL,
             tokenCount: tokenized.mapping.entries.count,
             embeddedMediaCount: embeddedMediaCount,
-            redactedImageURL: redactedImageURL
+            redactedImageURL: redactedImageURL,
+            sealCandidateCount: sealCandidateCount,
+            unboxedTokenCount: unboxedTokenCount
         )
         return (export: export, tokenBySurface: tokenBySurface(mapping: tokenized.mapping))
+    }
+
+    /// Render the redacted PNG for a standalone image source.
+    ///
+    /// The image is re-read here (export is a separate call from open, and the
+    /// model stores no geometry); when its recognized text no longer matches
+    /// the reviewed text, the ranges cannot be trusted to sit on the right
+    /// lines, so the export fails closed instead of shipping a leaking
+    /// "redacted" image. Whole observation boxes are covered; over-covering is
+    /// acceptable, under-covering is a leak.
+    ///
+    /// Two counts come back and must reach the user, exactly as they do on the
+    /// CLI route: how many red-region seal CANDIDATES entered the coverage
+    /// (candidates, never certain detections), and how many replaced values
+    /// the geometry could not box at all. The second one means the exported
+    /// PNG may still show a value the text companion redacted, so it is a
+    /// warning, never a dropped number.
+    ///
+    /// - Parameter includeSealCandidates: the document's own choice. Off means
+    ///   OCR coverage only, for a page whose red letterhead over-covers.
+    nonisolated static func renderImageArtifact(
+        source: URL,
+        reviewedText: String,
+        acceptedSpans: [Span],
+        includeSealCandidates: Bool,
+        to imageURL: URL
+    ) throws -> (url: URL, sealCandidateCount: Int, unboxedTokenCount: Int) {
+        let extraction = try ImageTextExtractor().extract(source)
+        guard extraction.text == reviewedText else {
+            throw DocumentIOError.corrupt(
+                "The image's recognized text no longer matches the reviewed "
+                    + "text (the file may have changed on disk). Re-open "
+                    + "\(source.lastPathComponent) and export again."
+            )
+        }
+        let coverage = ImageRedactor.coverage(
+            lines: extraction.lines,
+            replacedRanges: acceptedSpans.map { $0.start..<$0.end }
+        )
+        let sealCandidates = includeSealCandidates
+            ? try SealCandidateDetector.candidates(inImageAt: source)
+            : []
+        let render = try ImageRedactor.renderRedactedPNG(
+            originalImageAt: source,
+            covering: coverage.coveredLines,
+            sealCandidates: sealCandidates,
+            to: imageURL
+        )
+        return (
+            url: imageURL,
+            sealCandidateCount: render.sealCandidateCount,
+            unboxedTokenCount: coverage.unlocatedRangeCount
+        )
     }
 
     /// First base name (base, base_2, base_3, ...) whose edit-surface file AND

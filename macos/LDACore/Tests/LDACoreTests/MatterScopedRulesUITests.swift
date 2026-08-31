@@ -6,7 +6,9 @@
 //  selecting a matter adopts its stable scope id, the "apply learned rules to
 //  this matter only" toggle routes writes into the matter layer (persisted
 //  per matter under an id-only key), and the scoped facades reach every
-//  document model, including the real export write path.
+//  document model, including the real export write path, and an export in
+//  flight keeps writing into the matter it started in even when the user
+//  switches matter before it lands.
 //
 //  Hermetic: temp-rooted encrypted stores with passphrase protection, a
 //  suite-scoped UserDefaults, and test-only store base keys so the developer
@@ -19,6 +21,54 @@
 import XCTest
 @testable import LDACore
 @testable import LDAUI
+
+/// A two-phase gate the export worker runs into, so a matter switch can be
+/// staged BETWEEN the export's main-actor prefix and its main-actor tail with
+/// no timing luck. The test releases it once the switch has landed.
+private final class ExportGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+    private var released = false
+
+    var hasStarted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return started
+    }
+
+    func markStarted() {
+        lock.lock()
+        started = true
+        lock.unlock()
+    }
+
+    func release() {
+        lock.lock()
+        released = true
+        lock.unlock()
+    }
+
+    var isReleased: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return released
+    }
+}
+
+/// A fake model whose completion blocks until the test releases the gate. The
+/// bounded loop turns a broken test into a failure instead of a hung suite.
+private struct GatedCompleter: TextCompleter {
+    let gate: ExportGate
+
+    func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+        gate.markStarted()
+        for _ in 0..<400 {
+            if gate.isReleased { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return #"{"entities":[]}"#
+    }
+}
 
 @MainActor
 final class MatterScopedRulesUITests: XCTestCase {
@@ -35,6 +85,7 @@ final class MatterScopedRulesUITests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        assertNoTestSeamsInstalled()
         workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("MatterScopedRulesUITests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
@@ -44,6 +95,7 @@ final class MatterScopedRulesUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        ReviewModel.llmExtractorFactoryForTesting = nil
         suite.removePersistentDomain(forName: suiteName)
         for key in usedStorageKeys {
             LocalDataVault.deleteKey(account: "store.\(key)")
@@ -219,6 +271,96 @@ final class MatterScopedRulesUITests: XCTestCase {
         XCTAssertFalse(fixture.globalLearning.suppressKeys.contains(key))
     }
 
+    /// The leak this test exists to prevent. An export that takes real time
+    /// (the DOCX non-body pass runs the AI extractor) is in flight when the
+    /// user switches matter and confirms discarding documents. That switch
+    /// drops matter A's scope and flips the session's live write target back
+    /// to .global, and it detaches the in-flight model from the tray, so
+    /// nothing ever re-points it. The decisions in flight still belong to
+    /// matter A and must land in matter A's layer, never in the global layer
+    /// every other matter reads.
+    func testExportKeepsWritingIntoTheMatterItStartedInAcrossAMidFlightSwitch() async throws {
+        let fixture = makeScopedSession()
+        let session = fixture.session
+        XCTAssertTrue(try session.selectMatter("Matter A"))
+        try session.setScopeLearnedRulesToMatter(true)
+        let idA = try XCTUnwrap(session.matterScopeID)
+        trackMatterKeys(idA)
+
+        let docx = try writeDocxWithHeader(
+            body: "Mail \(Self.rejectedEmail) and \(Self.acceptedEmail) please."
+        )
+        await session.addDocuments([docx])
+        await session.anonymizeAll()
+        let model = session.entries[0].model
+        let rejectedID = try XCTUnwrap(
+            model.entities.first(where: { $0.span.text == Self.rejectedEmail })?.id,
+            "fixture: the scan must find the email that gets rejected"
+        )
+        model.setAccepted(rejectedID, false)
+        XCTAssertTrue(
+            model.entities.contains { $0.span.text == Self.acceptedEmail && $0.accepted },
+            "fixture: the other email stays accepted so the export really rewrites the docx"
+        )
+
+        // Stage a slow export: the non-body DOCX pass runs the AI extractor,
+        // which blocks in the gate until the matter switch has landed. The
+        // gate sits INSIDE the detached export worker, so the switch is
+        // provably after the export's main-actor prefix and before its tail.
+        let gate = ExportGate()
+        let dummyModel = workDir.appendingPathComponent("dummy.gguf")
+        try Data("placeholder".utf8).write(to: dummyModel)
+        ReviewModel.llmExtractorFactoryForTesting = { _, cancel in
+            LLMExtractor(completer: GatedCompleter(gate: gate), cancelToken: cancel)
+        }
+        model.useLLM = true
+        model.modelPath = dummyModel.path
+
+        let outDir = workDir.appendingPathComponent("out", isDirectory: true)
+        let exportTask = Task {
+            try await model.export(
+                to: outDir,
+                passphrase: "pw",
+                createdAtISO8601: Self.createdAt
+            )
+        }
+
+        var sawExportStart = false
+        for _ in 0..<400 {
+            if gate.hasStarted {
+                sawExportStart = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(sawExportStart, "fixture: the export must reach the gated AI pass")
+
+        XCTAssertTrue(try session.selectMatter("Matter B", discardingDocuments: true))
+        XCTAssertTrue(session.entries.isEmpty, "the switch detaches the in-flight model")
+        XCTAssertEqual(
+            session.learnedRuleWriteTarget,
+            .global,
+            "fixture: the live write target must have moved, or the race is not staged"
+        )
+
+        gate.release()
+        _ = try await exportTask.value
+
+        XCTAssertTrue(
+            matterLearningLayer(idA).suppressKeys.contains(
+                LearningStore.key(value: Self.rejectedEmail, type: .email)
+            ),
+            "the decision must be recorded in the matter the export started in"
+        )
+        // sortedTerms, not suppressKeys: a term is only NET rejected once, so
+        // asserting on the whole term list catches any write at all, in either
+        // direction, into the layer every other matter reads.
+        XCTAssertTrue(
+            fixture.globalLearning.sortedTerms.isEmpty,
+            "matter A's decisions leaked into the global layer every matter reads"
+        )
+    }
+
     // MARK: - Toggle persistence and key derivation
 
     func testToggleKeyEmbedsOnlyTheMatterID() {
@@ -287,5 +429,53 @@ final class MatterScopedRulesUITests: XCTestCase {
         XCTAssertFalse(
             session.emptyModel.customPatternProvider().contains { $0.text == "Project Nightjar" }
         )
+    }
+
+    // MARK: - DOCX fixture
+
+    private static let rejectedEmail = "john@acme.com"
+    private static let acceptedEmail = "jane@acme.com"
+
+    /// A minimal DOCX with a body paragraph AND a running header. The header
+    /// is what makes the export's non-body pass call the detector, which is
+    /// where the gated AI extractor sits. Fixture text carries no XML special
+    /// characters, so no escaping is needed here.
+    private func writeDocxWithHeader(body: String) throws -> URL {
+        let url = workDir.appendingPathComponent("matter-a.docx")
+        let contentTypesXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+        <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+        </Types>
+        """
+        let relsXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+        </Relationships>
+        """
+        let documentXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:body><w:p><w:r><w:t xml:space="preserve">\(body)</w:t></w:r></w:p></w:body>
+        </w:document>
+        """
+        let headerXML = """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:r><w:t xml:space="preserve">Running header for the matter.</w:t></w:r></w:p>
+        </w:hdr>
+        """
+        let parts: [(String, Data)] = [
+            ("[Content_Types].xml", Data(contentTypesXML.utf8)),
+            ("_rels/.rels", Data(relsXML.utf8)),
+            ("word/document.xml", Data(documentXML.utf8)),
+            ("word/header1.xml", Data(headerXML.utf8))
+        ]
+        try DocxZip.writeArchive(parts: parts, to: url)
+        return url
     }
 }

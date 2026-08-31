@@ -22,6 +22,16 @@
 //  particular is the re-identification key; writing it out as plaintext JSON
 //  would undo the reason MappingStore encrypts it in the first place.
 //
+//  3. ONLY DOCUMENTS ARE UNPACKED. The manifest is attacker-authored text, and
+//     unpacking used to write whatever it named. A workspace naming a nested
+//     .zip therefore delivered an archive the tray would go on to expand, on a
+//     second allowance, behind one user gesture. The manifest's documents are
+//     now checked against the types this app actually opens, and a workspace
+//     naming anything else is refused whole rather than partially opened: LDA's
+//     own writer records nothing but tray documents, so such a file did not
+//     come from LDA. The inflation ledger is passed in by the caller for the
+//     same reason; see ArchiveBudget.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -54,17 +64,28 @@ extension WorkspaceArchive {
     /// Requires nothing but the file and the passphrase: no Keychain item, no
     /// app store, no prior knowledge of the matter.
     ///
+    /// - Parameter budget: the ledger for the whole user-initiated open. The
+    ///   caller passes the SAME instance to anything else that import inflates,
+    ///   so opening a workspace cannot spend the ceiling twice.
     /// - Throws: WorkspaceArchiveError.wrongPassphrase, .createdByNewerVersion,
-    ///   .damagedFile, or .tooLarge.
-    public static func prepare(from url: URL, passphrase: String) throws -> PreparedWorkspace {
+    ///   .damagedFile, .unsupportedDocumentKind, or .tooLarge.
+    public static func prepare(
+        from url: URL,
+        passphrase: String,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> PreparedWorkspace {
         let zipBytes = try decryptPayload(at: url, passphrase: passphrase)
-        let reader = try WorkspaceZipReader(zipBytes: zipBytes)
+        let reader = try WorkspaceZipReader(zipBytes: zipBytes, budget: budget)
         return PreparedWorkspace(manifest: try readManifest(from: reader), reader: reader)
     }
 
     /// Decrypt and unpack a workspace file in one step.
-    public static func read(from url: URL, passphrase: String) throws -> OpenedWorkspace {
-        try prepare(from: url, passphrase: passphrase).unpack()
+    public static func read(
+        from url: URL,
+        passphrase: String,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> OpenedWorkspace {
+        try prepare(from: url, passphrase: passphrase, budget: budget).unpack()
     }
 
     /// Unpack a prepared workspace. Any failure removes the expansion first.
@@ -188,7 +209,8 @@ extension WorkspaceArchive {
     }
 
     /// Where one document unpacks to, refusing any path that would escape the
-    /// expansion directory (zip-slip) or that the manifest mislabels.
+    /// expansion directory (zip-slip), that the manifest mislabels, or that
+    /// names a type this app does not open.
     private static func destination(
         for record: WorkspaceDocumentRecord,
         under directory: URL
@@ -203,7 +225,27 @@ extension WorkspaceArchive {
         guard target.standardizedFileURL.path.hasPrefix(root + "/") else {
             throw WorkspaceArchiveError.damagedFile("It names a document outside the archive.")
         }
+        try requireOpenableKind(target.lastPathComponent, declaredName: record.name)
         return target
+    }
+
+    /// Refuse a manifest document whose file name is not one of the types the
+    /// tray opens.
+    ///
+    /// The check is on the name that reaches DISK, not on the manifest's
+    /// contentKind field: contentKind is a label, and what a later importer or
+    /// expansion acts on is the extension of the unpacked file. The whitelist
+    /// is ZipImporter's own supported set, so the workspace and the .zip import
+    /// agree on what a session document is by construction rather than by two
+    /// lists kept in step by hand.
+    private static func requireOpenableKind(
+        _ unpackedName: String,
+        declaredName: String
+    ) throws {
+        let ext = (unpackedName as NSString).pathExtension.lowercased()
+        guard ZipImporter.supportedExtensions.contains(ext) else {
+            throw WorkspaceArchiveError.unsupportedDocumentKind(name: declaredName)
+        }
     }
 }
 
@@ -211,25 +253,26 @@ extension WorkspaceArchive {
 
 /// The inner zip, indexed and metered.
 ///
-/// Every read charges one shared budget for bytes ACTUALLY inflated, using the
-/// same machinery and the same ceiling as the session .zip import: an archive
-/// that lies about its declared sizes is stopped mid-stream, not after.
+/// Every read charges the IMPORT's ledger for bytes ACTUALLY inflated, using
+/// the same machinery and the same ceiling as the session .zip import: an
+/// archive that lies about its declared sizes is stopped mid-stream, not after,
+/// and an open that also expands something else spends one allowance between
+/// them.
 final class WorkspaceZipReader {
 
     private let archive: Archive
     private let entries: [String: Entry]
-    private var budget: UInt64
+    private let budget: ArchiveBudget
     private let budgetMessage: String
 
-    init(zipBytes: Data) throws {
+    init(zipBytes: Data, budget: ArchiveBudget) throws {
         do {
             archive = try Archive(data: zipBytes, accessMode: .read)
         } catch {
             throw WorkspaceArchiveError.damagedFile("Its contents are not a readable archive.")
         }
-        budget = UInt64(ImportLimits.effectiveArchiveUncompressedBytes)
-        budgetMessage = "This workspace expands to more than "
-            + "\(ImportLimits.describe(bytes: ImportLimits.effectiveArchiveUncompressedBytes))."
+        self.budget = budget
+        budgetMessage = budget.refusalMessage(for: "This workspace")
 
         var index: [String: Entry] = [:]
         var examined = 0
@@ -256,14 +299,12 @@ final class WorkspaceZipReader {
     func data(at path: String) throws -> Data? {
         guard let entry = entries[path] else { return nil }
         do {
-            let result = try ZipExtraction.extractMeteredData(
+            return try ZipExtraction.extractMeteredData(
                 entry,
                 from: archive,
-                remainingBudget: budget,
+                budget: budget,
                 budgetMessage: budgetMessage
             )
-            budget = result.remainingBudget
-            return result.data
         } catch {
             throw WorkspaceZipReader.translate(error, path: path)
         }
@@ -285,11 +326,11 @@ final class WorkspaceZipReader {
             throw WorkspaceArchiveError.damagedFile("A document listed in the manifest is missing.")
         }
         do {
-            budget = try ZipExtraction.extractMetered(
+            try ZipExtraction.extractMetered(
                 entry,
                 from: archive,
                 to: target,
-                remainingBudget: budget,
+                budget: budget,
                 budgetMessage: budgetMessage
             )
         } catch {

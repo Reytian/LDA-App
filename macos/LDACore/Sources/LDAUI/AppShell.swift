@@ -82,6 +82,11 @@ public struct AppShell: View {
     /// WorkspaceFlow so this file does not grow another set of sheets.
     @StateObject private var workspaceFlow = WorkspaceFlowModel()
 
+    /// Which step of the export-or-open compliance report flow is on screen.
+    /// Same arrangement as the workspace flow, and for the same reason: the
+    /// panels and sheets live in ComplianceReportFlow, not in this file.
+    @StateObject private var reportFlow = ComplianceReportFlowModel()
+
     public init(
         session: SessionModel,
         isActive: Bool = true,
@@ -116,6 +121,9 @@ public struct AppShell: View {
             passphraseSheet
         }
         .workspaceFlow(session: session, flow: workspaceFlow) { message in
+            exportMessage = message
+        }
+        .complianceReportFlow(session: session, flow: reportFlow) { message in
             exportMessage = message
         }
         .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
@@ -267,7 +275,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canExportComplianceReport)
-                .help("Save a processing report (Markdown and PDF) of what this session's record holds")
+                .help(ComplianceReportPresentation.exportHelp)
             }
         }
     }
@@ -382,7 +390,8 @@ public struct AppShell: View {
             handoffCompletion = .copied(
                 documentCount: handoff.documentCount,
                 skippedCount: handoff.skippedCount,
-                rescanWarnings: handoff.rescanWarnings
+                rescanWarnings: handoff.rescanWarnings,
+                unresolvedSeams: handoff.unresolvedSeams
             )
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
@@ -463,7 +472,12 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
-            case .copied(let documentCount, let skippedCount, let rescanWarnings):
+            case .copied(
+                let documentCount,
+                let skippedCount,
+                let rescanWarnings,
+                let unresolvedSeams
+            ):
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Safe text copied")
                         .font(.callout.weight(.semibold))
@@ -484,41 +498,29 @@ public struct AppShell: View {
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // A seam the session pass could not repair. Unlike every
+                    // other warning on this card, the user cannot verify it
+                    // by reading the copied text: the copy is correct and the
+                    // damage only appears once the AI's reply is restored. So
+                    // the engine's own line is shown verbatim under the
+                    // advice, naming the document and the swap.
+                    if let seamAdvice = AnonymizeWorkflowPresentation
+                        .unresolvedSeamAdvice(for: unresolvedSeams) {
+                        Text(seamAdvice)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(CounselTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(Array(unresolvedSeams.enumerated()), id: \.offset) { _, seam in
+                            Text(seam)
+                                .font(.caption2)
+                                .foregroundStyle(CounselTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
 
             case .exported(let result, let protection):
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Redacted document saved")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Document: \(result.redactedURL.lastPathComponent)")
-                        .font(.caption)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(result.redactedURL.lastPathComponent)
-                    Text("Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)")
-                        .font(.caption)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help("\(result.mappingURL.lastPathComponent), \(protection)")
-                    if let imageURL = result.redactedImageURL {
-                        Text("Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable")
-                            .font(.caption)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(imageURL.lastPathComponent)
-                    }
-                    if result.embeddedMediaCount > 0 {
-                        Text("Warning: \(result.embeddedMediaCount) embedded image"
-                            + (result.embeddedMediaCount == 1 ? " was" : "s were")
-                            + " copied without scanning.")
-                            .font(.caption)
-                            .foregroundStyle(CounselTheme.danger)
-                    }
-                }
+                exportedCompletionDetails(result: result, protection: protection)
             }
 
             Spacer(minLength: 12)
@@ -743,6 +745,10 @@ public struct AppShell: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
+            if model.canChooseSealCandidates {
+                sealCandidateToggle
+            }
+
             Spacer(minLength: 0)
 
             if let exportMessage {
@@ -759,6 +765,95 @@ public struct AppShell: View {
             }
             scanButton(title: "Re-scan", prominent: false)
         }
+    }
+
+    /// What one finished export wrote, and what the user still has to check.
+    /// Informational lines and warnings are deliberately different colors: a
+    /// boxed candidate is the feature working, an unboxed value is something
+    /// the exported image may still show.
+    @ViewBuilder
+    private func exportedCompletionDetails(
+        result: ExportResult,
+        protection: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Redacted document saved")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            completionFileLine(
+                "Document: \(result.redactedURL.lastPathComponent)",
+                help: result.redactedURL.lastPathComponent
+            )
+            completionFileLine(
+                "Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)",
+                help: "\(result.mappingURL.lastPathComponent), \(protection)"
+            )
+            if let imageURL = result.redactedImageURL {
+                completionFileLine(
+                    "Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable",
+                    help: imageURL.lastPathComponent
+                )
+            }
+            if let candidates = ImageExportPresentation
+                .sealCandidateDetail(count: result.sealCandidateCount) {
+                completionNote(candidates, color: CounselTheme.textSecondary)
+            }
+            if let unboxed = ImageExportPresentation
+                .unboxedWarning(count: result.unboxedTokenCount) {
+                completionNote(unboxed, color: CounselTheme.danger)
+            }
+            if result.embeddedMediaCount > 0 {
+                completionNote(
+                    "Warning: \(result.embeddedMediaCount) embedded image"
+                        + (result.embeddedMediaCount == 1 ? " was" : "s were")
+                        + " copied without scanning.",
+                    color: CounselTheme.danger
+                )
+            }
+        }
+    }
+
+    /// One written-file line: single line, middle-truncated, full name on hover.
+    private func completionFileLine(_ text: String, help: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(CounselTheme.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(help)
+    }
+
+    /// One wrapping note under the written-file lines.
+    private func completionNote(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The per-document seal candidate choice. Shown only for image
+    /// documents, through the model's gate rather than a local condition, so
+    /// every entry point agrees on when the choice exists.
+    private var sealCandidateToggle: some View {
+        Toggle(
+            ImageExportPresentation.sealCandidateToggleTitle,
+            isOn: sealCandidateBinding
+        )
+        .toggleStyle(.checkbox)
+        .font(.callout)
+        .foregroundStyle(CounselTheme.textSecondary)
+        .help(ImageExportPresentation.sealCandidateToggleHelp)
+    }
+
+    /// Reads and writes the choice on whichever document is active NOW. The
+    /// binding deliberately does not capture the ReviewModel: the tray can
+    /// change the active document under an open banner, and a captured model
+    /// would keep writing to the document the user left.
+    private var sealCandidateBinding: Binding<Bool> {
+        Binding(
+            get: { session.activeModel.includeSealCandidates },
+            set: { session.activeModel.includeSealCandidates = $0 }
+        )
     }
 
     /// Shared banner container chrome. Every banner row ends with the labeled
@@ -938,14 +1033,16 @@ public struct AppShell: View {
     /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
     /// on the same view conflict and silently fail to present. Folders are
     /// selectable too (F3): each one contributes its supported documents
-    /// recursively, budget-checked before anything enters the tray.
+    /// recursively, budget-checked before anything enters the tray. A .zip
+    /// INSIDE a folder is not one of them; only an archive the user picks
+    /// directly expands. See FolderImporter.supportedExtensions.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of documents. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
@@ -973,6 +1070,12 @@ public struct AppShell: View {
             // mid-import; leaking one can make later opens of the same URL fail.
             defer { releaseScopes() }
             await session.addDocuments(resolved)
+            // A refused archive shows where a refused folder shows. Without
+            // this the document would simply not appear and the user would be
+            // left guessing which of their files the app dropped.
+            if let failure = session.importFailure {
+                exportMessage = failure
+            }
         }
     }
 
@@ -1000,32 +1103,15 @@ public struct AppShell: View {
         passphrase = ""
     }
 
-    /// Export the session's compliance report (report.md plus report.pdf)
-    /// into a chosen directory. Mirrors beginExport's directory flow; there is
-    /// no passphrase sheet because the report is value-free by construction
-    /// (see ComplianceReport).
+    /// Export the session's compliance report. The report carries NO protected
+    /// value, but it does carry the matter label and every document name, and
+    /// in PRC legal practice those names are the parties, which is why the
+    /// record it renders is encrypted at rest. So the export is passphrase
+    /// protected by default, like the workspace file, and the readable pair is
+    /// an explicit choice on the sheet. The panels and the sheet live in
+    /// ComplianceReportFlow.
     private func beginReportExport() {
-        guard session.canExportComplianceReport else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for the processing report (Markdown and PDF)."
-        panel.prompt = "Export Here"
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
-        let needsScope = dir.startAccessingSecurityScopedResource()
-        defer { if needsScope { dir.stopAccessingSecurityScopedResource() } }
-        do {
-            let written = try session.exportComplianceReport(
-                to: dir,
-                generatedAtISO8601: ISO8601DateFormatter().string(from: Date())
-            )
-            exportMessage = "Report saved: \(written.markdown.lastPathComponent) and "
-                + "\(written.pdf.lastPathComponent)."
-        } catch {
-            exportMessage = "Report export failed. \(error.localizedDescription)"
-        }
+        reportFlow.requestExport()
     }
 
     private func confirmExport() {
@@ -1089,7 +1175,8 @@ private enum HandoffCompletion: Equatable {
     case copied(
         documentCount: Int,
         skippedCount: Int,
-        rescanWarnings: [SessionModel.RescanWarning]
+        rescanWarnings: [SessionModel.RescanWarning],
+        unresolvedSeams: [String]
     )
     case exported(result: ExportResult, protection: String)
 }

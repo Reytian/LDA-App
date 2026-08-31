@@ -10,9 +10,15 @@
 //  whole set through any member's handle.
 //
 //  Handle-first: the arguments are vault handles, never paths, and the
-//  response carries handles and aggregate counts only. The optional client
-//  label is INBOUND seeding data (it selects which stored identities to reuse)
-//  and is never echoed back.
+//  response carries handles, aggregate counts, and the seam warning below. The
+//  optional client label is INBOUND seeding data (it selects which stored
+//  identities to reuse) and is never echoed back.
+//
+//  unresolvedSeams is the one non-aggregate thing that rides out: the sites
+//  this session would restore to the WRONG party. It has to, because the
+//  redacted artifacts and the sidecar are written and look ordinary, so an
+//  agent has no other way to learn the set is unsafe. Its lines are rewritten
+//  in the caller's own vocabulary first; see handleScopedSeamLines.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -20,6 +26,39 @@
 
 import Foundation
 import LDACore
+
+// MARK: - Testing seam
+
+extension MCPServer {
+#if DEBUG
+    /// Debug-only injection of a custom client mapping root. Production uses
+    /// ClientMappingStore's Application Support default. Tests point this at a
+    /// hermetic temp directory before exercising anonymize_session with a
+    /// client label, and clear it in defer.
+    ///
+    /// Compiled out of release builds and lock guarded; see TestSeam. Without
+    /// it a test that seeds a carried-in matter would have to write into the
+    /// real user's client store, which is the one place a test must never
+    /// touch.
+    internal static let clientStoreSeam = TestSeam<URL>()
+
+    internal static var clientStoreRootForTesting: URL? {
+        get { clientStoreSeam.value }
+        set { clientStoreSeam.value = newValue }
+    }
+#endif
+
+    /// The client mapping root the session tool should use: the debug seam when
+    /// a test installed one, otherwise nil so ClientMappingStore picks its own
+    /// Application Support default. Release builds always return nil.
+    static var effectiveClientStoreRoot: URL? {
+#if DEBUG
+        return clientStoreRootForTesting
+#else
+        return nil
+#endif
+    }
+}
 
 // MARK: - Session tool handler (extension on MCPServer)
 
@@ -54,7 +93,9 @@ extension MCPServer {
         var clientProtection: MappingProtection?
         var seed: Mapping?
         if let clientLabel {
-            let store = try ClientMappingStore()
+            let store = try ClientMappingStore(
+                rootDirectory: MCPServer.effectiveClientStoreRoot
+            )
             let protection: MappingProtection
             if let passphrase = arguments["passphrase"] as? String, !passphrase.isEmpty {
                 protection = .passphrase(passphrase)
@@ -68,14 +109,18 @@ extension MCPServer {
 
         let createdAt = MCPServer.iso8601Now()
         let style = try styleArgument(from: arguments)
-        let session = try vault.withPlaintextFileURLs(handles: handles) { inputs in
-            try LDAService.anonymizeSession(
+        // The scratch filenames are captured INSIDE the closure: the URLs must
+        // not outlive it, and only the opaque names are kept, purely so the
+        // seam lines can be rewritten in terms of the caller's handles below.
+        let (session, scratchNames) = try vault.withPlaintextFileURLs(handles: handles) { inputs in
+            let result = try LDAService.anonymizeSession(
                 inputs: inputs,
                 createdAtISO8601: createdAt,
                 llmModelPath: modelPath,
                 seedMapping: seed,
                 style: style
             )
+            return (result, inputs.map { $0.lastPathComponent })
         }
 
         if let clientLabel, let clientStore, let clientProtection {
@@ -126,7 +171,16 @@ extension MCPServer {
                 "documents": documents,
                 "totalEntityCount": allSpans.count,
                 "entityTypes": entityTypeStrings(allSpans),
-                "perTypeCounts": MCPServer.perTypeCounts(allSpans)
+                "perTypeCounts": MCPServer.perTypeCounts(allSpans),
+                // Sites this session would restore to a DIFFERENT party's real
+                // name. Empty in the ordinary case. Non-empty means the
+                // artifacts above are written, look finished, and must not be
+                // relied on: nothing later in the round trip catches this.
+                "unresolvedSeams": MCPServer.handleScopedSeamLines(
+                    session.unresolvedSeams,
+                    scratchNames: scratchNames,
+                    handles: handles
+                )
             ]
         } catch {
             // Discard only the slots that never made it into the registry; a
@@ -137,6 +191,45 @@ extension MCPServer {
                 vault.abort(slot: slot)
             }
             throw error
+        }
+    }
+}
+
+// MARK: - Seam lines at the boundary
+
+extension MCPServer {
+
+    /// Rewrite the engine's seam lines so they name the caller's handles.
+    ///
+    /// Each line begins with SessionDocument.name, which on this path is the
+    /// lastPathComponent of a vault scratch plaintext file
+    /// (pt_<pid>_<hex>.<ext>, see DocumentVaultEncryption.withScratchPlaintext).
+    /// That name derives nothing from the user's own filename, so no document
+    /// name can leak through it, which matters because a PRC legal filename is
+    /// itself PII. It is still the wrong word to hand back: it carries the host
+    /// PID, and it names a file the caller can neither see nor act on.
+    ///
+    /// So every occurrence is replaced by the handle the caller passed for that
+    /// document, the identifier already sitting in the response's documents
+    /// array. Replacing every occurrence rather than only the leading one keeps
+    /// this total: whatever the engine's line format becomes, no scratch name
+    /// survives it. Scratch names are long random strings, so there is no
+    /// realistic collision with the rest of a line.
+    ///
+    /// What remains in a line is replacement strings, which are boundary-safe
+    /// for the same reason restore's ambiguousReplacements are: they are what
+    /// the redacted text already shows.
+    static func handleScopedSeamLines(
+        _ seams: [String],
+        scratchNames: [String],
+        handles: [String]
+    ) -> [String] {
+        guard !seams.isEmpty else { return [] }
+        let renames = Array(zip(scratchNames, handles))
+        return seams.map { line in
+            renames.reduce(line) { partial, rename in
+                partial.replacingOccurrences(of: rename.0, with: rename.1)
+            }
         }
     }
 }

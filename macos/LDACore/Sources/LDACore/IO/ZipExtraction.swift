@@ -12,6 +12,11 @@
 //  ZipImporter learned this the hard way, and the workspace reader must not
 //  learn it again separately.
 //
+//  The second rule, learned later: the budget is a LEDGER handed in by the
+//  caller, never minted here. One user-initiated import spends one allowance,
+//  so nesting an archive inside an archive cannot multiply it. See
+//  ArchiveBudget.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -19,22 +24,21 @@
 import Foundation
 import ZIPFoundation
 
-/// Metered extraction of single zip entries against a shared byte budget.
+/// Metered extraction of single zip entries against one import's ledger.
 enum ZipExtraction {
 
-    /// Extract one entry to `target`, charging the budget for each inflated
-    /// chunk and aborting the moment the budget runs out.
+    /// Extract one entry to `target`, charging the import's ledger for each
+    /// inflated chunk and aborting the moment the allowance runs out.
     ///
-    /// - Returns: the budget left after the entry.
     /// - Throws: DocumentIOError.tooLarge when the budget is exhausted, or the
     ///   underlying write error.
     static func extractMetered(
         _ entry: Entry,
         from archive: Archive,
         to target: URL,
-        remainingBudget: UInt64,
+        budget: ArchiveBudget,
         budgetMessage: String
-    ) throws -> UInt64 {
+    ) throws {
         guard FileManager.default.createFile(atPath: target.path, contents: nil) else {
             throw DocumentIOError.unreadable(
                 "Could not create \(target.lastPathComponent) in the expansion directory."
@@ -43,15 +47,13 @@ enum ZipExtraction {
         let handle = try FileHandle(forWritingTo: target)
         defer { try? handle.close() }
 
-        var budget = remainingBudget
         _ = try archive.extract(entry) { chunk in
-            budget = try charge(chunk.count, against: budget, message: budgetMessage)
+            try budget.charge(chunk.count, message: budgetMessage)
             try handle.write(contentsOf: chunk)
         }
-        return budget
     }
 
-    /// Extract one entry into memory under the same budget.
+    /// Extract one entry into memory under the same ledger.
     ///
     /// Used for the small JSON members of a workspace archive. They stay in
     /// memory on purpose: the session mapping is the re-identification key, and
@@ -60,31 +62,14 @@ enum ZipExtraction {
     static func extractMeteredData(
         _ entry: Entry,
         from archive: Archive,
-        remainingBudget: UInt64,
+        budget: ArchiveBudget,
         budgetMessage: String
-    ) throws -> (data: Data, remainingBudget: UInt64) {
-        var budget = remainingBudget
+    ) throws -> Data {
         var collected = Data()
         _ = try archive.extract(entry) { chunk in
-            budget = try charge(chunk.count, against: budget, message: budgetMessage)
+            try budget.charge(chunk.count, message: budgetMessage)
             collected.append(chunk)
         }
-        return (collected, budget)
-    }
-
-    /// Charge `produced` bytes against `budget`, or throw when it does not fit.
-    /// UInt64 throughout: a crafted ZIP64 entry can declare a size above
-    /// Int.max, and a non-truncating Int conversion of that value would trap
-    /// before any guard could run.
-    private static func charge(
-        _ produced: Int,
-        against budget: UInt64,
-        message: String
-    ) throws -> UInt64 {
-        let amount = UInt64(produced)
-        guard amount <= budget else {
-            throw DocumentIOError.tooLarge(message)
-        }
-        return budget - amount
+        return collected
     }
 }

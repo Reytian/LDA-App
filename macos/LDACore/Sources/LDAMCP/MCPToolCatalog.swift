@@ -110,7 +110,7 @@ extension MCPServer {
         ],
         [
             "name": "anonymize_session",
-            "description": "Anonymize several staged documents (by handle) as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Each document gets its own redacted handle; the shared encrypted sidecar stays inside the vault.",
+            "description": "Anonymize several staged documents (by handle) as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Each document gets its own redacted handle; the shared encrypted sidecar stays inside the vault. CHECK unresolvedSeams in the response: when it is non-empty, restoring puts a DIFFERENT party's real name at the listed sites, and the redacted output looks completely ordinary, so nothing later in the round trip will catch it.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

@@ -55,6 +55,19 @@ public enum PseudonymOverrideError: Error, LocalizedError, Equatable, Sendable {
         replacement: String,
         other: String
     )
+    /// The redacted document would spell a DIFFERENT replacement across the
+    /// seam where this one is emitted. The document text on either side of a
+    /// site joins the emitted replacement into another entity's replacement
+    /// (or into this same one at the wrong offset), and the literal restore
+    /// scan then attributes the site to that other match. A minted pseudonym
+    /// escapes this by advancing to another candidate; forced text has no
+    /// next candidate, so it is rejected. See
+    /// PseudonymSeamGuard.overrideSeamConflict.
+    case seamSpellsAnotherReplacement(
+        surface: String,
+        replacement: String,
+        other: String
+    )
 
     public var errorDescription: String? {
         switch self {
@@ -72,6 +85,8 @@ public enum PseudonymOverrideError: Error, LocalizedError, Equatable, Sendable {
             return "The custom replacement \"\(replacement)\" for \"\(surface)\" already appears in the session documents."
         case .prefixOfAnotherReplacement(let surface, let replacement, let other):
             return "The custom replacement \"\(replacement)\" for \"\(surface)\" and the replacement \"\(other)\" are in a prefix relation: one of them starts with the other, so the document text next to the shorter one could complete the longer one and restore would substitute the wrong entity. Choose text that neither starts with nor begins another replacement."
+        case .seamSpellsAnotherReplacement(let surface, let replacement, let other):
+            return "The custom replacement \"\(replacement)\" for \"\(surface)\" cannot be told apart where it is used: the document text next to it spells \"\(other)\" across the join, so restore would substitute the wrong entity there. Choose text that the surrounding document text cannot run together into another replacement."
         }
     }
 }
@@ -122,6 +137,65 @@ public enum PseudonymOverrideValidator {
                 claimed: &claimed
             )
         }
+        try validateSeams(
+            overrides: overrides,
+            corpus: corpus,
+            existingEntries: existingEntries
+        )
+    }
+
+    /// Reject any override whose emission sites the literal restore scan
+    /// would not attribute to it.
+    ///
+    /// The per-pair checks above compare replacement STRINGS to each other
+    /// and to the natural corpus. Neither sees the seam where an emitted
+    /// replacement meets the document text around it: 代理人 emitted after
+    /// the document's own 甲方 spells 甲方代理人, which the scan then hands to
+    /// whichever entity owns that replacement. The whole override set is
+    /// needed at once (its members are each other's seam partners), so this
+    /// is a second pass over the set as a whole rather than a per-pair check.
+    ///
+    /// Documents are visited in corpus order and sites in document order, so
+    /// the reported conflict is deterministic.
+    private static func validateSeams(
+        overrides: [String: String],
+        corpus: [String],
+        existingEntries: [String: MappingEntry]
+    ) throws {
+        let others = replacementsSpokenForElsewhere(
+            overrides: overrides,
+            entries: existingEntries
+        )
+        for text in corpus {
+            guard let conflict = PseudonymSeamGuard.overrideSeamConflict(
+                in: text,
+                overrides: overrides,
+                otherReplacements: others
+            ) else { continue }
+            throw PseudonymOverrideError.seamSpellsAnotherReplacement(
+                surface: conflict.surface,
+                replacement: conflict.replacement,
+                other: conflict.other
+            )
+        }
+    }
+
+    /// Replacements already spoken for by mapping entries that no override
+    /// rebinds. An entry whose surface an override takes over is excluded:
+    /// its replacement is no longer emitted for that surface, so it is not a
+    /// seam partner.
+    private static func replacementsSpokenForElsewhere(
+        overrides: [String: String],
+        entries: [String: MappingEntry]
+    ) -> Set<String> {
+        var others = Set<String>()
+        for entry in entries.values where !entry.token.isEmpty {
+            let rebound = overrides.keys.contains { covers(entry, surface: $0) }
+            if !rebound {
+                others.insert(entry.token)
+            }
+        }
+        return others
     }
 
     /// Validate one override pair, recording its replacement in the claimed

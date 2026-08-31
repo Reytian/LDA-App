@@ -240,9 +240,17 @@ extension DeterministicEngine {
     ///     (华为 contains 为, 经贸 contains 经), and leaving the head of a
     ///     name in cleartext is a leak while absorbing a leading 加盖 is
     ///     cosmetic over-capture. Over-covering is the accepted direction.
-    ///   - A Latin organization name part stops the walk and stays out, the
-    ///     same accepted limitation as the address walk; the LLM COMPANY
-    ///     pass still owns Latin names.
+    ///     This is also why 经办部门为总公司公章 over-captures the boilerplate
+    ///     lead-in: every candidate stop character there is a legal name
+    ///     character somewhere else, so tightening it means under-capturing
+    ///     some real name, and an under-captured name is a leak.
+    ///   - Latin letters and digits ARE part of the payload: registered names
+    ///     beginning with them are ordinary (ABC科技有限公司, 3M中国有限公司).
+    ///     Stopping the walk there truncated the span, and SpanMerger then let
+    ///     the truncated span evict the wider LLM COMPANY span, leaving the
+    ///     initial in cleartext. SpanMerger now absorbs rather than evicts, so
+    ///     a payload the walk cannot reach (a name longer than the bound, or
+    ///     one broken by punctuation) stays covered by the COMPANY span.
     func detectSeal(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
         enumerate(Self.sealAnchorPattern, in: ns, range: range) { match in
@@ -274,8 +282,20 @@ extension DeterministicEngine {
 
     /// Organization suffixes a seal payload must end with, longest first so
     /// a longer suffix is checked before a shorter one it contains.
+    ///
+    /// The bare forms 所, 会, 学, and 处 are deliberately ABSENT: 所有, 所以,
+    /// 本所, 开会, 法学, and 盖章处 are ordinary words and boilerplate, so a bare
+    /// suffix would mint seal spans over text carrying no organization name at
+    /// all. Each is admitted only in an unambiguous compound (事务所 / 研究所 /
+    /// 派出所, 协会 / 商会 / 工会 / 学会 / 基金会 / 联合会, 大学 / 中学 / 小学 /
+    /// 学校, 办事处). The single-unit entries that remain (局, 厅, 厂, 院, 社) do
+    /// not read as common standalone words in the only position this check
+    /// looks at, which is immediately before a seal word.
     private static let sealOrgSuffixes = [
-        "委员会", "事务所", "公司", "银行", "中心", "集团", "局", "厂", "院"
+        "委员会", "事务所", "研究所", "派出所", "办事处", "基金会", "联合会",
+        "公司", "银行", "分行", "支行", "中心", "集团", "政府",
+        "协会", "商会", "工会", "学会", "大学", "中学", "小学", "学校",
+        "局", "厅", "厂", "院", "社"
     ]
 
     /// How far left the payload walk may reach, in UTF-16 units, suffix
@@ -288,11 +308,11 @@ extension DeterministicEngine {
     /// payload. Returns nil when the text immediately before the anchor does
     /// not end with an organization suffix (the boilerplate case).
     ///
-    /// The walk absorbs contiguous CJK ideographs only, so punctuation,
-    /// whitespace, and any non-CJK character pin the left edge. A
-    /// supplementary-plane character ends the walk rather than being
-    /// consumed: Unicode.Scalar of a lone surrogate code unit is nil, so the
-    /// boundary can never land inside a surrogate pair.
+    /// The walk absorbs contiguous name characters, so punctuation,
+    /// whitespace, and symbols pin the left edge. A supplementary-plane
+    /// character ends the walk rather than being consumed: Unicode.Scalar of a
+    /// lone surrogate code unit is nil, so the boundary can never land inside
+    /// a surrogate pair.
     private func sealPayloadStart(_ ns: NSString, anchorStart: Int) -> Int? {
         guard let suffixLength = Self.sealOrgSuffixLength(ns, endingAt: anchorStart) else {
             return nil
@@ -302,11 +322,34 @@ extension DeterministicEngine {
         var walked = suffixLength
         while walked < Self.maxSealPayloadLength, left > 0 {
             guard let scalar = Unicode.Scalar(ns.character(at: left - 1)),
-                  scalar.value >= 0x4E00, scalar.value <= 0x9FA5 else { break }
+                  Self.isSealPayloadScalar(scalar) else { break }
             left -= 1
             walked += 1
         }
         return left
+    }
+
+    /// CJK ideographs, the bulk of any PRC registered name.
+    private static let cjkIdeographs: ClosedRange<UInt32> = 0x4E00...0x9FA5
+    /// ASCII digits, uppercase, and lowercase.
+    private static let asciiDigits: ClosedRange<UInt32> = 0x30...0x39
+    private static let asciiUppercase: ClosedRange<UInt32> = 0x41...0x5A
+    private static let asciiLowercase: ClosedRange<UInt32> = 0x61...0x7A
+
+    /// Characters the payload walk absorbs: CJK ideographs plus ASCII letters
+    /// and digits.
+    ///
+    /// The Latin and digit part is load-bearing, not a convenience. Latin or
+    /// digit initial registered names are ordinary (ABC科技有限公司,
+    /// 3M中国有限公司, TCL集团股份有限公司), and stopping the walk at the initial
+    /// emitted a span covering only the CJK tail. That truncated span then
+    /// evicted the wider LLM COMPANY span in SpanMerger and the initial
+    /// survived into the redacted output in cleartext.
+    private static func isSealPayloadScalar(_ scalar: Unicode.Scalar) -> Bool {
+        cjkIdeographs.contains(scalar.value)
+            || asciiDigits.contains(scalar.value)
+            || asciiUppercase.contains(scalar.value)
+            || asciiLowercase.contains(scalar.value)
     }
 
     /// The length of the organization suffix ending exactly at `end`, or nil

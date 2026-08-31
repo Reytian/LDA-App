@@ -236,6 +236,11 @@ enum DocxParts {
     /// Literal-style counterpart of restoreNonBodyParts: re-substitute every
     /// unambiguous replacement string across the non-body text parts. Used
     /// for pseudonym and asterisk mappings.
+    ///
+    /// Each part is decided over its own whole concatenated text rather than
+    /// run by run, so a replacement split across runs by Word is resolved on
+    /// the string a reader sees. A part whose restore throws is left as it was
+    /// rather than written half done.
     static func restoreNonBodyPartsLiteral(
         url: URL,
         plan: Restorer.LiteralRestorePlan
@@ -244,18 +249,9 @@ enum DocxParts {
         for path in textBearingPartPaths(in: url) {
             guard let data = try? DocxZip.readEntry(path, from: url),
                   var layout = try? DocxDocumentXML.parse(data) else { continue }
-            var changed = false
-            for index in layout.segments.indices {
-                guard case .runText(let text) = layout.segments[index] else { continue }
-                let replaced = Restorer.substituteLiteralReplacements(in: text, plan: plan)
-                if replaced != text {
-                    layout.segments[index] = .runText(replaced)
-                    changed = true
-                }
-            }
-            if changed {
-                replacements[path] = DocxDocumentXML.serialize(layout)
-            }
+            guard let outcome = try? DocxRedactor.restoreLiteralInLayout(&layout, plan: plan),
+                  outcome.restoredCount > 0 else { continue }
+            replacements[path] = DocxDocumentXML.serialize(layout)
         }
         return replacements
     }
