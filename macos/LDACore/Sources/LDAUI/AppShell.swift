@@ -77,6 +77,11 @@ public struct AppShell: View {
     /// what the Keychain is really doing.
     @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
 
+    /// Which step of the save-or-open workspace flow is on screen. The flow
+    /// itself (panels, sheets, and the replace-live-work prompt) lives in
+    /// WorkspaceFlow so this file does not grow another set of sheets.
+    @StateObject private var workspaceFlow = WorkspaceFlowModel()
+
     public init(
         session: SessionModel,
         isActive: Bool = true,
@@ -109,6 +114,9 @@ public struct AppShell: View {
         .toolbar { toolbarContent }
         .sheet(isPresented: $isPromptingPassphrase) {
             passphraseSheet
+        }
+        .workspaceFlow(session: session, flow: workspaceFlow) { message in
+            exportMessage = message
         }
         .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
             OnboardingView(
@@ -239,6 +247,18 @@ public struct AppShell: View {
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
                 .help("Save a redacted document plus the encrypted mapping needed to restore it")
+
+                // Next to Save Redacted, because it is the other thing a user
+                // saves at the end of a sitting: the redacted output goes out,
+                // the workspace stays with the matter.
+                Button {
+                    workspaceFlow.requestSave()
+                } label: {
+                    Label("Save Workspace", systemImage: "shippingbox")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(!session.canSaveWorkspace)
+                .help(WorkspacePresentation.saveHelp)
 
                 Button {
                     beginReportExport()
