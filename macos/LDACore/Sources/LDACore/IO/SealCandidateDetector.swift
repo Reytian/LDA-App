@@ -87,6 +87,19 @@ public enum SealCandidateDetector {
         return mergeIntersecting(rects)
     }
 
+    /// Scan an image FILE for red-region seal candidates.
+    ///
+    /// The decoding entry point is internal to this module, so callers outside
+    /// LDACore (the GUI export path) reach the scan through this convenience
+    /// rather than decoding a raster themselves.
+    ///
+    /// - Throws: DocumentIOError when the file cannot be decoded, and whatever
+    ///   candidates(in:) throws, so a failed scan is never silently reported
+    ///   as "no candidates".
+    public static func candidates(inImageAt url: URL) throws -> [CGRect] {
+        try candidates(in: ImageTextExtractor.loadImage(at: url))
+    }
+
     /// The red-dominance predicate, on RGBA8 channel values (premultiplied
     /// alpha; opaque documents are unaffected). Internal so the threshold is
     /// testable directly.

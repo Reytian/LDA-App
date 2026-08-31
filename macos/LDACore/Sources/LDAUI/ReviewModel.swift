@@ -90,19 +90,32 @@ public struct ExportResult: Equatable {
     /// standalone image. Destructive by design and never restorable; the
     /// redactedURL text companion is the restore surface.
     public let redactedImageURL: URL?
+    /// How many red-region seal CANDIDATE boxes entered the redacted image's
+    /// coverage. Candidates only, never certain seal detections. Always 0 for
+    /// non-image sources and when the document's candidate toggle is off.
+    public let sealCandidateCount: Int
+    /// How many replaced values the image geometry could not box. Non-zero
+    /// means the UI must warn: the value IS replaced in the text companion and
+    /// the mapping, but the exported PNG may still show it. Always 0 for
+    /// non-image sources.
+    public let unboxedTokenCount: Int
 
     public init(
         redactedURL: URL,
         mappingURL: URL,
         tokenCount: Int,
         embeddedMediaCount: Int = 0,
-        redactedImageURL: URL? = nil
+        redactedImageURL: URL? = nil,
+        sealCandidateCount: Int = 0,
+        unboxedTokenCount: Int = 0
     ) {
         self.redactedURL = redactedURL
         self.mappingURL = mappingURL
         self.tokenCount = tokenCount
         self.embeddedMediaCount = embeddedMediaCount
         self.redactedImageURL = redactedImageURL
+        self.sealCandidateCount = sealCandidateCount
+        self.unboxedTokenCount = unboxedTokenCount
     }
 }
 
@@ -165,6 +178,14 @@ public final class ReviewModel: ObservableObject {
     /// to the matter-scope toggle; the default preserves the pre-scoping
     /// behavior, where every write lands in the global layer.
     public var learningWriteTarget: () -> ScopeTarget = { .global }
+
+    /// Whether the image export also boxes red-region seal CANDIDATES. On by
+    /// default, because for a stamped document under-covering is the failure
+    /// that leaks. Per document and not persisted: the choice belongs to the
+    /// page in front of the user, and a red-letterhead document that
+    /// over-covers must not turn the channel off for the next one. Ignored
+    /// for every source that is not a standalone image.
+    @Published public var includeSealCandidates: Bool = true
 
     /// A short summary of what learning contributed to the last run, for example
     /// "Applied 2 learned terms, hid 1 you rejected before." nil when nothing.
@@ -256,6 +277,21 @@ public final class ReviewModel: ObservableObject {
         exportRequestToken += 1
     }
 
+    /// True when the open document is a standalone image, the one source kind
+    /// that produces a redacted PNG alongside the text companion.
+    public var isImageDocument: Bool {
+        guard let sourceURL else { return false }
+        return ImageTextExtractor.shouldTreatAsImage(
+            sourceURL,
+            extension: sourceURL.pathExtension.lowercased()
+        )
+    }
+
+    /// True when the seal candidate choice means anything here. The gate, not
+    /// any single control: the toggle, its menu item, and its keyboard path
+    /// all read this rather than re-deriving the condition.
+    public var canChooseSealCandidates: Bool { isImageDocument }
+
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
     private var sourceURL: URL?
@@ -342,6 +378,9 @@ public final class ReviewModel: ObservableObject {
         progress = 0
         etaText = nil
         aiWarning = nil
+        // The candidate choice is per document, so a model reused across
+        // documents starts each one from the covering default.
+        includeSealCandidates = true
 
         do {
             let text = try await Task.detached(priority: .userInitiated) {
@@ -710,6 +749,7 @@ public final class ReviewModel: ObservableObject {
         // provide. The export writes where it was started.
         let learningLayer = learningStore
         let learningTarget = learningWriteTarget()
+        let wantsSealCandidates = includeSealCandidates
 
         let result = try await Task.detached(priority: .userInitiated) {
             try Self.performExport(
@@ -722,7 +762,8 @@ public final class ReviewModel: ObservableObject {
                 outputDir: outputDir,
                 passphrase: passphrase,
                 createdAtISO8601: createdAtISO8601,
-                style: style
+                style: style,
+                includeSealCandidates: wantsSealCandidates
             )
         }.value
 
