@@ -417,12 +417,14 @@ public final class SessionModel: ObservableObject {
             )
         }
         let label = clientLabel ?? (ready.first.map { $0.name } ?? "session")
-        let result = SessionTokenizer.tokenize(
+        let style = outputStyleProvider()
+        let result = try SessionTokenizer.tokenize(
             documents: documents,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
             seedMapping: seed,
-            style: outputStyleProvider()
+            style: style,
+            overrides: activePseudonymOverrides(for: style)
         )
         // Record the full-name/short-name grouping in the shared mapping,
         // mirroring LDAService.anonymizeSession. Tokens and values are
@@ -745,6 +747,38 @@ public final class SessionModel: ObservableObject {
         }
     }
 
+    // MARK: - Editable pseudonym replacements (F5)
+
+    /// User-forced replacement text keyed by the exact surface, applied to
+    /// every later hand-to-AI build of this session (pseudonym style only).
+    @Published public private(set) var pseudonymOverrides: [String: String] = [:]
+
+    /// Set, replace, or clear (nil or empty replacement) the forced
+    /// replacement for one surface. The WHOLE updated set is validated
+    /// against the session corpus and the mapping entries already in force,
+    /// so a rejected edit changes nothing.
+    public func setPseudonymOverride(surface: String, replacement: String?) throws {
+        let trimmed = replacement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var updated = pseudonymOverrides
+        updated[surface] = trimmed.isEmpty ? nil : trimmed
+        if !updated.isEmpty {
+            try PseudonymOverrideValidator.validate(
+                overrides: updated,
+                style: outputStyleProvider(),
+                corpus: entries.map { $0.model.documentText },
+                existingEntries: sessionMapping?.entries ?? [:]
+            )
+        }
+        pseudonymOverrides = updated
+    }
+
+    /// The overrides the build applies: the stored set under the pseudonym
+    /// style, empty otherwise. Overrides are a pseudonym-only feature, and a
+    /// style change in Settings must never break the next build.
+    func activePseudonymOverrides(for style: SubstitutionStyle) -> [String: String] {
+        style == .pseudonym ? pseudonymOverrides : [:]
+    }
+
     /// Resume an awaiting-AI parked session after a relaunch: reload the
     /// parked mapping (and its client label) so Restore from AI works without
     /// redoing anything. No-op when nothing is parked.
@@ -982,6 +1016,9 @@ public final class SessionModel: ObservableObject {
         sessionMapping = nil
         currentRecordID = nil
         sessionNote = nil
+        // Overrides reference this session's surfaces; they must not follow
+        // the user across a matter boundary.
+        pseudonymOverrides = [:]
         // The matter boundary moved: drop the outgoing matter's scope. When a
         // matter is being selected, selectMatter adopts its real scope id and
         // persisted toggle right after this call.

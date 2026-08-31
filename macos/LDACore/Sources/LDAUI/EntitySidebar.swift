@@ -31,9 +31,21 @@ public struct EntitySidebar: View {
     /// True while the add-a-missed-term popover is presented.
     @State private var isAddingTerm = false
 
+    /// The persisted output style, observed so switching styles in Settings
+    /// shows or hides the pseudonym editing affordances live (F5).
+    @AppStorage(AISettings.outputStyleKey) private var outputStyleRaw =
+        SubstitutionStyle.token.rawValue
+
     public init(session: SessionModel, model: ReviewModel) {
         self.session = session
         self.model = model
+    }
+
+    /// Whether replacement editing is available (pseudonym style only).
+    private var isPseudonymEditingAvailable: Bool {
+        PseudonymEditingPresentation.isEditingAvailable(
+            style: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token
+        )
     }
 
     public var body: some View {
@@ -85,7 +97,8 @@ public struct EntitySidebar: View {
                                 isSelected: model.selectedGroupID == group.id,
                                 onSetAccepted: { accepted in
                                     model.setAccepted(ids: group.ids, accepted)
-                                }
+                                },
+                                pseudonymEditing: pseudonymEditingContext(for: group)
                             )
                             .tag(group.id)
                             .listRowBackground(rowBackground(for: group.id))
@@ -127,40 +140,77 @@ public struct EntitySidebar: View {
         }
     }
 
+    // MARK: - Pseudonym editing (F5)
+
+    /// The editing context for one group row, or nil when the affordance is
+    /// hidden (non-pseudonym styles). Editing applies to accepted values via
+    /// the row itself; the session validates and stores every edit.
+    private func pseudonymEditingContext(for group: ReviewGroup) -> PseudonymEditingContext? {
+        guard isPseudonymEditingAvailable else { return nil }
+        return PseudonymEditingContext(
+            currentReplacement: PseudonymEditingPresentation.currentReplacement(
+                override: session.pseudonymOverrides[group.value],
+                assignedToken: group.token
+            ),
+            hasOverride: session.pseudonymOverrides[group.value] != nil,
+            onSubmit: { replacement in
+                do {
+                    try session.setPseudonymOverride(
+                        surface: group.value,
+                        replacement: replacement
+                    )
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }
+        )
+    }
+
     // MARK: - Footer
 
     /// A thin footer pinned to the lower-left with a Settings gear and the
-    /// add-a-missed-term control (R5).
+    /// add-a-missed-term control (R5), plus the pseudonym editing footnote
+    /// while that style is active.
     private var sidebarFooter: some View {
-        HStack(spacing: 6) {
-            Button {
-                openSettings()
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14, weight: .regular))
+        VStack(alignment: .leading, spacing: 4) {
+            if isPseudonymEditingAvailable, !model.entities.isEmpty {
+                Text(PseudonymEditingPresentation.footnote)
+                    .font(.caption2)
                     .foregroundStyle(CounselTheme.textSecondary)
-                    .frame(width: 30, height: 28)
-                    .contentShape(Rectangle())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.borderless)
-            .help("Settings")
-            .accessibilityLabel(Text("Settings"))
-
-            Spacer(minLength: 0)
-
-            if !model.documentText.isEmpty {
+            HStack(spacing: 6) {
                 Button {
-                    isAddingTerm = true
+                    openSettings()
                 } label: {
-                    Label("Protect a missed item", systemImage: "plus.circle")
-                        .font(.system(size: 12))
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(CounselTheme.textSecondary)
+                        .frame(width: 30, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Add something the detection missed; every occurrence will be redacted")
-                .accessibilityLabel(Text("Protect a missed item"))
-                .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
-                    AddTermPopover(model: model, isPresented: $isAddingTerm)
+                .help("Settings")
+                .accessibilityLabel(Text("Settings"))
+
+                Spacer(minLength: 0)
+
+                if !model.documentText.isEmpty {
+                    Button {
+                        isAddingTerm = true
+                    } label: {
+                        Label("Protect a missed item", systemImage: "plus.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add something the detection missed; every occurrence will be redacted")
+                    .accessibilityLabel(Text("Protect a missed item"))
+                    .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
+                        AddTermPopover(model: model, isPresented: $isAddingTerm)
+                    }
                 }
             }
         }
@@ -280,16 +330,41 @@ private struct SectionHeader: View {
     }
 }
 
+// MARK: - Pseudonym editing context (F5)
+
+/// Editing support for one group's replacement text. nil hides the affordance
+/// entirely (token and asterisk styles).
+struct PseudonymEditingContext {
+    /// The replacement the row shows: the user's override, or the one the
+    /// most recent build assigned (nil before the first build).
+    let currentReplacement: String?
+    /// True when the shown replacement is a user override (enables clearing).
+    let hasOverride: Bool
+    /// Validate and store one edit. Returns nil on success, or the
+    /// human-readable rejection to show inline. An empty string clears the
+    /// override.
+    let onSubmit: (String) -> String?
+}
+
 // MARK: - EntityRow
 
 /// One dense group row: a type dot, the serif value, a quiet caption (type,
 /// source, and an occurrence count when the value repeats), and a single accept
 /// toggle that applies to every occurrence. Rejected rows read dimmed; the
-/// assigned token, when present, renders as a sealed mono chip.
+/// assigned token, when present, renders as a sealed mono chip. Under the
+/// pseudonym style the chip's text is editable through a small popover.
 private struct EntityGroupRow: View {
     let group: ReviewGroup
     let isSelected: Bool
     let onSetAccepted: (Bool) -> Void
+    let pseudonymEditing: PseudonymEditingContext?
+
+    /// True while the replacement editing popover is presented.
+    @State private var isEditingReplacement = false
+    /// The draft replacement text inside the popover.
+    @State private var replacementDraft = ""
+    /// The inline rejection from the last submit, if any.
+    @State private var replacementError: String?
 
     private var accepted: Bool { group.anyAccepted }
 
@@ -334,7 +409,8 @@ private struct EntityGroupRow: View {
     }
 
     /// The value in serif, truncated, an occurrence-count pill when it repeats,
-    /// and the sealed token chip once a token has been assigned.
+    /// the sealed replacement chip once one exists, and the pseudonym edit
+    /// affordance when the style allows it.
     private var valueLine: some View {
         HStack(spacing: 6) {
             Text(group.value)
@@ -354,9 +430,85 @@ private struct EntityGroupRow: View {
                     )
             }
 
-            if accepted, let token = group.token {
-                TokenChip(token: token, type: group.type)
+            if accepted, let shown = pseudonymEditing?.currentReplacement ?? group.token {
+                TokenChip(token: shown, type: group.type)
             }
+
+            if accepted, let pseudonymEditing {
+                Button {
+                    replacementDraft = pseudonymEditing.currentReplacement ?? ""
+                    replacementError = nil
+                    isEditingReplacement = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.caption)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Edit the replacement text used for this value")
+                .accessibilityLabel(Text("Edit replacement for \(group.value)"))
+                .popover(isPresented: $isEditingReplacement, arrowEdge: .trailing) {
+                    replacementPopover(pseudonymEditing)
+                }
+            }
+        }
+    }
+
+    /// The small replacement editor: one field, inline validation, and a way
+    /// back to the automatic pseudonym.
+    private func replacementPopover(_ editing: PseudonymEditingContext) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Replacement for \"\(group.value)\"")
+                .font(.headline)
+                .foregroundStyle(CounselTheme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Text("This text stands in for the value in the safe copy. "
+                + "It cannot already appear in the session documents.")
+                .font(.caption)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Replacement text", text: $replacementDraft)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { submitReplacement(editing) }
+
+            if let replacementError {
+                Text(replacementError)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                if editing.hasOverride {
+                    Button("Use Automatic") {
+                        replacementError = editing.onSubmit("")
+                        if replacementError == nil { isEditingReplacement = false }
+                    }
+                    .help("Go back to the automatically chosen pseudonym")
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { isEditingReplacement = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Use This Text") { submitReplacement(editing) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
+                    .disabled(replacementDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
+    }
+
+    private func submitReplacement(_ editing: PseudonymEditingContext) {
+        replacementError = editing.onSubmit(replacementDraft)
+        if replacementError == nil {
+            isEditingReplacement = false
         }
     }
 
