@@ -3,9 +3,9 @@
 //  LDACoreTests
 //
 //  Gated integration test for the fill-from-profile pipeline using a real
-//  on-device GGUF model. Skipped unless the model is present at one of:
-//    1. The path in the LDA_MODEL_PATH environment variable.
-//    2. ~/Developer/lda-models/lda-v2-Q4_K_M.gguf (default packaging path).
+//  on-device GGUF model. LiveModelTestSupport resolves the model path and
+//  skips cleanly when the model is absent, and holds a machine-wide lock while
+//  the model is resident so a concurrent test process cannot starve the GPU.
 //
 //  Run with:
 //    LDA_MODEL_PATH=/path/to/model.gguf swift test --filter FillLiveModelTests
@@ -47,22 +47,6 @@ final class FillLiveModelTests: XCTestCase {
         }
         workDir = nil
         try super.tearDownWithError()
-    }
-
-    // MARK: - Guard helper (mirrors LDAServiceLLMTests.resolveModelPath)
-
-    /// Resolve the GGUF model path from the environment or the default packaging
-    /// location. Returns nil when neither is present.
-    private func resolveModelPath() -> String? {
-        if let env = ProcessInfo.processInfo.environment["LDA_MODEL_PATH"],
-           FileManager.default.fileExists(atPath: env) {
-            return env
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let candidate = home
-            .appendingPathComponent("Developer/lda-models/lda-v2-Q4_K_M.gguf")
-            .path
-        return FileManager.default.fileExists(atPath: candidate) ? candidate : nil
     }
 
     // MARK: - Fixture helpers
@@ -207,43 +191,41 @@ final class FillLiveModelTests: XCTestCase {
     /// applyFill must produce a filled document that contains the extracted
     /// company name.
     func testExtractProfileAndFillWithRealModel() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip(
-                "GGUF model not present; set LDA_MODEL_PATH or place the model at "
-                    + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf"
+        // withLiveModel holds a machine-wide lock while the model is resident:
+        // a second test process loading it at the same time exhausts unified
+        // memory, and llama.cpp answers with garbage rather than throwing.
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            // MARK: Part 1 - extractProfile
+
+            let certURL = try writeCertificateText()
+
+            let extracted = try LDAService.extractProfile(
+                sources: [certURL],
+                label: "MeridianLive",
+                modelPath: modelPath,
+                createdAtISO8601: Self.createdAt
             )
-        }
 
-        // MARK: Part 1 - extractProfile
+            let profile = extracted.profile
 
-        let certURL = try writeCertificateText()
-
-        let extracted = try LDAService.extractProfile(
-            sources: [certURL],
-            label: "MeridianLive",
-            modelPath: modelPath,
-            createdAtISO8601: Self.createdAt
-        )
-
-        let profile = extracted.profile
-
-        // The model must extract at least companyName.
-        let companyNameField = profile.fields.first { $0.key == .companyName }
-        XCTAssertNotNil(
-            companyNameField,
-            "extractProfile with a real model must surface companyName; got fields: "
-                + profile.fields.map { $0.key.rawKey }.joined(separator: ", ")
-        )
-
-        // The extracted companyName snippet must be grounded in the source text.
-        if let field = companyNameField {
-            XCTAssertTrue(
-                field.snippetVerified,
-                "companyName snippet must be grounded (snippetVerified=true); "
-                    + "value=\(field.value), snippet=\(field.sourceSnippet)"
+            // The model must extract at least companyName.
+            let companyNameField = profile.fields.first { $0.key == .companyName }
+            XCTAssertNotNil(
+                companyNameField,
+                "extractProfile with a real model must surface companyName; got fields: "
+                    + profile.fields.map { $0.key.rawKey }.joined(separator: ", ")
             )
-            // The profile is now in hand; use it for Part 2.
-            try runFillPart(profile: profile, extractedCompanyName: field.value, modelPath: modelPath)
+
+            // The extracted companyName snippet must be grounded in the source text.
+            if let field = companyNameField {
+                XCTAssertTrue(
+                    field.snippetVerified,
+                    "companyName snippet must be grounded (snippetVerified=true); "
+                        + "value=\(field.value), snippet=\(field.sourceSnippet)"
+                )
+                // The profile is now in hand; use it for Part 2.
+                try runFillPart(profile: profile, extractedCompanyName: field.value, modelPath: modelPath)
+            }
         }
     }
 
@@ -261,53 +243,51 @@ final class FillLiveModelTests: XCTestCase {
     /// must propose at least one fill; confirming proposed-valued blanks and calling
     /// applyFill must produce a filled document that contains the extracted value.
     func testIndividualKindLiveExtractionAndFill() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip(
-                "GGUF model not present; set LDA_MODEL_PATH or place the model at "
-                    + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf"
+        // withLiveModel holds a machine-wide lock while the model is resident:
+        // a second test process loading it at the same time exhausts unified
+        // memory, and llama.cpp answers with garbage rather than throwing.
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            // MARK: Part 1 - extractProfile (kind .individual)
+
+            let letterURL = try writeIdentityLetterText()
+
+            let extracted = try LDAService.extractProfile(
+                sources: [letterURL],
+                label: "JohnDoeLive",
+                kind: .individual,
+                modelPath: modelPath,
+                createdAtISO8601: Self.createdAt
             )
-        }
 
-        // MARK: Part 1 - extractProfile (kind .individual)
+            let profile = extracted.profile
 
-        let letterURL = try writeIdentityLetterText()
+            // The model must extract at least one of: clientName or passportNumber.
+            let clientNameField   = profile.fields.first { $0.key == .clientName }
+            let passportField     = profile.fields.first { $0.key == .passportNumber }
 
-        let extracted = try LDAService.extractProfile(
-            sources: [letterURL],
-            label: "JohnDoeLive",
-            kind: .individual,
-            modelPath: modelPath,
-            createdAtISO8601: Self.createdAt
-        )
-
-        let profile = extracted.profile
-
-        // The model must extract at least one of: clientName or passportNumber.
-        let clientNameField   = profile.fields.first { $0.key == .clientName }
-        let passportField     = profile.fields.first { $0.key == .passportNumber }
-
-        let surfacedSomething = clientNameField != nil || passportField != nil
-        XCTAssertTrue(
-            surfacedSomething,
-            "extractProfile with kind=.individual must surface clientName or passportNumber; "
-                + "got fields: "
-                + profile.fields.map { $0.key.rawKey }.joined(separator: ", ")
-        )
-
-        // The first surfaced field must be grounded (snippetVerified == true).
-        let anchorField = clientNameField ?? passportField
-        if let anchor = anchorField {
+            let surfacedSomething = clientNameField != nil || passportField != nil
             XCTAssertTrue(
-                anchor.snippetVerified,
-                "\(anchor.key.rawKey) snippet must be grounded (snippetVerified=true); "
-                    + "value=\(anchor.value), snippet=\(anchor.sourceSnippet)"
+                surfacedSomething,
+                "extractProfile with kind=.individual must surface clientName or passportNumber; "
+                    + "got fields: "
+                    + profile.fields.map { $0.key.rawKey }.joined(separator: ", ")
             )
-            // Part 2 uses whichever field surfaced first.
-            try runIndividualFillPart(
-                profile: profile,
-                anchorField: anchor,
-                modelPath: modelPath
-            )
+
+            // The first surfaced field must be grounded (snippetVerified == true).
+            let anchorField = clientNameField ?? passportField
+            if let anchor = anchorField {
+                XCTAssertTrue(
+                    anchor.snippetVerified,
+                    "\(anchor.key.rawKey) snippet must be grounded (snippetVerified=true); "
+                        + "value=\(anchor.value), snippet=\(anchor.sourceSnippet)"
+                )
+                // Part 2 uses whichever field surfaced first.
+                try runIndividualFillPart(
+                    profile: profile,
+                    anchorField: anchor,
+                    modelPath: modelPath
+                )
+            }
         }
     }
 

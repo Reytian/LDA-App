@@ -14,10 +14,39 @@ import XCTest
 @MainActor
 final class LearningStoreTests: XCTestCase {
 
+    /// Suites and store keys minted by this test instance, removed in tearDown
+    /// so nothing survives the run and nothing shared is touched.
+    private var usedSuiteNames: [String] = []
+    private var usedStorageKeys: Set<String> = []
+
+    override func tearDownWithError() throws {
+        for name in usedSuiteNames {
+            UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
+        }
+        usedSuiteNames = []
+        // The store seals its blob under "store." + storageKey. A fixed key
+        // would be the same Keychain account in every concurrent test process.
+        for key in usedStorageKeys {
+            LocalDataVault.deleteKey(account: StoreBlobKeys.vaultAccount(key))
+        }
+        usedStorageKeys = []
+        try super.tearDownWithError()
+    }
+
+    private func freshDefaults() -> UserDefaults {
+        let (defaults, name) = TestNamespace.defaults("learning-store")
+        usedSuiteNames.append(name)
+        return defaults
+    }
+
+    private func freshStorageKey() -> String {
+        let key = TestNamespace.storeBaseKey("learning-store")
+        usedStorageKeys.insert(key)
+        return key
+    }
+
     private func freshStore() -> LearningStore {
-        let suite = "lda.test.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        return LearningStore(defaults: defaults, storageKey: "k")
+        LearningStore(defaults: freshDefaults(), storageKey: freshStorageKey())
     }
 
     func testAcceptedFuzzyValueBecomesRedactPattern() {
@@ -58,12 +87,12 @@ final class LearningStoreTests: XCTestCase {
     }
 
     func testPersistsAcrossInstances() {
-        let suite = "lda.test.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        let first = LearningStore(defaults: defaults, storageKey: "k")
+        let defaults = freshDefaults()
+        let storageKey = freshStorageKey()
+        let first = LearningStore(defaults: defaults, storageKey: storageKey)
         first.record(accepted: [("Acme Holdings", .company)], rejected: [])
 
-        let second = LearningStore(defaults: defaults, storageKey: "k")
+        let second = LearningStore(defaults: defaults, storageKey: storageKey)
         XCTAssertEqual(second.redactPatterns.map { $0.text }, ["Acme Holdings"])
     }
 

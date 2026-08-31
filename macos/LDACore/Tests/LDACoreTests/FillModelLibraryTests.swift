@@ -40,7 +40,7 @@ final class FillModelLibraryTests: XCTestCase {
         // Probe the Keychain so library tests skip cleanly on unsigned processes.
         // Duplicated from FillModelTests (see file header for rationale).
         let probeService = "ai.openclaw.lda.libraryindexkey"
-        let probeAccount = "fillmodellibrary-test-probe-\(UUID().uuidString)"
+        let probeAccount = TestNamespace.keychainAccount("fillmodellibrary-probe")
         let probeData = Data("probe".utf8)
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

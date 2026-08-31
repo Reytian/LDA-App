@@ -142,7 +142,7 @@ final class ModelManagementTests: XCTestCase {
     // MARK: - Offline mode
 
     private func offlineDefaults(_ on: Bool) -> UserDefaults {
-        let suite = "lda.tests.offline.\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("model-offline")
         let d = UserDefaults(suiteName: suite)!
         d.removePersistentDomain(forName: suite)
         d.set(on, forKey: AISettings.offlineModeKey)
@@ -150,7 +150,7 @@ final class ModelManagementTests: XCTestCase {
     }
 
     func testOfflineModeIsOffByDefault() {
-        let suite = "lda.tests.offline.\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("model-offline")
         let d = UserDefaults(suiteName: suite)!
         d.removePersistentDomain(forName: suite)
         XCTAssertFalse(AISettings.isOfflineMode(defaults: d))

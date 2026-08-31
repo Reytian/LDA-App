@@ -167,7 +167,7 @@ final class ModelInstallerTests: XCTestCase {
     // MARK: - Offline mode
 
     func testOfflineModeRefusesWithoutTouchingTheNetwork() {
-        let suite = "lda.tests.installer.offline.\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("installer-offline")
         let d = UserDefaults(suiteName: suite)!
         d.removePersistentDomain(forName: suite)
         d.set(true, forKey: AISettings.offlineModeKey)

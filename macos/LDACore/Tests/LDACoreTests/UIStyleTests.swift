@@ -23,7 +23,7 @@ import XCTest
 final class AISettingsOutputStyleTests: XCTestCase {
 
     func testDefaultOutputStyleIsToken() throws {
-        let suiteName = "AISettingsOutputStyle-\(UUID().uuidString)"
+        let suiteName = TestNamespace.suiteName("ui-style")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -31,7 +31,7 @@ final class AISettingsOutputStyleTests: XCTestCase {
     }
 
     func testOutputStyleRoundTripsThroughDefaults() throws {
-        let suiteName = "AISettingsOutputStyle-\(UUID().uuidString)"
+        let suiteName = TestNamespace.suiteName("ui-style")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -42,7 +42,7 @@ final class AISettingsOutputStyleTests: XCTestCase {
     }
 
     func testUnknownStoredValueFallsBackToToken() throws {
-        let suiteName = "AISettingsOutputStyle-\(UUID().uuidString)"
+        let suiteName = TestNamespace.suiteName("ui-style")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

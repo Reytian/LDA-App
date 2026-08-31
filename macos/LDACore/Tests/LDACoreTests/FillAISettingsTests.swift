@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class FillAISettingsTests: XCTestCase {
     func testApplyingAISettingsUpdatesFillModelPath() throws {
-        let suiteName = "FillAISettingsTests-" + UUID().uuidString
+        let suiteName = TestNamespace.suiteName("fill-ai-settings")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

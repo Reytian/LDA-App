@@ -36,7 +36,7 @@ final class PortfolioLibraryTests: XCTestCase {
         // Probe the Keychain before creating any state so we skip cleanly on
         // unsigned test processes that cannot access the Keychain.
         let probeService = "ai.openclaw.lda.libraryindexkey"
-        let probeAccount = "portfolio-library-test-probe-\(UUID().uuidString)"
+        let probeAccount = TestNamespace.keychainAccount("portfolio-library-probe")
         let probeData = Data("probe".utf8)
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

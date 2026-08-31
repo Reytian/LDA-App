@@ -210,6 +210,12 @@ public final class SessionModel: ObservableObject {
     /// older app versions. New parked matter labels stay encrypted.
     public static let parkedClientLabelKey = "com.haotianyi.LDA.parkedClientLabel"
 
+    /// Where the legacy parked-label key is read and cleared. Injectable so a
+    /// test can prove the label never lands in UserDefaults without touching
+    /// the standard domain, which is one domain per user and therefore shared
+    /// by every concurrent test process on the machine.
+    public var legacyDefaults: () -> UserDefaults = { .standard }
+
     /// Applied to every newly created document model (custom vocabulary,
     /// learning store). Set by the app after init; applied retroactively to
     /// the empty model and any existing entries when set.
@@ -582,7 +588,7 @@ public final class SessionModel: ObservableObject {
             clientLabel: clientLabel
         )
         try saveParkedSession(parked, parkedURL, parkedProtection())
-        UserDefaults.standard.removeObject(forKey: Self.parkedClientLabelKey)
+        legacyDefaults().removeObject(forKey: Self.parkedClientLabelKey)
 
         return HandToAIResult(
             combined: combined,
@@ -926,12 +932,13 @@ public final class SessionModel: ObservableObject {
         guard let mapping = try? MappingStore.load(from: url, protection: protection) else {
             return nil
         }
+        let defaults = legacyDefaults()
         let parked = ParkedSessionState(
             mapping: mapping,
-            clientLabel: UserDefaults.standard.string(forKey: Self.parkedClientLabelKey)
+            clientLabel: defaults.string(forKey: Self.parkedClientLabelKey)
         )
         if (try? ParkedSessionStore.save(parked, to: url, protection: protection)) != nil {
-            UserDefaults.standard.removeObject(forKey: Self.parkedClientLabelKey)
+            defaults.removeObject(forKey: Self.parkedClientLabelKey)
         }
         return parked
     }

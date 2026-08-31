@@ -53,6 +53,10 @@ final class SessionModelTests: XCTestCase {
 
     private var workDir: URL!
 
+    /// Suites and store keys minted by this test instance.
+    private var usedSuiteNames: [String] = []
+    private var usedStorageKeys: Set<String> = []
+
     override func setUpWithError() throws {
         try super.setUpWithError()
         workDir = FileManager.default.temporaryDirectory
@@ -61,6 +65,16 @@ final class SessionModelTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        for name in usedSuiteNames {
+            UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
+        }
+        usedSuiteNames = []
+        // LearningStore seals its blob under "store." + storageKey. Drop only
+        // the process-unique keys this instance minted.
+        for key in usedStorageKeys {
+            LocalDataVault.deleteKey(account: StoreBlobKeys.vaultAccount(key))
+        }
+        usedStorageKeys = []
         try? FileManager.default.removeItem(at: workDir)
         try super.tearDownWithError()
     }
@@ -98,7 +112,19 @@ final class SessionModelTests: XCTestCase {
         let parkedURL = workDir.appendingPathComponent("parked-test.ldamap")
         session.parkedMappingURL = { parkedURL }
         session.parkedProtection = { .passphrase("parked-pw") }
+        // The legacy parked-label key lives in UserDefaults. Its production
+        // domain is the standard one, which is shared by every concurrent test
+        // process, so give each session a private suite.
+        let legacy = legacyDefaults()
+        session.legacyDefaults = { legacy }
         return session
+    }
+
+    /// A private UserDefaults suite standing in for the shared standard domain.
+    private func legacyDefaults() -> UserDefaults {
+        let (defaults, name) = TestNamespace.defaults("session-legacy")
+        usedSuiteNames.append(name)
+        return defaults
     }
 
     /// A session whose models run the AI pass against a scripted fake model.
@@ -115,8 +141,11 @@ final class SessionModelTests: XCTestCase {
     /// A hermetic learning store: its own UserDefaults suite, so a test never
     /// reads or writes what the developer's own use of the app has learned.
     private func freshLearningStore() -> LearningStore {
-        let defaults = UserDefaults(suiteName: "lda.test.\(UUID().uuidString)")!
-        return LearningStore(defaults: defaults, storageKey: "session-learning")
+        let (defaults, name) = TestNamespace.defaults("session-learning")
+        usedSuiteNames.append(name)
+        let storageKey = TestNamespace.storeBaseKey("session-learning")
+        usedStorageKeys.insert(storageKey)
+        return LearningStore(defaults: defaults, storageKey: storageKey)
     }
 
     // MARK: - Tray
@@ -756,18 +785,18 @@ final class SessionModelTests: XCTestCase {
     }
 
     func testParkedMatterLabelIsEncryptedAndResumesWithoutUserDefaults() async throws {
-        let defaults = UserDefaults.standard
-        let priorValue = defaults.object(forKey: SessionModel.parkedClientLabelKey)
-        defaults.removeObject(forKey: SessionModel.parkedClientLabelKey)
-        defer {
-            if let priorValue {
-                defaults.set(priorValue, forKey: SessionModel.parkedClientLabelKey)
-            } else {
-                defaults.removeObject(forKey: SessionModel.parkedClientLabelKey)
-            }
-        }
+        // One private suite shared by both sessions, standing in for the
+        // production standard domain. Private rather than standard because the
+        // standard domain is one domain per user: a concurrent test process
+        // writing the same key could make this assertion pass or fail for a
+        // reason that has nothing to do with the code under test. A fresh suite
+        // also starts genuinely empty, which lets the assertion be the stronger
+        // one below (nothing at all was written, not merely no label).
+        let (defaults, suiteName) = TestNamespace.defaults("parked-label")
+        usedSuiteNames.append(suiteName)
 
         let first = makeSession()
+        first.legacyDefaults = { defaults }
         first.selectClient("Acme Privileged Matter")
         let doc = try write("parked.txt", "Mail john@acme.com.")
         await first.addDocuments([doc])
@@ -775,12 +804,19 @@ final class SessionModelTests: XCTestCase {
         _ = try XCTUnwrap(first.buildHandToAI(createdAtISO8601: Self.createdAt))
 
         XCTAssertNil(defaults.string(forKey: SessionModel.parkedClientLabelKey))
+        XCTAssertEqual(
+            (defaults.persistentDomain(forName: suiteName) ?? [:]).keys.sorted(), [],
+            "parking must write nothing to UserDefaults, not merely no label"
+        )
         let parkedBytes = try Data(contentsOf: first.parkedMappingURL())
         XCTAssertNil(
             String(data: parkedBytes, encoding: .utf8)?.range(of: "Acme Privileged Matter")
         )
 
+        // The same empty suite: the label can only have come from the
+        // encrypted parked file.
         let relaunched = makeSession()
+        relaunched.legacyDefaults = { defaults }
         relaunched.resumeParkedSession()
 
         XCTAssertEqual(relaunched.clientLabel, "Acme Privileged Matter")

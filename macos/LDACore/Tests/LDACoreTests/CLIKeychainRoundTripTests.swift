@@ -59,17 +59,26 @@ final class CLIKeychainRoundTripTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    private func writeSample(named name: String) throws -> URL {
-        let url = tempDir.appendingPathComponent(name)
+    /// Write the sample under a PROCESS-UNIQUE base name, and return both the
+    /// URL and that base.
+    ///
+    /// The CLI derives the sidecar's Keychain account from the document base
+    /// name ("lda-<mapping base>"). A fixed name such as "doc.txt" is therefore
+    /// one Keychain account for the whole machine, and this suite deletes those
+    /// accounts in tearDown, which would destroy a concurrent run's key while
+    /// that run is still restoring with it.
+    private func writeSample(_ label: String) throws -> (url: URL, base: String) {
+        let base = TestNamespace.fileBaseName(label)
+        let url = tempDir.appendingPathComponent("\(base).txt")
         try Data(sampleText.utf8).write(to: url)
-        return url
+        return (url, base)
     }
 
     // MARK: - The round trip
 
     func testAnonymizeThenRestoreWithNoPassphraseRoundTrips() throws {
         // Arrange
-        let input = try writeSample(named: "doc.txt")
+        let input = try writeSample("doc").url
 
         // Act: anonymize with NO passphrase, so the Keychain path is used.
         let anonymized: AnonymizeResult
@@ -135,7 +144,7 @@ final class CLIKeychainRoundTripTests: XCTestCase {
     }
 
     func testAPassphraseStillOverridesTheKeychain() throws {
-        let input = try writeSample(named: "doc2.txt")
+        let input = try writeSample("doc2").url
 
         let anonymized = try LDACLI.runAnonymize(
             input: input,
@@ -159,9 +168,9 @@ final class CLIKeychainRoundTripTests: XCTestCase {
 
     func testASidecarWrittenUnderTheOldAccountStillRestores() throws {
         // Sidecars produced by earlier builds have their key under the SOURCE
-        // base name ("lda-doc"), not the mapping base name
-        // ("lda-doc_redacted"). Those files must keep restoring.
-        let input = try writeSample(named: "legacy.txt")
+        // base name ("lda-<source>"), not the mapping base name
+        // ("lda-<source>_redacted"). Those files must keep restoring.
+        let (input, legacyBase) = try writeSample("legacy")
 
         // Produce the artifacts, then re-save the mapping under the OLD account
         // to simulate a sidecar from a previous build.
@@ -175,7 +184,7 @@ final class CLIKeychainRoundTripTests: XCTestCase {
             from: anonymized.mappingFileURL,
             protection: .passphrase("temporary")
         )
-        let legacyAccount = LDACLI.keychainAccount(forMappingBaseName: "legacy")
+        let legacyAccount = LDACLI.keychainAccount(forMappingBaseName: legacyBase)
         do {
             try MappingStore.save(
                 mapping,
@@ -205,7 +214,7 @@ final class CLIKeychainRoundTripTests: XCTestCase {
         // When the per-document key is gone AND the legacy fallback fails too,
         // the user must see both facts. Reporting only the second attempt hides
         // that a silent retry ran, the same masking the MCP edge was fixed for.
-        let input = try writeSample(named: "bothgone.txt")
+        let (input, sourceBase) = try writeSample("bothgone")
         let anonymized: AnonymizeResult
         do {
             anonymized = try LDACLI.runAnonymize(
@@ -223,7 +232,7 @@ final class CLIKeychainRoundTripTests: XCTestCase {
             account: LDACLI.keychainAccount(forMappingBaseName: mappingBase)
         )
         try? MappingStore.deleteKeychainKey(
-            account: LDACLI.keychainAccount(forMappingBaseName: "bothgone")
+            account: LDACLI.keychainAccount(forMappingBaseName: sourceBase)
         )
 
         XCTAssertThrowsError(
@@ -247,7 +256,7 @@ final class CLIKeychainRoundTripTests: XCTestCase {
     func testAGenuinelyMissingKeyStillFails() throws {
         // The legacy fallback must not turn a missing key into a silent success
         // or an unrelated error.
-        let input = try writeSample(named: "orphan.txt")
+        let input = try writeSample("orphan").url
         let anonymized = try LDACLI.runAnonymize(
             input: input,
             outputDir: tempDir,

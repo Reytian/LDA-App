@@ -74,11 +74,12 @@ final class WorkspaceSessionTests: XCTestCase {
     }
 
     private func makeFixture(_ name: String) -> Fixture {
-        let suiteName = "WorkspaceSessionTests-\(name)-\(UUID().uuidString)"
+        let (suite, suiteName) = TestNamespace.defaults("workspace-\(name)")
         suiteNames.append(suiteName)
-        let suite = UserDefaults(suiteName: suiteName)!
-        let learnedBase = "workspace-test-\(name).learnedTerms"
-        let patternBase = "workspace-test-\(name).customPatterns"
+        // Process-unique store keys. tearDown deletes the vault accounts these
+        // derive, and a fixed name would delete a concurrent run's key.
+        let learnedBase = TestNamespace.storeBaseKey("workspace-\(name)-learned")
+        let patternBase = TestNamespace.storeBaseKey("workspace-\(name)-patterns")
         usedStorageKeys.formUnion([learnedBase, patternBase])
 
         let root = workDir.appendingPathComponent(name, isDirectory: true)

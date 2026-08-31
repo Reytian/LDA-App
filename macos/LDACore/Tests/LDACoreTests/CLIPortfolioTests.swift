@@ -49,7 +49,7 @@ final class CLIPortfolioTests: XCTestCase {
     /// Returns true when the test should be skipped (Keychain unavailable).
     private func keychainUnavailable() -> Bool {
         let probeService = "ai.openclaw.lda.libraryindexkey"
-        let probeAccount = "cli-portfolio-tests-probe-\(UUID().uuidString)"
+        let probeAccount = TestNamespace.keychainAccount("cli-portfolio-probe")
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: probeService,

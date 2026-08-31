@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class AISettingsTests: XCTestCase {
     func testSelectingCustomModelPersistsSecurityScopedBookmark() throws {
-        let suiteName = "AISettingsTests-\(UUID().uuidString)"
+        let suiteName = TestNamespace.suiteName("ai-settings")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -26,7 +26,7 @@ final class AISettingsTests: XCTestCase {
     }
 
     func testClearingCustomModelRemovesPathAndBookmark() throws {
-        let suiteName = "AISettingsTests-\(UUID().uuidString)"
+        let suiteName = TestNamespace.suiteName("ai-settings")
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

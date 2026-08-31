@@ -21,18 +21,24 @@ final class EncryptedStoreTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
 
+    /// Store keys minted for this test instance. Process-unique, so a
+    /// concurrent suite in another worktree cannot be using the same vault
+    /// account, and tearDown can safely delete exactly these.
+    private let learnedKey = TestNamespace.storeBaseKey("learned")
+    private let patternKey = TestNamespace.storeBaseKey("patterns")
+
     override func setUpWithError() throws {
         try super.setUpWithError()
-        suiteName = "EncryptedStoreTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = TestNamespace.defaults("encrypted-store")
     }
 
     override func tearDownWithError() throws {
         defaults.removePersistentDomain(forName: suiteName)
-        // Drop the stable vault keys these tests mint, so the developer
-        // keychain holds nothing from test runs.
-        LocalDataVault.deleteKey(account: "store.test.learnedTerms")
-        LocalDataVault.deleteKey(account: "store.test.customPatterns")
+        // Drop only the vault keys this test instance minted, so the developer
+        // keychain holds nothing from test runs and no other process loses a
+        // key it is still using.
+        LocalDataVault.deleteKey(account: StoreBlobKeys.vaultAccount(learnedKey))
+        LocalDataVault.deleteKey(account: StoreBlobKeys.vaultAccount(patternKey))
         try super.tearDownWithError()
     }
 
@@ -40,7 +46,7 @@ final class EncryptedStoreTests: XCTestCase {
 
     func testVaultSealOpenRoundTripsAndHidesPlaintext() throws {
         let secret = Data("John Smith of Acme Corporation".utf8)
-        let account = "test-vault-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("vault-round-trip")
         defer { LocalDataVault.deleteKey(account: account) }
 
         let sealed = try LocalDataVault.seal(secret, account: account)
@@ -56,7 +62,7 @@ final class EncryptedStoreTests: XCTestCase {
 
     @MainActor
     func testLearningStoreEncryptsAtRestAndMigratesLegacyPlaintext() throws {
-        let storageKey = "test.learnedTerms"
+        let storageKey = learnedKey
         // Seed a LEGACY plaintext blob the way the old store wrote it.
         let term = LearnedTerm(
             id: "PERSON|john smith", value: "John Smith", type: .person,
@@ -94,7 +100,7 @@ final class EncryptedStoreTests: XCTestCase {
 
     @MainActor
     func testCustomPatternStoreEncryptsAtRestAndMigratesLegacyPlaintext() throws {
-        let storageKey = "test.customPatterns"
+        let storageKey = patternKey
         let legacy = try JSONEncoder().encode(
             [CustomPattern(text: "Acme Corporation", type: .company)]
         )

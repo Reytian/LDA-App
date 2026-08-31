@@ -205,7 +205,7 @@ final class MappingStoreTests: XCTestCase {
     // MARK: - Keychain path (tolerant)
 
     func testKeychainRoundTripOrSkip() throws {
-        let account = "lda-mappingstore-test-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("mappingstore")
         let mapping = makeFixtureMapping()
         let url = workDir.appendingPathComponent("keychain.ldamap")
 

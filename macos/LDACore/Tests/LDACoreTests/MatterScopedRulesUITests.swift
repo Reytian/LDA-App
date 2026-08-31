@@ -75,8 +75,11 @@ final class MatterScopedRulesUITests: XCTestCase {
 
     private static let createdAt = "2026-08-31T00:00:00Z"
 
-    private let learnedBase = "scope-ui-test.learnedTerms"
-    private let patternBase = "scope-ui-test.customPatterns"
+    /// Minted per test instance and unique to this process: tearDown deletes
+    /// the vault account these keys derive, so a fixed name would delete a
+    /// concurrent run's key out from under it.
+    private let learnedBase = TestNamespace.storeBaseKey("learned")
+    private let patternBase = TestNamespace.storeBaseKey("patterns")
 
     private var workDir: URL!
     private var suiteName: String!
@@ -89,8 +92,7 @@ final class MatterScopedRulesUITests: XCTestCase {
         workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("MatterScopedRulesUITests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
-        suiteName = "MatterScopedRulesUITests-\(UUID().uuidString)"
-        suite = UserDefaults(suiteName: suiteName)
+        (suite, suiteName) = TestNamespace.defaults("matter-scoped-rules-ui")
         usedStorageKeys = [learnedBase, patternBase]
     }
 
