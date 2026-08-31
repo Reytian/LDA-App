@@ -27,11 +27,58 @@ public struct SessionRecordDocument: Codable, Equatable, Sendable {
     public var entityCount: Int
     /// The distinct entity-type wire strings protected in this document.
     public var entityTypes: [String]
+    /// Protected entity counts keyed by entity-type wire string. Optional:
+    /// records written before the compliance report existed carry only the
+    /// total count and the distinct type list.
+    public var entityCountsByType: [String: Int]?
 
-    public init(name: String, entityCount: Int, entityTypes: [String]) {
+    public init(
+        name: String,
+        entityCount: Int,
+        entityTypes: [String],
+        entityCountsByType: [String: Int]? = nil
+    ) {
         self.name = name
         self.entityCount = entityCount
         self.entityTypes = entityTypes
+        self.entityCountsByType = entityCountsByType
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case entityCount
+        case entityTypes
+        case entityCountsByType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.entityCount = try container.decode(Int.self, forKey: .entityCount)
+        self.entityTypes = try container.decode([String].self, forKey: .entityTypes)
+        // Legacy payloads predate per-type counts; decode as absent.
+        self.entityCountsByType = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .entityCountsByType
+        )
+    }
+}
+
+/// Scan-side verification counts recorded when the handoff was built. The
+/// restore-side twin is SessionRestoreEvent, which records orphanCount and
+/// suspectCount per restore.
+public struct SessionScanVerification: Codable, Equatable, Sendable {
+    /// Additional occurrences the literal rescan recall pass surfaced.
+    public var rescanHitCount: Int
+    /// Cross-document rescan warnings still open when the handoff was built.
+    public var rescanWarningCount: Int
+    /// Near-miss placeholder shapes reported by placeholder forensics.
+    public var forensicsSuspectCount: Int
+
+    public init(rescanHitCount: Int, rescanWarningCount: Int, forensicsSuspectCount: Int) {
+        self.rescanHitCount = rescanHitCount
+        self.rescanWarningCount = rescanWarningCount
+        self.forensicsSuspectCount = forensicsSuspectCount
     }
 }
 
@@ -60,6 +107,16 @@ public struct SessionRecord: Codable, Equatable, Sendable, Identifiable {
     /// Distinct protected identities in the session mapping.
     public var protectedValueCount: Int
     public var restoreEvents: [SessionRestoreEvent]
+    /// The substitution style the handoff was rendered in. Optional: records
+    /// written before the compliance report existed carry no style.
+    public var substitutionStyle: SubstitutionStyle?
+    /// The detection model's display name, for example the GGUF file name.
+    /// Optional, and value free: a model name is not client data.
+    public var modelName: String?
+    /// The app version that wrote the record (CFBundleShortVersionString).
+    public var appVersion: String?
+    /// Scan-side verification counts recorded at handoff time.
+    public var scanVerification: SessionScanVerification?
 
     public init(
         id: UUID = UUID(),
@@ -67,7 +124,11 @@ public struct SessionRecord: Codable, Equatable, Sendable, Identifiable {
         clientLabel: String?,
         documents: [SessionRecordDocument],
         protectedValueCount: Int,
-        restoreEvents: [SessionRestoreEvent] = []
+        restoreEvents: [SessionRestoreEvent] = [],
+        substitutionStyle: SubstitutionStyle? = nil,
+        modelName: String? = nil,
+        appVersion: String? = nil,
+        scanVerification: SessionScanVerification? = nil
     ) {
         self.id = id
         self.createdAtISO8601 = createdAtISO8601
@@ -75,6 +136,45 @@ public struct SessionRecord: Codable, Equatable, Sendable, Identifiable {
         self.documents = documents
         self.protectedValueCount = protectedValueCount
         self.restoreEvents = restoreEvents
+        self.substitutionStyle = substitutionStyle
+        self.modelName = modelName
+        self.appVersion = appVersion
+        self.scanVerification = scanVerification
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAtISO8601
+        case clientLabel
+        case documents
+        case protectedValueCount
+        case restoreEvents
+        case substitutionStyle
+        case modelName
+        case appVersion
+        case scanVerification
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.createdAtISO8601 = try container.decode(String.self, forKey: .createdAtISO8601)
+        self.clientLabel = try container.decodeIfPresent(String.self, forKey: .clientLabel)
+        self.documents = try container.decode([SessionRecordDocument].self, forKey: .documents)
+        self.protectedValueCount = try container.decode(Int.self, forKey: .protectedValueCount)
+        self.restoreEvents = try container.decode([SessionRestoreEvent].self, forKey: .restoreEvents)
+        // Legacy payloads predate the compliance report fields; decode all of
+        // them as absent so old records keep loading.
+        self.substitutionStyle = try container.decodeIfPresent(
+            SubstitutionStyle.self,
+            forKey: .substitutionStyle
+        )
+        self.modelName = try container.decodeIfPresent(String.self, forKey: .modelName)
+        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+        self.scanVerification = try container.decodeIfPresent(
+            SessionScanVerification.self,
+            forKey: .scanVerification
+        )
     }
 }
 
@@ -225,6 +325,19 @@ public struct SessionRecordStore {
     ) throws {
         guard var record = try load(id: id, protection: protection) else { return }
         record.restoreEvents.append(event)
+        try save(record, protection: protection)
+    }
+
+    /// Stamp (or overwrite) the scan-side verification summary on an existing
+    /// record. A missing record is a no-op (the session may predate record
+    /// keeping), mirroring appendRestoreEvent.
+    public func updateScanVerification(
+        to id: UUID,
+        verification: SessionScanVerification,
+        protection: MappingProtection? = nil
+    ) throws {
+        guard var record = try load(id: id, protection: protection) else { return }
+        record.scanVerification = verification
         try save(record, protection: protection)
     }
 
