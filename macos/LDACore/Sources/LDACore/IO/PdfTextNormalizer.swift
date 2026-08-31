@@ -33,6 +33,15 @@ public enum PdfTextNormalizer {
     /// of a UTF-8 encoded non-breaking space.
     static let artifactMarker = "\u{00C2}"
 
+    /// The same marker as a UTF-16 unit, for callers that scan NSString units.
+    /// PdfImporter.normalizeWhitespace mirrors the repair below over the raw
+    /// page text; sharing these units keeps the two collapse sites identical
+    /// by construction instead of by comment.
+    public static let artifactMarkerUnit: UInt16 = 0x00C2
+    /// The space-like units that complete the artifact pair.
+    public static let nonBreakingSpaceUnit: UInt16 = 0x00A0
+    public static let plainSpaceUnit: UInt16 = 0x0020
+
     /// Repair the non-breaking-space artifacts in `text`:
     ///
     /// 1. "A with circumflex" (U+00C2) immediately followed by a non-breaking

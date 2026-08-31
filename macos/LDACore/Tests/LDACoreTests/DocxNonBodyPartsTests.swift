@@ -201,6 +201,27 @@ final class DocxNonBodyPartsTests: XCTestCase {
                       "a well-formed neutralized Target must replace the whole attribute")
     }
 
+    func testNeutralizeExternalTargetsIgnoresDecoyAttributeNameTails() {
+        // The whitespace lookbehind anchors the rewrite to the real attribute
+        // name: an attribute whose name merely ENDS in "Target" must survive
+        // untouched while the genuine Target on the same element is still
+        // neutralized. No such decoy exists in the OOXML relationships schema
+        // today, so this pins the boundary against a regression, not a live
+        // exploit.
+        let xml = "<Relationships>"
+            + "<Relationship Id=\"rId1\" TargetMode=\"External\""
+            + " FakeTarget=\"mailto:decoy@example.net\""
+            + " Target='mailto:real@example.com'/>"
+            + "</Relationships>"
+        let out = DocxParts.neutralizeExternalTargets(xml)
+        XCTAssertTrue(out.contains("FakeTarget=\"mailto:decoy@example.net\""),
+                      "a decoy attribute name ending in Target must not be rewritten")
+        XCTAssertFalse(out.contains("real@example.com"),
+                       "the genuine Target on the same element must still be neutralized")
+        XCTAssertTrue(out.contains("Target=\"about:blank\""),
+                      "a well-formed neutralized Target must replace the whole attribute")
+    }
+
     /// core.xml author/title elements are blanked while their tags survive.
     func testScrubCorePropsBlanksAuthorAndTitle() {
         let xml = """

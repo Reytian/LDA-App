@@ -244,6 +244,36 @@ public enum EntityRescan {
         confirmed: [Span],
         knownEntities: [Span]
     ) -> [String] {
+        unsweptNeedles(in: text, confirmed: confirmed, knownEntities: knownEntities)
+            .map(\.value)
+    }
+
+    /// One surface unsweptNeedles() reports, carrying the entity type the
+    /// sweep's needle would actually use: the type of the surface's FIRST
+    /// knownEntities span, the same first-occurrence rule expand() applies to
+    /// needle metadata. Callers that reason about per-type state (learned
+    /// suppression keys are (value, type) pairs) must check this one type; a
+    /// union over every type the partners confirmed drifts from what the
+    /// sweep would mint for a homograph surface.
+    public struct UnsweptSurface: Equatable, Sendable {
+        /// The trimmed surface text.
+        public let value: String
+        /// The type the sweep's needle would carry.
+        public let type: EntityType
+
+        public init(value: String, type: EntityType) {
+            self.value = value
+            self.type = type
+        }
+    }
+
+    /// The typed form of unsweptSurfaces(in:confirmed:knownEntities:): the
+    /// same filters, the same order, plus the needle type per surface.
+    public static func unsweptNeedles(
+        in text: String,
+        confirmed: [Span],
+        knownEntities: [Span]
+    ) -> [UnsweptSurface] {
         guard !text.isEmpty, !knownEntities.isEmpty else { return [] }
 
         // A surface this document confirmed for itself is already one of its
@@ -261,7 +291,7 @@ public enum EntityRescan {
             }
             .map { (start: $0.start, end: $0.end) }
 
-        var unswept: [String] = []
+        var unswept: [UnsweptSurface] = []
         for span in knownEntities where span.type == .person || span.type == .company {
             let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, seen.insert(value.lowercased()).inserted else { continue }
@@ -270,7 +300,7 @@ public enum EntityRescan {
             guard hits.contains(where: { !overlapsAny($0, sortedBlocked: blocked) }) else {
                 continue
             }
-            unswept.append(value)
+            unswept.append(UnsweptSurface(value: value, type: span.type))
         }
         return unswept
     }

@@ -147,6 +147,31 @@ final class EntityRescanTests: XCTestCase {
 
     // MARK: - Unswept surfaces (cross-document recall check)
 
+    func testUnsweptNeedlesCarryTheFirstPartnerTypeForAHomographSurface() {
+        // Partner documents confirmed the same surface under two types. The
+        // sweep dedups needles by lowercased text with the first occurrence
+        // winning, so the reported needle must carry the FIRST partner type.
+        // Per-type callers (learned suppression keys are (value, type) pairs)
+        // rely on this matching exactly what expand() would mint.
+        let text = "The filing names Washington Holdings as the counterparty."
+        let partnerText = "Washington Holdings appeared at the hearing."
+        let partners = [
+            span("Washington Holdings", in: partnerText, type: .company),
+            span("Washington Holdings", in: partnerText, type: .person)
+        ]
+
+        let needles = EntityRescan.unsweptNeedles(
+            in: text,
+            confirmed: [],
+            knownEntities: partners
+        )
+
+        XCTAssertEqual(needles.count, 1, "one lowercased surface must yield one needle")
+        XCTAssertEqual(needles.first?.value, "Washington Holdings")
+        XCTAssertEqual(needles.first?.type, .company,
+                       "the first partner span's type wins the needle metadata")
+    }
+
     func testUnsweptSurfacesReportsAPartnerPartyTheDocumentStillCarries() {
         // The whole point of the check: this document confirmed nothing about
         // the party, and its text names them in the clear.

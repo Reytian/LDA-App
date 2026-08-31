@@ -274,19 +274,13 @@ public struct PdfImporter: DocumentImporter {
                 continue
             }
 
-            // Collapse the PDFKit non-breaking-space artifact ("A with
-            // circumflex" followed by a space-like unit) to one space, the same
-            // repair PdfTextNormalizer applied on import. Without this the
-            // needle searched here comes from repaired text while the page
-            // haystack still carries the marker, so the needle never matches:
-            // the value would be detected and reported yet never boxed, leaving
-            // it VISIBLE in a PDF the app calls redacted. The marker is a
-            // letter, so no whitespace rule would collapse it. Both units map
-            // to the marker index, which keeps the per-unit invariant and lets
-            // the box cover the artifact glyph itself.
-            if scalar.value == 0x00C2, index + 1 < source.length,
-               let next = Unicode.Scalar(source.character(at: index + 1)),
-               next.value == 0x00A0 || next.value == 0x0020 {
+            // Collapse the PDFKit non-breaking-space artifact to one space,
+            // the same repair PdfTextNormalizer applied on import; see
+            // isNbspArtifactPair for why. Both units map to the marker index,
+            // which keeps the per-unit invariant and lets the box cover the
+            // artifact glyph itself.
+            if scalar.value == UInt32(PdfTextNormalizer.artifactMarkerUnit),
+               isNbspArtifactPair(at: index, in: source) {
                 if !previousWasSpace {
                     output.append(" ")
                     indexes.append(index)
@@ -321,6 +315,22 @@ public struct PdfImporter: DocumentImporter {
             indexes.removeLast()
         }
         return (output, indexes)
+    }
+
+    /// True when the units at `index` form the PDFKit non-breaking-space
+    /// artifact PdfTextNormalizer repairs on import: U+00C2 followed by a
+    /// space-like unit. The marker is a LETTER, so no whitespace rule would
+    /// collapse it. normalizeWhitespace must mirror the import-time repair
+    /// because the needle it searches for comes from the repaired document
+    /// text while this raw page haystack still carries the marker; without
+    /// the mirror the value would be detected and reported yet never boxed,
+    /// leaving it VISIBLE in a PDF the app calls redacted.
+    private static func isNbspArtifactPair(at index: Int, in source: NSString) -> Bool {
+        guard source.character(at: index) == PdfTextNormalizer.artifactMarkerUnit,
+              index + 1 < source.length else { return false }
+        let next = source.character(at: index + 1)
+        return next == PdfTextNormalizer.nonBreakingSpaceUnit
+            || next == PdfTextNormalizer.plainSpaceUnit
     }
 
     /// Convert a run of original character indexes into one rect per visual line.
