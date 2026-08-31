@@ -93,6 +93,12 @@ public final class SessionModel: ObservableObject {
     /// because doing so would replace live work without asking.
     @Published public var pendingWorkspaceURL: URL?
 
+    /// A .ldareport file the app has been asked to open, from the File menu or
+    /// a double-click in Finder. The shell consumes it (clearing it) and runs
+    /// the passphrase flow. Opening one writes readable copies of a report, so
+    /// it never happens without the user choosing a destination first.
+    @Published public var pendingReportURL: URL?
+
     /// The menu-bar companion's last-action note ("Restored 4 values.").
     @Published public var companionNote: String?
 
@@ -603,42 +609,9 @@ public final class SessionModel: ObservableObject {
         }
     }
 
-    // MARK: - Compliance report (F6)
-
-    /// Whether the session has a record to report on. Set by the hand-to-AI
-    /// build; cleared when the matter boundary changes.
-    public var canExportComplianceReport: Bool { currentRecordID != nil }
-
-    /// Render the current session's record as the exportable compliance
-    /// report and write BOTH deliverables (report.md and report.pdf) into the
-    /// chosen directory. The caller supplies the generation timestamp so the
-    /// Markdown render stays deterministic.
-    @discardableResult
-    public func exportComplianceReport(
-        to directory: URL,
-        generatedAtISO8601: String
-    ) throws -> (markdown: URL, pdf: URL) {
-        guard let recordID = currentRecordID else {
-            throw DocumentIOError.unreadable(
-                "No session record exists yet. Use Copy for AI first."
-            )
-        }
-        guard let record = try recordStore().load(
-            id: recordID,
-            protection: recordProtection()
-        ) else {
-            throw DocumentIOError.unreadable("The session record could not be read.")
-        }
-        let markdown = ComplianceReport.markdown(
-            record: record,
-            generatedAtISO8601: generatedAtISO8601
-        )
-        let markdownURL = directory.appendingPathComponent("report.md")
-        let pdfURL = directory.appendingPathComponent("report.pdf")
-        try Data(markdown.utf8).write(to: markdownURL)
-        try ComplianceReportPDF.render(markdown: markdown).write(to: pdfURL)
-        return (markdownURL, pdfURL)
-    }
+    // NOTE: the compliance report export (F6) lives in
+    // SessionModel+ComplianceReport.swift, next to the encrypted report
+    // format it writes.
 
     // MARK: - Matter-scoped learned rules (F4)
 
