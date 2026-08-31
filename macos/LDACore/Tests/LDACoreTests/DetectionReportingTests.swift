@@ -68,7 +68,7 @@ final class DetectionReportingTests: XCTestCase {
     // MARK: - The one-time lda-v2 migration offer
 
     private func freshDefaults() -> UserDefaults {
-        let suite = "lda.tests.migration.\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("detection-migration")
         let d = UserDefaults(suiteName: suite)!
         d.removePersistentDomain(forName: suite)
         return d
@@ -114,7 +114,7 @@ final class DetectionReportingTests: XCTestCase {
     // MARK: - The settings layer must produce the requesting state
 
     func testSelectingAnUninstalledTierAsksForAiSoTheFailureIsReported() {
-        let suite = "lda.tests.reporting.\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("detection-reporting")
         let d = UserDefaults(suiteName: suite)!
         defer { d.removePersistentDomain(forName: suite) }
 

@@ -55,7 +55,7 @@ final class KeyCacheEvictionTests: XCTestCase {
     /// key in the cache. Returns false when the Keychain is unavailable in this
     /// environment, so the caller can skip instead of reporting a false failure.
     private func saveUnderNewAccount(_ index: Int) throws -> Bool {
-        let account = "cache-test-\(index)-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("cache-test-\(index)")
         do {
             try container.save(
                 Data("payload \(index)".utf8),
@@ -95,7 +95,7 @@ final class KeyCacheEvictionTests: XCTestCase {
     func testEvictedKeysStillLoadFromTheKeychain() throws {
         // Eviction must be a cache miss, never data loss: the first container
         // has to keep opening after its key has been pushed out.
-        let firstAccount = "cache-test-first-\(UUID().uuidString)"
+        let firstAccount = TestNamespace.keychainAccount("cache-test-first")
         let firstURL = workDir.appendingPathComponent("first.bin")
         let payload = Data("the first payload".utf8)
         do {
@@ -181,7 +181,7 @@ final class KeyCacheEvictionTests: XCTestCase {
         var fakeNow: UInt64 = 9_000_000_000_000
         EncryptedContainer.clockSeam.value = { fakeNow }
 
-        let account = "cache-ttl-refresh-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("cache-ttl-refresh")
         let url = workDir.appendingPathComponent("ttl.bin")
         do {
             try container.save(Data("x".utf8), to: url, protection: .keychain(account: account))

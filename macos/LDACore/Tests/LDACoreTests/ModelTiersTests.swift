@@ -19,7 +19,7 @@ final class ModelTiersTests: XCTestCase {
 
     /// A defaults domain per test so cases cannot leak into one another.
     private func makeDefaults(_ name: String = #function) -> UserDefaults {
-        let suite = "lda.tests.tiers.\(name).\(UUID().uuidString)"
+        let suite = TestNamespace.suiteName("tiers.\(name)")
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return defaults

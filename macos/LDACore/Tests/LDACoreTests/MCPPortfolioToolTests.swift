@@ -109,7 +109,7 @@ final class MCPPortfolioToolTests: XCTestCase {
     /// Returns true when the Keychain is accessible for PortfolioLibrary.
     private func portfolioKeychainAvailable() -> Bool {
         let probeService = "ai.openclaw.lda.libraryindexkey"
-        let probeAccount = "mcp-portfolio-probe-\(UUID().uuidString)"
+        let probeAccount = TestNamespace.keychainAccount("mcp-portfolio-probe")
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: probeService,

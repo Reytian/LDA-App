@@ -372,11 +372,18 @@ public final class SecurityEventLog {
     /// digests are computed in the middle of ordinary store operations, and
     /// the audit trail must never raise a Touch ID prompt of its own. The key
     /// guards log pseudonymity, not document content.
-    static func loadOrCreatePersistentDigestKey() -> SymmetricKey? {
+    ///
+    /// - Parameter account: which Keychain account holds the key. Production
+    ///   always uses the install-wide default. A test passes a process-unique
+    ///   account so that exercising this real Keychain path cannot race with,
+    ///   or delete the key of, another process running the same test.
+    static func loadOrCreatePersistentDigestKey(
+        account: String = digestKeyKeychainAccount
+    ) -> SymmetricKey? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: digestKeyKeychainAccount,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -393,7 +400,7 @@ public final class SecurityEventLog {
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: digestKeyKeychainAccount,
+            kSecAttrAccount as String: account,
             kSecValueData as String: fresh.withUnsafeBytes { Data($0) },
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
@@ -414,23 +421,32 @@ public final class SecurityEventLog {
     }
 
     #if DEBUG
-    /// Test support: whether the persistent digest key currently exists.
-    static func persistentDigestKeyExistsForTesting() -> Bool {
+    /// Test support: whether a digest key exists under account.
+    ///
+    /// The account is required rather than defaulted, so a test cannot ask
+    /// about the install-wide key by accident.
+    static func digestKeyExistsForTesting(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: digestKeyKeychainAccount
+            kSecAttrAccount as String: account
         ]
         return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
-    /// Test support: remove the persistent digest key and forget the cache.
-    static func deletePersistentDigestKeyForTesting() {
+    /// Test support: remove the digest key under account and forget the cache.
+    ///
+    /// The account is required rather than defaulted, so deleting the
+    /// install-wide key has to be spelled out. It should never be: another
+    /// process may be digesting under it, and on a machine where the audit key
+    /// was upgraded to user presence, deleting the account takes the
+    /// ".userpresence" variant with it.
+    static func deleteDigestKeyForTesting(account: String) {
         digestKeyLock.withLock { cachedDigestKey = nil }
         SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: digestKeyKeychainAccount
+            kSecAttrAccount as String: account
         ] as CFDictionary)
     }
     #endif

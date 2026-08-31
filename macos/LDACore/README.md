@@ -258,6 +258,50 @@ is neutralized so a document cannot close its own fence, and the task is
 restated **after** the document to counter recency. The fine-tuned v2
 instruction prefix is preserved byte for byte.
 
+## Running the tests
+
+```
+swift test --scratch-path ~/Developer/lda-build
+```
+
+The `--scratch-path` matters on a repo inside iCloud Drive, which evicts files
+mid-build. It isolates BUILD products only.
+
+### Concurrent runs
+
+The suite is hermetic: two runs from two worktrees at the same time report the
+same numbers. That is not free, because `--scratch-path` does not isolate the
+three things a test run shares with every other process on the machine.
+
+- **The Keychain** is per user. `Tests/LDACoreTests/TestNamespace.swift` gives
+  each test PROCESS a token (pid plus a random component) and derives every
+  Keychain account, UserDefaults suite, and store base key from it, so two runs
+  cannot name the same item. Delete only what the test itself minted. Accounts
+  that are shared by design (the records key, the audit keys, the portfolio
+  index key) may be read but must never be deleted: deleting a shared legacy
+  account also removes its `.userpresence` variant, which is the item Touch ID
+  unlocks.
+- **The UserDefaults database** is per user. Tests use private suites from
+  `TestNamespace.defaults(_:)`, never `UserDefaults.standard`. Production types
+  that read the standard domain expose a seam for this (`SessionModel`'s
+  `scopeDefaults` and `legacyDefaults`). `TestNamespace` also erases every suite
+  it minted when the test bundle finishes, because
+  `removePersistentDomain(forName:)` does **not** erase one: measured on macOS
+  26, it clears the value in memory and leaves the old value in
+  `~/Library/Preferences`. For the vocabulary stores that value is a sealed blob
+  of learned party names whose vault key is also on the machine, so the sweep
+  removes the domain and then unlinks the plist.
+- **The GPU** is per machine. The detection model is 2.7 GB in unified memory:
+  one process fits, two do not, and the second allocation does not throw.
+  llama.cpp keeps decoding and returns garbage, so the failure shows up as a
+  content assertion rather than an error. Live-model tests therefore run inside
+  `LiveModelTestSupport.withLiveModel`, which holds a machine-wide advisory lock
+  while the model is resident.
+
+`TestHermeticityTests` enforces all three by reading the test sources, the way
+`NetworkChokepointTests` reads `Sources/`. When it fails, route the name through
+`TestNamespace` rather than adding an allowlist entry.
+
 ## Known limitations
 
 ### CLI passphrase exposure

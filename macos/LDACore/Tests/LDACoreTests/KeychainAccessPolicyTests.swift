@@ -39,7 +39,7 @@ final class KeychainAccessPolicyTests: XCTestCase {
             keychainService: "ai.openclaw.lda.policytest",
             containerDescription: "Policy test"
         )
-        let account = "policy-silent-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("policy-silent")
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).bin")
         defer {
@@ -76,7 +76,7 @@ final class KeychainAccessPolicyTests: XCTestCase {
             keychainService: "ai.openclaw.lda.policytest.up",
             containerDescription: "Policy test UP"
         )
-        let account = "policy-up-\(UUID().uuidString)"
+        let account = TestNamespace.keychainAccount("policy-up")
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).bin")
         defer {

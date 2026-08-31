@@ -28,14 +28,16 @@ final class ScopedStoreTests: XCTestCase {
     private var usedStorageKeys: Set<String> = []
 
     /// Test-only base keys so no test ever touches the production vault
-    /// accounts of the developer machine.
-    private let learnedBase = "scoped.test.learnedTerms"
-    private let patternBase = "scoped.test.customPatterns"
+    /// accounts of the developer machine. Minted per test instance and unique
+    /// to this process: the GLOBAL scope's storage key IS the base key, so a
+    /// fixed base would give every concurrent test process the same vault
+    /// account, and this suite's tearDown deletes that account.
+    private let learnedBase = TestNamespace.storeBaseKey("learned")
+    private let patternBase = TestNamespace.storeBaseKey("patterns")
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        suiteName = "ScopedStoreTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        (defaults, suiteName) = TestNamespace.defaults("scoped-store")
         usedStorageKeys = []
     }
 

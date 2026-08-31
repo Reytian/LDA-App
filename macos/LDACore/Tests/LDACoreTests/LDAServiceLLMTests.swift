@@ -72,19 +72,6 @@ final class LDAServiceLLMTests: XCTestCase {
         return inputURL
     }
 
-    /// Resolve the GGUF model path for the gated integration test, or nil.
-    private func resolveModelPath() -> String? {
-        if let env = ProcessInfo.processInfo.environment["LDA_MODEL_PATH"],
-           FileManager.default.fileExists(atPath: env) {
-            return env
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let candidate = home
-            .appendingPathComponent("Developer/lda-models/lda-v2-Q4_K_M.gguf")
-            .path
-        return FileManager.default.fileExists(atPath: candidate) ? candidate : nil
-    }
-
     // MARK: - Unit: nil model path is unchanged behavior
 
     func testDetectWithNilModelPathTokenizesEmailDeterministically() throws {
@@ -392,30 +379,29 @@ final class LDAServiceLLMTests: XCTestCase {
     // MARK: - Gated integration: real model surfaces fuzzy entities
 
     func testDetectWithRealModelSurfacesPersonAndCompany() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip(
-                "GGUF model not present; set LDA_MODEL_PATH or place it at "
-                    + "~/Developer/lda-models/lda-v2-Q4_K_M.gguf"
+        // withLiveModel holds a machine-wide lock while the model is resident:
+        // a second test process loading it at the same time exhausts unified
+        // memory, and llama.cpp answers with garbage rather than throwing.
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            // Arrange: a sentence whose PERSON and COMPANY are fuzzy entities only
+            // the LLM path can detect (the deterministic engine owns structured
+            // PII only).
+            let sentence = "This SPA is between Acme Corporation and John Smith."
+            let inputURL = workDir.appendingPathComponent("spa.txt")
+            try Data(sentence.utf8).write(to: inputURL)
+
+            // Act
+            let spans = try LDAService.detect(input: inputURL, llmModelPath: modelPath)
+
+            // Assert: both fuzzy types are present.
+            XCTAssertTrue(
+                spans.contains { $0.type == .person },
+                "the LLM path must surface a PERSON span; got: \(spans)"
+            )
+            XCTAssertTrue(
+                spans.contains { $0.type == .company },
+                "the LLM path must surface a COMPANY span; got: \(spans)"
             )
         }
-
-        // Arrange: a sentence whose PERSON and COMPANY are fuzzy entities only the
-        // LLM path can detect (the deterministic engine owns structured PII only).
-        let sentence = "This SPA is between Acme Corporation and John Smith."
-        let inputURL = workDir.appendingPathComponent("spa.txt")
-        try Data(sentence.utf8).write(to: inputURL)
-
-        // Act
-        let spans = try LDAService.detect(input: inputURL, llmModelPath: modelPath)
-
-        // Assert: both fuzzy types are present.
-        XCTAssertTrue(
-            spans.contains { $0.type == .person },
-            "the LLM path must surface a PERSON span; got: \(spans)"
-        )
-        XCTAssertTrue(
-            spans.contains { $0.type == .company },
-            "the LLM path must surface a COMPANY span; got: \(spans)"
-        )
     }
 }

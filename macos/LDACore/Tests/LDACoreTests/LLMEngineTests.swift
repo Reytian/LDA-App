@@ -4,9 +4,11 @@
 //  GGUF model. If the model is not present, the test is skipped (so the suite
 //  stays green on machines without the 2.7 GB model).
 //
-//  Resolve order for the model path:
-//    1. env LDA_MODEL_PATH
-//    2. ~/Developer/lda-models/lda-v2-Q4_K_M.gguf
+//  Every live test runs inside LiveModelTestSupport.withLiveModel, which
+//  resolves the model path and holds a machine-wide lock while the model is
+//  resident. Two processes cannot both fit a 2.7 GB model in unified memory,
+//  and the second allocation does not throw: llama.cpp keeps decoding and
+//  returns garbage, so these assertions would fail on content.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -16,63 +18,47 @@ import XCTest
 
 final class LLMEngineTests: XCTestCase {
 
-    private func resolveModelPath() -> String? {
-        if let env = ProcessInfo.processInfo.environment["LDA_MODEL_PATH"],
-           FileManager.default.fileExists(atPath: env) {
-            return env
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let candidate = home
-            .appendingPathComponent("Developer/lda-models/lda-v2-Q4_K_M.gguf")
-            .path
-        return FileManager.default.fileExists(atPath: candidate) ? candidate : nil
-    }
-
     func testModelLoadsOnMetalAndExtractsEntitiesEN() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip("GGUF model not present; set LDA_MODEL_PATH or place it at ~/Developer/lda-models/")
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            let engine = try LLMEngine(config: .init(modelPath: modelPath, contextLength: 4096))
+
+            let system = "You are a legal document anonymizer. Identify every piece of sensitive "
+                + "or personally identifying information and return strict JSON. Entity types: "
+                + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
+            let user = "Anonymize. Return ONLY JSON with keys entities (array of {value,type}) and redacted_text.\n\n"
+                + "TEXT:\nThis Engagement Letter is between Acme Corporation and John Smith, dated "
+                + "January 15, 2026, john@acme.com, +1-212-555-0100, fee USD 50,000."
+
+            let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
+            let output = try engine.complete(prompt: prompt, maxTokens: 400)
+
+            // Thinking must be disabled by the pre-closed block, so the answer should
+            // not open a reasoning monologue.
+            XCTAssertFalse(output.contains("Thinking Process"), "thinking should be disabled; got: \(output.prefix(200))")
+
+            // The model should surface the fuzzy entities (its job) by value and type.
+            XCTAssertTrue(output.contains("Acme Corporation"), "missing COMPANY value; got: \(output.prefix(400))")
+            XCTAssertTrue(output.contains("John Smith"), "missing PERSON value; got: \(output.prefix(400))")
+            XCTAssertTrue(output.contains("PERSON"), "missing PERSON type; got: \(output.prefix(400))")
+            XCTAssertTrue(output.contains("COMPANY"), "missing COMPANY type; got: \(output.prefix(400))")
         }
-
-        let engine = try LLMEngine(config: .init(modelPath: modelPath, contextLength: 4096))
-
-        let system = "You are a legal document anonymizer. Identify every piece of sensitive "
-            + "or personally identifying information and return strict JSON. Entity types: "
-            + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
-        let user = "Anonymize. Return ONLY JSON with keys entities (array of {value,type}) and redacted_text.\n\n"
-            + "TEXT:\nThis Engagement Letter is between Acme Corporation and John Smith, dated "
-            + "January 15, 2026, john@acme.com, +1-212-555-0100, fee USD 50,000."
-
-        let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
-        let output = try engine.complete(prompt: prompt, maxTokens: 400)
-
-        // Thinking must be disabled by the pre-closed block, so the answer should
-        // not open a reasoning monologue.
-        XCTAssertFalse(output.contains("Thinking Process"), "thinking should be disabled; got: \(output.prefix(200))")
-
-        // The model should surface the fuzzy entities (its job) by value and type.
-        XCTAssertTrue(output.contains("Acme Corporation"), "missing COMPANY value; got: \(output.prefix(400))")
-        XCTAssertTrue(output.contains("John Smith"), "missing PERSON value; got: \(output.prefix(400))")
-        XCTAssertTrue(output.contains("PERSON"), "missing PERSON type; got: \(output.prefix(400))")
-        XCTAssertTrue(output.contains("COMPANY"), "missing COMPANY type; got: \(output.prefix(400))")
     }
 
     func testModelExtractsChineseEntities() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip("GGUF model not present")
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            let engine = try LLMEngine(config: .init(modelPath: modelPath, contextLength: 4096))
+            let system = "You are a legal document anonymizer. Identify every piece of sensitive "
+                + "or personally identifying information and return strict JSON. Entity types: "
+                + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
+            let user = "Anonymize. Return ONLY JSON with keys entities (array of {value,type}) and redacted_text.\n\n"
+                + "TEXT:\n本协议由阿尔法科技有限公司与张伟于2026年3月10日签订，邮箱zhangwei@example.cn。"
+
+            let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
+            let output = try engine.complete(prompt: prompt, maxTokens: 400)
+
+            XCTAssertTrue(output.contains("阿尔法科技有限公司"), "missing ZH COMPANY; got: \(output.prefix(400))")
+            XCTAssertTrue(output.contains("张伟"), "missing ZH PERSON; got: \(output.prefix(400))")
         }
-
-        let engine = try LLMEngine(config: .init(modelPath: modelPath, contextLength: 4096))
-        let system = "You are a legal document anonymizer. Identify every piece of sensitive "
-            + "or personally identifying information and return strict JSON. Entity types: "
-            + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
-        let user = "Anonymize. Return ONLY JSON with keys entities (array of {value,type}) and redacted_text.\n\n"
-            + "TEXT:\n本协议由阿尔法科技有限公司与张伟于2026年3月10日签订，邮箱zhangwei@example.cn。"
-
-        let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
-        let output = try engine.complete(prompt: prompt, maxTokens: 400)
-
-        XCTAssertTrue(output.contains("阿尔法科技有限公司"), "missing ZH COMPANY; got: \(output.prefix(400))")
-        XCTAssertTrue(output.contains("张伟"), "missing ZH PERSON; got: \(output.prefix(400))")
     }
 
     // MARK: - Stateless per-call contract (KV cache must not accumulate)
@@ -84,43 +70,41 @@ final class LLMEngineTests: XCTestCase {
     /// skipped upstream (a silent PII miss). With a small context this test
     /// overflows after a few calls unless the engine clears memory per call.
     func testRepeatedCompletionsAreStatelessAndDoNotExhaustContext() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip("GGUF model not present")
-        }
-
-        // Small context so accumulation (if any) overflows quickly.
-        let engine = try LLMEngine(
-            config: .init(modelPath: modelPath, contextLength: 1024)
-        )
-        let system = "You are a legal document anonymizer. Return strict JSON. "
-            + "Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
-        let user = "Anonymize. Return ONLY JSON with key entities (array of {value,type}).\n\n"
-            + "TEXT:\nThis Services Agreement is made between Bravo Holdings LLC and "
-            + "Maria Garcia, dated February 2, 2026, maria@bravo.example, fee USD 12,000, "
-            + "at 99 Park Avenue, New York. Counsel for the company reviewed the schedule "
-            + "of deliverables and the indemnification provisions in detail before signing."
-        let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
-
-        // Enough calls that accumulated prompts must overflow the 1024-token
-        // context if the engine fails to clear memory between calls.
-        var outputs: [String] = []
-        for callIndex in 0..<8 {
-            do {
-                let output = try engine.complete(prompt: prompt, maxTokens: 48)
-                outputs.append(output)
-            } catch {
-                XCTFail("call \(callIndex) threw \(error); KV cache likely accumulated across calls")
-                return
-            }
-        }
-
-        // Greedy decoding of an identical prompt from a clean state must be
-        // deterministic: every call returns byte-identical output.
-        for (index, output) in outputs.enumerated() {
-            XCTAssertEqual(
-                output, outputs[0],
-                "call \(index) diverged from call 0; per-call state is leaking"
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            // Small context so accumulation (if any) overflows quickly.
+            let engine = try LLMEngine(
+                config: .init(modelPath: modelPath, contextLength: 1024)
             )
+            let system = "You are a legal document anonymizer. Return strict JSON. "
+                + "Entity types: PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
+            let user = "Anonymize. Return ONLY JSON with key entities (array of {value,type}).\n\n"
+                + "TEXT:\nThis Services Agreement is made between Bravo Holdings LLC and "
+                + "Maria Garcia, dated February 2, 2026, maria@bravo.example, fee USD 12,000, "
+                + "at 99 Park Avenue, New York. Counsel for the company reviewed the schedule "
+                + "of deliverables and the indemnification provisions in detail before signing."
+            let prompt = LLMEngine.buildChatMLPrompt(system: system, user: user)
+
+            // Enough calls that accumulated prompts must overflow the 1024-token
+            // context if the engine fails to clear memory between calls.
+            var outputs: [String] = []
+            for callIndex in 0..<8 {
+                do {
+                    let output = try engine.complete(prompt: prompt, maxTokens: 48)
+                    outputs.append(output)
+                } catch {
+                    XCTFail("call \(callIndex) threw \(error); KV cache likely accumulated across calls")
+                    return
+                }
+            }
+
+            // Greedy decoding of an identical prompt from a clean state must be
+            // deterministic: every call returns byte-identical output.
+            for (index, output) in outputs.enumerated() {
+                XCTAssertEqual(
+                    output, outputs[0],
+                    "call \(index) diverged from call 0; per-call state is leaking"
+                )
+            }
         }
     }
 
@@ -158,65 +142,63 @@ final class LLMEngineTests: XCTestCase {
     /// summations, so a greedy tie may resolve differently; the semantic
     /// content is the contract.
     func testBatchedCompletionMatchesSequentialEntities() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip("GGUF model not present")
-        }
-        let engine = try LLMEngine(
-            config: .init(modelPath: modelPath, contextLength: 8192, batchSlots: 4)
-        )
-        let system = "You are a legal document anonymizer. Identify every piece of sensitive "
-            + "or personally identifying information and return strict JSON. Entity types: "
-            + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
-        let cases: [(text: String, expect: String)] = [
-            ("This Engagement Letter is between Acme Corporation and John Smith.", "John Smith"),
-            ("The lender is Globex Holdings LLC represented by Mary Stone.", "Mary Stone"),
-            ("Witnessed by Carlos Vega on behalf of Initech Systems Inc.", "Carlos Vega"),
-        ]
-        let prompts = cases.map { item in
-            LLMEngine.buildChatMLPrompt(
-                system: system,
-                user: "Anonymize. Return ONLY JSON with key entities (array of {value,type}).\n\nTEXT:\n"
-                    + item.text
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            let engine = try LLMEngine(
+                config: .init(modelPath: modelPath, contextLength: 8192, batchSlots: 4)
             )
+            let system = "You are a legal document anonymizer. Identify every piece of sensitive "
+                + "or personally identifying information and return strict JSON. Entity types: "
+                + "PERSON, COMPANY, DATE, AMOUNT, EMAIL, PHONE, ADDRESS."
+            let cases: [(text: String, expect: String)] = [
+                ("This Engagement Letter is between Acme Corporation and John Smith.", "John Smith"),
+                ("The lender is Globex Holdings LLC represented by Mary Stone.", "Mary Stone"),
+                ("Witnessed by Carlos Vega on behalf of Initech Systems Inc.", "Carlos Vega"),
+            ]
+            let prompts = cases.map { item in
+                LLMEngine.buildChatMLPrompt(
+                    system: system,
+                    user: "Anonymize. Return ONLY JSON with key entities (array of {value,type}).\n\nTEXT:\n"
+                        + item.text
+                )
+            }
+
+            let batched = try engine.completeBatch(prompts: prompts, maxTokens: 300)
+
+            XCTAssertEqual(batched.count, prompts.count)
+            for (index, item) in cases.enumerated() {
+                XCTAssertTrue(
+                    batched[index].contains(item.expect),
+                    "sequence \(index) lost its entity; got: \(batched[index].prefix(300))"
+                )
+            }
+
+            // The engine stays usable for sequential completion afterwards.
+            let after = try engine.complete(prompt: prompts[0], maxTokens: 300)
+            XCTAssertTrue(after.contains("John Smith"))
         }
-
-        let batched = try engine.completeBatch(prompts: prompts, maxTokens: 300)
-
-        XCTAssertEqual(batched.count, prompts.count)
-        for (index, item) in cases.enumerated() {
-            XCTAssertTrue(
-                batched[index].contains(item.expect),
-                "sequence \(index) lost its entity; got: \(batched[index].prefix(300))"
-            )
-        }
-
-        // The engine stays usable for sequential completion afterwards.
-        let after = try engine.complete(prompt: prompts[0], maxTokens: 300)
-        XCTAssertTrue(after.contains("John Smith"))
     }
 
     /// A pre-cancelled token makes completion abort with LLMError.cancelled
     /// almost immediately, in both sequential and batched paths.
     func testCancelTokenAbortsCompletion() throws {
-        guard let modelPath = resolveModelPath() else {
-            throw XCTSkip("GGUF model not present")
-        }
-        let engine = try LLMEngine(config: .init(modelPath: modelPath))
-        let token = ExtractionCancelToken()
-        token.cancel()
-        engine.cancelToken = token
+        try LiveModelTestSupport.withLiveModel { modelPath in
+            let engine = try LLMEngine(config: .init(modelPath: modelPath))
+            let token = ExtractionCancelToken()
+            token.cancel()
+            engine.cancelToken = token
 
-        let prompt = LLMEngine.buildChatMLPrompt(
-            system: "You are a helpful assistant.",
-            user: "Count from one to one hundred."
-        )
-        XCTAssertThrowsError(try engine.complete(prompt: prompt, maxTokens: 200)) { error in
-            XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
-        }
-        XCTAssertThrowsError(
-            try engine.completeBatch(prompts: [prompt, prompt], maxTokens: 200)
-        ) { error in
-            XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
+            let prompt = LLMEngine.buildChatMLPrompt(
+                system: "You are a helpful assistant.",
+                user: "Count from one to one hundred."
+            )
+            XCTAssertThrowsError(try engine.complete(prompt: prompt, maxTokens: 200)) { error in
+                XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
+            }
+            XCTAssertThrowsError(
+                try engine.completeBatch(prompts: [prompt, prompt], maxTokens: 200)
+            ) { error in
+                XCTAssertEqual(error as? LLMEngine.LLMError, .cancelled)
+            }
         }
     }
 }

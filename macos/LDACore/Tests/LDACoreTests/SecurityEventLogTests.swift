@@ -285,19 +285,25 @@ final class SecurityEventLogTests: XCTestCase {
     }
 
     func testThePersistentDigestKeyRoundTripsThroughTheKeychain() throws {
-        // The one test of the real Keychain path. Restore the pre-test state:
-        // when the key did not exist before, remove the one this test created.
-        let existedBefore = SecurityEventLog.persistentDigestKeyExistsForTesting()
-        defer {
-            if !existedBefore {
-                SecurityEventLog.deletePersistentDigestKeyForTesting()
-            }
-        }
+        // The one test of the real Keychain path, run under a process-unique
+        // account rather than the install-wide one. Two concurrent runs of this
+        // test on the shared account would race: A creates the key, B reads it,
+        // A deletes it in cleanup, and B's second read creates a DIFFERENT key,
+        // so the equality below fails for a reason that has nothing to do with
+        // the code. Deleting the install-wide account is worse than a flake in
+        // any case: on a machine where the audit key was upgraded to user
+        // presence, the delete removes the ".userpresence" variant too.
+        let account = TestNamespace.keychainAccount("subject-digest-key")
+        XCTAssertFalse(
+            SecurityEventLog.digestKeyExistsForTesting(account: account),
+            "a generated account has never existed, so this test creates the key it reads"
+        )
+        defer { SecurityEventLog.deleteDigestKeyForTesting(account: account) }
 
-        guard let first = SecurityEventLog.loadOrCreatePersistentDigestKey() else {
+        guard let first = SecurityEventLog.loadOrCreatePersistentDigestKey(account: account) else {
             throw XCTSkip("Keychain unavailable in this environment")
         }
-        let second = SecurityEventLog.loadOrCreatePersistentDigestKey()
+        let second = SecurityEventLog.loadOrCreatePersistentDigestKey(account: account)
 
         XCTAssertEqual(
             first.withUnsafeBytes { Data($0) },
@@ -324,7 +330,7 @@ final class SecurityEventLogTests: XCTestCase {
             auditing: true
         )
         let url = workDir.appendingPathComponent("guard.bin")
-        let account = "seclog-disabled-guard"
+        let account = TestNamespace.keychainAccount("seclog-disabled-guard")
         do {
             try container.save(Data("payload".utf8), to: url, protection: .keychain(account: account))
         } catch DocumentIOError.keychainError(let status) {
@@ -351,7 +357,7 @@ final class SecurityEventLogTests: XCTestCase {
             auditing: true
         )
         let url = workDir.appendingPathComponent("enabled.bin")
-        let account = "seclog-enabled-digest"
+        let account = TestNamespace.keychainAccount("seclog-enabled-digest")
         do {
             try container.save(Data("payload".utf8), to: url, protection: .keychain(account: account))
         } catch DocumentIOError.keychainError(let status) {
