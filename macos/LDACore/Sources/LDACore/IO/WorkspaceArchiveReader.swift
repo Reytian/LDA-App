@@ -33,18 +33,45 @@ extension WorkspaceArchive {
 
     // MARK: - Reading
 
-    /// Decrypt and unpack a workspace file.
+    /// A workspace that has been decrypted and validated but not yet unpacked.
+    ///
+    /// The split exists for one reason: restoring a workspace REPLACES the
+    /// current session, and a caller must be able to prove the passphrase and
+    /// the format version before it discards live work. Everything here is in
+    /// memory; nothing has touched the file system yet.
+    public struct PreparedWorkspace {
+        public let manifest: WorkspaceManifest
+        fileprivate let reader: WorkspaceZipReader
+
+        /// Unpack the documents and read the remaining members.
+        public func unpack() throws -> OpenedWorkspace {
+            try WorkspaceArchive.unpack(manifest: manifest, reader: reader)
+        }
+    }
+
+    /// Decrypt a workspace file and validate its manifest, without unpacking.
     ///
     /// Requires nothing but the file and the passphrase: no Keychain item, no
     /// app store, no prior knowledge of the matter.
     ///
     /// - Throws: WorkspaceArchiveError.wrongPassphrase, .createdByNewerVersion,
     ///   .damagedFile, or .tooLarge.
-    public static func read(from url: URL, passphrase: String) throws -> OpenedWorkspace {
+    public static func prepare(from url: URL, passphrase: String) throws -> PreparedWorkspace {
         let zipBytes = try decryptPayload(at: url, passphrase: passphrase)
         let reader = try WorkspaceZipReader(zipBytes: zipBytes)
-        let manifest = try readManifest(from: reader)
+        return PreparedWorkspace(manifest: try readManifest(from: reader), reader: reader)
+    }
 
+    /// Decrypt and unpack a workspace file in one step.
+    public static func read(from url: URL, passphrase: String) throws -> OpenedWorkspace {
+        try prepare(from: url, passphrase: passphrase).unpack()
+    }
+
+    /// Unpack a prepared workspace. Any failure removes the expansion first.
+    fileprivate static func unpack(
+        manifest: WorkspaceManifest,
+        reader: WorkspaceZipReader
+    ) throws -> OpenedWorkspace {
         let expansion = try unpackDocuments(manifest: manifest, reader: reader)
         do {
             return OpenedWorkspace(

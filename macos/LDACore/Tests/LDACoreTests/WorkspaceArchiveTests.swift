@@ -527,25 +527,6 @@ final class WorkspaceArchiveTests: XCTestCase {
     /// Build an inner zip from exact member bytes and seal it the way the
     /// format does, so a test can produce archives the writer would never emit.
     private func writeRawArchive(members: [String: Data], to url: URL) throws {
-        let archive = try Archive(data: Data(), accessMode: .create)
-        for (path, data) in members.sorted(by: { $0.key < $1.key }) {
-            try archive.addEntry(
-                with: path,
-                type: .file,
-                uncompressedSize: Int64(data.count),
-                compressionMethod: .deflate,
-                provider: { position, size in
-                    let start = Int(position)
-                    return data.subdata(in: start ..< min(start + size, data.count))
-                }
-            )
-        }
-        let bytes = try XCTUnwrap(archive.data)
-        let container = EncryptedContainer(
-            magic: Array("LDAWRK".utf8),
-            keychainService: "ai.openclaw.lda.workspacekey",
-            containerDescription: "Workspace file"
-        )
-        try container.save(bytes, to: url, protection: .passphrase(Self.passphrase))
+        try WorkspaceArchiveFixtures.write(members: members, to: url, passphrase: Self.passphrase)
     }
 }

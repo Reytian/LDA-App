@@ -720,6 +720,56 @@ public final class SessionModel: ObservableObject {
         rebuildScopedStores()
     }
 
+    /// Adopt a matter scope identity that arrived inside a workspace archive.
+    ///
+    /// Needed because the matter itself may be unknown on this Mac: a
+    /// colleague opening a handed-over workspace has no metadata entry for it,
+    /// so there is no local id to adopt. Minting the matter layer from the
+    /// ARCHIVED id lets the matter's own learned rules and vocabulary keep
+    /// working standalone, which is the difference between a workspace that
+    /// travels and one that only looks like it does.
+    ///
+    /// Scoping is turned on with it: an archive only carries matter-layer
+    /// lists when the sending session was scoped, so the receiving session
+    /// must be too, or those rules would be read but never written back to.
+    func adoptWorkspaceMatterScope(id: UUID) {
+        matterScopeID = id
+        scopeLearnedRulesToMatter = true
+        scopeDefaults().set(true, forKey: Self.matterScopeToggleKey(for: id))
+        rebuildScopedStores()
+    }
+
+    /// Install a session mapping restored from a workspace, so restore from
+    /// paste works the moment the workspace opens.
+    func adoptWorkspaceMapping(_ mapping: Mapping?) {
+        sessionMapping = mapping
+    }
+
+    /// Clear the session so a workspace can take its place.
+    ///
+    /// Deliberately unconditional, unlike selectClient's early return when the
+    /// label is unchanged: opening a workspace for the matter already selected
+    /// must still replace the tray, not merge into it. Expanded archives go
+    /// too, because the outgoing session's unpacked originals have nothing left
+    /// to read them.
+    ///
+    /// Call this only after the incoming workspace has been decrypted and
+    /// validated. It destroys live work.
+    func resetForWorkspaceOpen() {
+        documentImportGeneration += 1
+        entries.removeAll()
+        selectedID = nil
+        sessionMapping = nil
+        currentRecordID = nil
+        sessionNote = nil
+        companionNote = nil
+        pseudonymOverrides = [:]
+        clientLabel = nil
+        hasExplicitClientSelection = true
+        adoptMatterScope(id: nil)
+        discardExpandedArchives()
+    }
+
     /// Adopt the scope identity of a newly selected matter (nil for no
     /// matter) and restore its persisted toggle state.
     private func adoptMatterScope(id: UUID?) {
