@@ -57,6 +57,11 @@ public struct AnonymizeResult: Sendable {
     /// failure this count exists to prevent. Flag, never guess: no box is
     /// invented for a value whose position could not be established.
     public var unboxedTokenCount: Int
+    /// How many red-region seal CANDIDATE boxes were merged into the redacted
+    /// image's coverage. Candidates only, never certain seal detections; the
+    /// UI can surface "N seal candidates boxed". Always 0 for non-image input
+    /// and when includeSealCandidates is false.
+    public var sealCandidateCount: Int
 
     public init(
         redactedFileURL: URL,
@@ -67,6 +72,7 @@ public struct AnonymizeResult: Sendable {
         imageRedactionCount: Int = 0,
         embeddedMediaCount: Int = 0,
         unboxedTokenCount: Int = 0,
+        sealCandidateCount: Int = 0,
         redactedImageURL: URL? = nil
     ) {
         self.redactedFileURL = redactedFileURL
@@ -78,6 +84,7 @@ public struct AnonymizeResult: Sendable {
         self.imageRedactionCount = imageRedactionCount
         self.embeddedMediaCount = embeddedMediaCount
         self.unboxedTokenCount = unboxedTokenCount
+        self.sealCandidateCount = sealCandidateCount
     }
 }
 
@@ -195,13 +202,18 @@ public enum LDAService {
     ///     channel) still mint brace tokens in every style; their entries live
     ///     in the same mapping and restore correctly, they just do not carry
     ///     the pseudonym AI-robustness benefit.
+    ///   - includeSealCandidates: standalone image input only. When true (the
+    ///     default), red-region seal CANDIDATE boxes are merged into the
+    ///     redacted image's coverage; candidates only, never certain seal
+    ///     detections. Ignored for every other input format.
     public static func anonymize(
         input: URL,
         outputDir: URL,
         protection: MappingProtection,
         createdAtISO8601: String,
         llmModelPath: String? = nil,
-        style: SubstitutionStyle = .token
+        style: SubstitutionStyle = .token,
+        includeSealCandidates: Bool = true
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
@@ -281,10 +293,20 @@ public enum LDAService {
                 lines: extraction.lines,
                 replacedRanges: spans.map { $0.start..<$0.end }
             )
+            // Seal candidate channel: red-region clusters in the source
+            // raster are boxed as CANDIDATES alongside the OCR coverage.
+            // Over-covering is acceptable; nothing here claims certain seal
+            // detection. The flag is threaded for later UI wiring.
+            let sealCandidates = includeSealCandidates
+                ? try SealCandidateDetector.candidates(
+                    in: ImageTextExtractor.loadImage(at: input)
+                )
+                : []
             let imageURL = outputDir.appendingPathComponent("\(baseName)_redacted.png")
-            let boxCount = try ImageRedactor.renderRedactedPNG(
+            let render = try ImageRedactor.renderRedactedPNG(
                 originalImageAt: input,
                 covering: coverage.coveredLines,
+                sealCandidates: sealCandidates,
                 to: imageURL
             )
 
@@ -298,9 +320,10 @@ public enum LDAService {
                 visualPdfURL: nil,
                 entityCount: spans.count,
                 entities: spans,
-                imageRedactionCount: boxCount,
+                imageRedactionCount: render.paintedBoxCount,
                 embeddedMediaCount: 0,
                 unboxedTokenCount: coverage.unlocatedRangeCount,
+                sealCandidateCount: render.sealCandidateCount,
                 redactedImageURL: imageURL
             )
         }

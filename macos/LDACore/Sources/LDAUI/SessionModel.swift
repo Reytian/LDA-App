@@ -137,6 +137,13 @@ public final class SessionModel: ObservableObject {
         SessionRecordStore.defaultProtection()
     }
 
+    /// The app version stamped into session records for the compliance
+    /// report. Injectable so record tests stay deterministic; the production
+    /// default reads the bundle's short version string.
+    public var appVersionProvider: () -> String? = {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    }
+
     /// Encrypted matter names, aliases, and archive state for the workspace.
     /// Access is user-initiated from Matters so Keychain prompts do not appear
     /// during an ordinary app launch.
@@ -188,8 +195,10 @@ public final class SessionModel: ObservableObject {
         didSet {
             guard let configure = configureNewModel else { return }
             configure(emptyModel)
+            applyScopedStores(to: emptyModel)
             for entry in entries {
                 configure(entry.model)
+                applyScopedStores(to: entry.model)
             }
         }
     }
@@ -226,8 +235,10 @@ public final class SessionModel: ObservableObject {
     public func reapplyConfiguration() {
         guard let configure = configureNewModel else { return }
         configure(emptyModel)
+        applyScopedStores(to: emptyModel)
         for entry in entries {
             configure(entry.model)
+            applyScopedStores(to: entry.model)
         }
     }
 
@@ -279,6 +290,7 @@ public final class SessionModel: ObservableObject {
             guard importGeneration == documentImportGeneration else { return }
             let model = makeModel()
             configureNewModel?(model)
+            applyScopedStores(to: model)
             let entry = DocumentEntry(id: UUID(), url: url, model: model)
             // Cross-document recall sweep (the GUI half of the session-wide
             // sweep in LDAService.anonymizeSession): when this document
@@ -323,17 +335,34 @@ public final class SessionModel: ObservableObject {
         ZipImporter.cleanUpAllExpansions()
     }
 
+    /// Whether the Scan All action can start: at least one document is
+    /// waiting in the imported state, and no pass is currently running
+    /// anywhere in the tray (only one model pass may be in flight).
+    public var canScanAll: Bool {
+        entries.contains { $0.model.status == .imported }
+            && !entries.contains { $0.model.status == .detecting }
+    }
+
     /// Detect entities in every document that has not run yet, sequentially so
     /// only one model pass is in flight at a time. The sequential order also
     /// feeds the cross-document sweep: each document's pass sees the partners
     /// confirmed so far, so a party found in an earlier document surfaces in
     /// every later one. Re-running Scan on a document picks up partners
     /// confirmed after its first pass.
+    ///
+    /// Selection follows the document being scanned so the pane shows the
+    /// live pass and the banner's Stop button always reaches it. Stopping
+    /// cancels the current document (restored to imported, nothing partial
+    /// shown) and ends the queue, leaving the remainder imported.
     public func anonymizeAll() async {
         for entry in entries {
             switch entry.model.status {
             case .imported:
+                selectedID = entry.id
                 await entry.model.anonymize()
+                // A user stop restores this document to .imported instead of
+                // .ready; that is the signal to stop the whole queue.
+                if entry.model.status == .imported { return }
             default:
                 continue
             }
@@ -405,12 +434,14 @@ public final class SessionModel: ObservableObject {
             )
         }
         let label = clientLabel ?? (ready.first.map { $0.name } ?? "session")
-        let result = SessionTokenizer.tokenize(
+        let style = outputStyleProvider()
+        let result = try SessionTokenizer.tokenize(
             documents: documents,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
             seedMapping: seed,
-            style: outputStyleProvider()
+            style: style,
+            overrides: activePseudonymOverrides(for: style)
         )
         // Record the full-name/short-name grouping in the shared mapping,
         // mirroring LDAService.anonymizeSession. Tokens and values are
@@ -473,22 +504,12 @@ public final class SessionModel: ObservableObject {
 
         // Per-session record (R18): what was protected, value-free. Best
         // effort: a record failure must not block the handoff itself.
-        let record = SessionRecord(
+        saveSessionRecord(
             createdAtISO8601: createdAtISO8601,
-            clientLabel: clientLabel,
-            documents: ready.map { entry in
-                SessionRecordDocument(
-                    name: entry.name,
-                    entityCount: entry.model.redactedCount,
-                    entityTypes: distinctTypes(of: entry.model)
-                )
-            },
-            protectedValueCount: result.mapping.entries.count
+            ready: ready,
+            mapping: linkedMapping,
+            rescanWarnings: rescanWarnings
         )
-        if let store = try? recordStore() {
-            try? store.save(record, protection: recordProtection())
-            currentRecordID = record.id
-        }
 
         // Park the session (awaiting-AI state): the mapping survives the user
         // quitting while the AI works, so the round-trip has no dead end.
@@ -522,6 +543,259 @@ public final class SessionModel: ObservableObject {
         return ordered
     }
 
+    /// Accepted entity counts of one document model, keyed by entity-type wire
+    /// string, for the compliance report's per-document breakdown.
+    private func entityCountsByType(of model: ReviewModel) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for entity in model.entities where entity.accepted {
+            counts[entity.span.type.rawValue, default: 0] += 1
+        }
+        return counts
+    }
+
+    /// Build and best-effort persist the session record (R18) for one handoff,
+    /// including the compliance report fields (F6): style, model, app version,
+    /// per-type counts, and the scan-side verification summary.
+    private func saveSessionRecord(
+        createdAtISO8601: String,
+        ready: [DocumentEntry],
+        mapping: Mapping,
+        rescanWarnings: [RescanWarning]
+    ) {
+        let record = SessionRecord(
+            createdAtISO8601: createdAtISO8601,
+            clientLabel: clientLabel,
+            documents: ready.map { entry in
+                SessionRecordDocument(
+                    name: entry.name,
+                    entityCount: entry.model.redactedCount,
+                    entityTypes: distinctTypes(of: entry.model),
+                    entityCountsByType: entityCountsByType(of: entry.model)
+                )
+            },
+            protectedValueCount: mapping.entries.count,
+            substitutionStyle: mapping.style,
+            modelName: ready.first?.model.modelPath.map {
+                URL(fileURLWithPath: $0).lastPathComponent
+            },
+            appVersion: appVersionProvider(),
+            // Scan-side verification counts. The literal rescan hits are
+            // folded into ordinary review entities at detect time and are not
+            // separable here without re-running the sweep, so the hit count
+            // records 0 until detection surfaces it. Forensics suspects are a
+            // restore-side signal (SessionRestoreEvent.suspectCount), so the
+            // scan-side count is 0 by construction.
+            scanVerification: SessionScanVerification(
+                rescanHitCount: 0,
+                rescanWarningCount: rescanWarnings.count,
+                forensicsSuspectCount: 0
+            )
+        )
+        if let store = try? recordStore() {
+            try? store.save(record, protection: recordProtection())
+            currentRecordID = record.id
+        }
+    }
+
+    // MARK: - Compliance report (F6)
+
+    /// Whether the session has a record to report on. Set by the hand-to-AI
+    /// build; cleared when the matter boundary changes.
+    public var canExportComplianceReport: Bool { currentRecordID != nil }
+
+    /// Render the current session's record as the exportable compliance
+    /// report and write BOTH deliverables (report.md and report.pdf) into the
+    /// chosen directory. The caller supplies the generation timestamp so the
+    /// Markdown render stays deterministic.
+    @discardableResult
+    public func exportComplianceReport(
+        to directory: URL,
+        generatedAtISO8601: String
+    ) throws -> (markdown: URL, pdf: URL) {
+        guard let recordID = currentRecordID else {
+            throw DocumentIOError.unreadable(
+                "No session record exists yet. Use Copy for AI first."
+            )
+        }
+        guard let record = try recordStore().load(
+            id: recordID,
+            protection: recordProtection()
+        ) else {
+            throw DocumentIOError.unreadable("The session record could not be read.")
+        }
+        let markdown = ComplianceReport.markdown(
+            record: record,
+            generatedAtISO8601: generatedAtISO8601
+        )
+        let markdownURL = directory.appendingPathComponent("report.md")
+        let pdfURL = directory.appendingPathComponent("report.pdf")
+        try Data(markdown.utf8).write(to: markdownURL)
+        try ComplianceReportPDF.render(markdown: markdown).write(to: pdfURL)
+        return (markdownURL, pdfURL)
+    }
+
+    // MARK: - Matter-scoped learned rules (F4)
+
+    /// The app-owned global store layers, attached once at launch. They stay
+    /// shared with the Settings window. nil in sessions that never attach
+    /// stores (most tests wire models directly), which keeps those paths
+    /// byte-identical to the pre-scoping behavior.
+    private var globalLearningStore: LearningStore?
+    private var globalPatternStore: CustomPatternStore?
+
+    /// The active matter's stable metadata id (MatterMetadata.id). nil when
+    /// no matter is selected, or the matter has no metadata entry yet: one is
+    /// created the first time the user scopes rules to the matter.
+    @Published public private(set) var matterScopeID: UUID?
+
+    /// Whether learned-rule writes from this session land in the matter layer
+    /// instead of the global one. Persisted per matter under a key that
+    /// embeds only the matter's random id, never its label.
+    @Published public private(set) var scopeLearnedRulesToMatter = false
+
+    /// Where the per-matter toggle persists. Injectable for hermetic tests.
+    public var scopeDefaults: () -> UserDefaults = { .standard }
+
+    /// Matter-layer store factories. Injectable so tests can pin a defaults
+    /// suite and test-only base keys instead of the production vault accounts.
+    public var makeMatterLearningStore: (UUID) -> LearningStore = {
+        LearningStore(scope: .matter(id: $0))
+    }
+    public var makeMatterPatternStore: (UUID) -> CustomPatternStore = {
+        CustomPatternStore(scope: .matter(id: $0))
+    }
+
+    /// The scoped facades the document models read. Rebuilt whenever the
+    /// matter scope changes; nil until the app attaches the global layers.
+    public private(set) var scopedLearningStore: ScopedLearningStore?
+    public private(set) var scopedPatternStore: ScopedCustomPatternStore?
+
+    /// The layer learned-rule writes land in right now. Matter writes require
+    /// both the toggle and an attached matter layer; everything else is the
+    /// pre-scoping global behavior.
+    public var learnedRuleWriteTarget: ScopeTarget {
+        scopeLearnedRulesToMatter && scopedLearningStore?.matter != nil
+            ? .matter
+            : .global
+    }
+
+    /// The per-matter UserDefaults key for the scope toggle. Derived like
+    /// StoreScope.storageKey: the key embeds only the matter's random id, so
+    /// a matter label can never leak into UserDefaults.
+    public static func matterScopeToggleKey(for id: UUID) -> String {
+        StoreScope.matter(id: id)
+            .storageKey(base: "com.haotianyi.LDA.scopeLearnedRulesToMatter")
+    }
+
+    /// Attach the app's global vocabulary and learning layers and start
+    /// injecting the scoped facades into every document model.
+    public func attachStores(
+        learning: LearningStore,
+        patterns: CustomPatternStore
+    ) {
+        globalLearningStore = learning
+        globalPatternStore = patterns
+        rebuildScopedStores()
+    }
+
+    /// Turn matter scoping on or off for the active matter, creating the
+    /// matter's metadata entry (its stable id) on first use and persisting
+    /// the choice per matter. A session without a matter has nothing to
+    /// scope to, so the call is a no-op there.
+    public func setScopeLearnedRulesToMatter(_ enabled: Bool) throws {
+        guard let clientLabel else { return }
+        if enabled, matterScopeID == nil {
+            matterScopeID = try matterStore().ensure(
+                label: clientLabel,
+                protection: matterProtection()
+            ).id
+        }
+        scopeLearnedRulesToMatter = enabled && matterScopeID != nil
+        if let id = matterScopeID {
+            scopeDefaults().set(
+                scopeLearnedRulesToMatter,
+                forKey: Self.matterScopeToggleKey(for: id)
+            )
+        }
+        rebuildScopedStores()
+    }
+
+    /// Adopt the scope identity of a newly selected matter (nil for no
+    /// matter) and restore its persisted toggle state.
+    private func adoptMatterScope(id: UUID?) {
+        matterScopeID = id
+        scopeLearnedRulesToMatter = id.map {
+            scopeDefaults().bool(forKey: Self.matterScopeToggleKey(for: $0))
+        } ?? false
+        rebuildScopedStores()
+    }
+
+    /// Rebuild the scoped facades for the current scope and inject them into
+    /// every model. No-op until the app attaches the global layers.
+    private func rebuildScopedStores() {
+        guard let globalLearning = globalLearningStore,
+              let globalPatterns = globalPatternStore else { return }
+        let matterLearning = matterScopeID.map { makeMatterLearningStore($0) }
+        let matterPatterns = matterScopeID.map { makeMatterPatternStore($0) }
+        scopedLearningStore = ScopedLearningStore(
+            global: globalLearning,
+            matter: matterLearning
+        )
+        scopedPatternStore = ScopedCustomPatternStore(
+            global: globalPatterns,
+            matter: matterPatterns
+        )
+        applyScopedStores(to: emptyModel)
+        for entry in entries {
+            applyScopedStores(to: entry.model)
+        }
+    }
+
+    /// Wire one model to the current facades. No-op until stores attach, so
+    /// tests that configure model stores directly keep full control.
+    private func applyScopedStores(to model: ReviewModel) {
+        guard scopedLearningStore != nil else { return }
+        model.learningStore = scopedLearningStore
+        model.customPatternProvider = { [weak self] in
+            self?.scopedPatternStore?.activePatterns ?? []
+        }
+        model.learningWriteTarget = { [weak self] in
+            self?.learnedRuleWriteTarget ?? .global
+        }
+    }
+
+    // MARK: - Editable pseudonym replacements (F5)
+
+    /// User-forced replacement text keyed by the exact surface, applied to
+    /// every later hand-to-AI build of this session (pseudonym style only).
+    @Published public private(set) var pseudonymOverrides: [String: String] = [:]
+
+    /// Set, replace, or clear (nil or empty replacement) the forced
+    /// replacement for one surface. The WHOLE updated set is validated
+    /// against the session corpus and the mapping entries already in force,
+    /// so a rejected edit changes nothing.
+    public func setPseudonymOverride(surface: String, replacement: String?) throws {
+        let trimmed = replacement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var updated = pseudonymOverrides
+        updated[surface] = trimmed.isEmpty ? nil : trimmed
+        if !updated.isEmpty {
+            try PseudonymOverrideValidator.validate(
+                overrides: updated,
+                style: outputStyleProvider(),
+                corpus: entries.map { $0.model.documentText },
+                existingEntries: sessionMapping?.entries ?? [:]
+            )
+        }
+        pseudonymOverrides = updated
+    }
+
+    /// The overrides the build applies: the stored set under the pseudonym
+    /// style, empty otherwise. Overrides are a pseudonym-only feature, and a
+    /// style change in Settings must never break the next build.
+    func activePseudonymOverrides(for style: SubstitutionStyle) -> [String: String] {
+        style == .pseudonym ? pseudonymOverrides : [:]
+    }
+
     /// Resume an awaiting-AI parked session after a relaunch: reload the
     /// parked mapping (and its client label) so Restore from AI works without
     /// redoing anything. No-op when nothing is parked.
@@ -542,6 +816,15 @@ public final class SessionModel: ObservableObject {
         sessionMapping = parked.mapping
         if clientLabel == nil {
             clientLabel = parked.clientLabel
+            // A resume bypasses selectMatter, so adopt the resumed matter's
+            // scope here too. canonicalizedParkedSession already resolved the
+            // metadata, so this read stays within the same user action.
+            if let label = parked.clientLabel {
+                adoptMatterScope(
+                    id: (try? matterMetadata())?.metadata
+                        .first { $0.label == label }?.id
+                )
+            }
         }
         sessionNote = "Resumed your last session. When the AI answer is ready, "
             + "use Restore to bring the real values back."
@@ -750,6 +1033,13 @@ public final class SessionModel: ObservableObject {
         sessionMapping = nil
         currentRecordID = nil
         sessionNote = nil
+        // Overrides reference this session's surfaces; they must not follow
+        // the user across a matter boundary.
+        pseudonymOverrides = [:]
+        // The matter boundary moved: drop the outgoing matter's scope. When a
+        // matter is being selected, selectMatter adopts its real scope id and
+        // persisted toggle right after this call.
+        adoptMatterScope(id: nil)
 
         for index in emptyModel.entities.indices {
             emptyModel.entities[index].token = nil
@@ -800,7 +1090,16 @@ public final class SessionModel: ObservableObject {
             guard discardingDocuments else { return false }
             try discardParkedSession(parked)
         }
-        return selectClient(label, discardingDocuments: discardingDocuments)
+        let selected = selectClient(label, discardingDocuments: discardingDocuments)
+        if selected {
+            // Adopt the matter's scope identity (its stable metadata id) and
+            // its persisted matter-scope toggle. A matter without metadata
+            // has no id yet; it gains one on the first scope-toggle use.
+            adoptMatterScope(
+                id: metadataResolution.metadata.first { $0.label == label }?.id
+            )
+        }
+        return selected
     }
 
     /// Exact decrypted client labels for the explicit Matters workspace.

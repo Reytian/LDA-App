@@ -239,6 +239,15 @@ public struct AppShell: View {
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
                 .help("Save a redacted document plus the encrypted mapping needed to restore it")
+
+                Button {
+                    beginReportExport()
+                } label: {
+                    Label("Export Report", systemImage: "list.clipboard")
+                }
+                .labelStyle(.titleAndIcon)
+                .disabled(!session.canExportComplianceReport)
+                .help("Save a processing report (Markdown and PDF) of what this session's record holds")
             }
         }
     }
@@ -267,10 +276,36 @@ public struct AppShell: View {
             Button("New Matter\u{2026}") {
                 promptNewClient()
             }
+
+            // Matter-scoped learned rules (F4): where this session's accept
+            // and reject decisions are remembered. Only meaningful with a
+            // matter selected, so the item hides without one.
+            if session.clientLabel != nil {
+                Divider()
+                Toggle(
+                    "Apply learned rules to this matter only",
+                    isOn: matterScopeBinding
+                )
+            }
         } label: {
             Label(session.clientLabel ?? "No Matter", systemImage: "person.crop.square")
         }
         .help("Work under a matter keeps the same placeholders for the same values, every time")
+    }
+
+    /// Routes the matter-scope toggle through the session, which persists the
+    /// choice per matter and creates the matter's scope identity on first use.
+    private var matterScopeBinding: Binding<Bool> {
+        Binding(
+            get: { session.scopeLearnedRulesToMatter },
+            set: { enabled in
+                do {
+                    try session.setScopeLearnedRulesToMatter(enabled)
+                } catch {
+                    exportMessage = "Could not change the matter scope. \(error.localizedDescription)"
+                }
+            }
+        )
     }
 
     /// Ask for a new client label with a small input alert and select it.
@@ -566,10 +601,34 @@ public struct AppShell: View {
                 // sentence that names it: it can never vanish into toolbar
                 // overflow on a narrow window.
                 if case .imported = model.status {
+                    if session.entries.count > 1 {
+                        scanAllButton
+                    }
                     scanButton(title: "Scan for PII", prominent: true)
                 }
             }
         }
+    }
+
+    /// Scan every not-yet-scanned document in tray order (F3). Sequential by
+    /// design: one model pass at a time, and the order feeds the
+    /// cross-document sweep. The banner's Stop cancels the current document
+    /// and leaves the rest of the queue imported.
+    private var scanAllButton: some View {
+        Button {
+            Task { await session.anonymizeAll() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "text.magnifyingglass")
+                Text("Scan All")
+            }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(!session.canScanAll)
+        .help("Scan every document in the session that has not been scanned yet, one after another")
+        .accessibilityIdentifier("scanAllDocuments")
     }
 
     /// The primary Scan for PII action, rendered with symmetric padding so the
@@ -673,6 +732,11 @@ public struct AppShell: View {
                     .lineLimit(1)
             }
 
+            // The active document is reviewed, but unscanned tray partners
+            // can still be swept from here.
+            if session.entries.count > 1 {
+                scanAllButton
+            }
             scanButton(title: "Re-scan", prominent: false)
         }
     }
@@ -852,29 +916,43 @@ public struct AppShell: View {
 
     /// Present a native open panel for the session's documents. NSOpenPanel is
     /// used instead of SwiftUI .fileImporter because two .fileImporter modifiers
-    /// on the same view conflict and silently fail to present.
+    /// on the same view conflict and silently fail to present. Folders are
+    /// selectable too (F3): each one contributes its supported documents
+    /// recursively, budget-checked before anything enters the tray.
     private func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session."
+        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of them. Several files become one session."
         panel.prompt = "Open"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
         handoffCompletion = nil
         hasSharedOutput = false
         let scoped = panel.urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
+        let releaseScopes = {
+            for item in scoped where item.needsScope {
+                item.url.stopAccessingSecurityScopedResource()
+            }
+        }
+        // Folder discovery and the batch budgets run BEFORE anything enters
+        // the tray, inside the selection's sandbox scopes. A budget breach
+        // rejects the whole batch; documents already in the tray stay put.
+        let resolved: [URL]
+        do {
+            resolved = try FolderImporter.expandSelection(panel.urls)
+        } catch {
+            releaseScopes()
+            exportMessage = error.localizedDescription
+            return
+        }
         Task {
             // defer releases the sandbox scopes even if the Task is cancelled
             // mid-import; leaking one can make later opens of the same URL fail.
-            defer {
-                for item in scoped where item.needsScope {
-                    item.url.stopAccessingSecurityScopedResource()
-                }
-            }
-            await session.addDocuments(scoped.map { $0.url })
+            defer { releaseScopes() }
+            await session.addDocuments(resolved)
         }
     }
 
@@ -900,6 +978,34 @@ public struct AppShell: View {
         isPromptingPassphrase = false
         pendingExportDir = nil
         passphrase = ""
+    }
+
+    /// Export the session's compliance report (report.md plus report.pdf)
+    /// into a chosen directory. Mirrors beginExport's directory flow; there is
+    /// no passphrase sheet because the report is value-free by construction
+    /// (see ComplianceReport).
+    private func beginReportExport() {
+        guard session.canExportComplianceReport else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder for the processing report (Markdown and PDF)."
+        panel.prompt = "Export Here"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let needsScope = dir.startAccessingSecurityScopedResource()
+        defer { if needsScope { dir.stopAccessingSecurityScopedResource() } }
+        do {
+            let written = try session.exportComplianceReport(
+                to: dir,
+                generatedAtISO8601: ISO8601DateFormatter().string(from: Date())
+            )
+            exportMessage = "Report saved: \(written.markdown.lastPathComponent) and "
+                + "\(written.pdf.lastPathComponent)."
+        } catch {
+            exportMessage = "Report export failed. \(error.localizedDescription)"
+        }
     }
 
     private func confirmExport() {

@@ -107,12 +107,16 @@ struct LDAApp: App {
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .onAppear {
-                    // Feed the user's custom vocabulary into every document's
-                    // anonymize run, let each model learn from its export, and
-                    // apply the AI settings (model path, detection mode).
-                    sessionModel.configureNewModel = { [patternStore, learningStore] model in
-                        model.customPatternProvider = { patternStore.activePatterns }
-                        model.learningStore = learningStore
+                    // Attach the global vocabulary and learning layers; the
+                    // session injects matter-scoped facades over them into
+                    // every document model (F4), so a rule learned under one
+                    // matter can stay in that matter. The AI settings still
+                    // apply per model through configureNewModel.
+                    sessionModel.attachStores(
+                        learning: learningStore,
+                        patterns: patternStore
+                    )
+                    sessionModel.configureNewModel = { model in
                         AISettings.apply(to: model)
                     }
                     AISettings.apply(to: fillModel)

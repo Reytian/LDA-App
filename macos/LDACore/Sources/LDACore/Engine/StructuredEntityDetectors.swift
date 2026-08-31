@@ -2,9 +2,10 @@
 //  StructuredEntityDetectors.swift
 //  LDACore
 //
-//  The four deterministic detectors added for the 2026-08-29 roadmap:
-//  CASE_NUMBER, LICENSE_PLATE, WECHAT_ID, and URL. They live in their own file
-//  so DeterministicEngine.swift stays within the file-size house rule; the
+//  The deterministic detectors added after the V1 battery: CASE_NUMBER,
+//  LICENSE_PLATE, WECHAT_ID, and URL (the 2026-08-29 roadmap), plus SEAL
+//  (organization seal names). They live in their own file so
+//  DeterministicEngine.swift stays within the file-size house rule; the
 //  engine's detect() calls them like any other per-type detector, and the
 //  shared enumerate/makeSpan helpers plus the Pri/Conf tables stay in the main
 //  file as the single ordering authority.
@@ -211,6 +212,117 @@ extension DeterministicEngine {
     /// The self-identifying wxid_ form. Built once.
     static let wechatWxidPattern: String =
         "(?<![A-Za-z0-9_\\-])wxid_[A-Za-z0-9_\\-]{6,20}(?![A-Za-z0-9_\\-])"
+
+    // MARK: - SEAL (organization seal names)
+
+    /// Organization seal names: 公章 and the specialized 专用章 family. The
+    /// seal wording itself is contract boilerplate; the PII is the
+    /// organization name stamped into the seal, so a span is emitted ONLY
+    /// when the anchor is immediately preceded by a payload ending in an
+    /// organization suffix. "加盖公章后生效" yields nothing, while
+    /// "北京某某科技有限公司合同专用章" is one SEAL span over the whole string.
+    ///
+    /// Detection follows the regex-core-plus-bounded-walk architecture of the
+    /// address detector (the single-big-CJK-regex approach caused a confirmed
+    /// multi-minute backtracking hang there):
+    ///   1. A regex matches only the closed literal anchor set, so the scan
+    ///      is trivially linear.
+    ///   2. Code checks that the text immediately before the anchor ends with
+    ///      an organization suffix, then walks the payload backwards over
+    ///      contiguous CJK ideographs, bounded to maxSealPayloadLength UTF-16
+    ///      units, stopping at punctuation, whitespace, and non-CJK.
+    ///
+    /// Precision choices, each covered by a test:
+    ///   - No payload suffix means no span: 甲方公章, 办公章程, and a seal
+    ///     word opening a line all stay clear.
+    ///   - The walk deliberately has NO prose stop list: trimming at prose
+    ///     connectors would truncate organization names that contain them
+    ///     (华为 contains 为, 经贸 contains 经), and leaving the head of a
+    ///     name in cleartext is a leak while absorbing a leading 加盖 is
+    ///     cosmetic over-capture. Over-covering is the accepted direction.
+    ///   - A Latin organization name part stops the walk and stays out, the
+    ///     same accepted limitation as the address walk; the LLM COMPANY
+    ///     pass still owns Latin names.
+    func detectSeal(_ ns: NSString, _ range: NSRange) -> [Span] {
+        var out: [Span] = []
+        enumerate(Self.sealAnchorPattern, in: ns, range: range) { match in
+            guard let start = self.sealPayloadStart(ns, anchorStart: match.range.location) else {
+                // A seal word with no organization payload is boilerplate.
+                return
+            }
+            let full = NSRange(
+                location: start,
+                length: match.range.location + match.range.length - start
+            )
+            out.append(
+                self.makeSpan(
+                    ns,
+                    range: full,
+                    type: .seal,
+                    confidence: Conf.seal,
+                    priority: Pri.seal
+                )
+            )
+        }
+        return out
+    }
+
+    /// The closed anchor set: literal alternation only, no quantifier, so
+    /// matching cannot backtrack. Built once; detect runs per chunk.
+    static let sealAnchorPattern =
+        "(?:财务专用章|合同专用章|发票专用章|业务专用章|人事专用章|公章)"
+
+    /// Organization suffixes a seal payload must end with, longest first so
+    /// a longer suffix is checked before a shorter one it contains.
+    private static let sealOrgSuffixes = [
+        "委员会", "事务所", "公司", "银行", "中心", "集团", "局", "厂", "院"
+    ]
+
+    /// How far left the payload walk may reach, in UTF-16 units, suffix
+    /// included and anchor excluded. Full PRC organization names run long
+    /// (registered names regularly exceed 15 characters), and the constant
+    /// bound is what keeps detection linear on adversarial input.
+    private static let maxSealPayloadLength = 30
+
+    /// Walk backwards from a seal anchor to the start of its organization
+    /// payload. Returns nil when the text immediately before the anchor does
+    /// not end with an organization suffix (the boilerplate case).
+    ///
+    /// The walk absorbs contiguous CJK ideographs only, so punctuation,
+    /// whitespace, and any non-CJK character pin the left edge. A
+    /// supplementary-plane character ends the walk rather than being
+    /// consumed: Unicode.Scalar of a lone surrogate code unit is nil, so the
+    /// boundary can never land inside a surrogate pair.
+    private func sealPayloadStart(_ ns: NSString, anchorStart: Int) -> Int? {
+        guard let suffixLength = Self.sealOrgSuffixLength(ns, endingAt: anchorStart) else {
+            return nil
+        }
+
+        var left = anchorStart - suffixLength
+        var walked = suffixLength
+        while walked < Self.maxSealPayloadLength, left > 0 {
+            guard let scalar = Unicode.Scalar(ns.character(at: left - 1)),
+                  scalar.value >= 0x4E00, scalar.value <= 0x9FA5 else { break }
+            left -= 1
+            walked += 1
+        }
+        return left
+    }
+
+    /// The length of the organization suffix ending exactly at `end`, or nil
+    /// when none of the closed set does. Each comparison is a fixed-length
+    /// substring check, so the lookup is constant time.
+    private static func sealOrgSuffixLength(_ ns: NSString, endingAt end: Int) -> Int? {
+        for suffix in sealOrgSuffixes {
+            let length = (suffix as NSString).length
+            guard end - length >= 0 else { continue }
+            let candidate = ns.substring(with: NSRange(location: end - length, length: length))
+            if candidate == suffix {
+                return length
+            }
+        }
+        return nil
+    }
 
     // MARK: - URL (web addresses)
 

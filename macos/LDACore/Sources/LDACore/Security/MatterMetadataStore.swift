@@ -99,6 +99,32 @@ public struct MatterMetadataStore {
         )
     }
 
+    /// Return the metadata entry that owns the label (exactly or through a
+    /// rename alias), creating and persisting a new entry when none exists.
+    /// The entry's stable random id is what matter-scoped stores key on, so a
+    /// matter acquires its id the first time a caller needs one.
+    @discardableResult
+    public func ensure(
+        label: String,
+        protection: MappingProtection? = nil
+    ) throws -> MatterMetadata {
+        let cleaned = try validated(label)
+        let resolved = try list(protection: protection)
+        guard resolved.unreadableCount == 0 else {
+            throw DocumentIOError.corrupt(
+                "Matter workspace metadata exists but could not be unlocked."
+            )
+        }
+        if let existing = resolved.metadata.first(where: {
+            $0.label == cleaned || $0.aliases.contains(cleaned)
+        }) {
+            return existing
+        }
+        let created = MatterMetadata(label: cleaned)
+        try save(created, protection: protection)
+        return created
+    }
+
     public func setArchived(
         label: String,
         isArchived: Bool,

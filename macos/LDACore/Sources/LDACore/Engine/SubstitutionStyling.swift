@@ -124,7 +124,8 @@ public struct PseudonymGenerator {
         .nationalID: "证件",
         .uscc: "代码",
         .date: "日期",
-        .amount: "金额"
+        .amount: "金额",
+        .seal: "印章"
     ]
 
     /// English generic labels per type for the "<Label> N" fallback scheme.
@@ -134,7 +135,8 @@ public struct PseudonymGenerator {
         .nationalID: "ID",
         .uscc: "Code",
         .date: "Date",
-        .amount: "Amount"
+        .amount: "Amount",
+        .seal: "Seal"
     ]
 
     /// The index-th candidate of the (type, script) sequence.
