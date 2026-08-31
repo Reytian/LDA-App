@@ -162,14 +162,51 @@ public enum Restorer {
     /// - restoredCount counts substituted occurrences.
     /// - orphanTokens lists mapping replacements that were never substituted
     ///   (the edited text no longer contains them).
-    /// - ambiguousReplacements lists replacements shared by two or more
-    ///   entities (asterisk collisions). Their sites are left verbatim,
-    ///   never guessed.
+    /// - ambiguousReplacements lists the replacements whose sites could not
+    ///   be attributed to one entity: a replacement two entities share
+    ///   outright, and under the asterisk style a replacement that a shorter
+    ///   replacement also matches at the same position. Those sites are left
+    ///   verbatim, never guessed.
     /// - suspectPlaceholders stays empty: there is no token grammar to
     ///   mangle in these styles.
     private static func restoreLiteralStyle(text: String, mapping: Mapping) -> RestoreResult {
-        // replacement -> the distinct original values behind it. Entry keys
-        // are visited in sorted order so value order is deterministic.
+        let valuesByReplacement = distinctValuesByReplacement(mapping)
+        let sharedByTwoEntities = Set(
+            valuesByReplacement.filter { $0.value.count > 1 }.map { $0.key }
+        )
+        let accepted = acceptedLiteralMatches(
+            in: text,
+            replacements: Array(valuesByReplacement.keys)
+        )
+        let pass = emitLiteralRestore(
+            text: text,
+            accepted: accepted,
+            valuesByReplacement: valuesByReplacement,
+            sharedByTwoEntities: sharedByTwoEntities,
+            refusingPrefixConflicts: refusesPrefixConflicts(mapping)
+        )
+
+        // Mapping replacements that never substituted anywhere: the edited
+        // text no longer contains them (or a longer replacement shadowed
+        // every occurrence). Ambiguity is reported separately above.
+        let orphans = valuesByReplacement.keys
+            .filter { !pass.substituted.contains($0) && !pass.refusedSeen.contains($0) }
+            .sorted()
+
+        return RestoreResult(
+            text: pass.text,
+            restoredCount: pass.restoredCount,
+            orphanTokens: orphans,
+            suspectPlaceholders: [],
+            ambiguousReplacements: pass.refusedReported
+        )
+    }
+
+    /// replacement -> the distinct original values behind it. Entry keys are
+    /// visited in sorted order so value order is deterministic.
+    private static func distinctValuesByReplacement(
+        _ mapping: Mapping
+    ) -> [String: [String]] {
         var valuesByReplacement: [String: [String]] = [:]
         for key in mapping.entries.keys.sorted() {
             guard let entry = mapping.entries[key], !entry.token.isEmpty else { continue }
@@ -177,66 +214,85 @@ public enum Restorer {
                 valuesByReplacement[entry.token, default: []].append(entry.value)
             }
         }
-        let ambiguous = Set(
-            valuesByReplacement.filter { $0.value.count > 1 }.map { $0.key }
-        )
+        return valuesByReplacement
+    }
 
-        let nsText = text as NSString
-        let accepted = acceptedLiteralMatches(
-            in: text,
-            replacements: Array(valuesByReplacement.keys)
-        )
-
-        var result = ""
-        var cursor = 0
+    /// What one literal restore pass produced, before the orphan report.
+    private struct LiteralRestorePass {
+        var text = ""
         var restoredCount = 0
-        var substituted = Set<String>()
-        var ambiguousSeen = Set<String>()
-        var ambiguousReported: [String] = []
+        /// Replacements substituted at least once.
+        var substituted: Set<String> = []
+        /// Replacements refused at least once.
+        var refusedSeen: Set<String> = []
+        /// The refused replacements in first-seen order, for the report.
+        var refusedReported: [String] = []
+    }
+
+    /// Emit the restored text: substitute the sites that belong to exactly
+    /// one entity, leave every other site verbatim, and record both.
+    private static func emitLiteralRestore(
+        text: String,
+        accepted: [AcceptedLiteralMatch],
+        valuesByReplacement: [String: [String]],
+        sharedByTwoEntities: Set<String>,
+        refusingPrefixConflicts: Bool
+    ) -> LiteralRestorePass {
+        let nsText = text as NSString
+        var pass = LiteralRestorePass()
+        var cursor = 0
 
         for match in accepted {
             if match.range.location > cursor {
-                result += nsText.substring(
+                pass.text += nsText.substring(
                     with: NSRange(location: cursor, length: match.range.location - cursor)
                 )
             }
+            cursor = match.range.location + match.range.length
 
-            if ambiguous.contains(match.replacement) {
-                // Two or more entities share this masked form. Restoring one
-                // of them would be a guess; leave the site verbatim and flag.
-                result += nsText.substring(with: match.range)
-                if ambiguousSeen.insert(match.replacement).inserted {
-                    ambiguousReported.append(match.replacement)
+            if refusesSite(
+                match,
+                sharedByTwoEntities: sharedByTwoEntities,
+                refusingPrefixConflicts: refusingPrefixConflicts
+            ) {
+                pass.text += nsText.substring(with: match.range)
+                if pass.refusedSeen.insert(match.replacement).inserted {
+                    pass.refusedReported.append(match.replacement)
                 }
             } else if let value = valuesByReplacement[match.replacement]?.first {
-                result += value
-                restoredCount += 1
-                substituted.insert(match.replacement)
+                pass.text += value
+                pass.restoredCount += 1
+                pass.substituted.insert(match.replacement)
             } else {
-                result += nsText.substring(with: match.range)
+                pass.text += nsText.substring(with: match.range)
             }
-
-            cursor = match.range.location + match.range.length
         }
 
         if cursor < nsText.length {
-            result += nsText.substring(from: cursor)
+            pass.text += nsText.substring(from: cursor)
         }
+        return pass
+    }
 
-        // Mapping replacements that never substituted anywhere: the edited
-        // text no longer contains them (or a longer replacement shadowed
-        // every occurrence). Ambiguity is reported separately above.
-        let orphans = valuesByReplacement.keys
-            .filter { !substituted.contains($0) && !ambiguousSeen.contains($0) }
-            .sorted()
-
-        return RestoreResult(
-            text: result,
-            restoredCount: restoredCount,
-            orphanTokens: orphans,
-            suspectPlaceholders: [],
-            ambiguousReplacements: ambiguousReported
-        )
+    /// Whether this site cannot be attributed to one entity.
+    ///
+    /// Two shapes refuse. Either two entities share the replacement outright
+    /// (the historical asterisk collision), or a shorter replacement also
+    /// matches at this exact position and the style cannot rule it out: an
+    /// asterisk mask is a pure function of the surface, so 张三 masks to 张*
+    /// and 张伟明 masks to 张*明, and the site 张*明 is spelled by both the
+    /// longer mask and the shorter mask followed by an ordinary 明. Guessing
+    /// either would swap one real person for another, so the site keeps its
+    /// bytes and is flagged instead.
+    private static func refusesSite(
+        _ match: AcceptedLiteralMatch,
+        sharedByTwoEntities: Set<String>,
+        refusingPrefixConflicts: Bool
+    ) -> Bool {
+        if sharedByTwoEntities.contains(match.replacement) {
+            return true
+        }
+        return refusingPrefixConflicts && match.shadowsShorterReplacement
     }
 
     // MARK: - Shared literal scanning
@@ -245,6 +301,10 @@ public enum Restorer {
     internal struct AcceptedLiteralMatch {
         let range: NSRange
         let replacement: String
+        /// True when a shorter replacement also matches at this exact start
+        /// position, so the site's text spells two different replacements and
+        /// only the longest-wins rule chose between them.
+        let shadowsShorterReplacement: Bool
     }
 
     /// Find the non-overlapping literal occurrences of the given replacement
@@ -254,8 +314,17 @@ public enum Restorer {
         in text: String,
         replacements: [String]
     ) -> [AcceptedLiteralMatch] {
-        let nsText = text as NSString
+        acceptLongestAtEachPosition(
+            allLiteralMatches(in: text, replacements: replacements)
+        )
+    }
 
+    /// Every literal occurrence of every replacement, in no useful order.
+    private static func allLiteralMatches(
+        in text: String,
+        replacements: [String]
+    ) -> [AcceptedLiteralMatch] {
+        let nsText = text as NSString
         var found: [AcceptedLiteralMatch] = []
         for replacement in replacements where !replacement.isEmpty {
             var searchLocation = 0
@@ -266,14 +335,34 @@ public enum Restorer {
                     range: NSRange(location: searchLocation, length: nsText.length - searchLocation)
                 )
                 guard range.location != NSNotFound, range.length > 0 else { break }
-                found.append(AcceptedLiteralMatch(range: range, replacement: replacement))
+                found.append(
+                    AcceptedLiteralMatch(
+                        range: range,
+                        replacement: replacement,
+                        shadowsShorterReplacement: false
+                    )
+                )
                 searchLocation = range.location + range.length
             }
         }
+        return found
+    }
 
-        // Earliest position first; at the same position the longest
-        // replacement wins; ties break on the string for determinism.
-        found.sort { lhs, rhs in
+    /// Keep one match per position, scanning left to right.
+    ///
+    /// Earliest position first; at the same position the longest replacement
+    /// wins; ties break on the string for determinism. A match starting
+    /// before the previous accepted end overlaps it (a shorter replacement
+    /// nested in a longer one, or two occurrences crossing) and is dropped.
+    ///
+    /// A dropped match that STARTS where the accepted one starts is recorded
+    /// on it as a shadowed shorter replacement. Those are exactly the sites
+    /// whose text spells more than one replacement, which is what lets a
+    /// style refuse them rather than take the longest.
+    private static func acceptLongestAtEachPosition(
+        _ found: [AcceptedLiteralMatch]
+    ) -> [AcceptedLiteralMatch] {
+        let ordered = found.sorted { lhs, rhs in
             if lhs.range.location != rhs.range.location {
                 return lhs.range.location < rhs.range.location
             }
@@ -283,31 +372,81 @@ public enum Restorer {
             return lhs.replacement < rhs.replacement
         }
 
-        // Greedy accept: a match starting before the previous accepted end
-        // overlaps it (a shorter replacement nested in a longer one, or two
-        // occurrences crossing) and is dropped.
         var accepted: [AcceptedLiteralMatch] = []
         var cursor = 0
-        for match in found {
-            guard match.range.location >= cursor else { continue }
-            accepted.append(match)
+        var index = 0
+        while index < ordered.count {
+            let match = ordered[index]
+            guard match.range.location >= cursor else {
+                index += 1
+                continue
+            }
+            var next = index + 1
+            var shadowsShorter = false
+            while next < ordered.count, ordered[next].range.location == match.range.location {
+                shadowsShorter = shadowsShorter || ordered[next].replacement != match.replacement
+                next += 1
+            }
+            accepted.append(
+                AcceptedLiteralMatch(
+                    range: match.range,
+                    replacement: match.replacement,
+                    shadowsShorterReplacement: shadowsShorter
+                )
+            )
             cursor = match.range.location + match.range.length
+            index = next
         }
         return accepted
     }
 
-    /// Substitute every unambiguous literal replacement in a plain string.
+    // MARK: - Restoring on another surface
+
+    /// What a caller substituting literal replacements on its own surface
+    /// (the DOCX run walker) needs to reach the same verdicts as the
+    /// reporting scan.
+    public struct LiteralRestorePlan: Sendable {
+        /// replacement -> value for every replacement carried by exactly one
+        /// entity. A replacement absent from here is never substituted.
+        public let replacementToValue: [String: String]
+        /// Every replacement in the mapping, the ambiguous ones included.
+        /// Those are never substituted, but the scan still has to recognize
+        /// them: a site that also spells an ambiguous replacement is itself
+        /// ambiguous, and dropping it from the scan would make that site look
+        /// safe to substitute.
+        public let allReplacements: Set<String>
+        /// Whether a shorter replacement matching at the same position
+        /// refuses the site (asterisk masks) or merely loses the longest
+        /// match (pseudonyms). See refusesPrefixConflicts(_:).
+        public let refusesPrefixConflicts: Bool
+    }
+
+    /// Build the restore plan for a literal-style mapping. The single place
+    /// the style's ambiguity policy is decided, so a surface that substitutes
+    /// on its own cannot drift from the report.
+    public static func literalRestorePlan(for mapping: Mapping) -> LiteralRestorePlan {
+        LiteralRestorePlan(
+            replacementToValue: unambiguousReplacementMap(mapping),
+            allReplacements: Set(
+                mapping.entries.values.map(\.token).filter { !$0.isEmpty }
+            ),
+            refusesPrefixConflicts: refusesPrefixConflicts(mapping)
+        )
+    }
+
+    /// Substitute every literal replacement in a plain string that belongs to
+    /// exactly one entity, leaving every other site verbatim.
     ///
     /// The single-pass emit mirrors restoreLiteralStyle without the report:
     /// used by the DOCX run walker, which restores run by run and reports
     /// separately from the whole-document scan.
     internal static func substituteLiteralReplacements(
         in text: String,
-        replacementToValue: [String: String]
+        plan: LiteralRestorePlan
     ) -> String {
         let accepted = acceptedLiteralMatches(
             in: text,
-            replacements: Array(replacementToValue.keys)
+            replacements: Array(plan.allReplacements)
         )
         guard !accepted.isEmpty else { return text }
 
@@ -320,7 +459,12 @@ public enum Restorer {
                     with: NSRange(location: cursor, length: match.range.location - cursor)
                 )
             }
-            result += replacementToValue[match.replacement] ?? nsText.substring(with: match.range)
+            if plan.refusesPrefixConflicts && match.shadowsShorterReplacement {
+                result += nsText.substring(with: match.range)
+            } else {
+                result += plan.replacementToValue[match.replacement]
+                    ?? nsText.substring(with: match.range)
+            }
             cursor = match.range.location + match.range.length
         }
         if cursor < nsText.length {
@@ -329,10 +473,23 @@ public enum Restorer {
         return result
     }
 
+    /// Whether this mapping's style refuses a prefix conflict at a match site
+    /// instead of taking the longest match.
+    ///
+    /// Asterisk masks are a pure function of the surface, so two entities
+    /// sharing a surname collide by prefix (张三 masks to 张*, 张伟明 masks to
+    /// 张*明) and nothing at mint time can separate them; the conflict can
+    /// only be settled at restore time, by refusing. Pseudonyms are minted
+    /// clear of that shape by PseudonymSeamGuard and the token grammar
+    /// matches a whole token, so both keep longest match wins.
+    internal static func refusesPrefixConflicts(_ mapping: Mapping) -> Bool {
+        mapping.style == .asterisk
+    }
+
     /// The unambiguous replacement -> value map for a literal-style mapping:
     /// every replacement carried by exactly one distinct value. Ambiguous
     /// replacements (asterisk collisions) are excluded so a caller doing its
-    /// own substitution (the DOCX run walker) can never guess.
+    /// own substitution can never guess.
     internal static func unambiguousReplacementMap(_ mapping: Mapping) -> [String: String] {
         var valuesByReplacement: [String: Set<String>] = [:]
         for entry in mapping.entries.values where !entry.token.isEmpty {

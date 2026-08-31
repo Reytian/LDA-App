@@ -238,7 +238,7 @@ enum DocxParts {
     /// for pseudonym and asterisk mappings.
     static func restoreNonBodyPartsLiteral(
         url: URL,
-        replacementToValue: [String: String]
+        plan: Restorer.LiteralRestorePlan
     ) -> [String: Data] {
         var replacements: [String: Data] = [:]
         for path in textBearingPartPaths(in: url) {
@@ -247,10 +247,7 @@ enum DocxParts {
             var changed = false
             for index in layout.segments.indices {
                 guard case .runText(let text) = layout.segments[index] else { continue }
-                let replaced = Restorer.substituteLiteralReplacements(
-                    in: text,
-                    replacementToValue: replacementToValue
-                )
+                let replaced = Restorer.substituteLiteralReplacements(in: text, plan: plan)
                 if replaced != text {
                     layout.segments[index] = .runText(replaced)
                     changed = true

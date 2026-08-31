@@ -221,14 +221,16 @@ public enum DocxRedactor {
     /// for pseudonym and asterisk mappings, whose replacements are ordinary
     /// strings rather than grammar tokens.
     ///
-    /// The caller passes only the UNAMBIGUOUS replacements (see
-    /// Restorer.unambiguousReplacementMap); a colliding asterisk mask stays
-    /// verbatim in the document, never guessed. Like the token path this
-    /// substitutes run by run, so a replacement split across runs by later
-    /// editing does not restore (the whole-text report scan still counts it).
+    /// The plan (Restorer.literalRestorePlan) carries which replacements may
+    /// be substituted and whether the style refuses a prefix conflict at a
+    /// site, so an ambiguous asterisk mask stays verbatim in the document and
+    /// this surface reaches the same verdicts as the report. Like the token
+    /// path this substitutes run by run, so a replacement split across runs
+    /// by later editing does not restore (the whole-text report scan still
+    /// counts it).
     public static func restoreLiteral(
         redactedDocx: URL,
-        replacementToValue: [String: String],
+        plan: Restorer.LiteralRestorePlan,
         to out: URL
     ) throws {
         let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
@@ -236,10 +238,7 @@ public enum DocxRedactor {
 
         for index in layout.segments.indices {
             guard case .runText(let text) = layout.segments[index] else { continue }
-            let replaced = Restorer.substituteLiteralReplacements(
-                in: text,
-                replacementToValue: replacementToValue
-            )
+            let replaced = Restorer.substituteLiteralReplacements(in: text, plan: plan)
             if replaced != text {
                 layout.segments[index] = .runText(replaced)
             }
@@ -247,10 +246,7 @@ public enum DocxRedactor {
 
         var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
         // Restore literal replacements in the non-body text parts too.
-        let nonBody = DocxParts.restoreNonBodyPartsLiteral(
-            url: redactedDocx,
-            replacementToValue: replacementToValue
-        )
+        let nonBody = DocxParts.restoreNonBodyPartsLiteral(url: redactedDocx, plan: plan)
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
         }
