@@ -87,6 +87,8 @@ public enum CounselTheme {
             return dynamic(light: 0x4E7A2E, dark: 0x93C46F) // leaf
         case .url:
             return dynamic(light: 0x38618C, dark: 0x7FA8D9) // slate blue
+        case .seal:
+            return dynamic(light: 0xA3503C, dark: 0xE09C8B) // cinnabar
         case .date, .unknown:
             return dynamic(light: 0x8A8175, dark: 0xBFB6A6)
         }

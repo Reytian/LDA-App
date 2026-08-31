@@ -34,6 +34,7 @@ public enum EntityType: String, Codable, Sendable, CaseIterable {
     case licensePlate = "LICENSE_PLATE"
     case wechatID = "WECHAT_ID"
     case url = "URL"
+    case seal = "SEAL"
     case unknown = "UNKNOWN"
 }
 
