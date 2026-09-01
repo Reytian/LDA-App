@@ -41,6 +41,33 @@ import Foundation
 /// Checks a committed session assignment against the redacted text.
 enum SessionSeamVerifier {
 
+#if DEBUG
+    /// Debug-only forcing of the "could not verify" outcome, so the give-up
+    /// path can be driven end to end. The precondition below holds in every
+    /// real run, which is exactly why it cannot be reached by a fixture.
+    ///
+    /// Compiled out of release builds and lock guarded; see TestSeam.
+    static let unverifiableSeam = TestSeam<Bool>()
+#endif
+
+    /// What one document's verification came to.
+    ///
+    /// The two fields are not redundant, and collapsing them back into a bare
+    /// violation list is the defect this type exists to prevent: an empty
+    /// `violations` means "checked, nothing wrong" ONLY when `couldNotVerify`
+    /// is false. When it is true the pass never looked, and the caller must
+    /// warn rather than read the empty list as an all clear.
+    struct Report: Equatable {
+        /// Positions where the restore scan disagrees with what was emitted.
+        var violations: [Violation]
+        /// True when the pass could not establish its own precondition, so
+        /// nothing about this document was actually checked.
+        var couldNotVerify: Bool
+
+        static let verifiedClean = Report(violations: [], couldNotVerify: false)
+        static let unverifiable = Report(violations: [], couldNotVerify: true)
+    }
+
     /// One position where the literal restore scan disagrees with what
     /// tokenization emitted.
     struct Violation: Equatable {
@@ -67,28 +94,40 @@ enum SessionSeamVerifier {
     ///   - replacementBySurface: the assignment the emit walk used.
     ///   - replacements: every replacement of the shared mapping, which is
     ///     exactly what the restore scan will search for.
-    /// - Returns: the disagreements, earliest offending position first.
-    static func violations(
+    /// - Returns: the disagreements, earliest offending position first, or a
+    ///   report marked `couldNotVerify` when the pass could not check at all.
+    static func report(
         documentIndex: Int,
         tokenizedText: String,
         originalText: String,
         acceptedSpans: [Span],
         replacementBySurface: [String: String],
         replacements: [String]
-    ) -> [Violation] {
+    ) -> Report {
+#if DEBUG
+        if unverifiableSeam.value == true {
+            return .unverifiable
+        }
+#endif
         // Re-render to recover where each emitted piece landed. A fully
         // assigned rendering is byte-identical to the tokenized output (that
         // is pinned by RestorerPrefixAdjacencyTests), so the equality below
-        // holds; if it ever does not, the piece offsets would be fiction and
-        // attributing a violation would be guesswork, so the pass reports
-        // nothing and leaves the mint-time guard as the only line of defence.
+        // holds in every run we know of.
+        //
+        // If it ever does not, the piece offsets are fiction and every
+        // comparison below would be guesswork. The pass then reports that it
+        // could not check, which is NOT the same as reporting nothing wrong:
+        // an empty violation list is what a clean session returns and what
+        // lets the redacted text out of the door, so answering "all clear"
+        // here would turn the one defence against a literal-restore seam into
+        // a silent no-op precisely when its own assumptions have broken.
         let rendered = PseudonymSeamGuard.renderProvisional(
             text: originalText,
             spans: acceptedSpans,
             replacementBySurface: replacementBySurface
         )
         guard rendered.text == tokenizedText else {
-            return []
+            return .unverifiable
         }
 
         // The emitted pieces, keyed by where they start. A span whose surface
@@ -128,7 +167,7 @@ enum SessionSeamVerifier {
                 )
             )
         }
-        return found
+        return Report(violations: found, couldNotVerify: false)
     }
 
     /// One replacement as tokenization emitted it, and where it landed.

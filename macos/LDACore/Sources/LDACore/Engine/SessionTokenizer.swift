@@ -194,7 +194,32 @@ public enum SessionTokenizer {
                 )
             }
 
-            let violations = seamViolations(in: folded, documents: documents)
+            let audit = seamAudit(in: folded, documents: documents)
+
+            // A document the pass could not check cannot be repaired by
+            // reminting: there is no matched replacement to ban, so another
+            // fold would produce the identical report. Give up at once and
+            // warn, rather than grinding through the repair cap to reach the
+            // same place.
+            //
+            // Any violations found in the OTHER documents of this fold are
+            // reported here rather than repaired. Repairing them would remint
+            // across the whole session, which changes the very assignment we
+            // already cannot verify on this document, so it would trade a
+            // known report for an unknown one. Everything known is handed
+            // over instead, and the user decides.
+            if !audit.uncheckedDocumentIndices.isEmpty {
+                return SessionTokenizeResult(
+                    documents: folded.documents,
+                    mapping: folded.mapping,
+                    unresolvedSeams: uncheckedDescriptions(
+                        of: audit.uncheckedDocumentIndices,
+                        documents: documents
+                    ) + descriptions(of: audit.violations, documents: documents)
+                )
+            }
+
+            let violations = audit.violations
             if violations.isEmpty {
                 return SessionTokenizeResult(
                     documents: folded.documents,
@@ -305,19 +330,29 @@ public enum SessionTokenizer {
         )
     }
 
+    /// What the seam pass made of a whole fold: the disagreements it found,
+    /// and the documents it could not check at all. The second list is not a
+    /// weaker form of the first. A document in it was never examined, so
+    /// nothing is known about it either way.
+    private struct SeamAudit {
+        var violations: [SessionSeamVerifier.Violation]
+        var uncheckedDocumentIndices: [Int]
+    }
+
     /// Run the seam pass over every document of a completed fold.
-    private static func seamViolations(
+    private static func seamAudit(
         in folded: Folded,
         documents: [SessionDocument]
-    ) -> [SessionSeamVerifier.Violation] {
+    ) -> SeamAudit {
         // Exactly what the restore scan will search for: every replacement of
         // the shared mapping, including entries contributed by the seed.
         let replacements = Array(
             Set(folded.mapping.entries.values.map { $0.token }).filter { !$0.isEmpty }
         )
         var found: [SessionSeamVerifier.Violation] = []
+        var unchecked: [Int] = []
         for index in documents.indices {
-            found += SessionSeamVerifier.violations(
+            let report = SessionSeamVerifier.report(
                 documentIndex: index,
                 tokenizedText: folded.documents[index].tokenizedText,
                 originalText: documents[index].text,
@@ -325,8 +360,31 @@ public enum SessionTokenizer {
                 replacementBySurface: folded.replacementBySurface[index],
                 replacements: replacements
             )
+            if report.couldNotVerify {
+                unchecked.append(index)
+            }
+            found += report.violations
         }
-        return found
+        return SeamAudit(violations: found, uncheckedDocumentIndices: unchecked)
+    }
+
+    /// Readable lines for documents the pass could not check.
+    ///
+    /// Deliberately says what is and is not known. The document may well be
+    /// fine; the point is that nothing verified it, and the user is the only
+    /// one positioned to decide what to do about that.
+    private static func uncheckedDescriptions(
+        of indices: [Int],
+        documents: [SessionDocument]
+    ) -> [String] {
+        indices.map { index in
+            let name = documents.indices.contains(index)
+                ? documents[index].name
+                : "document \(index + 1)"
+            return "\(name): the seam check could not run on this document, so "
+                + "it is NOT known whether restoring it returns the original "
+                + "text. Read the restored output before relying on it."
+        }
     }
 
     /// One pairing to remint, as a surface and the replacement it must lose.
