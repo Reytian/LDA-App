@@ -121,8 +121,8 @@ struct ComplianceReportFlow: ViewModifier {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for the processing report."
-        panel.prompt = "Export Here"
+        panel.message = L10n.string("Choose a folder for the processing report.")
+        panel.prompt = L10n.string("Export Here")
         guard panel.runModal() == .OK, let dir = panel.url else { return }
         flow.resetInput()
         flow.stage = .exporting(dir)
@@ -164,8 +164,8 @@ struct ComplianceReportFlow: ViewModifier {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for the readable copies of this report."
-        panel.prompt = "Write Here"
+        panel.message = L10n.string("Choose a folder for the readable copies of this report.")
+        panel.prompt = L10n.string("Write Here")
         guard panel.runModal() == .OK, let dir = panel.url else { return }
         flow.resetInput()
         flow.stage = .opening(source: source, destination: dir)
@@ -194,7 +194,9 @@ struct ComplianceReportFlow: ViewModifier {
         } catch {
             // Stay on the sheet: a mistyped passphrase is the likely cause and
             // retyping it should not mean choosing both folders again.
-            flow.sheetMessage = error.localizedDescription
+            flow.sheetMessage = ComplianceReportPresentation
+                .archiveErrorDescription(error)
+                ?? DocumentErrorPresentation.describeOrFallback(error)
         }
     }
 }

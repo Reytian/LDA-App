@@ -48,22 +48,26 @@ public struct SessionTokenizedDocument: Sendable {
 public struct SessionTokenizeResult: Sendable {
     public var documents: [SessionTokenizedDocument]
     public var mapping: Mapping
-    /// Seams the session seam pass could not repair, one readable line each.
+    /// Seams the session seam pass could not repair, as semantic values.
     ///
     /// Empty in every normal run: the pass re-folds the session until the
     /// redacted text agrees with what was emitted. A non-empty list means a
     /// document would NOT restore to itself, so the caller must surface it
     /// rather than let the mis-restore be found later in a real document.
-    public var unresolvedSeams: [String]
+    public var seamIssues: [SessionSeamIssue]
+    /// Established English lines used by command-line and MCP integrations.
+    public var unresolvedSeams: [String] {
+        seamIssues.map(\.englishDescription)
+    }
 
     public init(
         documents: [SessionTokenizedDocument],
         mapping: Mapping,
-        unresolvedSeams: [String] = []
+        seamIssues: [SessionSeamIssue] = []
     ) {
         self.documents = documents
         self.mapping = mapping
-        self.unresolvedSeams = unresolvedSeams
+        self.seamIssues = seamIssues
     }
 }
 
@@ -172,7 +176,7 @@ public enum SessionTokenizer {
         return TokenizeResult(
             tokenizedText: repaired.documents.first?.tokenizedText ?? text,
             mapping: repaired.mapping,
-            unresolvedSeams: repaired.unresolvedSeams
+            seamIssues: repaired.seamIssues
         )
     }
 
@@ -249,10 +253,10 @@ public enum SessionTokenizer {
                 return SessionTokenizeResult(
                     documents: folded.documents,
                     mapping: folded.mapping,
-                    unresolvedSeams: uncheckedDescriptions(
+                    seamIssues: uncheckedIssues(
                         of: audit.uncheckedDocumentIndices,
                         documents: documents
-                    ) + descriptions(of: audit.violations, documents: documents)
+                    ) + issues(of: audit.violations, documents: documents)
                 )
             }
 
@@ -274,7 +278,7 @@ public enum SessionTokenizer {
                 return SessionTokenizeResult(
                     documents: folded.documents,
                     mapping: folded.mapping,
-                    unresolvedSeams: descriptions(of: violations, documents: documents)
+                    seamIssues: issues(of: violations, documents: documents)
                 )
             }
             for ban in bans {
@@ -413,17 +417,15 @@ public enum SessionTokenizer {
     /// Deliberately says what is and is not known. The document may well be
     /// fine; the point is that nothing verified it, and the user is the only
     /// one positioned to decide what to do about that.
-    private static func uncheckedDescriptions(
+    private static func uncheckedIssues(
         of indices: [Int],
         documents: [SessionDocument]
-    ) -> [String] {
+    ) -> [SessionSeamIssue] {
         indices.map { index in
-            let name = documents.indices.contains(index)
-                ? documents[index].name
-                : "document \(index + 1)"
-            return "\(name): the seam check could not run on this document, so "
-                + "it is NOT known whether restoring it returns the original "
-                + "text. Read the restored output before relying on it."
+            .verificationUnavailable(
+                documentIndex: index,
+                documentName: documents.indices.contains(index) ? documents[index].name : nil
+            )
         }
     }
 
@@ -500,21 +502,28 @@ public enum SessionTokenizer {
         return chosen
     }
 
-    /// Readable lines for seams the pass could not repair.
-    private static func descriptions(
+    /// Structured seams the pass could not repair.
+    private static func issues(
         of violations: [SessionSeamVerifier.Violation],
         documents: [SessionDocument]
-    ) -> [String] {
+    ) -> [SessionSeamIssue] {
         violations.map { violation in
-            let name = documents.indices.contains(violation.documentIndex)
+            let name: String? = documents.indices.contains(violation.documentIndex)
                 ? documents[violation.documentIndex].name
-                : "document \(violation.documentIndex + 1)"
+                : nil
             guard let shadowed = violation.shadowedReplacement else {
-                return "\(name): the redacted text spells \(violation.matchedReplacement) "
-                    + "where it was never substituted, so restore would replace it there."
+                return .unexpectedReplacement(
+                    documentIndex: violation.documentIndex,
+                    documentName: name,
+                    matchedReplacement: violation.matchedReplacement
+                )
             }
-            return "\(name): the redacted text spells \(violation.matchedReplacement) across the "
-                + "site holding \(shadowed), so that site would restore to the wrong entity."
+            return .wrongEntity(
+                documentIndex: violation.documentIndex,
+                documentName: name,
+                matchedReplacement: violation.matchedReplacement,
+                shadowedReplacement: shadowed
+            )
         }
     }
 }

@@ -160,6 +160,8 @@ public struct EntitySidebar: View {
                         replacement: replacement
                     )
                     return nil
+                } catch let error as PseudonymOverrideError {
+                    return PseudonymOverrideErrorPresentation.message(for: error)
                 } catch {
                     return error.localizedDescription
                 }
@@ -178,14 +180,14 @@ public struct EntitySidebar: View {
                 batchSelectionBar
             } else if model.entityGroups.count >= 5 {
                 Text("Tip: Command-click or Shift-click extra findings, then keep them visible together.")
-                    .font(.caption2)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Tip: select several extra findings to keep them visible together.")
             }
             if isPseudonymEditingAvailable, !model.entities.isEmpty {
-                Text(PseudonymEditingPresentation.footnote)
-                    .font(.caption2)
+                Text(LocalizedStringKey(PseudonymEditingPresentation.footnote))
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,7 +213,7 @@ public struct EntitySidebar: View {
                         isAddingTerm = true
                     } label: {
                         Label("Protect a missed item", systemImage: "plus.circle")
-                            .font(.system(size: 12))
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                     .buttonStyle(.borderless)
@@ -273,11 +275,11 @@ public struct EntitySidebar: View {
             Image(systemName: emptyStateIcon)
                 .font(.system(size: 26, weight: .light))
                 .foregroundStyle(CounselTheme.textSecondary)
-            Text(emptyStateTitle)
+            Text(verbatim: L10n.string(emptyStateTitle))
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text(emptyStateDetail)
-                .font(.caption)
+            Text(verbatim: localizedEmptyStateDetail)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -309,6 +311,13 @@ public struct EntitySidebar: View {
         case .failed(let detail):
             return detail
         }
+    }
+
+    private var localizedEmptyStateDetail: String {
+        if case .failed(let detail) = model.status {
+            return detail
+        }
+        return L10n.string(emptyStateDetail)
     }
 
     private var emptyStateIcon: String {
@@ -344,7 +353,7 @@ private struct SectionHeader: View {
             Circle()
                 .fill(CounselTheme.color(for: type))
                 .frame(width: 7, height: 7)
-            Text(type.rawValue)
+            Text(EntityTypePresentation.localizedKey(for: type))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
             Spacer(minLength: 8)
@@ -362,8 +371,11 @@ private struct SectionHeader: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Redact or keep every \(type.rawValue) value at once")
-            .accessibilityLabel(Text("Bulk actions for \(type.rawValue)"))
+            .help(EntityTypePresentation.bulkActionHelp(for: type))
+            .accessibilityLabel(Text(verbatim: String(
+                format: L10n.string("Bulk actions for %@"),
+                EntityTypePresentation.localizedName(for: type) as NSString
+            )))
         }
         .textCase(nil)
         .contextMenu { bulkActions }
@@ -371,8 +383,14 @@ private struct SectionHeader: View {
 
     @ViewBuilder
     private var bulkActions: some View {
-        Button("Redact All \(type.rawValue)") { onSetAllAccepted(true) }
-        Button("Keep All \(type.rawValue) Visible") { onSetAllAccepted(false) }
+        Button(String(
+            format: L10n.string("Redact All %@"),
+            EntityTypePresentation.localizedName(for: type) as NSString
+        )) { onSetAllAccepted(true) }
+        Button(String(
+            format: L10n.string("Keep All %@ Visible"),
+            EntityTypePresentation.localizedName(for: type) as NSString
+        )) { onSetAllAccepted(false) }
     }
 }
 
@@ -444,11 +462,12 @@ private struct EntityGroupRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
-                .accessibilityLabel(Text("Redact \(group.type.rawValue) \(group.value)"))
-                .accessibilityHint(Text(
-                    "Toggles whether every occurrence of this value is replaced "
-                        + "in the exported document or remains visible."
-                ))
+                .accessibilityLabel(Text(verbatim: String(
+                    format: L10n.string("Redact %@ %@"),
+                    EntityTypePresentation.localizedName(for: group.type) as NSString,
+                    group.value as NSString
+                )))
+                .accessibilityHint(Text("Toggles whether every occurrence of this value is replaced in the exported document or remains visible."))
         }
         .padding(.vertical, 3)
         .opacity(accepted ? 1.0 : 0.55)
@@ -512,9 +531,8 @@ private struct EntityGroupRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text("This text stands in for the value in the safe copy. "
-                + "It cannot already appear in the session documents.")
-                .font(.caption)
+            Text("This text stands in for the value in the safe copy. It cannot already appear in the session documents.")
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -524,7 +542,7 @@ private struct EntityGroupRow: View {
 
             if let replacementError {
                 Text(replacementError)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -561,7 +579,11 @@ private struct EntityGroupRow: View {
     /// The quiet caption: type plus the detection source rendered as a human
     /// label (regex vs LLM).
     private var captionLine: some View {
-        Text("\(group.type.rawValue)  \u{00B7}  \(Self.sourceLabel(for: group.source))")
+        Text(verbatim: String(
+            format: L10n.string("%@  \u{00B7}  %@"),
+            EntityTypePresentation.localizedName(for: group.type) as NSString,
+            Self.sourceLabel(for: group.source) as NSString
+        ))
             .font(.caption2)
             .foregroundStyle(CounselTheme.textSecondary)
             .lineLimit(1)
@@ -581,11 +603,11 @@ private struct EntityGroupRow: View {
     private static func sourceLabel(for source: DetectionSource) -> String {
         switch source {
         case .deterministic:
-            return "regex"
+            return L10n.string("regex")
         case .llm:
-            return "LLM"
+            return L10n.string("LLM")
         case .manual:
-            return "manual"
+            return L10n.string("manual")
         }
     }
 }

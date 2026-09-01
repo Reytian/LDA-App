@@ -5,11 +5,159 @@
 //  A local workspace assembled from existing client mappings, encrypted
 //  value-free session records, and encrypted organization metadata.
 //
-//  House rules: English only. No em-dash or en-dash-as-separator.
+//  Interface copy uses localization keys. Matter labels, document names, and
+//  stored error details remain verbatim.
 //
 
+import Foundation
 import SwiftUI
 import LDACore
+
+enum MatterWorkspaceLocalization {
+    static func loadFailureTitleKey(
+        clientListFailed: Bool,
+        historyFailed: Bool,
+        metadataFailed: Bool
+    ) -> String {
+        let failureCount = [clientListFailed, historyFailed, metadataFailed]
+            .filter { $0 }
+            .count
+        if failureCount > 1 {
+            return "Some workspace data is locked"
+        }
+        if clientListFailed {
+            return "Saved client list is locked"
+        }
+        if historyFailed {
+            return "Recent activity is locked"
+        }
+        return "Matter organization is locked"
+    }
+
+    static func emptySidebarTitleKey(
+        isSearching: Bool,
+        scope: MatterWorkspaceScope
+    ) -> String {
+        if isSearching { return "No matching matters" }
+        return scope == .archived ? "No archived matters" : "No matters yet"
+    }
+
+    static func emptySidebarMessageKey(scope: MatterWorkspaceScope) -> String {
+        scope == .archived
+            ? "Archived matters stay encrypted here until you restore or delete them."
+            : "Start one to keep its protected handoffs together."
+    }
+
+    static func emptyDetailTitleKey(scope: MatterWorkspaceScope) -> String {
+        scope == .archived ? "No archived matters" : "Keep each matter in context"
+    }
+
+    static func emptyDetailMessageKey(scope: MatterWorkspaceScope) -> String {
+        scope == .archived
+            ? "Archived matters will stay encrypted here until you restore them to Active."
+            : "See protected handoffs, recent documents, and restores in one local workspace."
+    }
+
+    static func archiveActionKey(isArchived: Bool) -> String {
+        isArchived ? "Restore to Active" : "Archive Matter"
+    }
+
+    static func archiveConfirmationActionKey(discardsActiveWork: Bool) -> String {
+        discardsActiveWork ? "Close Active Work and Archive" : "Archive Matter"
+    }
+
+    static func handoffLabelKey(count: Int) -> String {
+        count == 1 ? "Handoff" : "Handoffs"
+    }
+
+    static func documentLabelKey(count: Int) -> String {
+        count == 1 ? "Document" : "Documents"
+    }
+
+    static func identityLabelKey(count: Int) -> String {
+        count == 1 ? "Known Identity" : "Known Identities"
+    }
+
+    static func restoreLabelKey(count: Int) -> String {
+        count == 1 ? "Restore" : "Restores"
+    }
+
+    static func localWorkspaceSummary(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        guard count > 0 else {
+            return L10n.string("Local workspaces", language: language)
+        }
+        return format(
+            count == 1 ? "%lld local workspace" : "%lld local workspaces",
+            language: language,
+            arguments: [Int64(count)]
+        )
+    }
+
+    static func activityLine(
+        relativeActivity: String?,
+        language: AppLanguage? = nil
+    ) -> String {
+        guard let relativeActivity else {
+            return L10n.string("Ready for first handoff", language: language)
+        }
+        return format(
+            "Updated %@",
+            language: language,
+            arguments: [relativeActivity]
+        )
+    }
+
+    static func documentLine(
+        names: [String],
+        language: AppLanguage? = nil
+    ) -> String {
+        guard !names.isEmpty else {
+            return L10n.string("No document names recorded", language: language)
+        }
+        return names.joined(separator: ", ")
+    }
+
+    static func restoreLine(
+        hasRestoreEvents: Bool,
+        restoredCount: Int,
+        flaggedCount: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        guard hasRestoreEvents else {
+            return L10n.string("Awaiting restored result", language: language)
+        }
+        if flaggedCount > 0 {
+            return format(
+                restoredCount == 1
+                    ? "%lld value restored, %lld flagged for review"
+                    : "%lld values restored, %lld flagged for review",
+                language: language,
+                arguments: [Int64(restoredCount), Int64(flaggedCount)]
+            )
+        }
+        return format(
+            restoredCount == 1 ? "%lld value restored" : "%lld values restored",
+            language: language,
+            arguments: [Int64(restoredCount)]
+        )
+    }
+
+    private static func format(
+        _ key: String,
+        language: AppLanguage?,
+        arguments: [CVarArg]
+    ) -> String {
+        let selectedLanguage = language ?? AppLanguage.selected()
+        return String(
+            format: L10n.string(key, language: language),
+            locale: selectedLanguage.locale,
+            arguments: arguments
+        )
+    }
+}
 
 struct MatterWorkspaceView: View {
     @ObservedObject private var session: SessionModel
@@ -32,6 +180,7 @@ struct MatterWorkspaceView: View {
     @State private var pendingArchive: PendingMatterArchive?
     @State private var pendingDelete: MatterSummary?
     @State private var workspaceError: String?
+    @State private var windowChromeTopInset: CGFloat = 0
 
     init(
         session: SessionModel,
@@ -51,6 +200,7 @@ struct MatterWorkspaceView: View {
             detail
         }
         .background(CounselTheme.appSurface)
+        .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         .toolbar {
             if isActive {
                 ToolbarItem(placement: .primaryAction) {
@@ -112,9 +262,11 @@ struct MatterWorkspaceView: View {
         ) {
             if let pendingArchive {
                 Button(
-                    pendingArchive.discardsActiveWork
-                        ? "Close Active Work and Archive"
-                        : "Archive Matter",
+                    LocalizedStringKey(
+                        MatterWorkspaceLocalization.archiveConfirmationActionKey(
+                            discardsActiveWork: pendingArchive.discardsActiveWork
+                        )
+                    ),
                     role: pendingArchive.discardsActiveWork ? .destructive : nil
                 ) {
                     archive(pendingArchive)
@@ -158,7 +310,11 @@ struct MatterWorkspaceView: View {
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(workspaceError ?? "Please try again.")
+            if let workspaceError {
+                Text(workspaceError)
+            } else {
+                Text("Please try again.")
+            }
         }
         .onAppear {
             if isActive { reload() }
@@ -193,13 +349,19 @@ struct MatterWorkspaceView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            WindowChromeTopSpacer(height: windowChromeTopInset, background: Color.clear)
+
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                     Text("Matters")
                         .font(.system(.title3, design: .serif).weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text(summaries.isEmpty ? "Local workspaces" : "\(summaries.count) local workspaces")
-                        .font(.caption)
+                    Text(
+                        MatterWorkspaceLocalization.localWorkspaceSummary(
+                            count: summaries.count
+                        )
+                    )
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
                 Spacer()
@@ -231,12 +393,12 @@ struct MatterWorkspaceView: View {
                     Image(systemName: emptySidebarIcon)
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(CounselTheme.textSecondary)
-                    Text(emptySidebarTitle)
+                    Text(LocalizedStringKey(emptySidebarTitleKey))
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     if searchText.isEmpty {
-                        Text(emptySidebarMessage)
-                            .font(.caption)
+                        Text(LocalizedStringKey(emptySidebarMessageKey))
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -263,7 +425,11 @@ struct MatterWorkspaceView: View {
                                 requestArchiveToggle(summary)
                             } label: {
                                 Label(
-                                    summary.isArchived ? "Restore to Active" : "Archive Matter",
+                                    LocalizedStringKey(
+                                        MatterWorkspaceLocalization.archiveActionKey(
+                                            isArchived: summary.isArchived
+                                        )
+                                    ),
                                     systemImage: summary.isArchived
                                         ? "arrow.uturn.backward.circle"
                                         : "archivebox"
@@ -291,7 +457,7 @@ struct MatterWorkspaceView: View {
                     Image(systemName: "exclamationmark.lock")
                         .foregroundStyle(CounselTheme.textSecondary)
                     VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                        Text(loadFailureTitle)
+                        Text(LocalizedStringKey(loadFailureTitleKey))
                             .font(.caption.weight(.semibold))
                         Button("Try Again") { reload() }
                             .font(.caption)
@@ -400,20 +566,12 @@ struct MatterWorkspaceView: View {
         selectFirstVisibleMatter()
     }
 
-    private var loadFailureTitle: String {
-        let failureCount = [clientListLoadFailed, historyLoadFailed, metadataLoadFailed]
-            .filter { $0 }
-            .count
-        if failureCount > 1 {
-            return "Some workspace data is locked"
-        }
-        if clientListLoadFailed {
-            return "Saved client list is locked"
-        }
-        if historyLoadFailed {
-            return "Recent activity is locked"
-        }
-        return "Matter organization is locked"
+    private var loadFailureTitleKey: String {
+        MatterWorkspaceLocalization.loadFailureTitleKey(
+            clientListFailed: clientListLoadFailed,
+            historyFailed: historyLoadFailed,
+            metadataFailed: metadataLoadFailed
+        )
     }
 
     private var activeCount: Int {
@@ -429,15 +587,15 @@ struct MatterWorkspaceView: View {
         return scope == .archived ? "archivebox" : "briefcase"
     }
 
-    private var emptySidebarTitle: String {
-        if !searchText.isEmpty { return "No matching matters" }
-        return scope == .archived ? "No archived matters" : "No matters yet"
+    private var emptySidebarTitleKey: String {
+        MatterWorkspaceLocalization.emptySidebarTitleKey(
+            isSearching: !searchText.isEmpty,
+            scope: scope
+        )
     }
 
-    private var emptySidebarMessage: String {
-        scope == .archived
-            ? "Archived matters stay encrypted here until you restore or delete them."
-            : "Start one to keep its protected handoffs together."
+    private var emptySidebarMessageKey: String {
+        MatterWorkspaceLocalization.emptySidebarMessageKey(scope: scope)
     }
 
     private func selectFirstVisibleMatter() {
@@ -528,7 +686,7 @@ private struct MatterSidebarRow: View {
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(1)
                 Text(activityLine)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -538,10 +696,11 @@ private struct MatterSidebarRow: View {
     }
 
     private var activityLine: String {
-        guard let stamp = summary.lastActivityISO8601 else {
-            return "Ready for first handoff"
-        }
-        return "Updated \(MatterDateFormatter.relative(stamp))"
+        MatterWorkspaceLocalization.activityLine(
+            relativeActivity: summary.lastActivityISO8601.map {
+                MatterDateFormatter.relative($0)
+            }
+        )
     }
 }
 
@@ -608,7 +767,11 @@ private struct MatterDetailView: View {
                     Divider()
                     Button(action: onArchiveToggle) {
                         Label(
-                            summary.isArchived ? "Restore to Active" : "Archive Matter",
+                            LocalizedStringKey(
+                                MatterWorkspaceLocalization.archiveActionKey(
+                                    isArchived: summary.isArchived
+                                )
+                            ),
                             systemImage: summary.isArchived
                                 ? "arrow.uturn.backward.circle"
                                 : "archivebox"
@@ -660,22 +823,38 @@ private struct MatterDetailView: View {
         HStack(spacing: CounselTheme.Space.md) {
             MatterMetricCard(
                 value: summary.sessionCount,
-                label: summary.sessionCount == 1 ? "Handoff" : "Handoffs",
+                label: LocalizedStringKey(
+                    MatterWorkspaceLocalization.handoffLabelKey(
+                        count: summary.sessionCount
+                    )
+                ),
                 systemImage: "arrow.right.doc.on.clipboard"
             )
             MatterMetricCard(
                 value: summary.documentCount,
-                label: summary.documentCount == 1 ? "Document" : "Documents",
+                label: LocalizedStringKey(
+                    MatterWorkspaceLocalization.documentLabelKey(
+                        count: summary.documentCount
+                    )
+                ),
                 systemImage: "doc.on.doc"
             )
             MatterMetricCard(
                 value: summary.protectedValueCount,
-                label: summary.protectedValueCount == 1 ? "Known Identity" : "Known Identities",
+                label: LocalizedStringKey(
+                    MatterWorkspaceLocalization.identityLabelKey(
+                        count: summary.protectedValueCount
+                    )
+                ),
                 systemImage: "person.badge.shield.checkmark"
             )
             MatterMetricCard(
                 value: summary.restoreCount,
-                label: summary.restoreCount == 1 ? "Restore" : "Restores",
+                label: LocalizedStringKey(
+                    MatterWorkspaceLocalization.restoreLabelKey(
+                        count: summary.restoreCount
+                    )
+                ),
                 systemImage: "arrow.uturn.backward"
             )
         }
@@ -725,12 +904,11 @@ private struct MatterDetailView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Matter names, archive status, counts, and document names are stored in encrypted local records. "
-                + "Protected values and document contents are never stored here.")
+            Text("Matter names, archive status, counts, and document names are stored in encrypted local records. Protected values and document contents are never stored here.")
         } icon: {
             Image(systemName: "lock.laptopcomputer")
         }
-        .font(.caption)
+        .font(CounselTheme.Typography.supporting)
         .foregroundStyle(CounselTheme.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -738,7 +916,7 @@ private struct MatterDetailView: View {
 
 private struct MatterMetricCard: View {
     let value: Int
-    let label: String
+    let label: LocalizedStringKey
     let systemImage: String
 
     var body: some View {
@@ -783,11 +961,11 @@ private struct MatterActivityRow: View {
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
                 Text(documentLine)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(2)
                 Text(restoreLine)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(recordFlagCount > 0 ? CounselTheme.danger : CounselTheme.textSecondary)
             }
         }
@@ -801,9 +979,9 @@ private struct MatterActivityRow: View {
     }
 
     private var documentLine: String {
-        let names = record.documents.map(\.name)
-        guard !names.isEmpty else { return "No document names recorded" }
-        return names.joined(separator: ", ")
+        MatterWorkspaceLocalization.documentLine(
+            names: record.documents.map(\.name)
+        )
     }
 
     private var recordFlagCount: Int {
@@ -813,12 +991,12 @@ private struct MatterActivityRow: View {
     }
 
     private var restoreLine: String {
-        guard !record.restoreEvents.isEmpty else { return "Awaiting restored result" }
         let restored = record.restoreEvents.reduce(0) { $0 + $1.restoredCount }
-        if recordFlagCount > 0 {
-            return "\(restored) values restored, \(recordFlagCount) flagged for review"
-        }
-        return "\(restored) values restored"
+        return MatterWorkspaceLocalization.restoreLine(
+            hasRestoreEvents: !record.restoreEvents.isEmpty,
+            restoredCount: restored,
+            flaggedCount: recordFlagCount
+        )
     }
 }
 
@@ -832,10 +1010,14 @@ private struct MatterWorkspaceEmptyView: View {
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(CounselTheme.inkAccent)
             VStack(spacing: CounselTheme.Space.sm) {
-                Text(scope == .archived ? "No archived matters" : "Keep each matter in context")
+                Text(
+                    LocalizedStringKey(
+                        MatterWorkspaceLocalization.emptyDetailTitleKey(scope: scope)
+                    )
+                )
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text(emptyMessage)
+                Text(LocalizedStringKey(emptyMessageKey))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -854,10 +1036,8 @@ private struct MatterWorkspaceEmptyView: View {
         .background(CounselTheme.paper)
     }
 
-    private var emptyMessage: String {
-        scope == .archived
-            ? "Archived matters will stay encrypted here until you restore them to Active."
-            : "See protected handoffs, recent documents, and restores in one local workspace."
+    private var emptyMessageKey: String {
+        MatterWorkspaceLocalization.emptyDetailMessageKey(scope: scope)
     }
 }
 
@@ -875,7 +1055,7 @@ private struct NewMatterSheet: View {
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text("Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -889,7 +1069,7 @@ private struct NewMatterSheet: View {
                 "The matter appears in this workspace after your first Copy for AI.",
                 systemImage: "lock.laptopcomputer"
             )
-            .font(.caption)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textSecondary)
 
             HStack {
@@ -979,7 +1159,11 @@ private struct RenameMatterSheet: View {
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "Please try again.")
+            if let errorMessage {
+                Text(errorMessage)
+            } else {
+                Text("Please try again.")
+            }
         }
     }
 
@@ -998,15 +1182,32 @@ private struct RenameMatterSheet: View {
     }
 }
 
-private enum MatterDateFormatter {
-    static func full(_ iso: String) -> String {
+enum MatterDateFormatter {
+    static func full(
+        _ iso: String,
+        language: AppLanguage? = nil
+    ) -> String {
         guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
-        return date.formatted(date: .abbreviated, time: .shortened)
+        let selectedLanguage = language ?? AppLanguage.selected()
+        let formatter = DateFormatter()
+        formatter.locale = selectedLanguage.locale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
-    static func relative(_ iso: String) -> String {
+    static func relative(
+        _ iso: String,
+        language: AppLanguage? = nil,
+        relativeTo referenceDate: Date = Date()
+    ) -> String {
         guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
-        return date.formatted(.relative(presentation: .named))
+        let selectedLanguage = language ?? AppLanguage.selected()
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = selectedLanguage.locale
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: referenceDate)
     }
 }
 

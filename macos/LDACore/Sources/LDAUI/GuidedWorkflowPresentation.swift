@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import SwiftUI
 import LDACore
 
 enum AnonymizeWorkflowStep: Int, CaseIterable, Equatable {
@@ -25,6 +26,10 @@ enum AnonymizeWorkflowStep: Int, CaseIterable, Equatable {
         case .review: return "Review"
         case .share: return "Share"
         }
+    }
+
+    var localizedTitle: LocalizedStringKey {
+        LocalizedStringKey(title)
     }
 
     var systemImage: String {
@@ -65,6 +70,111 @@ enum AnonymizeWorkflowPresentation {
         return includedDocumentIDs.contains(activeDocumentID)
     }
 
+    static func copyCompletionDetail(
+        documentCount: Int,
+        skippedCount: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        let readyKey = documentCount == 1
+            ? "%lld redacted document is ready to paste into an AI tool. Bring the answer back in Restore."
+            : "%lld redacted documents are ready to paste into an AI tool. Bring the answer back in Restore."
+        var detail = String(
+            format: L10n.string(readyKey, language: language),
+            Int64(documentCount)
+        )
+
+        if skippedCount > 0 {
+            let skippedKey = skippedCount == 1
+                ? "%lld unscanned document was not copied."
+                : "%lld unscanned documents were not copied."
+            detail += " " + String(
+                format: L10n.string(skippedKey, language: language),
+                Int64(skippedCount)
+            )
+        }
+        return detail
+    }
+
+    static func detectingLabel(
+        progress: Double,
+        eta: String?,
+        language: AppLanguage? = nil
+    ) -> String {
+        let percent = Int64((progress * 100).rounded())
+        guard let eta else {
+            return String(
+                format: L10n.string("Spotting PII %lld%%", language: language),
+                percent
+            )
+        }
+        return String(
+            format: L10n.string("Spotting PII %lld%%  \u{00B7}  %@", language: language),
+            percent,
+            eta as NSString
+        )
+    }
+
+    static func copyForAIHelp(
+        ready: Int,
+        candidates: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        guard candidates > 1 else {
+            return L10n.string(
+                "Copy the redacted text so you can paste it into any AI tool.",
+                language: language
+            )
+        }
+        return String(
+            format: L10n.string(
+                "Copy the redacted text from %lld of %lld documents (only the ones already scanned are included) so you can paste it into any AI tool.",
+                language: language
+            ),
+            Int64(ready),
+            Int64(candidates)
+        )
+    }
+
+    static func embeddedMediaWarning(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard count > 0 else { return nil }
+        let key = count == 1
+            ? "Warning: %lld embedded image was copied without scanning."
+            : "Warning: %lld embedded images were copied without scanning."
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(count)
+        )
+    }
+
+    static func etaText(
+        seconds: Double,
+        language: AppLanguage? = nil
+    ) -> String {
+        let total = max(1, Int(seconds.rounded()))
+        if total < 60 {
+            return String(
+                format: L10n.string("about %llds remaining", language: language),
+                Int64(total)
+            )
+        }
+        let minutes = total / 60
+        let seconds = total % 60
+        if seconds == 0 {
+            return String(
+                format: L10n.string("about %lldm remaining", language: language),
+                Int64(minutes)
+            )
+        }
+        return String(
+            format: L10n.string("about %lldm %llds remaining", language: language),
+            Int64(minutes),
+            Int64(seconds)
+        )
+    }
+
     /// The banner sentence for documents the cross-document sweep did not
     /// reach: which ones still carry a party another document confirmed, and
     /// the one action that fixes it. Value-free, so the banner never restates
@@ -76,43 +186,85 @@ enum AnonymizeWorkflowPresentation {
     /// re-scanning is a no-op and the honest advice is to confirm it by hand
     /// (or forget the learned entry in Settings). Telling that user to run
     /// Scan leaves a banner they can never clear.
-    static func rescanAdvice(for warnings: [SessionModel.RescanWarning]) -> String? {
+    static func rescanAdvice(
+        for warnings: [SessionModel.RescanWarning],
+        language: AppLanguage? = nil
+    ) -> String? {
         guard !warnings.isEmpty else { return nil }
         let sentences = [
-            rescanSentence(for: warnings.filter { $0.rescannablePartyCount > 0 }),
-            suppressedSentence(for: warnings.filter { $0.suppressedPartyCount > 0 })
+            rescanSentence(
+                for: warnings.filter { $0.rescannablePartyCount > 0 },
+                language: language
+            ),
+            suppressedSentence(
+                for: warnings.filter { $0.suppressedPartyCount > 0 },
+                language: language
+            )
         ].compactMap { $0 }
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 
     /// The gap a re-scan really would close.
     private static func rescanSentence(
-        for warnings: [SessionModel.RescanWarning]
+        for warnings: [SessionModel.RescanWarning],
+        language: AppLanguage?
     ) -> String? {
         guard !warnings.isEmpty else { return nil }
         let names = warnings.map(\.documentName).joined(separator: ", ")
-        let subject = warnings.count == 1 ? "\(names) still contains" : "\(names) still contain"
         let total = warnings.reduce(0) { $0 + $1.rescannablePartyCount }
-        let object = total == 1 ? "1 name" : "\(total) names"
-        let action = warnings.count == 1 ? "Run Scan on it again" : "Run Scan on them again"
-        return "\(subject) \(object) protected elsewhere in this session. \(action), then copy."
+        let key: String
+        if warnings.count == 1 {
+            key = total == 1
+                ? "%@ still contains 1 name protected elsewhere in this session. Run Scan on it again, then copy."
+                : "%@ still contains %lld names protected elsewhere in this session. Run Scan on it again, then copy."
+        } else {
+            key = total == 1
+                ? "%@ still contain 1 name protected elsewhere in this session. Run Scan on them again, then copy."
+                : "%@ still contain %lld names protected elsewhere in this session. Run Scan on them again, then copy."
+        }
+        if total == 1 {
+            return String(
+                format: L10n.string(key, language: language),
+                names as NSString
+            )
+        }
+        return String(
+            format: L10n.string(key, language: language),
+            names as NSString,
+            Int64(total)
+        )
     }
 
     /// The gap a re-scan would refuse to close, because the user already
     /// decided against redacting the value.
     private static func suppressedSentence(
-        for warnings: [SessionModel.RescanWarning]
+        for warnings: [SessionModel.RescanWarning],
+        language: AppLanguage?
     ) -> String? {
         guard !warnings.isEmpty else { return nil }
         let names = warnings.map(\.documentName).joined(separator: ", ")
-        let subject = warnings.count == 1 ? "\(names) still contains" : "\(names) still contain"
         let total = warnings.reduce(0) { $0 + $1.suppressedPartyCount }
-        let object = total == 1 ? "1 name" : "\(total) names"
-        let skipped = total == 1 ? "it" : "them"
-        let candidate = total == 1 ? "it" : "they"
-        return "\(subject) \(object) you chose not to redact before. "
-            + "Scan will skip \(skipped) again, so use Protect a missed item "
-            + "if \(candidate) should be protected here."
+        let key: String
+        if warnings.count == 1 {
+            key = total == 1
+                ? "%@ still contains 1 name you chose not to redact before. Scan will skip it again, so use Protect a missed item if it should be protected here."
+                : "%@ still contains %lld names you chose not to redact before. Scan will skip them again, so use Protect a missed item if they should be protected here."
+        } else {
+            key = total == 1
+                ? "%@ still contain 1 name you chose not to redact before. Scan will skip it again, so use Protect a missed item if it should be protected here."
+                : "%@ still contain %lld names you chose not to redact before. Scan will skip them again, so use Protect a missed item if they should be protected here."
+        }
+        if total == 1 {
+            return String(
+                format: L10n.string(key, language: language),
+                names as NSString
+            )
+        }
+        return String(
+            format: L10n.string(key, language: language),
+            names as NSString,
+            Int64(total)
+        )
     }
 
     /// The lead sentence for seams the session pass could not repair: what
@@ -133,13 +285,79 @@ enum AnonymizeWorkflowPresentation {
     /// by hand and a stored identity carried in from another output style,
     /// and the readable lines it hands back do not say which, so guessing one
     /// here would send half of these users to a control that cannot help.
-    static func unresolvedSeamAdvice(for seams: [String]) -> String? {
-        guard !seams.isEmpty else { return nil }
-        let sites = seams.count == 1 ? "1 redacted site" : "\(seams.count) redacted sites"
-        return "Do not send this copy. Restoring the AI's reply would put the "
-            + "wrong party's name at \(sites). Clear any replacement text you "
-            + "typed by hand for these names (Use Automatic), or change Output style "
-            + "in Settings, then copy again."
+    static func unresolvedSeamAdvice(
+        for seams: [String],
+        language: AppLanguage? = nil
+    ) -> String? {
+        unresolvedSeamAdvice(issueCount: seams.count, language: language)
+    }
+
+    static func unresolvedSeamAdvice(
+        issueCount: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard issueCount > 0 else { return nil }
+        let key = issueCount == 1
+            ? "Do not send this copy. Restoring the AI's reply would put the wrong party's name at 1 redacted site. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then copy again."
+            : "Do not send this copy. Restoring the AI's reply would put the wrong party's name at %lld redacted sites. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then copy again."
+        guard issueCount > 1 else {
+            return L10n.string(key, language: language)
+        }
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(issueCount)
+        )
+    }
+
+    /// Render one semantic seam issue in the selected interface language.
+    /// Replacement values and document names remain verbatim user data.
+    static func unresolvedSeamDescription(
+        for issue: SessionSeamIssue,
+        language: AppLanguage? = nil
+    ) -> String {
+        switch issue {
+        case .verificationUnavailable(let index, let name):
+            return String(
+                format: L10n.string(
+                    "%@: the seam check could not run on this document, so it is NOT known whether restoring it returns the original text. Read the restored output before relying on it.",
+                    language: language
+                ),
+                localizedDocumentLabel(index: index, name: name, language: language) as NSString
+            )
+        case .unexpectedReplacement(let index, let name, let replacement):
+            return String(
+                format: L10n.string(
+                    "%@: the redacted text spells %@ where it was never substituted, so restore would replace it there.",
+                    language: language
+                ),
+                localizedDocumentLabel(index: index, name: name, language: language) as NSString,
+                replacement as NSString
+            )
+        case .wrongEntity(let index, let name, let matched, let shadowed):
+            return String(
+                format: L10n.string(
+                    "%@: the redacted text spells %@ across the site holding %@, so that site would restore to the wrong entity.",
+                    language: language
+                ),
+                localizedDocumentLabel(index: index, name: name, language: language) as NSString,
+                matched as NSString,
+                shadowed as NSString
+            )
+        }
+    }
+
+    private static func localizedDocumentLabel(
+        index: Int,
+        name: String?,
+        language: AppLanguage?
+    ) -> String {
+        guard let name else {
+            return String(
+                format: L10n.string("document %lld", language: language),
+                Int64(index + 1)
+            )
+        }
+        return name
     }
 }
 
@@ -187,7 +405,8 @@ extension ReviewModel {
     nonisolated static func redactedPreviewText(
         text: String,
         entities: [ReviewEntity],
-        style: SubstitutionStyle = .token
+        style: SubstitutionStyle = .token,
+        language: AppLanguage? = nil
     ) -> String {
         let accepted = entities.filter(\.accepted)
         var seedEntries: [String: MappingEntry] = [:]
@@ -231,7 +450,10 @@ extension ReviewModel {
             style: style
         )
         guard tokenized.unresolvedSeams.isEmpty else {
-            return "Safe Preview unavailable: pseudonym restoration could not be verified."
+            return L10n.string(
+                "Safe Preview unavailable: pseudonym restoration could not be verified.",
+                language: language
+            )
         }
         return tokenized.tokenizedText
     }

@@ -217,9 +217,20 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
             ReviewModel.redactedPreviewText(
                 text: text,
                 entities: entities,
-                style: .pseudonym
+                style: .pseudonym,
+                language: .english
             ),
             "Safe Preview unavailable: pseudonym restoration could not be verified."
+        )
+
+        XCTAssertEqual(
+            ReviewModel.redactedPreviewText(
+                text: text,
+                entities: entities,
+                style: .pseudonym,
+                language: .simplifiedChinese
+            ),
+            "无法显示脱敏预览：无法验证化名能否正确恢复。"
         )
     }
 

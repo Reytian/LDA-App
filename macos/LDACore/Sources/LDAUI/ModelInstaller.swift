@@ -63,33 +63,79 @@ public enum ModelInstallError: Equatable, Sendable {
     case blockedHost(String)
 
     public var message: String {
+        localizedMessage(language: .english)
+    }
+
+    public func localizedMessage(language: AppLanguage? = nil) -> String {
+        let locale = (language ?? AppLanguage.selected()).locale
         switch self {
         case let .insufficientDisk(needed, free):
             let n = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
             let f = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
-            return "Not enough disk space. This model needs \(n) and there is \(f) free."
+            return String(
+                format: L10n.string(
+                    "Not enough disk space. This model needs %@ and there is %@ free.",
+                    language: language
+                ),
+                locale: locale,
+                n as NSString,
+                f as NSString
+            )
         case let .transport(detail):
-            return "The download did not finish (\(detail)). You can try again."
+            return String(
+                format: L10n.string(
+                    "The download did not finish (%@). You can try again.",
+                    language: language
+                ),
+                locale: locale,
+                detail as NSString
+            )
         case let .sizeMismatch(expected, actual):
             let e = ByteCountFormatter.string(fromByteCount: expected, countStyle: .file)
             let a = ByteCountFormatter.string(fromByteCount: actual, countStyle: .file)
-            return "The download is incomplete: expected \(e) but got \(a). Try again."
+            return String(
+                format: L10n.string(
+                    "The download is incomplete: expected %@ but got %@. Try again.",
+                    language: language
+                ),
+                locale: locale,
+                e as NSString,
+                a as NSString
+            )
         case .digestMismatch:
-            return "The downloaded file is not the model it should be, so it was "
-                + "removed. Do not use it. Try again, and if it keeps happening "
-                + "report it rather than working around it."
+            return L10n.string(
+                "The downloaded file is not the model it should be, so it was removed. Do not use it. Try again, and if it keeps happening report it rather than working around it.",
+                language: language
+            )
         case let .storage(detail):
-            return "Could not save the model (\(detail))."
+            return String(
+                format: L10n.string("Could not save the model (%@).", language: language),
+                locale: locale,
+                detail as NSString
+            )
         case let .insufficientMemory(requirement):
-            return "This Mac does not have enough memory to run this model. "
-                + requirement
+            return String(
+                format: L10n.string(
+                    "This Mac does not have enough memory to run this model. %@",
+                    language: language
+                ),
+                locale: locale,
+                requirement as NSString
+            )
         case .offlineMode:
-            return "Offline mode is on, so LDA did not contact the network. "
-                + "Turn it off in Manage Models to download this model."
+            return L10n.string(
+                "Offline mode is on, so LDA did not contact the network. Turn it off in Manage Models to download this model.",
+                language: language
+            )
         case let .blockedHost(host):
-            return "The download tried to contact \(host), which is not on LDA's "
-                + "allowed list, so it was stopped. LDA only ever connects to "
-                + "HuggingFace. Report this rather than working around it."
+            return String(
+                format: L10n.string(
+                    "The download tried to contact %@, which is not on LDA's allowed list, so it was stopped. LDA only ever connects to HuggingFace. Report this rather than working around it.",
+                    language: language
+                ),
+                locale: locale,
+                host as NSString
+            )
         }
     }
 

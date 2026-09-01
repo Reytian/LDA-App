@@ -30,8 +30,7 @@ extension FillShell {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("If this file was saved with a passphrase, enter it. "
-                 + "Leave it blank if it uses the Keychain.")
+            Text("If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -97,8 +96,7 @@ extension FillShell {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the exported file. "
-                 + "Leave it blank to protect it with the system Keychain.")
+            Text("Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -168,8 +166,7 @@ extension FillShell {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the profile. "
-                 + "Leave it blank to protect it with the system Keychain.")
+            Text("Enter an optional passphrase to encrypt the profile. Leave it blank to protect it with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -226,7 +223,7 @@ extension FillShell {
             try ProfileStore.save(profile, to: url, protection: protection)
         } catch {
             showAlert(
-                title: "Save failed",
+                title: L10n.string("Save failed"),
                 text: error.localizedDescription,
                 warning: true
             )
@@ -241,8 +238,7 @@ extension FillShell {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("If this profile was saved with a passphrase, enter it. "
-                 + "Leave it blank if it uses the Keychain.")
+            Text("If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -299,7 +295,7 @@ extension FillShell {
             model.loadProfile(profile)
         } catch {
             showAlert(
-                title: "Load failed",
+                title: L10n.string("Load failed"),
                 text: error.localizedDescription,
                 warning: true
             )

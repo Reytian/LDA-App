@@ -149,6 +149,29 @@ final class PseudonymOverrideUITests: XCTestCase {
         }
     }
 
+    func testOverrideErrorsFollowTheSelectedLanguageAndPreserveUserText() {
+        let error = PseudonymOverrideError.occursNaturallyInCorpus(
+            surface: "王小明",
+            replacement: "Buyer A"
+        )
+
+        XCTAssertEqual(
+            PseudonymOverrideErrorPresentation.message(for: error, language: .english),
+            "The custom replacement \"Buyer A\" for \"王小明\" already appears in the session documents."
+        )
+        XCTAssertEqual(
+            PseudonymOverrideErrorPresentation.message(for: error, language: .french),
+            "Le remplacement personnalisé « Buyer A » pour « 王小明 » figure déjà dans les documents de la session."
+        )
+        XCTAssertEqual(
+            PseudonymOverrideErrorPresentation.message(
+                for: .styleNotPseudonym(.token),
+                language: .simplifiedChinese
+            ),
+            "自定义替换文本仅适用于“化名”设置。当前设置：占位符。"
+        )
+    }
+
     // MARK: - Build integration
 
     func testAcceptedOverrideFlowsIntoTheBuiltOutputAndChips() async throws {

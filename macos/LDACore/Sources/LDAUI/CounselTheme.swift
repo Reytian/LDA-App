@@ -106,6 +106,16 @@ public enum CounselTheme {
         public static let xl: CGFloat = 24
     }
 
+    /// Scalable semantic roles for readable copy. Metadata stays compact while
+    /// instructions and explanatory prose use the system reading size.
+    public enum Typography {
+        public static let pageTitle = Font.system(.title, design: .serif).weight(.semibold)
+        public static let sectionTitle = Font.title3.weight(.semibold)
+        public static let readingBody = Font.body
+        public static let supporting = Font.callout
+        public static let metadata = Font.caption
+    }
+
     /// Corner radii.
     public enum Radius {
         public static let sm: CGFloat = 8

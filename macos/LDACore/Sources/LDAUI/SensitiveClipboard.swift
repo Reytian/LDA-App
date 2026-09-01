@@ -78,6 +78,18 @@ enum SensitiveClipboard {
         "For safety it clears from the clipboard in \(Int(autoClearAfter)) seconds."
     }
 
+    static func localizedExpiryNote(language: AppLanguage? = nil) -> String {
+        let selectedLanguage = language ?? AppLanguage.selected()
+        return String(
+            format: L10n.string(
+                "For safety it clears from the clipboard in %lld seconds.",
+                language: language
+            ),
+            locale: selectedLanguage.locale,
+            Int64(autoClearAfter)
+        )
+    }
+
     /// Clear the pasteboard after the delay.
     private static func scheduleClear(of pasteboard: NSPasteboard, at changeCount: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + autoClearAfter) {

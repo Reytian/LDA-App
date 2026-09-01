@@ -53,6 +53,26 @@ final class PackagingScriptTests: XCTestCase {
         )
     }
 
+    func testPackagedBundlePromotesLocalizationsForSwiftUI() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run()
+
+        XCTAssertEqual(result.status, 0, result.output)
+        for identifier in ["en", "fr", "zh-hans", "zh-hant"] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: fixture.distURL.appendingPathComponent(
+                        "LDA.app/Contents/Resources/\(identifier).lproj/Localizable.strings"
+                    ).path
+                ),
+                "SwiftUI cannot localize from the nested SwiftPM bundle alone. "
+                + "Missing main-bundle catalog for \(identifier).\n\(result.output)"
+            )
+        }
+    }
+
     func testPackagingPropagatesBuildFailure() throws {
         let fixture = try PackagingFixture(swiftExitStatus: 23)
         defer { fixture.remove() }
@@ -107,6 +127,19 @@ private struct PackagingFixture {
         try FileManager.default.createDirectory(
             at: resourceBundle, withIntermediateDirectories: true)
         try Data("[]".utf8).write(to: resourceBundle.appendingPathComponent("Models.json"))
+        for identifier in ["en", "fr", "zh-hans", "zh-hant"] {
+            let localization = resourceBundle.appendingPathComponent(
+                "\(identifier).lproj",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: localization,
+                withIntermediateDirectories: true
+            )
+            try Data("\"Language\" = \"Language\";\n".utf8).write(
+                to: localization.appendingPathComponent("Localizable.strings")
+            )
+        }
 
         // The Quick model. The script refuses to ship without it, which is
         // covered separately by testPackagingRefusesWhenTheQuickModelIsMissing.

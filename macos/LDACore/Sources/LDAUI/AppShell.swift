@@ -227,10 +227,17 @@ public struct AppShell: View {
         switch status {
         case .ready:
             AccessibilityNotification.Announcement(
-                "Review ready. \(model.redactedCount) to redact, \(model.visibleCount) will remain visible."
+                String(
+                    format: L10n.string("Review ready. %lld to redact, %lld will remain visible."),
+                    Int64(model.redactedCount),
+                    Int64(model.visibleCount)
+                )
             ).post()
         case .failed(let detail):
-            AccessibilityNotification.Announcement("Could not process the document. \(detail)").post()
+            AccessibilityNotification.Announcement(String(
+                format: L10n.string("Could not process the document. %@"),
+                detail as NSString
+            )).post()
         default:
             break
         }
@@ -284,7 +291,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canSaveWorkspace)
-                .help(WorkspacePresentation.saveHelp)
+                .help(L10n.string(WorkspacePresentation.saveHelp))
 
                 Button {
                     beginReportExport()
@@ -293,7 +300,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canExportComplianceReport)
-                .help(ComplianceReportPresentation.exportHelp)
+                .help(L10n.string(ComplianceReportPresentation.exportHelp))
             }
         }
     }
@@ -334,7 +341,10 @@ public struct AppShell: View {
                 )
             }
         } label: {
-            Label(session.clientLabel ?? "No Matter", systemImage: "person.crop.square")
+            Label(
+                session.clientLabel ?? L10n.string("No Matter"),
+                systemImage: "person.crop.square"
+            )
         }
         .help("Work under a matter keeps the same placeholders for the same values, every time")
     }
@@ -348,7 +358,10 @@ public struct AppShell: View {
                 do {
                     try session.setScopeLearnedRulesToMatter(enabled)
                 } catch {
-                    exportMessage = "Could not change the matter scope. \(error.localizedDescription)"
+                    exportMessage = String(
+                        format: L10n.string("Could not change the matter scope. %@"),
+                        error.localizedDescription as NSString
+                    )
                 }
             }
         )
@@ -357,13 +370,14 @@ public struct AppShell: View {
     /// Ask for a new client label with a small input alert and select it.
     private func promptNewClient() {
         let alert = NSAlert()
-        alert.messageText = "New matter"
-        alert.informativeText = "Documents processed under this matter keep consistent "
-            + "placeholders across sessions. The mapping stays encrypted on this Mac."
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.string("New matter")
+        alert.informativeText = L10n.string(
+            "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac."
+        )
+        alert.addButton(withTitle: L10n.string("Create"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = "Client or matter name"
+        field.placeholderString = L10n.string("Client or matter name")
         alert.accessoryView = field
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,7 +412,9 @@ public struct AppShell: View {
         do {
             let createdAt = ISO8601DateFormatter().string(from: Date())
             guard let handoff = try session.buildHandToAI(createdAtISO8601: createdAt) else {
-                exportMessage = "Scan a document for PII first, then copy it for the AI."
+                exportMessage = L10n.string(
+                    "Scan a document for PII first, then copy it for the AI."
+                )
                 return
             }
             NSPasteboard.general.clearContents()
@@ -409,14 +425,17 @@ public struct AppShell: View {
                 documentCount: handoff.documentCount,
                 skippedCount: handoff.skippedCount,
                 rescanWarnings: handoff.rescanWarnings,
-                unresolvedSeams: handoff.unresolvedSeams
+                seamIssues: handoff.seamIssues
             )
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
                 includedDocumentIDs: Set(handoff.perDocument.keys)
             )
         } catch {
-            exportMessage = "Could not prepare the redacted copy. \(error.localizedDescription)"
+            exportMessage = String(
+                format: L10n.string("Could not prepare the redacted copy. %@"),
+                error.localizedDescription as NSString
+            )
         }
     }
 
@@ -457,7 +476,9 @@ public struct AppShell: View {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Anonymize workflow, current step \(current.title)")
+        .accessibilityLabel(
+            "Anonymize workflow, current step \(L10n.string(current.title))"
+        )
     }
 
     private func workflowStep(
@@ -473,7 +494,7 @@ public struct AppShell: View {
                 .foregroundStyle(active || completed
                     ? CounselTheme.inkAccent
                     : CounselTheme.textSecondary)
-            Text(step.title)
+            Text(step.localizedTitle)
                 .font(.caption.weight(active ? .semibold : .regular))
                 .foregroundStyle(active
                     ? CounselTheme.textPrimary
@@ -494,14 +515,17 @@ public struct AppShell: View {
                 let documentCount,
                 let skippedCount,
                 let rescanWarnings,
-                let unresolvedSeams
+                let seamIssues
             ):
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Safe text copied")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text(copyCompletionDetail(documentCount: documentCount, skippedCount: skippedCount))
-                        .font(.caption)
+                    Text(verbatim: AnonymizeWorkflowPresentation.copyCompletionDetail(
+                        documentCount: documentCount,
+                        skippedCount: skippedCount
+                    ))
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(skippedCount > 0
                             ? CounselTheme.danger
                             : CounselTheme.textSecondary)
@@ -511,8 +535,8 @@ public struct AppShell: View {
                     // still carry their names. Saying which ones is the whole
                     // point: the user cannot see it from the copied text.
                     if let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: rescanWarnings) {
-                        Text(advice)
-                            .font(.caption)
+                        Text(verbatim: advice)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -523,14 +547,15 @@ public struct AppShell: View {
                     // the engine's own line is shown verbatim under the
                     // advice, naming the document and the swap.
                     if let seamAdvice = AnonymizeWorkflowPresentation
-                        .unresolvedSeamAdvice(for: unresolvedSeams) {
-                        Text(seamAdvice)
-                            .font(.caption.weight(.semibold))
+                        .unresolvedSeamAdvice(issueCount: seamIssues.count) {
+                        Text(verbatim: seamAdvice)
+                            .font(CounselTheme.Typography.supporting.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
-                        ForEach(Array(unresolvedSeams.enumerated()), id: \.offset) { _, seam in
-                            Text(seam)
-                                .font(.caption2)
+                        ForEach(Array(seamIssues.enumerated()), id: \.offset) { _, issue in
+                            Text(verbatim: AnonymizeWorkflowPresentation
+                                .unresolvedSeamDescription(for: issue))
+                                .font(CounselTheme.Typography.supporting)
                                 .foregroundStyle(CounselTheme.danger)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -582,18 +607,6 @@ public struct AppShell: View {
         }
     }
 
-    private func copyCompletionDetail(documentCount: Int, skippedCount: Int) -> String {
-        var detail = "\(documentCount) redacted "
-            + (documentCount == 1 ? "document is" : "documents are")
-            + " ready to paste into an AI tool. Bring the answer back in Restore."
-        if skippedCount > 0 {
-            detail += " \(skippedCount) unscanned "
-                + (skippedCount == 1 ? "document was" : "documents were")
-                + " not copied."
-        }
-        return detail
-    }
-
     // MARK: - Status banner
 
     /// A subtle, unobtrusive banner that reflects model.status and the most
@@ -606,7 +619,7 @@ public struct AppShell: View {
                     .progressViewStyle(.linear)
                     .tint(CounselTheme.inkAccent)
                     .frame(maxWidth: 300)
-                Text(detectingLabel)
+                Text(verbatim: detectingLabel)
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textSecondary)
@@ -631,7 +644,7 @@ public struct AppShell: View {
                     ProgressView()
                         .controlSize(.small)
                 }
-                Text(text)
+                Text(verbatim: text)
                     .font(.callout)
                     .foregroundStyle(bannerIsError
                         ? CounselTheme.danger
@@ -673,7 +686,7 @@ public struct AppShell: View {
 
     /// The primary Scan for PII action, rendered with symmetric padding so the
     /// pill is visually even.
-    private func scanButton(title: String, prominent: Bool) -> some View {
+    private func scanButton(title: LocalizedStringKey, prominent: Bool) -> some View {
         Group {
             if prominent {
                 Button {
@@ -738,9 +751,7 @@ public struct AppShell: View {
                     Label("Patterns only", systemImage: "info.circle")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
-                        .help("Emails, phones, dates, amounts, and ID numbers were detected. "
-                            + "Names, companies, and addresses were not, because this "
-                            + "detection level does not run the AI model.")
+                        .help(L10n.string("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model."))
                 } else {
                     Label("AI did not run", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout.weight(.semibold))
@@ -799,16 +810,28 @@ public struct AppShell: View {
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             completionFileLine(
-                "Document: \(result.redactedURL.lastPathComponent)",
+                String(
+                    format: L10n.string("Document: %@"),
+                    result.redactedURL.lastPathComponent as NSString
+                ),
                 help: result.redactedURL.lastPathComponent
             )
             completionFileLine(
-                "Encrypted mapping: \(result.mappingURL.lastPathComponent)  \u{00B7}  \(protection)",
+                String(
+                    format: L10n.string("Encrypted mapping: %@  \u{00B7}  %@"),
+                    result.mappingURL.lastPathComponent as NSString,
+                    protection as NSString
+                ),
                 help: "\(result.mappingURL.lastPathComponent), \(protection)"
             )
             if let imageURL = result.redactedImageURL {
                 completionFileLine(
-                    "Redacted image: \(imageURL.lastPathComponent)  \u{00B7}  boxes are permanent, not restorable",
+                    String(
+                        format: L10n.string(
+                            "Redacted image: %@  \u{00B7}  boxes are permanent, not restorable"
+                        ),
+                        imageURL.lastPathComponent as NSString
+                    ),
                     help: imageURL.lastPathComponent
                 )
             }
@@ -820,20 +843,17 @@ public struct AppShell: View {
                 .unboxedWarning(count: result.unboxedTokenCount) {
                 completionNote(unboxed, color: CounselTheme.danger)
             }
-            if result.embeddedMediaCount > 0 {
-                completionNote(
-                    "Warning: \(result.embeddedMediaCount) embedded image"
-                        + (result.embeddedMediaCount == 1 ? " was" : "s were")
-                        + " copied without scanning.",
-                    color: CounselTheme.danger
-                )
+            if let warning = AnonymizeWorkflowPresentation.embeddedMediaWarning(
+                count: result.embeddedMediaCount
+            ) {
+                completionNote(warning, color: CounselTheme.danger)
             }
         }
     }
 
     /// One written-file line: single line, middle-truncated, full name on hover.
     private func completionFileLine(_ text: String, help: String) -> some View {
-        Text(text)
+        Text(verbatim: text)
             .font(.caption)
             .foregroundStyle(CounselTheme.textSecondary)
             .lineLimit(1)
@@ -843,8 +863,8 @@ public struct AppShell: View {
 
     /// One wrapping note under the written-file lines.
     private func completionNote(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption)
+        Text(verbatim: text)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -854,13 +874,13 @@ public struct AppShell: View {
     /// every entry point agrees on when the choice exists.
     private var sealCandidateToggle: some View {
         Toggle(
-            ImageExportPresentation.sealCandidateToggleTitle,
+            LocalizedStringKey(ImageExportPresentation.sealCandidateToggleTitle),
             isOn: sealCandidateBinding
         )
         .toggleStyle(.checkbox)
         .font(.callout)
         .foregroundStyle(CounselTheme.textSecondary)
-        .help(ImageExportPresentation.sealCandidateToggleHelp)
+        .help(L10n.string(ImageExportPresentation.sealCandidateToggleHelp))
     }
 
     /// Reads and writes the choice on whichever document is active NOW. The
@@ -889,8 +909,7 @@ public struct AppShell: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
-                .help("Detection and redaction run on this Mac. "
-                    + "A detection-model download uses a network connection while it runs.")
+                .help(L10n.string("Detection and redaction run on this Mac. A detection-model download uses a network connection while it runs."))
                 .accessibilityLabel(Text("On-device detection and redaction"))
 
             // When the user-presence upgrade failed, say so here rather than
@@ -902,7 +921,7 @@ public struct AppShell: View {
                     .font(.caption)
                     .foregroundStyle(CounselTheme.danger)
                     .help(advisory)
-                    .accessibilityLabel(Text(advisory))
+                    .accessibilityLabel(Text(verbatim: advisory))
             }
         }
         .padding(.horizontal, 16)
@@ -917,12 +936,10 @@ public struct AppShell: View {
 
     /// "Spotting PII 42%  ·  about 12s remaining"
     private var detectingLabel: String {
-        let pct = Int((model.progress * 100).rounded())
-        var label = "Spotting PII \(pct)%"
-        if let eta = model.etaText {
-            label += "  \u{00B7}  \(eta)"
-        }
-        return label
+        AnonymizeWorkflowPresentation.detectingLabel(
+            progress: model.progress,
+            eta: model.etaText
+        )
     }
 
     private var bannerText: String? {
@@ -930,15 +947,20 @@ public struct AppShell: View {
         case .idle:
             return exportMessage ?? session.sessionNote
         case .importing:
-            return "Importing document"
+            return L10n.string("Importing document")
         case .imported:
-            return "Document ready. Click Scan for PII to spot names, companies, and other personal data."
+            return L10n.string("Document ready. Click Scan for PII to spot names, companies, and other personal data.")
         case .detecting:
-            return "Spotting PII"
+            return L10n.string("Spotting PII")
         case .ready:
             if let exportMessage { return exportMessage }
-            if let note = model.learningNote { return "Ready for review. \(note)." }
-            return "Ready for review"
+            if let note = model.learningNote {
+                return String(
+                    format: L10n.string("Ready for review. %@."),
+                    note as NSString
+                )
+            }
+            return L10n.string("Ready for review")
         case .failed(let detail):
             return detail
         }
@@ -949,7 +971,6 @@ public struct AppShell: View {
     /// partial session (F5, partially: a tooltip is hover-only, so this cannot
     /// be the whole answer. See the audit doc.)
     private var copyForAIHelp: String {
-        let base = "so you can paste it into any AI tool."
         let ready = session.entries.filter { $0.model.canExport }.count
         // A failed import can never become ready, so counting it in the
         // denominator reads as "you are about to leave that document out" when
@@ -958,14 +979,10 @@ public struct AppShell: View {
             if case .failed = $0.model.status { return false }
             return true
         }.count
-        guard candidates > 1 else {
-            return "Copy the redacted text " + base
-        }
-        // Phrased so the noun's number never has to agree with the numerator:
-        // "from 1 of 4 documents" reads correctly for every combination, where
-        // "1 of 4 ready document" did not.
-        return "Copy the redacted text from \(ready) of \(candidates) documents "
-            + "(only the ones already scanned are included) " + base
+        return AnonymizeWorkflowPresentation.copyForAIHelp(
+            ready: ready,
+            candidates: candidates
+        )
     }
 
     private var bannerIsError: Bool {
@@ -990,8 +1007,7 @@ public struct AppShell: View {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the mapping sidecar. "
-                + "Leave it blank to protect the mapping with the system Keychain.")
+            Text("Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1000,11 +1016,11 @@ public struct AppShell: View {
             // values (encrypted). Exporting into an iCloud-synced folder ships
             // that file off this Mac.
             if let dir = pendingExportDir, Self.isUnderICloud(dir) {
-                Label(
-                    "This folder syncs to iCloud. The encrypted mapping (which "
-                        + "contains the original names) will be uploaded with it.",
-                    systemImage: "icloud.and.arrow.up"
-                )
+                Label {
+                    Text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
+                } icon: {
+                    Image(systemName: "icloud.and.arrow.up")
+                }
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1059,8 +1075,8 @@ public struct AppShell: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of documents. Several files become one session."
-        panel.prompt = "Open"
+        panel.message = L10n.string("Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, a .zip, or a folder of documents. Several files become one session.")
+        panel.prompt = L10n.string("Open")
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         exportMessage = nil
         handoffCompletion = nil
@@ -1100,8 +1116,8 @@ public struct AppShell: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder for the redacted document and encrypted mapping."
-        panel.prompt = "Export Here"
+        panel.message = L10n.string("Choose a folder for the redacted document and encrypted mapping.")
+        panel.prompt = L10n.string("Export Here")
         guard panel.runModal() == .OK, let dir = panel.url else { return }
         pendingExportDir = dir
         isPromptingPassphrase = true
@@ -1129,7 +1145,9 @@ public struct AppShell: View {
         guard let dir = pendingExportDir else { return }
 
         let phrase = passphrase.isEmpty ? nil : passphrase
-        let protection = passphrase.isEmpty ? "Mac Keychain" : "Passphrase protected"
+        let protection = passphrase.isEmpty
+            ? L10n.string("Mac Keychain")
+            : L10n.string("Passphrase protected")
         let createdAt = ISO8601DateFormatter().string(from: Date())
         pendingExportDir = nil
         passphrase = ""
@@ -1152,7 +1170,10 @@ public struct AppShell: View {
                 )
                 hasSharedOutput = true
             } catch {
-                exportMessage = "Export failed. \(error.localizedDescription)"
+                exportMessage = String(
+                    format: L10n.string("Export failed: %@"),
+                    error.localizedDescription as NSString
+                )
             }
         }
     }
@@ -1300,7 +1321,7 @@ private enum HandoffCompletion: Equatable {
         documentCount: Int,
         skippedCount: Int,
         rescanWarnings: [SessionModel.RescanWarning],
-        unresolvedSeams: [String]
+        seamIssues: [SessionSeamIssue]
     )
     case exported(result: ExportResult, protection: String)
 }

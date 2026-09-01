@@ -433,7 +433,7 @@ final class FillModelTests: XCTestCase {
         let profile = makeProfile()
         let fakeResult = ExtractProfileResult(
             profile: profile,
-            failedSources: [("bad.txt", "unreadable")]
+            failedSources: [("bad.txt", "no text content found")]
         )
 
         FillModel.extractProfileForTesting = { _, _, _, _, _ in fakeResult }
@@ -455,6 +455,14 @@ final class FillModelTests: XCTestCase {
         // One failed source must surface as a warning.
         XCTAssertEqual(model.sourceWarnings.count, 1)
         XCTAssertTrue(model.sourceWarnings[0].contains("bad.txt"))
+        XCTAssertEqual(
+            model.localizedSourceWarnings(language: .french),
+            ["bad.txt: Aucun contenu textuel trouvé"]
+        )
+        XCTAssertEqual(
+            model.localizedSourceWarnings(language: .simplifiedChinese),
+            ["bad.txt: 未找到文本内容"]
+        )
     }
 
     func testExtractProfileFailureSetsFailedStageWithMessage() async throws {

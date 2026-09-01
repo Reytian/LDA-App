@@ -162,4 +162,70 @@ final class WorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(line.hasPrefix("Opening the workspace failed."))
         XCTAssertTrue(line.contains("did not open this workspace"))
     }
+
+    func testWorkspaceArchiveFailuresArePresentedAtTheLocalizedUIBoundary() throws {
+        XCTAssertEqual(
+            WorkspacePresentation.archiveErrorDescription(
+                WorkspaceArchiveError.wrongPassphrase,
+                language: .english
+            ),
+            "That passphrase did not open this workspace file."
+        )
+        XCTAssertEqual(
+            WorkspacePresentation.archiveErrorDescription(
+                WorkspaceArchiveError.createdByNewerVersion(found: 9, supported: 2),
+                language: .english
+            ),
+            "This workspace file was created by a newer version of LDA "
+                + "(format 9; this app reads format 2). Update LDA to open it."
+        )
+        XCTAssertEqual(
+            WorkspacePresentation.archiveErrorDescription(
+                WorkspaceArchiveError.damagedFile("raw 100% detail"),
+                language: .english
+            ),
+            "This workspace file could not be read. raw 100% detail"
+        )
+    }
+
+    func testWorkspaceWarningsUseWholePresentationPhrases() {
+        XCTAssertEqual(
+            WorkspacePresentation.matterSelectionWarning(
+                matterLabel: "Client 100% 张三",
+                errorDescription: "raw failure",
+                language: .english
+            ),
+            "This workspace belongs to the matter \"Client 100% 张三\", which "
+                + "could not be selected on this Mac. raw failure "
+                + "The documents opened without a matter."
+        )
+        XCTAssertEqual(
+            WorkspacePresentation.snapshotRelocationWarning(
+                documentName: "Brief 100%.docx",
+                appliedCount: 1,
+                droppedCount: 0,
+                language: .english
+            ),
+            "Brief 100%.docx reads slightly differently in this version of LDA, "
+                + "so its 1 protected value was matched by text."
+        )
+        XCTAssertEqual(
+            WorkspacePresentation.snapshotRelocationWarning(
+                documentName: "Brief 100%.docx",
+                appliedCount: 2,
+                droppedCount: 3,
+                language: .english
+            ),
+            "Brief 100%.docx reads slightly differently in this version of LDA, "
+                + "so its 2 protected values were matched by text. "
+                + "3 could not be found; scan again to check."
+        )
+        XCTAssertEqual(
+            WorkspacePresentation.savedReplacementWarning(
+                errorDescription: "raw failure",
+                language: .english
+            ),
+            "The saved replacement for one value could not be restored. raw failure"
+        )
+    }
 }

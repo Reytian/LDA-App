@@ -443,7 +443,7 @@ public final class ReviewModel: ObservableObject {
 
         status = .detecting
         progress = 0
-        etaText = expectsLLM ? "Loading model" : nil
+        etaText = expectsLLM ? L10n.string("Loading model") : nil
         learningNote = nil
         aiWarning = nil
         anonymizeStart = Date()
@@ -503,7 +503,7 @@ public final class ReviewModel: ObservableObject {
     /// without presenting partial results. Safe to call when nothing runs.
     public func cancelAnonymize() {
         guard activeCancelToken != nil else { return }
-        etaText = "Stopping"
+        etaText = L10n.string("Stopping")
         activeCancelToken?.cancel()
     }
 
@@ -529,15 +529,32 @@ public final class ReviewModel: ObservableObject {
 
     /// A short, human note about what learning contributed, or nil when nothing.
     private static func learningNote(applied: Int, suppressed: Int) -> String? {
-        var parts: [String] = []
-        if applied > 0 {
-            parts.append("applied \(applied) learned " + (applied == 1 ? "term" : "terms"))
+        guard applied > 0 || suppressed > 0 else { return nil }
+        let key: String
+        let arguments: [CVarArg]
+        switch (applied > 0, suppressed > 0) {
+        case (true, true):
+            key = applied == 1
+                ? "Applied %lld learned term and hid %lld you rejected before."
+                : "Applied %lld learned terms and hid %lld you rejected before."
+            arguments = [Int64(applied), Int64(suppressed)]
+        case (true, false):
+            key = applied == 1
+                ? "Applied %lld learned term."
+                : "Applied %lld learned terms."
+            arguments = [Int64(applied)]
+        case (false, true):
+            key = "Hid %lld you rejected before."
+            arguments = [Int64(suppressed)]
+        case (false, false):
+            return nil
         }
-        if suppressed > 0 {
-            parts.append("hid \(suppressed) you rejected before")
-        }
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: ", ").prefix(1).uppercased() + parts.joined(separator: ", ").dropFirst()
+        let language = AppLanguage.selected()
+        return String(
+            format: L10n.string(key, language: language),
+            locale: language.locale,
+            arguments: arguments
+        )
     }
 
     /// Update progress and the time estimate from a (done, total) report.
@@ -560,13 +577,7 @@ public final class ReviewModel: ObservableObject {
 
     /// Format a remaining-seconds estimate as a short human string.
     private static func formatETA(_ seconds: Double) -> String {
-        let total = max(1, Int(seconds.rounded()))
-        if total < 60 { return "about \(total)s remaining" }
-        let minutes = total / 60
-        let secs = total % 60
-        return secs == 0
-            ? "about \(minutes)m remaining"
-            : "about \(minutes)m \(secs)s remaining"
+        AnonymizeWorkflowPresentation.etaText(seconds: seconds)
     }
 
     // MARK: - Accept toggle

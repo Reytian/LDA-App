@@ -140,6 +140,24 @@ if [ "$FOUND_BUNDLE" -eq 0 ] || [ ! -f "$APP/Contents/Resources/LDACore_LDAUI.bu
   exit 1
 fi
 
+# SwiftUI's localization-aware initializers look in the host app bundle. The
+# catalogs originate in LDAUI's SwiftPM resource bundle, so promote a copy of
+# each localization into Contents/Resources while retaining the nested bundle
+# for explicit runtime lookups.
+echo "==> Promoting interface localizations"
+LOCALIZATION_SOURCE="$APP/Contents/Resources/LDACore_LDAUI.bundle"
+for LOCALIZATION in "$LOCALIZATION_SOURCE"/*.lproj; do
+  [ -e "$LOCALIZATION" ] || continue
+  cp -R "$LOCALIZATION" "$APP/Contents/Resources/"
+done
+for IDENTIFIER in en fr zh-hans zh-hant; do
+  if [ ! -f "$APP/Contents/Resources/$IDENTIFIER.lproj/Localizable.strings" ]; then
+    echo "!! Missing $IDENTIFIER interface localization."
+    echo "!! Refusing to ship an app with incomplete language support."
+    exit 1
+  fi
+done
+
 if [ -f "$MODEL_PATH" ]; then
   echo "==> Bundling Quick model ($(du -h "$MODEL_PATH" | cut -f1))"
   cp "$MODEL_PATH" "$APP/Contents/Resources/$(basename "$MODEL_PATH")"

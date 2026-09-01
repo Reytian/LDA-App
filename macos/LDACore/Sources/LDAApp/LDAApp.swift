@@ -15,7 +15,7 @@
 //  AppModeStore is created here and passed into RootShell so the toolbar picker
 //  and the command dispatchers share the same mode state.
 //
-//  House rules: English only. No em-dash or en-dash-as-separator.
+//  Code comments stay in English. User-facing copy is localized.
 //
 
 import AppKit
@@ -71,6 +71,9 @@ struct LDAApp: App {
     /// The theme preference (System, Light, Dark), shared with Settings.
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
 
+    /// The interface language, shared with Settings and every app scene.
+    @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
+
     /// The AI settings (custom model path and detection mode), observed so a
     /// change in Settings re-applies to every open document model.
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
@@ -81,6 +84,18 @@ struct LDAApp: App {
 
     private var colorScheme: ColorScheme? {
         AppearanceMode.from(rawValue: appearanceRaw).colorScheme
+    }
+
+    private var appLocale: Locale {
+        AppLanguage.from(rawValue: languageRaw).locale
+    }
+
+    private var appLanguage: AppLanguage {
+        AppLanguage.from(rawValue: languageRaw)
+    }
+
+    private func localized(_ key: String) -> String {
+        L10n.string(key, language: appLanguage)
     }
 
     /// The Cmd+J navigation loop applies to Anonymize (entities) and Fill
@@ -108,6 +123,7 @@ struct LDAApp: App {
             RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
+                .environment(\.locale, appLocale)
                 .onAppear {
                     // Attach the global vocabulary and learning layers; the
                     // session injects matter-scoped facades over them into
@@ -171,7 +187,7 @@ struct LDAApp: App {
             // no menu item and no shortcut for it, so after a failed import a
             // keyboard-only user had no way to recover at all.
             CommandGroup(after: .newItem) {
-                Button("Open Documents...") {
+                Button(localized("Open Documents...")) {
                     modeStore.activeMode = .anonymize
                     sessionModel.requestOpen()
                 }
@@ -180,7 +196,7 @@ struct LDAApp: App {
                 // A workspace usually arrives by double-click, but the file
                 // association only exists once the app is installed and
                 // registered, so the menu is the reliable route.
-                Button("Open Workspace\u{2026}") {
+                Button(localized("Open Workspace\u{2026}")) {
                     modeStore.activeMode = .anonymize
                     presentWorkspaceOpenPanel()
                 }
@@ -189,26 +205,26 @@ struct LDAApp: App {
                 // An encrypted compliance report needs LDA to read it, so the
                 // app has to offer a way in. No shortcut: this is a rare,
                 // recipient-side action, not part of the daily loop.
-                Button("Open Report\u{2026}") {
+                Button(localized("Open Report\u{2026}")) {
                     modeStore.activeMode = .anonymize
                     presentReportOpenPanel()
                 }
             }
 
             CommandGroup(after: .saveItem) {
-                Button("Scan for PII") {
+                Button(localized("Scan for PII")) {
                     modeStore.activeMode = .anonymize
                     sessionModel.activeModel.requestAnonymize()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(!sessionModel.activeModel.canAnonymize)
 
-                Button("Copy for AI") {
+                Button(localized("Copy for AI")) {
                     sessionModel.requestCopyForAI()
                 }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
-                Button("Paste from AI…") {
+                Button(localized("Paste from AI…")) {
                     modeStore.activeMode = .deanonymize
                     sessionModel.requestPasteRestore()
                 }
@@ -216,13 +232,13 @@ struct LDAApp: App {
 
                 Divider()
 
-                Button("Save Redacted Document…") {
+                Button(localized("Save Redacted Document…")) {
                     sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
                 .disabled(!sessionModel.activeModel.canExport)
 
-                Button("Restore Redacted File…") {
+                Button(localized("Restore Redacted File…")) {
                     // Land the user in the De-anonymize mode so the flow has
                     // visible context, then start it.
                     modeStore.activeMode = .deanonymize
@@ -236,8 +252,8 @@ struct LDAApp: App {
             // toggles the selected item in the active mode. The menu title and
             // item labels update when the mode switches so the menu bar tells the
             // truth about what the shortcut does.
-            CommandMenu(modeStore.activeMode == .fill ? "Fill" : "Review") {
-                Button(modeStore.activeMode == .fill ? "Next Blank" : "Next Entity") {
+            CommandMenu(localized(modeStore.activeMode == .fill ? "Fill" : "Review")) {
+                Button(localized(modeStore.activeMode == .fill ? "Next Blank" : "Next Entity")) {
                     switch modeStore.activeMode {
                     case .anonymize:
                         sessionModel.activeModel.selectNextGroup()
@@ -250,7 +266,7 @@ struct LDAApp: App {
                 .keyboardShortcut("j", modifiers: .command)
                 .disabled(navigationLoopDisabled)
 
-                Button(modeStore.activeMode == .fill ? "Previous Blank" : "Previous Entity") {
+                Button(localized(modeStore.activeMode == .fill ? "Previous Blank" : "Previous Entity")) {
                     switch modeStore.activeMode {
                     case .anonymize:
                         sessionModel.activeModel.selectPreviousGroup()
@@ -265,7 +281,7 @@ struct LDAApp: App {
 
                 Divider()
 
-                Button(modeStore.activeMode == .fill ? "Accept Blank" : "Toggle Redaction") {
+                Button(localized(modeStore.activeMode == .fill ? "Accept Blank" : "Toggle Redaction")) {
                     switch modeStore.activeMode {
                     case .anonymize:
                         sessionModel.activeModel.toggleSelectedGroup()
@@ -293,6 +309,7 @@ struct LDAApp: App {
                 isScanning: sessionModel.entries.contains { $0.model.status == .detecting }
             )
                 .preferredColorScheme(colorScheme)
+                .environment(\.locale, appLocale)
         }
 
         // The menu-bar companion (auxiliary posture): the round-trip has no
@@ -300,6 +317,7 @@ struct LDAApp: App {
         // clipboard without raising the main window.
         MenuBarExtra("LDA", systemImage: "shield.lefthalf.filled") {
             CompanionMenu(session: sessionModel)
+                .environment(\.locale, appLocale)
         }
     }
 
@@ -317,8 +335,8 @@ struct LDAApp: App {
         if let type = UTType(filenameExtension: WorkspaceArchive.fileExtension) {
             panel.allowedContentTypes = [type]
         }
-        panel.message = "Choose a saved LDA workspace file."
-        panel.prompt = "Open Workspace"
+        panel.message = localized("Choose a saved LDA workspace file.")
+        panel.prompt = localized("Open Workspace")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         sessionModel.pendingWorkspaceURL = url
     }
@@ -333,8 +351,8 @@ struct LDAApp: App {
         if let type = UTType(filenameExtension: ComplianceReportArchive.fileExtension) {
             panel.allowedContentTypes = [type]
         }
-        panel.message = "Choose an encrypted LDA report file."
-        panel.prompt = "Open Report"
+        panel.message = localized("Choose an encrypted LDA report file.")
+        panel.prompt = localized("Open Report")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         sessionModel.pendingReportURL = url
     }

@@ -42,11 +42,11 @@ struct ComplianceReportExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(ComplianceReportPresentation.exportHeadline)
+            Text(LocalizedStringKey(ComplianceReportPresentation.exportHeadline))
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text(ComplianceReportPresentation.exportExplanation)
+            Text(LocalizedStringKey(ComplianceReportPresentation.exportExplanation))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -56,10 +56,11 @@ struct ComplianceReportExportSheet: View {
             if flow.shape == .encrypted {
                 passphraseFields
             } else {
-                Label(
-                    ComplianceReportPresentation.readableWarning,
-                    systemImage: "exclamationmark.triangle.fill"
-                )
+                Label {
+                    Text(LocalizedStringKey(ComplianceReportPresentation.readableWarning))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
@@ -84,9 +85,9 @@ struct ComplianceReportExportSheet: View {
 
     private var shapePicker: some View {
         Picker("", selection: $flow.shape) {
-            Text(ComplianceReportPresentation.encryptedOptionTitle)
+            Text(LocalizedStringKey(ComplianceReportPresentation.encryptedOptionTitle))
                 .tag(ComplianceReportPresentation.Shape.encrypted)
-            Text(ComplianceReportPresentation.readableOptionTitle)
+            Text(LocalizedStringKey(ComplianceReportPresentation.readableOptionTitle))
                 .tag(ComplianceReportPresentation.Shape.readable)
         }
         .pickerStyle(.radioGroup)
@@ -95,7 +96,7 @@ struct ComplianceReportExportSheet: View {
 
     @ViewBuilder
     private var passphraseFields: some View {
-        Text(ComplianceReportPresentation.encryptedOptionNote)
+        Text(LocalizedStringKey(ComplianceReportPresentation.encryptedOptionNote))
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -108,16 +109,17 @@ struct ComplianceReportExportSheet: View {
             .textFieldStyle(.roundedBorder)
             .frame(width: 320)
 
-        Label(
-            ComplianceReportPresentation.irrecoverabilityNote,
-            systemImage: "key.fill"
-        )
+        Label {
+            Text(LocalizedStringKey(ComplianceReportPresentation.irrecoverabilityNote))
+        } icon: {
+            Image(systemName: "key.fill")
+        }
         .font(.callout)
         .foregroundStyle(CounselTheme.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
         if let issue, !flow.passphrase.isEmpty {
-            Text(ComplianceReportPresentation.message(for: issue))
+            Text(verbatim: ComplianceReportPresentation.message(for: issue))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
         }
@@ -133,11 +135,11 @@ struct ComplianceReportOpenSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(ComplianceReportPresentation.openHeadline)
+            Text(LocalizedStringKey(ComplianceReportPresentation.openHeadline))
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text(ComplianceReportPresentation.openExplanation)
+            Text(LocalizedStringKey(ComplianceReportPresentation.openExplanation))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -147,7 +149,7 @@ struct ComplianceReportOpenSheet: View {
                 .frame(width: 320)
 
             if let message = flow.sheetMessage {
-                Text(message)
+                Text(verbatim: message)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)

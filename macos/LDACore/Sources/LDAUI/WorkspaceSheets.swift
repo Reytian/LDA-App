@@ -38,9 +38,7 @@ struct WorkspaceSaveSheet: View {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("The file holds this matter's documents, your review decisions, "
-                + "and the values needed to restore them. Choose a passphrase "
-                + "for it.")
+            Text("The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -53,16 +51,17 @@ struct WorkspaceSaveSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
-            Label(
-                WorkspacePresentation.irrecoverabilityNote,
-                systemImage: "key.fill"
-            )
+            Label {
+                Text(LocalizedStringKey(WorkspacePresentation.irrecoverabilityNote))
+            } icon: {
+                Image(systemName: "key.fill")
+            }
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
             if let issue, !flow.passphrase.isEmpty {
-                Text(WorkspacePresentation.message(for: issue))
+                Text(verbatim: WorkspacePresentation.message(for: issue))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
             }
@@ -98,8 +97,7 @@ struct WorkspaceOpenSheet: View {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter the passphrase this workspace file was saved with. "
-                + "Its contents are decrypted locally after you enter the passphrase.")
+            Text("Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -109,7 +107,7 @@ struct WorkspaceOpenSheet: View {
                 .frame(width: 320)
 
             if let message = flow.sheetMessage {
-                Text(message)
+                Text(verbatim: message)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)

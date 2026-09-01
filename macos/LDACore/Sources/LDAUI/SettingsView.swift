@@ -7,7 +7,7 @@
 //    - Learned: what the app has learned from the user's accept and reject
 //      decisions, with the ability to forget entries.
 //
-//  House rules: English only. No em-dash or en-dash-as-separator.
+//  Code comments stay in English. User-facing copy is localized.
 //
 
 import AppKit
@@ -81,31 +81,35 @@ private struct HistoryTab: View {
             Text("Session history")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Each round-trip records what was protected and what was restored. "
-                + "Records never contain the sensitive values themselves and stay "
-                + "encrypted on this Mac.")
+            Text("Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if records.isEmpty {
                 Spacer()
-                Text(loadFailed
-                    ? "The history could not be read."
-                    : "No sessions recorded yet. Records appear after your first Copy for AI.")
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                Group {
+                    if loadFailed {
+                        Text("The history could not be read.")
+                    } else {
+                        Text("No sessions recorded yet. Records appear after your first Copy for AI.")
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
                 Spacer()
             } else {
                 List(records) { record in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(Self.displayDate(record.createdAtISO8601))
+                            Text(verbatim: SettingsHistoryPresentation.displayDate(
+                                record.createdAtISO8601
+                            ))
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(CounselTheme.textPrimary)
                             if let client = record.clientLabel {
-                                Text("\u{00B7}  \(client)")
+                                Text(verbatim: "\u{00B7}  \(client)")
                                     .font(.callout)
                                     .foregroundStyle(CounselTheme.textSecondary)
                             }
@@ -119,12 +123,12 @@ private struct HistoryTab: View {
                             .buttonStyle(.borderless)
                             .help("Delete this record")
                         }
-                        Text(documentsLine(record))
-                            .font(.caption)
+                        Text(verbatim: documentsLine(record))
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .lineLimit(2)
-                        Text(restoresLine(record))
-                            .font(.caption)
+                        Text(verbatim: restoresLine(record))
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                     .padding(.vertical, 3)
@@ -154,35 +158,22 @@ private struct HistoryTab: View {
 
     private func documentsLine(_ record: SessionRecord) -> String {
         let names = record.documents.map { "\($0.name) (\($0.entityCount))" }
-        return "Protected \(record.protectedValueCount) "
-            + (record.protectedValueCount == 1 ? "identity" : "identities")
-            + " across: " + names.joined(separator: ", ")
+        return SettingsHistoryPresentation.documentsLine(
+            protectedValueCount: record.protectedValueCount,
+            documentSummaries: names
+        )
     }
 
     private func restoresLine(_ record: SessionRecord) -> String {
-        guard !record.restoreEvents.isEmpty else {
-            return "Not restored yet."
-        }
         let flagged = record.restoreEvents.reduce(0) {
             $0 + $1.orphanCount + $1.suspectCount + $1.ambiguousCount
         }
         let restored = record.restoreEvents.reduce(0) { $0 + $1.restoredCount }
-        var line = "\(record.restoreEvents.count) restore"
-            + (record.restoreEvents.count == 1 ? "" : "s")
-            + ", \(restored) value" + (restored == 1 ? "" : "s") + " put back"
-        if flagged > 0 {
-            line += ", \(flagged) flagged for review"
-        }
-        return line + "."
-    }
-
-    /// Render an ISO-8601 stamp as a readable local date.
-    private static func displayDate(_ iso: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return SettingsHistoryPresentation.restoresLine(
+            restoreCount: record.restoreEvents.count,
+            restoredValueCount: restored,
+            flaggedCount: flagged
+        )
     }
 }
 
@@ -235,8 +226,7 @@ private struct AITab: View {
                     Text("How hard should LDA look?")
                         .font(.system(.headline, design: .serif))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Higher settings find more names, companies, and addresses, "
-                        + "and take longer. Detection uses the selected model on this Mac.")
+                    Text("Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -274,10 +264,12 @@ private struct AITab: View {
                     }
                 }
 
-                Label("LDA processes document contents on this Mac. Installing an optional "
-                      + "model uses a network connection to fetch its model file.",
-                      systemImage: "lock.laptopcomputer")
-                    .font(.caption)
+                Label {
+                    Text("LDA processes document contents on this Mac. Installing an optional model uses a network connection to fetch its model file.")
+                } icon: {
+                    Image(systemName: "lock.laptopcomputer")
+                }
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
 
                 // Settings is where a user comes to check how their data is
@@ -285,7 +277,7 @@ private struct AITab: View {
                 // not only implied by its absence.
                 if let advisory = keychainAdvisory.advisory {
                     Label(advisory, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -341,36 +333,41 @@ private struct AITab: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text(rung.displayName)
+                        Text(rung.localizedDisplayName)
                             .font(.body.weight(.medium))
                             .foregroundStyle(selectable ? CounselTheme.textPrimary : CounselTheme.textSecondary)
                         if tier != nil, installed {
                             badge("Installed", tone: CounselTheme.textSecondary)
                         } else if let tier {
-                            badge("Not installed \u{00B7} \(tier.downloadSizeDescription)",
-                                  tone: CounselTheme.textSecondary)
+                            verbatimBadge(
+                                String(
+                                    format: L10n.string("Not installed · %@"),
+                                    tier.downloadSizeDescription as NSString
+                                ),
+                                tone: CounselTheme.textSecondary
+                            )
                         }
                         if case .tight = availability {
                             badge("Tight fit", tone: CounselTheme.danger)
                         }
                     }
-                    Text(rung.summary)
-                        .font(.caption)
+                    Text(rung.localizedSummary)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let tier, selectable {
                         Text("About \(tier.secondsPerDocument) seconds for a short agreement.")
-                            .font(.caption2)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                     if let tier, !selectable {
-                        Text(MemoryGate.requirementText(for: tier))
-                            .font(.caption2)
+                        Text(verbatim: MemoryGate.localizedRequirementText(for: tier))
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.danger)
                     }
                     if tier != nil, !installed {
                         Text("Add the model file to use this setting.")
-                            .font(.caption2)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.danger)
                     }
                 }
@@ -392,11 +389,8 @@ private struct AITab: View {
             Text("Your chosen model leaves some names in the document")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("It reports a portion of the names and addresses it finds in a slightly "
-                + "different form from your document, so those are never redacted and never "
-                + "reach your review list. The built-in model does not have this problem "
-                + "and runs at the same speed.")
-                .font(.caption)
+            Text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed.")
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
@@ -433,16 +427,24 @@ private struct AITab: View {
             Text((customModelPath as NSString).lastPathComponent)
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
-            Text("LDA cannot estimate speed or memory for a model it does not know. "
-                + "It overrides the setting above.")
-                .font(.caption2)
+            Text("LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.")
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func badge(_ text: String, tone: Color) -> some View {
+    private func badge(_ text: LocalizedStringKey, tone: Color) -> some View {
         Text(text)
+            .font(.caption2)
+            .foregroundStyle(tone)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(tone.opacity(0.4), lineWidth: 1))
+    }
+
+    private func verbatimBadge(_ text: String, tone: Color) -> some View {
+        Text(verbatim: text)
             .font(.caption2)
             .foregroundStyle(tone)
             .padding(.horizontal, 6)
@@ -485,12 +487,15 @@ private struct SharingTab: View {
                 }
             }
 
-            Text("\(patterns.patterns.count) vocabulary terms  \u{00B7}  \(learning.allTerms.count) learned entries")
-                .font(.caption.monospacedDigit())
+            Text(verbatim: SettingsSharingPresentation.counts(
+                vocabularyCount: patterns.patterns.count,
+                learnedCount: learning.allTerms.count
+            ))
+                .font(CounselTheme.Typography.supporting.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
 
             if let status {
-                Text(status)
+                Text(verbatim: status)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .padding(10)
@@ -500,7 +505,7 @@ private struct SharingTab: View {
             }
 
             Text("The file is plain JSON (a glossary of terms to redact). Treat it like any shared list that may name clients or matters.")
-                .font(.caption)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -517,19 +522,22 @@ private struct SharingTab: View {
             learned: learning.allTerms
         )
         guard let data = try? Portability.encode(profile) else {
-            status = "Could not prepare the profile."
+            status = SettingsSharingPresentation.preparationFailure
             return
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "LDA-Vocabulary.json"
-        panel.message = "Save your vocabulary and learned terms to share or move."
+        panel.message = L10n.string("Save your vocabulary and learned terms to share or move.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try data.write(to: url)
-            status = "Exported \(profile.patterns.count) vocabulary terms and \(profile.learned.count) learned entries."
+            status = SettingsSharingPresentation.exported(
+                vocabularyCount: profile.patterns.count,
+                learnedCount: profile.learned.count
+            )
         } catch {
-            status = "Export failed. \(error.localizedDescription)"
+            status = SettingsSharingPresentation.exportFailure(error.localizedDescription)
         }
     }
 
@@ -539,37 +547,57 @@ private struct SharingTab: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
-        panel.message = "Choose a shared LDA vocabulary file to merge."
-        panel.prompt = "Import"
+        panel.message = L10n.string("Choose a shared LDA vocabulary file to merge.")
+        panel.prompt = L10n.string("Import")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let data = try? Data(contentsOf: url),
               let profile = try? Portability.decode(data) else {
-            status = "That file is not a valid LDA vocabulary profile."
+            status = SettingsSharingPresentation.invalidProfile
             return
         }
         let added = patterns.merge(profile.patterns)
         let merged = learning.merge(profile.learned)
-        status = "Imported \(added) new vocabulary "
-            + (added == 1 ? "term" : "terms")
-            + " and merged \(merged) learned "
-            + (merged == 1 ? "entry." : "entries.")
+        status = SettingsSharingPresentation.imported(
+            vocabularyCount: added,
+            learnedCount: merged
+        )
     }
 }
 
 // MARK: - General tab
 
 private struct GeneralTab: View {
+    @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(AISettings.outputStyleKey) private var outputStyleRaw = SubstitutionStyle.token.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("Language")
+                .font(.system(.headline, design: .serif))
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Picker("Language", selection: languageBinding) {
+                ForEach(AppLanguage.allCases) { language in
+                    Text(language.nativeName).tag(language)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 320, alignment: .leading)
+
+            Text("Choose the language LDA uses for its interface. Follow System uses your Mac language.")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Text("Appearance")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Picker("Theme", selection: appearanceBinding) {
-                ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
+                ForEach(AppearanceMode.allCases) { Text($0.localizedKey).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -588,14 +616,15 @@ private struct GeneralTab: View {
 
             Picker("Output style", selection: outputStyleBinding) {
                 ForEach(SubstitutionStyle.allCases, id: \.self) { style in
-                    Text(Self.label(for: style)).tag(style)
+                    Text(LocalizedStringKey(Self.label(for: style))).tag(style)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: 380, alignment: .leading)
 
-            Text(Self.explanation(for: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token))
+            Text(LocalizedStringKey(Self.explanation(for:
+                SubstitutionStyle(rawValue: outputStyleRaw) ?? .token)))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -610,6 +639,13 @@ private struct GeneralTab: View {
         Binding(
             get: { AppearanceMode.from(rawValue: appearanceRaw) },
             set: { appearanceRaw = $0.rawValue }
+        )
+    }
+
+    private var languageBinding: Binding<AppLanguage> {
+        Binding(
+            get: { AppLanguage.from(rawValue: languageRaw) },
+            set: { languageRaw = $0.rawValue }
         )
     }
 
@@ -704,7 +740,13 @@ private struct PatternRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            TextField(pattern.isRegex ? "Regular expression" : "Term to redact", text: $pattern.text)
+            Group {
+                if pattern.isRegex {
+                    TextField("Regular expression", text: $pattern.text)
+                } else {
+                    TextField("Term to redact", text: $pattern.text)
+                }
+            }
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 170)
                 .overlay(alignment: .trailing) {
@@ -723,7 +765,9 @@ private struct PatternRow: View {
                 .accessibilityLabel("Regular expression")
 
             Picker("", selection: $pattern.type) {
-                ForEach(Self.assignableTypes, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Self.assignableTypes, id: \.self) {
+                    Text(EntityTypePresentation.localizedKey(for: $0)).tag($0)
+                }
             }
             .labelsHidden()
             .frame(width: 140)
@@ -795,7 +839,12 @@ private struct LearnedRow: View {
                     .font(.system(.callout, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(1)
-                Text("\(term.type.rawValue)  \u{00B7}  kept \(term.acceptCount), rejected \(term.rejectCount)")
+                Text(verbatim: String(
+                    format: L10n.string("%@  \u{00B7}  kept %lld, rejected %lld"),
+                    EntityTypePresentation.localizedName(for: term.type) as NSString,
+                    Int64(term.acceptCount),
+                    Int64(term.rejectCount)
+                ))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -827,7 +876,7 @@ private struct LearnedRow: View {
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.caption2.weight(.medium))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
@@ -844,7 +893,7 @@ private func placeholder(_ text: String, systemImage: String) -> some View {
         Image(systemName: systemImage)
             .font(.system(size: 28, weight: .light))
             .foregroundStyle(CounselTheme.textSecondary)
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .multilineTextAlignment(.center)

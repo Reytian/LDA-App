@@ -198,7 +198,10 @@ struct BlankSidebar: View {
 
     private func proposedFieldName(for blank: Blank) -> String? {
         guard let fid = blank.proposedFieldID else { return nil }
-        return model.profile?.fields.first(where: { $0.id == fid })?.key.displayName
+        guard let key = model.profile?.fields.first(where: { $0.id == fid })?.key else {
+            return nil
+        }
+        return ProfileFieldPresentation.localizedName(for: key)
     }
 }
 
@@ -279,7 +282,7 @@ struct BlankRow: View {
     }
 
     private var labelLine: some View {
-        Text(displayLabel)
+        Text(verbatim: displayLabel)
             .font(.system(.callout, design: .serif))
             .foregroundStyle(CounselTheme.textPrimary)
             .lineLimit(1)
@@ -314,7 +317,9 @@ struct BlankRow: View {
                     .truncationMode(.middle)
             }
         } else {
-            Text(blank.status == .unmatched ? "No match" : "Tap to choose")
+            Text(LocalizedStringKey(
+                blank.status == .unmatched ? "No match" : "Tap to choose"
+            ))
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary.opacity(0.7))
         }
@@ -325,7 +330,7 @@ struct BlankRow: View {
         if !raw.isEmpty { return raw }
         let ctx = blank.context.trimmingCharacters(in: .whitespacesAndNewlines)
         let preview = ctx.prefix(40)
-        return preview.isEmpty ? "(blank)" : "\u{201C}\(preview)\u{201D}"
+        return preview.isEmpty ? L10n.string("(blank)") : "\u{201C}\(preview)\u{201D}"
     }
 
     /// The verbatim value from the profile field this blank points at. Used to
@@ -366,7 +371,9 @@ struct FieldPickerPopover: View {
                             } label: {
                                 HStack(spacing: 10) {
                                     VStack(alignment: .leading, spacing: 1) {
-                                        Text(field.key.displayName)
+                                        Text(verbatim: ProfileFieldPresentation.localizedName(
+                                            for: field.key
+                                        ))
                                             .font(.callout)
                                             .foregroundStyle(CounselTheme.textPrimary)
                                         Text(field.value)
@@ -593,16 +600,10 @@ struct BlankDocumentPane: View {
     }
 
     private var contextListAttributed: AttributedString {
-        guard let url = model.targetURL else {
-            return AttributedString("No target document loaded.")
-        }
-        let blanksDesc = model.blanks.isEmpty
-            ? "No blanks detected in this document."
-            : model.blanks.map { blank in
-                let label = blank.label.isEmpty ? "(blank)" : blank.label
-                return "\(label): \(blank.context)"
-            }.joined(separator: "\n\n")
-        var base = AttributedString("\(url.lastPathComponent)\n\n\(blanksDesc)")
+        var base = AttributedString(FillTargetPresentation.contextList(
+            targetFileName: model.targetURL?.lastPathComponent,
+            blanks: model.blanks
+        ))
         if let selected = model.blanks.first(where: { $0.id == model.selectedBlankID }) {
             if let range = base.range(of: selected.context) {
                 base[range].backgroundColor = CounselTheme.inkAccent.opacity(0.18)
@@ -623,8 +624,7 @@ struct BlankDocumentPane: View {
                 Text("PDF target")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Review and confirm blanks in the sidebar. "
-                     + "Full PDF rendering is planned for a future version.")
+                Text("Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -658,7 +658,11 @@ struct FillReportPane: View {
                         Text("Fill complete")
                             .font(.system(.title2, design: .serif))
                             .foregroundStyle(CounselTheme.textPrimary)
-                        Text("\(report.filledCount) blank\(report.filledCount == 1 ? "" : "s") filled in \(report.outputURL.lastPathComponent).")
+                        Text(verbatim: FillStatusPresentation.completed(
+                            filled: report.filledCount,
+                            fileName: report.outputURL.lastPathComponent,
+                            skipped: 0
+                        ))
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
@@ -679,13 +683,17 @@ struct FillReportPane: View {
                                     .padding(.top, 2)
                                 VStack(alignment: .leading, spacing: 1) {
                                     let label = skipped.label.isEmpty
-                                        ? skipped.locationDescription
+                                        ? FillServicePresentation.locationDescription(
+                                            skipped.locationDescription
+                                        )
                                         : skipped.label
-                                    Text(label)
+                                    Text(verbatim: label)
                                         .font(.callout)
                                         .foregroundStyle(CounselTheme.textPrimary)
-                                    Text(skipped.reason)
-                                        .font(.caption)
+                                    Text(verbatim: FillServicePresentation.skippedReason(
+                                        skipped.reason
+                                    ))
+                                        .font(CounselTheme.Typography.supporting)
                                         .foregroundStyle(CounselTheme.textSecondary)
                                 }
                             }
@@ -700,8 +708,7 @@ struct FillReportPane: View {
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
 
-                        Text("The following AcroForm fields were not auto-filled "
-                             + "(checkboxes, radio buttons, and drop-downs require manual input):")
+                        Text("The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):")
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

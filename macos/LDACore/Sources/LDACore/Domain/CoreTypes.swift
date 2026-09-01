@@ -212,6 +212,61 @@ public struct Mapping: Equatable, Sendable, Codable {
 
 // MARK: - Engine results
 
+/// A literal-restore seam the session verifier could not repair.
+///
+/// The engine carries semantic values instead of a preformatted warning so
+/// app presentation can localize the message without parsing English. The
+/// command-line and MCP boundaries use englishDescription to preserve their
+/// established output contract.
+public enum SessionSeamIssue: Sendable, Equatable {
+    /// The verifier could not establish that restoring this document returns
+    /// its original text.
+    case verificationUnavailable(
+        documentIndex: Int,
+        documentName: String?
+    )
+
+    /// Redacted text naturally spells a replacement at a location where that
+    /// replacement was not emitted.
+    case unexpectedReplacement(
+        documentIndex: Int,
+        documentName: String?,
+        matchedReplacement: String
+    )
+
+    /// A replacement spans the site of another replacement, so restore would
+    /// put the wrong entity at that site.
+    case wrongEntity(
+        documentIndex: Int,
+        documentName: String?,
+        matchedReplacement: String,
+        shadowedReplacement: String
+    )
+
+    /// The established English warning line used by non-UI integrations.
+    public var englishDescription: String {
+        switch self {
+        case .verificationUnavailable(let index, let name):
+            return "\(Self.documentLabel(index: index, name: name)): the seam check "
+                + "could not run on this document, so it is NOT known whether "
+                + "restoring it returns the original text. Read the restored output "
+                + "before relying on it."
+        case .unexpectedReplacement(let index, let name, let replacement):
+            return "\(Self.documentLabel(index: index, name: name)): the redacted text "
+                + "spells \(replacement) where it was never substituted, so restore "
+                + "would replace it there."
+        case .wrongEntity(let index, let name, let matched, let shadowed):
+            return "\(Self.documentLabel(index: index, name: name)): the redacted text "
+                + "spells \(matched) across the site holding \(shadowed), so that site "
+                + "would restore to the wrong entity."
+        }
+    }
+
+    private static func documentLabel(index: Int, name: String?) -> String {
+        name ?? "document \(index + 1)"
+    }
+}
+
 /// The result of tokenizing: the tokenized text plus the mapping needed to
 /// restore it.
 public struct TokenizeResult: Sendable {
@@ -222,16 +277,20 @@ public struct TokenizeResult: Sendable {
     /// Literal-restore seams the direct whole-assignment verifier could not
     /// repair. A non-empty list means this output must not be released without
     /// an explicit warning or refusal.
-    public var unresolvedSeams: [String]
+    public var seamIssues: [SessionSeamIssue]
+    /// Compatibility lines for command-line callers and safety errors.
+    public var unresolvedSeams: [String] {
+        seamIssues.map(\.englishDescription)
+    }
 
     public init(
         tokenizedText: String,
         mapping: Mapping,
-        unresolvedSeams: [String] = []
+        seamIssues: [SessionSeamIssue] = []
     ) {
         self.tokenizedText = tokenizedText
         self.mapping = mapping
-        self.unresolvedSeams = unresolvedSeams
+        self.seamIssues = seamIssues
     }
 }
 

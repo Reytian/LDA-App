@@ -48,9 +48,6 @@ struct PortalLibraryBody: View {
 
     @State private var libraryNoticeDismissed = false
 
-    /// Native title-bar and toolbar clearance reported by the containing window.
-    @State private var windowChromeTopInset: CGFloat = 0
-
     // MARK: - Export trigger (passed in from shell)
 
     let onExport: (PortfolioSummary) -> Void
@@ -58,11 +55,6 @@ struct PortalLibraryBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear
-                .frame(height: windowChromeTopInset)
-                .background(CounselTheme.appSurface)
-                .allowsHitTesting(false)
-
             libraryTopBar
 
             if case .failed(let detail) = model.stage {
@@ -87,7 +79,6 @@ struct PortalLibraryBody: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
-        .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         // New Portfolio sheet.
         .sheet(isPresented: $isShowingNewPortfolio) {
             NewPortfolioSheet(model: model)
@@ -185,7 +176,7 @@ struct PortalLibraryBody: View {
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text("Create a new portfolio or import an existing .ldaprofile file.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -277,73 +268,12 @@ struct PortalLibraryBody: View {
 
     private var deleteConfirmationTitle: String {
         if let s = portfolioToDelete {
-            return "Delete \"\(s.label)\"?"
+            return String(
+                format: L10n.string("Delete \"%@\"?"),
+                s.label as NSString
+            )
         }
-        return "Delete portfolio?"
-    }
-}
-
-enum WindowChromeLayoutPolicy {
-    static func topInset(windowFrameHeight: CGFloat, contentLayoutHeight: CGFloat) -> CGFloat {
-        max(0, windowFrameHeight - contentLayoutHeight)
-    }
-}
-
-private struct WindowContentTopInsetReader: NSViewRepresentable {
-    @Binding var topInset: CGFloat
-
-    func makeNSView(context: Context) -> WindowContentInsetView {
-        let view = WindowContentInsetView()
-        view.onInsetChange = updateTopInset
-        return view
-    }
-
-    func updateNSView(_ nsView: WindowContentInsetView, context: Context) {
-        nsView.onInsetChange = updateTopInset
-        nsView.reportCurrentInset()
-    }
-
-    static func dismantleNSView(_ nsView: WindowContentInsetView, coordinator: ()) {
-        nsView.onInsetChange = nil
-    }
-
-    private func updateTopInset(_ newValue: CGFloat) {
-        guard abs(topInset - newValue) > 0.5 else { return }
-        DispatchQueue.main.async {
-            topInset = newValue
-        }
-    }
-}
-
-private final class WindowContentInsetView: NSView {
-    var onInsetChange: ((CGFloat) -> Void)?
-    private var contentLayoutObservation: NSKeyValueObservation?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        contentLayoutObservation = nil
-
-        guard let window else { return }
-        contentLayoutObservation = window.observe(
-            \.contentLayoutRect,
-            options: [.initial, .new]
-        ) { [weak self] _, _ in
-            self?.reportCurrentInset()
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        reportCurrentInset()
-    }
-
-    func reportCurrentInset() {
-        guard let window else { return }
-        let topInset = WindowChromeLayoutPolicy.topInset(
-            windowFrameHeight: window.frame.height,
-            contentLayoutHeight: window.contentLayoutRect.height
-        )
-        onInsetChange?(topInset)
+        return L10n.string("Delete portfolio?")
     }
 }
 
@@ -428,7 +358,7 @@ struct PortfolioRow: View {
     // MARK: - Subviews
 
     private var kindBadge: some View {
-        Text(kindLabel)
+        Text(LocalizedStringKey(kindLabel))
             .font(.caption2.weight(.medium))
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(.horizontal, 6)
@@ -446,9 +376,9 @@ struct PortfolioRow: View {
     }
 
     private func rowActionButton(
-        _ label: String,
+        _ labelKey: String,
         icon: String,
-        help: String,
+        help helpKey: String,
         tint: Color = CounselTheme.inkAccent,
         action: @escaping () -> Void
     ) -> some View {
@@ -460,8 +390,8 @@ struct PortfolioRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .help(help)
-        .accessibilityLabel(Text(label))
+        .help(L10n.string(helpKey))
+        .accessibilityLabel(Text(verbatim: L10n.string(labelKey)))
     }
 
     // MARK: - Helpers
@@ -484,15 +414,22 @@ struct PortfolioRow: View {
 
     private var modifiedDateLabel: String {
         let raw = summary.modifiedAtISO8601
-        guard !raw.isEmpty else { return "Unknown date" }
+        guard !raw.isEmpty else { return L10n.string("Unknown date") }
         if let date = ISO8601DateFormatter().date(from: raw) {
             let formatter = DateFormatter()
+            formatter.locale = AppLanguage.selected().locale
             formatter.dateStyle = .medium
             formatter.timeStyle = .none
-            return "Modified \(formatter.string(from: date))"
+            return String(
+                format: L10n.string("Modified %@"),
+                formatter.string(from: date) as NSString
+            )
         }
         // Fallback: show the raw string trimmed to the date portion.
-        return "Modified \(raw.prefix(10))"
+        return String(
+            format: L10n.string("Modified %@"),
+            String(raw.prefix(10)) as NSString
+        )
     }
 }
 
@@ -510,24 +447,24 @@ struct NewPortfolioSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("New Portfolio")
-                .font(.headline)
+                .font(CounselTheme.Typography.sectionTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             // Kind picker.
             VStack(alignment: .leading, spacing: 8) {
                 Text("Portfolio type")
-                    .font(.callout.weight(.medium))
+                    .font(CounselTheme.Typography.readingBody.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
                 Picker("Kind", selection: $selectedKind) {
                     ForEach(PortfolioKind.allCases, id: \.self) { kind in
-                        Text(kindDisplayName(kind)).tag(kind)
+                        Text(LocalizedStringKey(kindDisplayName(kind))).tag(kind)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                Text(kindDescription)
-                    .font(.caption)
+                Text(LocalizedStringKey(kindDescription))
+                    .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -535,7 +472,7 @@ struct NewPortfolioSheet: View {
             // Label field.
             VStack(alignment: .leading, spacing: 6) {
                 Text("Label")
-                    .font(.callout.weight(.medium))
+                    .font(CounselTheme.Typography.readingBody.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
                 TextField("e.g. Acme Corp, John Smith", text: $label)
@@ -545,54 +482,25 @@ struct NewPortfolioSheet: View {
 
             Divider()
 
-            // Action buttons.
-            HStack {
-                Button("Cancel", role: .cancel) {
-                    dismiss()
+            // Keep long translated actions readable at the compact sheet width.
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    cancelButton
+                    Spacer()
+                    fromDocumentsButton
+                    fromScratchButton
                 }
-                .keyboardShortcut(.cancelAction)
 
-                Spacer()
-
-                Button {
-                    let created = nowISO8601()
-                    let trimmed = label.trimmingCharacters(in: .whitespaces)
-                    let effectiveLabel = trimmed.isEmpty ? kindDisplayName(selectedKind) : trimmed
-                    Task {
-                        await model.createPortfolio(
-                            kind: selectedKind,
-                            label: effectiveLabel,
-                            fromScratch: false,
-                            createdAtISO8601: created
-                        )
+                VStack(spacing: 10) {
+                    HStack {
+                        cancelButton
+                        Spacer()
                     }
-                    dismiss()
-                } label: {
-                    Label("From Documents", systemImage: "doc.badge.plus")
+                    fromDocumentsButton
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    fromScratchButton
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .disabled(false)
-                .help("Create this portfolio then add source documents to extract fields")
-                .keyboardShortcut(.return, modifiers: [])
-
-                Button {
-                    let created = nowISO8601()
-                    let trimmed = label.trimmingCharacters(in: .whitespaces)
-                    let effectiveLabel = trimmed.isEmpty ? kindDisplayName(selectedKind) : trimmed
-                    Task {
-                        await model.createPortfolio(
-                            kind: selectedKind,
-                            label: effectiveLabel,
-                            fromScratch: true,
-                            createdAtISO8601: created
-                        )
-                    }
-                    dismiss()
-                } label: {
-                    Label("From Scratch", systemImage: "pencil.and.list.clipboard")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-                .help("Create an empty portfolio and add fields manually")
             }
         }
         .padding(24)
@@ -601,6 +509,51 @@ struct NewPortfolioSheet: View {
     }
 
     // MARK: - Helpers
+
+    private var cancelButton: some View {
+        Button("Cancel", role: .cancel) {
+            dismiss()
+        }
+        .keyboardShortcut(.cancelAction)
+    }
+
+    private var fromDocumentsButton: some View {
+        Button {
+            createPortfolio(fromScratch: false)
+        } label: {
+            Label("From Documents", systemImage: "doc.badge.plus")
+        }
+        .help("Create this portfolio then add source documents to extract fields")
+        .keyboardShortcut(.return, modifiers: [])
+    }
+
+    private var fromScratchButton: some View {
+        Button {
+            createPortfolio(fromScratch: true)
+        } label: {
+            Label("From Scratch", systemImage: "pencil.and.list.clipboard")
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(CounselTheme.inkAccentFill)
+        .help("Create an empty portfolio and add fields manually")
+    }
+
+    private func createPortfolio(fromScratch: Bool) {
+        let created = nowISO8601()
+        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        let effectiveLabel = trimmed.isEmpty
+            ? L10n.string(kindDisplayName(selectedKind))
+            : trimmed
+        Task {
+            await model.createPortfolio(
+                kind: selectedKind,
+                label: effectiveLabel,
+                fromScratch: fromScratch,
+                createdAtISO8601: created
+            )
+        }
+        dismiss()
+    }
 
     private func kindDisplayName(_ kind: PortfolioKind) -> String {
         switch kind {
@@ -651,9 +604,15 @@ struct AddFieldSheet: View {
         let key = resolvedKey
         switch key {
         case .custom(let name):
-            return name.isEmpty ? "(enter a name above)" : "Custom: \"\(name)\""
+            if name.isEmpty {
+                return L10n.string("(enter a name above)")
+            }
+            return String(
+                format: L10n.string("Custom: \"%@\""),
+                name as NSString
+            )
         default:
-            return key.displayName
+            return ProfileFieldPresentation.localizedName(for: key)
         }
     }
 
@@ -707,7 +666,7 @@ struct AddFieldSheet: View {
                                 customName = ""
                             } label: {
                                 HStack {
-                                    Text(key.displayName)
+                                    Text(verbatim: ProfileFieldPresentation.localizedName(for: key))
                                         .font(.callout)
                                         .foregroundStyle(CounselTheme.textPrimary)
                                     Spacer()

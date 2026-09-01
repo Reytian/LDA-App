@@ -162,7 +162,11 @@ struct ProfileFieldTable: View {
         }
     }
 
-    private func columnHeader(_ text: String, width: CGFloat? = nil, minWidth: CGFloat? = nil) -> some View {
+    private func columnHeader(
+        _ text: LocalizedStringKey,
+        width: CGFloat? = nil,
+        minWidth: CGFloat? = nil
+    ) -> some View {
         Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(CounselTheme.textSecondary)
@@ -211,7 +215,7 @@ struct ProfileFieldRow: View {
                         .font(.caption)
                         .foregroundStyle(CounselTheme.danger)
                 }
-                Text(field.key.displayName)
+                Text(verbatim: ProfileFieldPresentation.localizedName(for: field.key))
                     .font(.callout)
                     .foregroundStyle(isConflicted ? CounselTheme.danger : CounselTheme.textPrimary)
                     .lineLimit(1)
@@ -248,7 +252,9 @@ struct ProfileFieldRow: View {
             .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
 
             // Source document name
-            Text(field.sourceDocument)
+            Text(verbatim: FillServicePresentation.sourceDocumentName(
+                for: field
+            ))
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .lineLimit(1)
@@ -299,7 +305,10 @@ struct ProfileFieldRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Choose which value to keep for \(field.key.displayName)")
+            .help(String(
+                format: L10n.string("Choose which value to keep for %@"),
+                ProfileFieldPresentation.localizedName(for: field.key) as NSString
+            ))
         }
     }
 
@@ -310,16 +319,22 @@ struct ProfileFieldRow: View {
                 .font(.caption)
                 .foregroundStyle(CounselTheme.inkAccent)
                 .help(field.sourceSnippet.isEmpty
-                    ? "Verified: the value was found verbatim in the source document"
-                    : "Verified. Source: \(field.sourceSnippet)")
+                    ? L10n.string("Verified: the value was found verbatim in the source document")
+                    : String(
+                        format: L10n.string("Verified. Source: %@"),
+                        field.sourceSnippet as NSString
+                    ))
                 .accessibilityLabel("Verified")
         } else {
             Image(systemName: "questionmark.circle")
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary.opacity(0.5))
                 .help(field.sourceSnippet.isEmpty
-                    ? "Unverified: the value was not confirmed verbatim in the source"
-                    : "Unverified. Extracted from: \(field.sourceSnippet)")
+                    ? L10n.string("Unverified: the value was not confirmed verbatim in the source")
+                    : String(
+                        format: L10n.string("Unverified. Extracted from: %@"),
+                        field.sourceSnippet as NSString
+                    ))
                 .accessibilityLabel("Unverified")
         }
     }
@@ -351,4 +366,3 @@ struct ConfidenceBar: View {
         return CounselTheme.danger
     }
 }
-

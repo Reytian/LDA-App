@@ -148,4 +148,32 @@ final class ComplianceReportPresentationTests: XCTestCase {
         XCTAssertTrue(sentence.contains("report.md"))
         XCTAssertTrue(sentence.contains("report.pdf"))
     }
+
+    func testReportArchiveOpenFailuresArePresentedAtTheLocalizedUIBoundary() {
+        XCTAssertEqual(
+            ComplianceReportPresentation.archiveErrorDescription(
+                ComplianceReportArchiveError.wrongPassphrase,
+                language: .english
+            ),
+            "That passphrase did not open this report file."
+        )
+        XCTAssertEqual(
+            ComplianceReportPresentation.archiveErrorDescription(
+                ComplianceReportArchiveError.createdByNewerVersion(
+                    found: 8,
+                    supported: 1
+                ),
+                language: .english
+            ),
+            "This report file was created by a newer version of LDA "
+                + "(format 8; this app reads format 1). Update LDA to open it."
+        )
+        XCTAssertEqual(
+            ComplianceReportPresentation.archiveErrorDescription(
+                ComplianceReportArchiveError.damagedFile("raw 100% detail"),
+                language: .english
+            ),
+            "This report file could not be read. raw 100% detail"
+        )
+    }
 }

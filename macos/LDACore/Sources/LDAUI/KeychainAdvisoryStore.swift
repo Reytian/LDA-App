@@ -26,12 +26,13 @@ import LDACore
 final class KeychainAdvisoryStore: ObservableObject {
 
     /// A one-line, user-facing advisory, or nil when protection is intact.
-    @Published private(set) var advisory: String?
+    @Published private var revision = 0
+
+    var advisory: String? { Self.localizedAdvisory() }
 
     private var observer: NSObjectProtocol?
 
     init() {
-        advisory = KeychainProtectionAdvisory.advisory
         // The fallback is discovered lazily, the first time a store reads a key
         // that cannot be upgraded, which is well after launch. Observing means
         // the advisory appears when that happens rather than only on the next
@@ -42,7 +43,7 @@ final class KeychainAdvisoryStore: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.advisory = KeychainProtectionAdvisory.advisory
+                self?.revision += 1
             }
         }
     }
@@ -56,6 +57,16 @@ final class KeychainAdvisoryStore: ObservableObject {
     /// Re-read the advisory. Used by views that appear after a fallback has
     /// already been recorded.
     func refresh() {
-        advisory = KeychainProtectionAdvisory.advisory
+        revision += 1
+    }
+
+    private static func localizedAdvisory() -> String? {
+        let scopes = KeychainProtectionAdvisory.affectedScopes
+            .map { L10n.string($0) }
+        guard !scopes.isEmpty else { return nil }
+        return String(
+            format: L10n.string("Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt."),
+            scopes.joined(separator: ", ") as NSString
+        )
     }
 }

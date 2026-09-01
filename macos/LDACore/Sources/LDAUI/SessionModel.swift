@@ -9,7 +9,7 @@
 //  and saved back to a client profile, R10), and restore pasted AI output
 //  against that session mapping.
 //
-//  House rules: English only. No em-dash or en-dash-as-separator.
+//  House rules: user-facing copy is localized. No prohibited dash separators.
 //
 
 import Combine
@@ -31,21 +31,34 @@ public enum MatterManagementError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .emptyLabel:
-            return "Enter a client or matter name."
+            return L10n.string("Enter a client or matter name.")
         case .incompleteWorkspace:
-            return "Some matter data could not be unlocked. Try again before changing matter names."
+            return L10n.string("Some matter data could not be unlocked. Try again before changing matter names.")
         case .labelInUse(let label):
-            return "A different matter already uses \"\(label)\"."
+            return String(
+                format: L10n.string("A different matter already uses \"%@\"."),
+                label as NSString
+            )
         case .reservedAlias(let alias, let currentLabel):
-            return "\"\(alias)\" is a previous name for \"\(currentLabel)\". Open the current matter instead."
+            return String(
+                format: L10n.string("\"%@\" is a previous name for \"%@\". Open the current matter instead."),
+                alias as NSString,
+                currentLabel as NSString
+            )
         case .archivedMatter(let label):
-            return "\"\(label)\" is archived. Restore it from Matters before opening it."
+            return String(
+                format: L10n.string("\"%@\" is archived. Restore it from Matters before opening it."),
+                label as NSString
+            )
         case .deletionRequiresArchive(let label):
-            return "Archive \"\(label)\" before deleting it permanently."
+            return String(
+                format: L10n.string("Archive \"%@\" before deleting it permanently."),
+                label as NSString
+            )
         case .renameRecoveryRequired:
-            return "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue."
+            return L10n.string("The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue.")
         case .archiveRecoveryRequired:
-            return "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue."
+            return L10n.string("The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue.")
         }
     }
 }
@@ -475,9 +488,9 @@ public final class SessionModel: ObservableObject {
         /// the cross-document sweep did not reach. Empty in the ordinary case.
         public let rescanWarnings: [RescanWarning]
         /// Sites in the copied text that would restore to a DIFFERENT entity
-        /// than the one protected there, one readable line each
-        /// (SessionTokenizeResult.unresolvedSeams). Empty in the ordinary
-        /// case.
+        /// than the one protected there. Empty in the ordinary case. These
+        /// stay structured until the view renders them in the selected
+        /// interface language.
         ///
         /// The sibling channel to rescanWarnings, and the more serious of the
         /// two. A rescan warning says a name was left visible, which the user
@@ -486,7 +499,12 @@ public final class SessionModel: ObservableObject {
         /// the copy looks correct, and the swap only appears once the AI's
         /// reply is restored into a real document. So it is carried out to
         /// the banner rather than left for the engine to know alone.
-        public let unresolvedSeams: [String]
+        public let seamIssues: [SessionSeamIssue]
+        /// Established English lines retained for non-UI compatibility and
+        /// existing callers that inspect the handoff result.
+        public var unresolvedSeams: [String] {
+            seamIssues.map(\.englishDescription)
+        }
     }
 
     /// Build the session's redacted Markdown intermediates against ONE shared
@@ -614,7 +632,7 @@ public final class SessionModel: ObservableObject {
             documentCount: ready.count,
             skippedCount: entries.count - ready.count,
             rescanWarnings: rescanWarnings,
-            unresolvedSeams: result.unresolvedSeams
+            seamIssues: result.seamIssues
         )
     }
 
@@ -942,8 +960,7 @@ public final class SessionModel: ObservableObject {
                 )
             }
         }
-        sessionNote = "Resumed your last session. When the AI answer is ready, "
-            + "use Restore to bring the real values back."
+        sessionNote = L10n.string("Resumed your last session. When the AI answer is ready, use Restore to bring the real values back.")
     }
 
     /// Load the current encrypted parked format, or migrate the legacy mapping

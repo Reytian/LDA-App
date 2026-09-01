@@ -141,9 +141,7 @@ public struct DocumentPane: View {
                 Text("Drop documents to anonymize")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("PDF, Word (.docx), plain text, or a .zip of them. "
-                    + "Several files become one session. "
-                    + "Detection and redaction run on this Mac.")
+                Text("PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -201,8 +199,8 @@ public struct DocumentPane: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.openContentTypes
-        panel.message = "Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session."
-        panel.prompt = "Open"
+        panel.message = L10n.string("Choose .txt, .docx, .pdf documents, .png or .jpg evidence images, or a .zip of them. Several files become one session.")
+        panel.prompt = L10n.string("Open")
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         openURLs(panel.urls)
     }
@@ -260,7 +258,7 @@ public struct DocumentPane: View {
         HStack(spacing: 14) {
             Picker("Document preview", selection: $previewMode) {
                 ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
+                    Text(mode.localizedKey).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
@@ -477,6 +475,8 @@ public struct DocumentPane: View {
 enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
+
+    var localizedKey: LocalizedStringKey { LocalizedStringKey(rawValue) }
 
     var allowsTextSelection: Bool { self == .original }
 }

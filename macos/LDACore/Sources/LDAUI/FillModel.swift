@@ -132,8 +132,21 @@ public final class FillModel: ObservableObject {
     /// Determinate progress of the extraction pass, 0...1.
     @Published public var progress: Double = 0
 
-    /// Display strings built from ExtractProfileResult.failedSources.
-    @Published public var sourceWarnings: [String] = []
+    /// Raw failed-source values from the service. The UI resolves their known
+    /// reasons at display time so a language change updates an existing banner.
+    @Published internal var sourceFailures: [FillSourceFailure] = []
+
+    public var sourceWarnings: [String] {
+        localizedSourceWarnings()
+    }
+
+    public func localizedSourceWarnings(
+        language: AppLanguage? = nil
+    ) -> [String] {
+        sourceFailures.map {
+            FillServicePresentation.sourceWarning($0, language: language)
+        }
+    }
 
     /// When non-nil, the UI should open the field picker for this blank id.
     /// Set by acceptBlank(id:) when the blank has a nil proposedValue; the UI
@@ -544,7 +557,7 @@ public final class FillModel: ObservableObject {
         // callback so the stage honestly reflects what the engine is doing.
         stage = .importingSources
         progress = 0
-        sourceWarnings = []
+        sourceFailures = []
 
         let path = modelPath ?? ""
         let seam = Self.effectiveExtractProfileOverride
@@ -578,8 +591,10 @@ public final class FillModel: ObservableObject {
                 }
             }.value
 
-            // Build display strings for any sources that could not be imported.
-            sourceWarnings = result.failedSources.map { "\($0.name): \($0.reason)" }
+            // Keep service values raw; the banner localizes known reasons when rendered.
+            sourceFailures = result.failedSources.map {
+                FillSourceFailure(name: $0.name, reason: $0.reason)
+            }
             progress = 1
             loadProfile(result.profile)
             // An extracted-but-unsaved portfolio is unsaved work: mark dirty so
@@ -731,40 +746,39 @@ public final class FillModel: ObservableObject {
     /// A user-facing one-line description of an error.
     /// internal for FillModelLibrary.swift
     internal nonisolated static func describe(_ error: Error) -> String {
+        if let description = DocumentErrorPresentation.describe(error) {
+            return description
+        }
         switch error {
-        case let ioError as DocumentIOError:
-            switch ioError {
-            case .unreadable(let detail):
-                return "The file could not be read. \(detail)"
-            case .unsupportedFormat(let detail):
-                return "Unsupported format. \(detail)"
-            case .corrupt(let detail):
-                return "The file is corrupt. \(detail)"
-            case .ocrUnavailable:
-                return "OCR is unavailable on this system."
-            case .decryptionFailed:
-                return "The document could not be decrypted."
-            case .keychainError(let status):
-                return "A Keychain error occurred (status \(status))."
-            case .tooLarge(let detail):
-                return "That file is too large to open. \(detail)"
-            }
         case let svcError as LDAServiceError:
             switch svcError {
             case .noReadableSources:
-                return "None of the source documents could be imported."
+                return L10n.string("None of the source documents could be imported.")
             case .staleTarget(let detail):
-                return "The target document changed since planning. \(detail)"
+                return String(
+                    format: L10n.string("The target document changed since planning. %@"),
+                    detail as NSString
+                )
             case .outputEqualsInput:
-                return "The output path must differ from the source path."
+                return L10n.string("The output path must differ from the source path.")
             case .incompleteExtraction(let count):
-                return "Extraction could not fully scan \(count) "
-                    + (count == 1 ? "segment" : "segments") + "; some fields may be missing."
+                return String(
+                    format: L10n.string(
+                        count == 1
+                            ? "Extraction could not fully scan %lld segment; some fields may be missing."
+                            : "Extraction could not fully scan %lld segments; some fields may be missing."
+                    ),
+                    Int64(count)
+                )
             case .unanchoredEntities(let count):
-                return "\(count) detected "
-                    + (count == 1 ? "value is" : "values are")
-                    + " in the document in a form that could not be matched exactly, "
-                    + "so \(count == 1 ? "it" : "they") could not be removed."
+                return String(
+                    format: L10n.string(
+                        count == 1
+                            ? "%lld detected value could not be matched exactly in the document, so it could not be removed."
+                            : "%lld detected values could not be matched exactly in the document, so they could not be removed."
+                    ),
+                    Int64(count)
+                )
             }
         default:
             return error.localizedDescription

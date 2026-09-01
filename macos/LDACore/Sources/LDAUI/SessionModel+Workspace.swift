@@ -175,10 +175,10 @@ extension SessionModel {
                 _ = try selectMatter(label, discardingDocuments: true)
             } catch {
                 warnings.append(
-                    "This workspace belongs to the matter \"\(label)\", which "
-                        + "could not be selected on this Mac. "
-                        + error.localizedDescription
-                        + " The documents opened without a matter."
+                    WorkspacePresentation.matterSelectionWarning(
+                        matterLabel: label,
+                        errorDescription: error.localizedDescription
+                    )
                 )
             }
         }
@@ -228,12 +228,11 @@ extension SessionModel {
             restored += result.appliedCount
             guard result.didRelocate else { continue }
             warnings.append(
-                "\(entry.name) reads slightly differently in this version of "
-                    + "LDA, so its \(result.appliedCount) protected values were "
-                    + "matched by text."
-                    + (result.droppedCount > 0
-                        ? " \(result.droppedCount) could not be found; scan again to check."
-                        : "")
+                WorkspacePresentation.snapshotRelocationWarning(
+                    documentName: entry.name,
+                    appliedCount: result.appliedCount,
+                    droppedCount: result.droppedCount
+                )
             )
         }
         return restored
@@ -248,9 +247,18 @@ extension SessionModel {
             do {
                 try setPseudonymOverride(surface: surface, replacement: replacement)
             } catch {
+                let detail: String
+                if let overrideError = error as? PseudonymOverrideError {
+                    detail = PseudonymOverrideErrorPresentation.message(
+                        for: overrideError
+                    )
+                } else {
+                    detail = DocumentErrorPresentation.describeOrFallback(error)
+                }
                 warnings.append(
-                    "The saved replacement for one value could not be restored. "
-                        + error.localizedDescription
+                    WorkspacePresentation.savedReplacementWarning(
+                        errorDescription: detail
+                    )
                 )
             }
         }

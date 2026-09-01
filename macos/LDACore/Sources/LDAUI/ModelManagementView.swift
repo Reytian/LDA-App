@@ -53,6 +53,13 @@ enum ModelAnnotation {
         }
     }
 
+    static func localizedBody(
+        for level: DetectionLevel,
+        language: AppLanguage? = nil
+    ) -> String {
+        L10n.string(body(for: level), language: language)
+    }
+
     /// "2.74 GB download   ~8.5 GB of memory   ~2 min 15 sec a contract"
     static func facts(for tier: ModelTier, bundled: Bool) -> String {
         let size = bundled
@@ -62,10 +69,57 @@ enum ModelAnnotation {
         return "\(size)   \(memory)   ~\(duration(tier.secondsPerDocument)) a contract"
     }
 
+    static func localizedFacts(
+        for tier: ModelTier,
+        bundled: Bool,
+        language: AppLanguage? = nil
+    ) -> String {
+        let key = bundled
+            ? "%@, inside the app  \u{00B7}  %@ of memory  \u{00B7}  %@ a contract"
+            : "%@ download  \u{00B7}  %@ of memory  \u{00B7}  %@ a contract"
+        let memory = String(format: "~%.1f GB", tier.peakRSSGB)
+        let selectedLanguage = language ?? AppLanguage.selected()
+        return String(
+            format: L10n.string(key, language: language),
+            locale: selectedLanguage.locale,
+            tier.downloadSizeDescription as NSString,
+            memory as NSString,
+            localizedDuration(tier.secondsPerDocument, language: language) as NSString
+        )
+    }
+
     private static func duration(_ seconds: Int) -> String {
         if seconds < 90 { return "\(seconds) seconds" }
         let m = seconds / 60, s = seconds % 60
         return s == 0 ? "\(m) min" : "\(m) min \(s) sec"
+    }
+
+    private static func localizedDuration(
+        _ seconds: Int,
+        language: AppLanguage?
+    ) -> String {
+        let key: String
+        let arguments: [CVarArg]
+        if seconds < 90 {
+            key = "%lld seconds"
+            arguments = [Int64(seconds)]
+        } else {
+            let minutes = seconds / 60
+            let remainingSeconds = seconds % 60
+            if remainingSeconds == 0 {
+                key = "%lld min"
+                arguments = [Int64(minutes)]
+            } else {
+                key = "%lld min %lld sec"
+                arguments = [Int64(minutes), Int64(remainingSeconds)]
+            }
+        }
+        let selectedLanguage = language ?? AppLanguage.selected()
+        return String(
+            format: L10n.string(key, language: language),
+            locale: selectedLanguage.locale,
+            arguments: arguments
+        )
     }
 }
 
@@ -133,7 +187,9 @@ public struct ModelManagementView: View {
                 Button("Cancel", role: .cancel) { pendingRemoval = nil }
             }
         } message: {
-            if let tier = pendingRemoval { Text(removalMessage(for: tier)) }
+            if let tier = pendingRemoval {
+                Text(verbatim: removalMessage(for: tier))
+            }
         }
     }
 
@@ -148,11 +204,8 @@ public struct ModelManagementView: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            Text("Detection models process document text on this Mac. When you press "
-                + "Download, LDA connects to the configured model host to fetch the "
-                + "selected model file. Offline mode below tells LDA to refuse network "
-                + "requests, but it is an app setting rather than a firewall.")
-                .font(.caption)
+            Text("Detection models process document text on this Mac. When you press Download, LDA connects to the configured model host to fetch the selected model file. Offline mode below tells LDA to refuse network requests, but it is an app setting rather than a firewall.")
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -164,26 +217,22 @@ public struct ModelManagementView: View {
                     Text("Offline mode")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Refuse all network requests, including model downloads. "
-                        + "This is a setting inside LDA, not a firewall.")
-                        .font(.caption2)
+                    Text("Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall.")
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
             }
             .toggleStyle(.switch)
             .disabled(AISettings.managedOfflineMode() != nil)
-            .help(AISettings.managedOfflineMode() != nil
+            .help(L10n.string(AISettings.managedOfflineMode() != nil
                   ? "Your organisation has set this and it cannot be changed here."
-                  : "Stop LDA making any network request")
+                  : "Stop LDA making any network request"))
 
             Text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Quick is built in and works on every Mac LDA supports. With 24 GB of "
-                + "memory or more, Balanced finds the same amount and leaves you far less "
-                + "to dismiss. Most thorough is the only one that missed nothing in our "
-                + "testing.")
-                .font(.caption)
+            Text("Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -211,8 +260,18 @@ public struct ModelManagementView: View {
         let size = total == 0
             ? "0 bytes"
             : ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
-        var text = "Models live inside LDA's own folder on this Mac. \(size) downloaded."
-        if let lastReclaimed { text += "  Freed \(lastReclaimed)." }
+        var text = String(
+            format: L10n.string(
+                "Models live inside LDA's own folder on this Mac. %@ downloaded."
+            ),
+            size as NSString
+        )
+        if let lastReclaimed {
+            text += String(
+                format: L10n.string("  Freed %@."),
+                lastReclaimed as NSString
+            )
+        }
         return text
     }
 
@@ -227,7 +286,7 @@ public struct ModelManagementView: View {
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text(lvl.displayName)
+                Text(lvl.localizedDisplayName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text(tier.fileName.replacingOccurrences(of: "-Q4_K_M.gguf", with: "")
@@ -239,17 +298,20 @@ public struct ModelManagementView: View {
                 if level == lvl && customModelPath.isEmpty { tag("In use", tone: CounselTheme.inkAccent) }
             }
 
-            Text(ModelAnnotation.body(for: lvl))
-                .font(.caption)
+            Text(verbatim: ModelAnnotation.localizedBody(for: lvl))
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(ModelAnnotation.facts(for: tier, bundled: bundled))
-                .font(.caption2)
+            Text(verbatim: ModelAnnotation.localizedFacts(for: tier, bundled: bundled))
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
 
-            Text(MemoryGate.requirementText(for: tier, installedGB: installedGB))
-                .font(.caption2)
+            Text(verbatim: MemoryGate.localizedRequirementText(
+                for: tier,
+                installedGB: installedGB
+            ))
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(availability.isSelectable
                                  ? CounselTheme.textSecondary : CounselTheme.danger)
 
@@ -258,9 +320,15 @@ public struct ModelManagementView: View {
 
             if let redundant = ModelCatalog.redundantContainerCopy(for: tier) {
                 HStack(spacing: 10) {
-                    Text("A downloaded copy of \(lvl.displayName) is also on this Mac. "
-                        + "It is not needed because \(lvl.displayName) is built into the app.")
-                        .font(.caption2)
+                    let localizedName = L10n.string(lvl.displayName)
+                    Text(verbatim: String(
+                        format: L10n.string(
+                            "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app."
+                        ),
+                        localizedName as NSString,
+                        localizedName as NSString
+                    ))
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Remove downloaded copy") {
@@ -291,8 +359,17 @@ public struct ModelManagementView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(value: fraction)
                 HStack {
-                    Text("\(ByteCountFormatter.string(fromByteCount: received, countStyle: .file))"
-                        + " of \(ByteCountFormatter.string(fromByteCount: expected, countStyle: .file))")
+                    Text(verbatim: String(
+                        format: L10n.string("%@ of %@"),
+                        ByteCountFormatter.string(
+                            fromByteCount: received,
+                            countStyle: .file
+                        ) as NSString,
+                        ByteCountFormatter.string(
+                            fromByteCount: expected,
+                            countStyle: .file
+                        ) as NSString
+                    ))
                         .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
                     Button("Cancel") { installer.cancel(tier) }
@@ -302,12 +379,14 @@ public struct ModelManagementView: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("Checking the file is exactly what it should be")
-                    .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
             }
         case let .failed(error):
             VStack(alignment: .leading, spacing: 6) {
-                Text(error.message)
-                    .font(.caption2).foregroundStyle(CounselTheme.danger)
+                Text(verbatim: error.localizedMessage())
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                 if error.isRetryable {
                     Button("Try Again") { installer.install(tier) }
@@ -316,20 +395,23 @@ public struct ModelManagementView: View {
         default:
             if bundled {
                 Text("Built in and verified. Part of the app, so it cannot be removed.")
-                    .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
             } else if installed {
                 HStack(spacing: 10) {
                     Text("Downloaded and verified.")
-                        .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                        .font(CounselTheme.Typography.supporting)
+                        .foregroundStyle(CounselTheme.textSecondary)
                     Button("Remove") { pendingRemoval = tier }
                         .disabled(isBusyElsewhere)
-                        .help(isBusyElsewhere
+                        .help(L10n.string(isBusyElsewhere
                               ? "Finish or stop the current scan first."
-                              : "Delete this model and free the space")
+                              : "Delete this model and free the space"))
                 }
             } else if !availability.isSelectable {
                 Text("Cannot run on this Mac, so it is not offered for download.")
-                    .font(.caption2).foregroundStyle(CounselTheme.danger)
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.danger)
             } else {
                 Button("Download \(tier.downloadSizeDescription)") { installer.install(tier) }
             }
@@ -342,9 +424,8 @@ public struct ModelManagementView: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
-                Text("Any local GGUF file. LDA cannot tell you how well it will work, how "
-                    + "long it will take, or how much memory it needs.")
-                    .font(.caption)
+                Text("Any local GGUF file. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 12)
@@ -365,7 +446,7 @@ public struct ModelManagementView: View {
     }
 
     private func tag(_ text: String, tone: Color = CounselTheme.textSecondary) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.caption2).foregroundStyle(tone)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(tone.opacity(0.4), lineWidth: 1))
@@ -374,8 +455,11 @@ public struct ModelManagementView: View {
     // MARK: Removal
 
     private var removalTitle: String {
-        guard let tier = pendingRemoval else { return "Remove model" }
-        return "Remove \(tier.displayName)?"
+        guard let tier = pendingRemoval else { return L10n.string("Remove model") }
+        return String(
+            format: L10n.string("Remove %@?"),
+            L10n.string(tier.displayName) as NSString
+        )
     }
 
     /// The destination is computed BEFORE the click so the button can name it.
@@ -386,25 +470,36 @@ public struct ModelManagementView: View {
     }
 
     private func removalButtonTitle(for tier: ModelTier) -> String {
-        guard tier.detectionLevel == level else { return "Remove" }
+        guard tier.detectionLevel == level else { return L10n.string("Remove") }
         return demotionTarget(for: tier) == .patternsOnly
-            ? "Remove and stop finding names"
-            : "Remove and switch"
+            ? L10n.string("Remove and stop finding names")
+            : L10n.string("Remove and switch")
     }
 
     private func removalMessage(for tier: ModelTier) -> String {
         let freed = ByteCountFormatter.string(fromByteCount: tier.sizeBytes, countStyle: .file)
         guard tier.detectionLevel == level else {
-            return "This frees \(freed). You can download it again later."
+            return String(
+                format: L10n.string("This frees %@. You can download it again later."),
+                freed as NSString
+            )
         }
         let target = demotionTarget(for: tier)
         if target == .patternsOnly {
-            return "This is the model you are using. Removing it frees \(freed), and "
-                + "detection drops to patterns only: emails, phones, dates, amounts, and "
-                + "ID numbers. Names, companies, and addresses will no longer be found."
+            return String(
+                format: L10n.string(
+                    "This is the model you are using. Removing it frees %@, and detection drops to patterns only: emails, phones, dates, amounts, and ID numbers. Names, companies, and addresses will no longer be found."
+                ),
+                freed as NSString
+            )
         }
-        return "This is the model you are using. Removing it frees \(freed) and switches "
-            + "detection to \(target.displayName)."
+        return String(
+            format: L10n.string(
+                "This is the model you are using. Removing it frees %@ and switches detection to %@."
+            ),
+            freed as NSString,
+            L10n.string(target.displayName) as NSString
+        )
     }
 
     private func confirmRemoval(_ tier: ModelTier) {
@@ -426,8 +521,8 @@ public struct ModelManagementView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         if let gguf = UTType(filenameExtension: "gguf") { panel.allowedContentTypes = [gguf] }
-        panel.message = "Choose a local GGUF model for on-device detection."
-        panel.prompt = "Use Model"
+        panel.message = L10n.string("Choose a local GGUF model for on-device detection.")
+        panel.prompt = L10n.string("Use Model")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         AISettings.setCustomModel(url: url)
         customModelPath = url.path

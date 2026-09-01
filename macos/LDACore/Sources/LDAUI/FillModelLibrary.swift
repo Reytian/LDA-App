@@ -78,10 +78,10 @@ extension FillModel {
             if lib.lastListReconciled || lib.lastIndexPersistFailed {
                 var parts: [String] = []
                 if lib.lastListReconciled {
-                    parts.append("The portfolio index was rebuilt; the list was rebuilt from the portfolio files.")
+                    parts.append(L10n.string("The portfolio index was rebuilt; the list was rebuilt from the portfolio files."))
                 }
                 if lib.lastIndexPersistFailed {
-                    parts.append("Portfolio list changes may not persist; check Keychain access and disk space.")
+                    parts.append(L10n.string("Portfolio list changes may not persist; check Keychain access and disk space."))
                 }
                 libraryNotice = parts.joined(separator: " ")
             }

@@ -13,10 +13,11 @@
 //  Kept free of SwiftUI on purpose so the gating and the wording are tested
 //  directly rather than through a window.
 //
-//  House rules: English only. No em-dash or en-dash-as-separator.
+//  House rules: user-facing copy is localized. No prohibited dash separators.
 //
 
 import Foundation
+import LDACore
 
 enum ComplianceReportPresentation {
 
@@ -64,12 +65,18 @@ enum ComplianceReportPresentation {
     }
 
     /// The workspace wording, with the report's noun where the noun shows.
-    static func message(for issue: WorkspacePresentation.PassphraseIssue) -> String {
+    static func message(
+        for issue: WorkspacePresentation.PassphraseIssue,
+        language: AppLanguage? = nil
+    ) -> String {
         switch issue {
         case .empty:
-            return "Enter a passphrase for this report file."
+            return L10n.string(
+                "Enter a passphrase for this report file.",
+                language: language
+            )
         case .tooShort, .mismatch:
-            return WorkspacePresentation.message(for: issue)
+            return WorkspacePresentation.message(for: issue, language: language)
         }
     }
 
@@ -126,20 +133,100 @@ enum ComplianceReportPresentation {
     // MARK: - Outcome
 
     /// The one-line result of a successful export or open.
-    static func summary(_ result: ComplianceReportExportResult) -> String {
+    static func summary(
+        _ result: ComplianceReportExportResult,
+        language: AppLanguage? = nil
+    ) -> String {
+        let locale = (language ?? AppLanguage.selected()).locale
         switch result {
         case .encrypted(let url):
-            return "Report saved as \(url.lastPathComponent). Opening it needs "
-                + "LDA and this passphrase."
+            return String(
+                format: L10n.string(
+                    "Report saved as %@. Opening it needs LDA and this passphrase.",
+                    language: language
+                ),
+                locale: locale,
+                url.lastPathComponent as NSString
+            )
         case .readable(let markdown, let pdf):
-            return "Report saved: \(markdown.lastPathComponent) and "
-                + "\(pdf.lastPathComponent). Both carry the matter and document "
-                + "names in the clear."
+            return String(
+                format: L10n.string(
+                    "Report saved: %@ and %@. Both carry the matter and document names in the clear.",
+                    language: language
+                ),
+                locale: locale,
+                markdown.lastPathComponent as NSString,
+                pdf.lastPathComponent as NSString
+            )
+        }
+    }
+
+    /// Translate encrypted-report errors at the UI boundary. Lower-level
+    /// details remain verbatim format arguments.
+    static func archiveErrorDescription(
+        _ error: Error,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard let archiveError = error as? ComplianceReportArchiveError else {
+            return nil
+        }
+        let locale = (language ?? AppLanguage.selected()).locale
+        func format(_ key: String, _ arguments: [CVarArg]) -> String {
+            String(
+                format: L10n.string(key, language: language),
+                locale: locale,
+                arguments: arguments
+            )
+        }
+        switch archiveError {
+        case .wrongPassphrase:
+            return L10n.string(
+                "That passphrase did not open this report file.",
+                language: language
+            )
+        case .createdByNewerVersion(let found, let supported):
+            return format(
+                "This report file was created by a newer version of LDA "
+                    + "(format %lld; this app reads format %lld). Update LDA to open it.",
+                [Int64(found), Int64(supported)]
+            )
+        case .damagedFile(let detail):
+            return format(
+                "This report file could not be read. %@",
+                [detail as NSString]
+            )
+        case .writeFailed(let detail):
+            return format(
+                "The report file could not be saved. %@",
+                [detail as NSString]
+            )
         }
     }
 
     /// The one-line result of a failed export or open.
-    static func failure(_ error: Error, action: String) -> String {
-        "\(action) failed. \(error.localizedDescription)"
+    static func failure(
+        _ error: Error,
+        action: String,
+        language: AppLanguage? = nil
+    ) -> String {
+        if let description = archiveErrorDescription(error, language: language) {
+            let localizedError = PresentationError(description: description)
+            return WorkspacePresentation.failure(
+                localizedError,
+                action: action,
+                language: language
+            )
+        }
+        return WorkspacePresentation.failure(
+            error,
+            action: action,
+            language: language
+        )
+    }
+
+    private struct PresentationError: LocalizedError {
+        let description: String
+
+        var errorDescription: String? { description }
     }
 }

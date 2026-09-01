@@ -48,24 +48,27 @@ public struct SessionDocumentOutput: Sendable {
 public struct SessionAnonymizeResult: Sendable {
     public var documents: [SessionDocumentOutput]
     public var mapping: Mapping
-    /// Seams the session seam pass could not repair, one readable line each
-    /// (SessionTokenizeResult.unresolvedSeams).
+    /// Seams the session seam pass could not repair, as semantic values.
     ///
     /// Empty in every normal run. A non-empty list means a redacted site in
     /// one of these documents would restore to a DIFFERENT entity than the
     /// one protected there, so the caller must show it: the redacted files
     /// and the sidecar are still written, and nothing downstream can tell
     /// the mis-restore from a correct one.
-    public var unresolvedSeams: [String]
+    public var seamIssues: [SessionSeamIssue]
+    /// Established English lines used by command-line and MCP integrations.
+    public var unresolvedSeams: [String] {
+        seamIssues.map(\.englishDescription)
+    }
 
     public init(
         documents: [SessionDocumentOutput],
         mapping: Mapping,
-        unresolvedSeams: [String] = []
+        seamIssues: [SessionSeamIssue] = []
     ) {
         self.documents = documents
         self.mapping = mapping
-        self.unresolvedSeams = unresolvedSeams
+        self.seamIssues = seamIssues
     }
 }
 
@@ -188,7 +191,7 @@ extension LDAService {
         return SessionAnonymizeResult(
             documents: outputs,
             mapping: mapping,
-            unresolvedSeams: result.unresolvedSeams
+            seamIssues: result.seamIssues
         )
     }
 

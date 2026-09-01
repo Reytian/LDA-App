@@ -31,7 +31,7 @@ struct DocumentTrayRow: View {
                 .font(.caption)
                 .foregroundStyle(isSelected ? CounselTheme.inkAccent : CounselTheme.textSecondary)
 
-            Text(name)
+            Text(verbatim: name)
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)
@@ -48,7 +48,11 @@ struct DocumentTrayRow: View {
             Button("Remove from Session", role: .destructive) { onRemove() }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("\(name), \(statusDescription)"))
+        .accessibilityLabel(Text(verbatim: String(
+            format: L10n.string("Document %@, status %@"),
+            name as NSString,
+            statusDescription as NSString
+        )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -62,7 +66,10 @@ struct DocumentTrayRow: View {
             Text("\(model.redactedCount)")
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
-                .help("\(model.redactedCount) values will be protected")
+                .help(String(
+                    format: L10n.string("%lld values will be protected"),
+                    Int64(model.redactedCount)
+                ))
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption2)
@@ -77,11 +84,15 @@ struct DocumentTrayRow: View {
 
     private var statusDescription: String {
         switch model.status {
-        case .importing: return "importing"
-        case .detecting: return "detecting"
-        case .ready: return "\(model.redactedCount) values protected"
-        case .failed: return "failed"
-        case .idle, .imported: return "not anonymized yet"
+        case .importing: return L10n.string("importing")
+        case .detecting: return L10n.string("detecting")
+        case .ready:
+            return String(
+                format: L10n.string("%lld values protected"),
+                Int64(model.redactedCount)
+            )
+        case .failed: return L10n.string("failed")
+        case .idle, .imported: return L10n.string("not anonymized yet")
         }
     }
 }
@@ -136,7 +147,7 @@ struct AddTermPopover: View {
 
             Picker("Kind", selection: $type) {
                 ForEach(Self.assignableTypes, id: \.self) { kind in
-                    Text(kind.rawValue).tag(kind)
+                    Text(EntityTypePresentation.localizedKey(for: kind)).tag(kind)
                 }
             }
 
@@ -166,7 +177,10 @@ struct AddTermPopover: View {
         if added > 0 {
             isPresented = false
         } else {
-            feedback = "\"\(text)\" was not found in the document (or is already protected)."
+            feedback = String(
+                format: L10n.string("\"%@\" was not found in the document (or is already protected)."),
+                text as NSString
+            )
         }
     }
 }
@@ -202,13 +216,16 @@ public struct CompanionMenu: View {
 
         if let note = session.companionNote {
             Divider()
-            Text(note)
+            Text(verbatim: note)
         }
 
         Divider()
 
         if let client = session.clientLabel {
-            Text("Client: \(client)")
+            Text(verbatim: String(
+                format: L10n.string("Client: %@"),
+                client as NSString
+            ))
         }
         Text("Detection and redaction run on this Mac.")
 
@@ -222,7 +239,7 @@ public struct CompanionMenu: View {
 
     private func redactClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
-            session.companionNote = "The clipboard has no text to redact."
+            session.companionNote = L10n.string("The clipboard has no text to redact.")
             return
         }
         do {
@@ -230,24 +247,37 @@ public struct CompanionMenu: View {
             let redacted = try session.redactClipboardText(text, createdAtISO8601: createdAt)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(redacted.text, forType: .string)
-            session.companionNote = redacted.tokenCount == 0
-                ? "No patterned values found; the clipboard is unchanged in content."
-                : "Protected \(redacted.tokenCount) value"
-                    + (redacted.tokenCount == 1 ? "" : "s")
-                    + " on the clipboard (patterns only)."
+            if redacted.tokenCount == 0 {
+                session.companionNote = L10n.string(
+                    "No patterned values found; the clipboard is unchanged in content."
+                )
+            } else {
+                let key = redacted.tokenCount == 1
+                    ? "Protected %lld value on the clipboard (patterns only)."
+                    : "Protected %lld values on the clipboard (patterns only)."
+                session.companionNote = String(
+                    format: L10n.string(key),
+                    Int64(redacted.tokenCount)
+                )
+            }
         } catch {
-            session.companionNote = "Could not redact: \(error.localizedDescription)"
+            session.companionNote = String(
+                format: L10n.string("Could not redact: %@"),
+                error.localizedDescription as NSString
+            )
         }
     }
 
     private func restoreClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
-            session.companionNote = "The clipboard has no text to restore."
+            session.companionNote = L10n.string("The clipboard has no text to restore.")
             return
         }
         do {
             guard let restored = try session.restorePasted(text) else {
-                session.companionNote = "Nothing to restore against yet. Copy for AI first."
+                session.companionNote = L10n.string(
+                    "Nothing to restore against yet. Copy for AI first."
+                )
                 return
             }
             // Restored text is DE-ANONYMIZED client material. It goes on the
@@ -255,22 +285,30 @@ public struct CompanionMenu: View {
             // shortly after, so a forgotten clipboard is not an open-ended
             // exposure to every app on the Mac. See SensitiveClipboard.
             SensitiveClipboard.write(restored.text)
-            var note = "Restored \(restored.restoredCount) value"
-                + (restored.restoredCount == 1 ? "" : "s")
-                + " on the clipboard. "
-                + SensitiveClipboard.expiryNote
+            let restoredKey = restored.restoredCount == 1
+                ? "Restored %lld value on the clipboard. %@"
+                : "Restored %lld values on the clipboard. %@"
+            var note = String(
+                format: L10n.string(restoredKey),
+                Int64(restored.restoredCount),
+                SensitiveClipboard.localizedExpiryNote() as NSString
+            )
             let flagged = restored.orphanTokens.count + restored.suspectPlaceholders.count
                 + restored.ambiguousReplacements.count
             if flagged > 0 {
                 // "item", not "placeholder": a refused mask is counted here
                 // too, and it is not a placeholder.
-                note += " \(flagged) item"
-                    + (flagged == 1 ? " needs" : "s need")
-                    + " review; use Restore from AI in the app."
+                let flaggedKey = flagged == 1
+                    ? " %lld item needs review; use Restore from AI in the app."
+                    : " %lld items need review; use Restore from AI in the app."
+                note += String(format: L10n.string(flaggedKey), Int64(flagged))
             }
             session.companionNote = note
         } catch {
-            session.companionNote = "Could not restore: \(error.localizedDescription)"
+            session.companionNote = String(
+                format: L10n.string("Could not restore: %@"),
+                DocumentErrorPresentation.describeOrFallback(error) as NSString
+            )
         }
     }
 }
@@ -294,8 +332,7 @@ struct PasteRestoreSheet: View {
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Paste what the AI returned. The protected values are restored on this Mac; "
-                + "anything that cannot be matched with certainty is flagged, never guessed.")
+            Text("Paste what the AI returned. The protected values are restored on this Mac; anything that cannot be matched with certainty is flagged, never guessed.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -321,7 +358,7 @@ struct PasteRestoreSheet: View {
                 resultSummary(result)
             }
             if let errorText {
-                Text(errorText)
+                Text(verbatim: errorText)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -350,41 +387,43 @@ struct PasteRestoreSheet: View {
     @ViewBuilder
     private func resultSummary(_ result: RestoreResult) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(
-                "\(result.restoredCount) value" + (result.restoredCount == 1 ? "" : "s") + " restored.",
-                systemImage: result.restoredCount > 0 ? "checkmark.seal" : "info.circle"
-            )
+            Label {
+                Text(verbatim: RestoreResultPresentation.restoredSentence(result.restoredCount))
+            } icon: {
+                Image(systemName: result.restoredCount > 0 ? "checkmark.seal" : "info.circle")
+            }
             .font(.callout)
             .foregroundStyle(CounselTheme.textPrimary)
 
-            if !result.orphanTokens.isEmpty {
-                Label(
-                    "\(result.orphanTokens.count) unknown placeholder"
-                        + (result.orphanTokens.count == 1 ? "" : "s")
-                        + " left in place: "
-                        + result.orphanTokens.prefix(5).joined(separator: ", "),
-                    systemImage: "questionmark.diamond"
-                )
+            if let orphan = RestoreResultPresentation.orphanSentence(result.orphanTokens) {
+                Label {
+                    Text(verbatim: orphan)
+                } icon: {
+                    Image(systemName: "questionmark.diamond")
+                }
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
             }
 
-            if !result.suspectPlaceholders.isEmpty {
-                Label(
-                    "\(result.suspectPlaceholders.count) placeholder"
-                        + (result.suspectPlaceholders.count == 1 ? " looks" : "s look")
-                        + " damaged by the AI: "
-                        + result.suspectPlaceholders.prefix(5).joined(separator: ", ")
-                        + ". Fix them in the text above and restore again.",
-                    systemImage: "exclamationmark.triangle"
-                )
+            if let damaged = RestoreResultPresentation.damagedSentence(
+                result.suspectPlaceholders
+            ) {
+                Label {
+                    Text(verbatim: damaged)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                }
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
             }
 
             if let ambiguous = RestoreResultPresentation
                 .ambiguousSentence(result.ambiguousReplacements) {
-                Label(ambiguous, systemImage: "questionmark.square.dashed")
+                Label {
+                    Text(verbatim: ambiguous)
+                } icon: {
+                    Image(systemName: "questionmark.square.dashed")
+                }
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
             }
@@ -398,20 +437,19 @@ struct PasteRestoreSheet: View {
         errorText = nil
         do {
             guard let restored = try session.restorePasted(pasted) else {
-                errorText = "There is nothing to restore against yet. "
-                    + "Use Copy for AI first (or pick this session's client profile)."
+                errorText = L10n.string("There is nothing to restore against yet. Use Copy for AI first (or pick this session's client profile).")
                 return
             }
             result = restored
         } catch {
-            errorText = error.localizedDescription
+            errorText = DocumentErrorPresentation.describeOrFallback(error)
         }
     }
 
     private func save() {
         guard let result else { return }
         let panel = NSSavePanel()
-        panel.message = "Save the restored document."
+        panel.message = L10n.string("Save the restored document.")
         var types: [UTType] = []
         if let md = UTType(filenameExtension: "md") { types.append(md) }
         types.append(.plainText)
@@ -431,7 +469,10 @@ struct PasteRestoreSheet: View {
             }
             isPresented = false
         } catch {
-            errorText = "Could not save: \(error.localizedDescription)"
+            errorText = String(
+                format: L10n.string("Could not save: %@"),
+                DocumentErrorPresentation.describeOrFallback(error) as NSString
+            )
         }
     }
 

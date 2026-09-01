@@ -48,6 +48,7 @@ public struct DeanonymizeShell: View {
     /// A one-line outcome message shown after a restore completes or fails.
     @State private var resultMessage: String?
     @State private var resultIsWarning = false
+    @State private var windowChromeTopInset: CGFloat = 0
 
     public init(
         session: SessionModel,
@@ -64,28 +65,37 @@ public struct DeanonymizeShell: View {
     public var body: some View {
         ZStack {
             CounselTheme.paper.ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: 24) {
-                    header
-                    HStack(alignment: .top, spacing: 20) {
-                        pasteCard
-                        fileCard
+            VStack(spacing: 0) {
+                WindowChromeTopSpacer(height: windowChromeTopInset, background: CounselTheme.paper)
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        header
+                        HStack(alignment: .top, spacing: 20) {
+                            pasteCard
+                            fileCard
+                        }
+                        .frame(maxWidth: 860)
+                        if let resultMessage {
+                            Label {
+                                Text(verbatim: resultMessage)
+                            } icon: {
+                                Image(systemName: resultIsWarning
+                                    ? "exclamationmark.triangle.fill"
+                                    : "checkmark.circle.fill")
+                            }
+                                .font(CounselTheme.Typography.supporting)
+                                .foregroundStyle(resultIsWarning ? CounselTheme.danger : CounselTheme.textSecondary)
+                                .frame(maxWidth: 860, alignment: .leading)
+                                .accessibilityLabel(Text(verbatim: resultMessage))
+                        }
                     }
-                    .frame(maxWidth: 860)
-                    if let resultMessage {
-                        Label(resultMessage, systemImage: resultIsWarning
-                            ? "exclamationmark.triangle.fill"
-                            : "checkmark.circle.fill")
-                            .font(.callout)
-                            .foregroundStyle(resultIsWarning ? CounselTheme.danger : CounselTheme.textSecondary)
-                            .frame(maxWidth: 860, alignment: .leading)
-                            .accessibilityLabel(Text(resultMessage))
-                    }
+                    .padding(32)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(32)
-                .frame(maxWidth: .infinity)
             }
         }
+        .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         .onChange(of: model.restoreRequestToken) { _, _ in
             presentRestore()
         }
@@ -96,13 +106,13 @@ public struct DeanonymizeShell: View {
     private var header: some View {
         VStack(spacing: 6) {
             Text("Restore")
-                .font(.title2.weight(.semibold))
+                .font(CounselTheme.Typography.pageTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
             Text("Bring the real values back. Both paths run entirely on this Mac.")
-                .font(.callout)
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(.top, 24)
     }
 
     // MARK: - Cards
@@ -111,9 +121,11 @@ public struct DeanonymizeShell: View {
         card(
             icon: "arrow.left.doc.on.clipboard",
             title: "Paste back an AI reply",
-            body: "You copied redacted text with Copy for AI and worked on it in an AI tool. "
-                + "Paste the reply here: every placeholder is swapped back to the real value "
-                + "using this session's mapping.",
+            body: LocalizedStringKey(
+                "You copied redacted text with Copy for AI and worked on it in an AI tool. "
+                    + "Paste the reply here: every placeholder is swapped back to the real value "
+                    + "using this session's mapping."
+            ),
             buttonTitle: "Paste from AI\u{2026}",
             buttonHelp: "Paste the AI's answer and restore the real values (Cmd+Shift+V)",
             isProminent: true,
@@ -125,10 +137,12 @@ public struct DeanonymizeShell: View {
         card(
             icon: "doc.badge.arrow.up",
             title: "Restore a redacted file",
-            body: "You exported a redacted document earlier and it came back edited. "
-                + "Choose the file; its .ldamap mapping sidecar is picked up automatically "
-                + "from the same folder. If the mapping was protected with a passphrase, "
-                + "you will be asked for it.",
+            body: LocalizedStringKey(
+                "You exported a redacted document earlier and it came back edited. "
+                    + "Choose the file; its .ldamap mapping sidecar is picked up automatically "
+                    + "from the same folder. If the mapping was protected with a passphrase, "
+                    + "you will be asked for it."
+            ),
             buttonTitle: "Choose File & Restore\u{2026}",
             buttonHelp: "Pick an edited redacted document and write the restored original (Cmd+R)",
             isProminent: false,
@@ -138,20 +152,21 @@ public struct DeanonymizeShell: View {
 
     private func card(
         icon: String,
-        title: String,
-        body: String,
-        buttonTitle: String,
+        title: LocalizedStringKey,
+        body: LocalizedStringKey,
+        buttonTitle: LocalizedStringKey,
         buttonHelp: String,
         isProminent: Bool,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Label(title, systemImage: icon)
-                .font(.headline)
+                .font(CounselTheme.Typography.sectionTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
             Text(body)
-                .font(.callout)
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
@@ -170,10 +185,10 @@ public struct DeanonymizeShell: View {
                 }
             }
             .controlSize(.large)
-            .help(buttonHelp)
+            .help(L10n.string(buttonHelp))
         }
-        .padding(20)
-        .frame(minHeight: 220)
+        .padding(24)
+        .frame(minHeight: 240)
         .background(CounselTheme.raised, in: RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -193,8 +208,8 @@ public struct DeanonymizeShell: View {
         openPanel.canChooseDirectories = false
         openPanel.allowsMultipleSelection = false
         openPanel.allowedContentTypes = Self.restoreContentTypes
-        openPanel.message = "Choose the edited redacted document to restore."
-        openPanel.prompt = "Choose"
+        openPanel.message = L10n.string("Choose the edited redacted document to restore.")
+        openPanel.prompt = L10n.string("Choose")
         guard openPanel.runModal() == .OK, let redacted = openPanel.url else { return }
 
         guard let mapping = locateMapping(for: redacted) else { return }
@@ -202,7 +217,7 @@ public struct DeanonymizeShell: View {
         let phrase = entered.isEmpty ? nil : entered
 
         let savePanel = NSSavePanel()
-        savePanel.message = "Save the restored document."
+        savePanel.message = L10n.string("Save the restored document.")
         let base = redacted.deletingPathExtension().lastPathComponent
         let ext = redacted.pathExtension.isEmpty ? "txt" : redacted.pathExtension
         savePanel.nameFieldStringValue = "\(base)_restored.\(ext)"
@@ -217,7 +232,9 @@ public struct DeanonymizeShell: View {
             )
             showRestoreResult(report)
         } catch {
-            resultMessage = "Restore failed. \(error.localizedDescription)"
+            resultMessage = RestoreResultPresentation.failureResult(
+                errorDescription: DocumentErrorPresentation.describeOrFallback(error)
+            )
             resultIsWarning = true
         }
     }
@@ -231,8 +248,8 @@ public struct DeanonymizeShell: View {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose the .ldamap mapping that goes with this document."
-        panel.prompt = "Choose"
+        panel.message = L10n.string("Choose the .ldamap mapping that goes with this document.")
+        panel.prompt = L10n.string("Choose")
         guard panel.runModal() == .OK else { return nil }
         return panel.url
     }
@@ -241,11 +258,12 @@ public struct DeanonymizeShell: View {
     /// empty, meaning Keychain), or nil if the user cancels.
     private func askRestorePassphrase() -> String? {
         let alert = NSAlert()
-        alert.messageText = "Mapping passphrase"
-        alert.informativeText = "If you protected this mapping with a passphrase, enter it. "
-            + "Leave it blank if it uses the Keychain."
-        alert.addButton(withTitle: "Restore")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.string("Mapping passphrase")
+        alert.informativeText = L10n.string(
+            "If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain."
+        )
+        alert.addButton(withTitle: L10n.string("Restore"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         alert.accessoryView = field
         return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
@@ -254,36 +272,32 @@ public struct DeanonymizeShell: View {
     private func showRestoreResult(_ report: RestoreReport) {
         if report.orphanTokens.isEmpty && report.suspectPlaceholders.isEmpty
             && report.ambiguousReplacements.isEmpty {
-            resultMessage = "Restored \(report.restoredCount) value"
-                + (report.restoredCount == 1 ? "" : "s")
-                + " to \(report.outputURL.lastPathComponent)."
+            resultMessage = RestoreResultPresentation.cleanResult(
+                restoredCount: report.restoredCount,
+                outputFileName: report.outputURL.lastPathComponent
+            )
             resultIsWarning = false
         } else {
             var problems: [String] = []
-            if !report.orphanTokens.isEmpty {
-                let sample = report.orphanTokens.prefix(5).joined(separator: ", ")
-                problems.append(
-                    "\(report.orphanTokens.count) placeholder"
-                        + (report.orphanTokens.count == 1 ? "" : "s")
-                        + " could not be matched: \(sample)."
-                )
+            if let orphan = RestoreResultPresentation.orphanSentence(
+                report.orphanTokens
+            ) {
+                problems.append(orphan)
             }
-            if !report.suspectPlaceholders.isEmpty {
-                let sample = report.suspectPlaceholders.prefix(5).joined(separator: ", ")
-                problems.append(
-                    "\(report.suspectPlaceholders.count) placeholder"
-                        + (report.suspectPlaceholders.count == 1 ? " looks" : "s look")
-                        + " damaged by editing: \(sample)."
-                )
+            if let damaged = RestoreResultPresentation.damagedSentence(
+                report.suspectPlaceholders
+            ) {
+                problems.append(damaged)
             }
             if let ambiguous = RestoreResultPresentation
                 .ambiguousSentence(report.ambiguousReplacements) {
                 problems.append(ambiguous)
             }
-            resultMessage = "Restored \(report.restoredCount) values with warnings. "
-                + problems.joined(separator: " ")
-                + " Nothing was guessed; review these in \(report.outputURL.lastPathComponent)"
-                + " and fix them by hand."
+            resultMessage = RestoreResultPresentation.warningResult(
+                restoredCount: report.restoredCount,
+                problems: problems,
+                outputFileName: report.outputURL.lastPathComponent
+            )
             resultIsWarning = true
         }
     }

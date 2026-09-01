@@ -109,7 +109,7 @@ struct WorkspaceFlow: ViewModifier {
             ) {
                 confirmationButtons
             } message: {
-                Text(WorkspacePresentation.replacementPrompt)
+                Text(LocalizedStringKey(WorkspacePresentation.replacementPrompt))
             }
             .onChange(of: flow.saveRequestToken) { _, _ in presentSavePanel() }
             .onChange(of: session.pendingWorkspaceURL) { _, url in
@@ -175,8 +175,8 @@ struct WorkspaceFlow: ViewModifier {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = WorkspacePresentation.proposedFileName()
         panel.canCreateDirectories = true
-        panel.message = "Choose where to keep this matter's workspace file."
-        panel.prompt = "Save Workspace"
+        panel.message = L10n.string("Choose where to keep this matter's workspace file.")
+        panel.prompt = L10n.string("Save Workspace")
         if let type = UTType(filenameExtension: WorkspaceArchive.fileExtension) {
             panel.allowedContentTypes = [type]
         }
@@ -208,7 +208,10 @@ struct WorkspaceFlow: ViewModifier {
                 passphrase: passphrase,
                 createdAtISO8601: ISO8601DateFormatter().string(from: Date())
             )
-            report("Workspace saved as \(url.lastPathComponent).")
+            report(String(
+                format: L10n.string("Workspace saved as %@."),
+                url.lastPathComponent as NSString
+            ))
             // The save was only ever an interruption of an open; continue it.
             if let pendingOpen {
                 flow.pendingOpenAfterSave = nil
@@ -238,7 +241,8 @@ struct WorkspaceFlow: ViewModifier {
             } catch {
                 // Stay on the sheet: a mistyped passphrase is the likely cause
                 // and retyping it should not mean starting the flow again.
-                flow.sheetMessage = error.localizedDescription
+                flow.sheetMessage = WorkspacePresentation.archiveErrorDescription(error)
+                    ?? DocumentErrorPresentation.describeOrFallback(error)
             }
         }
     }

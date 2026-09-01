@@ -42,6 +42,10 @@ public enum AppMode: String, Hashable, CaseIterable {
     case anonymize = "Anonymize"
     case deanonymize = "Restore"
     case fill = "Fill"
+
+    public var localizedKey: LocalizedStringKey {
+        LocalizedStringKey(rawValue)
+    }
 }
 
 // MARK: - AppModeStore
@@ -138,7 +142,7 @@ public struct RootShell: View {
             ToolbarItem(placement: .principal) {
                 Picker("Mode", selection: $modeStore.activeMode) {
                     ForEach(AppMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Text(mode.localizedKey).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)

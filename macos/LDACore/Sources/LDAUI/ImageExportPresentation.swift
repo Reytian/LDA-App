@@ -22,11 +22,18 @@ enum ImageExportPresentation {
     /// The candidate line for the export completion card, or nil when the
     /// export boxed no candidates (an image with no red regions, a non-image
     /// source, or the toggle switched off).
-    static func sealCandidateDetail(count: Int) -> String? {
+    static func sealCandidateDetail(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
         guard count > 0 else { return nil }
-        let noun = count == 1 ? "red region" : "red regions"
-        return "\(count) \(noun) boxed as possible seals or stamps. "
-            + "These are candidates, not confirmed seals."
+        let key = count == 1
+            ? "%lld red region boxed as a possible seal or stamp. This is a candidate, not a confirmed seal."
+            : "%lld red regions boxed as possible seals or stamps. These are candidates, not confirmed seals."
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(count)
+        )
     }
 
     /// The warning for replaced values the image geometry could not box, or
@@ -37,13 +44,18 @@ enum ImageExportPresentation {
     /// but the exported image can still show it. A lawyer who forwards that
     /// image believing it redacted is the failure this count exists to
     /// prevent, so it is never dropped.
-    static func unboxedWarning(count: Int) -> String? {
+    static func unboxedWarning(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
         guard count > 0 else { return nil }
-        let subject = count == 1 ? "1 redacted value" : "\(count) redacted values"
-        let pronoun = count == 1 ? "it" : "them"
-        return "Warning: \(subject) could not be boxed in the image. "
-            + "The text and the mapping are redacted, but the exported image "
-            + "may still show \(pronoun). Check it before sharing."
+        let key = count == 1
+            ? "Warning: %lld redacted value could not be boxed in the image. The text and the mapping are redacted, but the exported image may still show it. Check it before sharing."
+            : "Warning: %lld redacted values could not be boxed in the image. The text and the mapping are redacted, but the exported image may still show them. Check it before sharing."
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(count)
+        )
     }
 
     /// The per-document toggle label.

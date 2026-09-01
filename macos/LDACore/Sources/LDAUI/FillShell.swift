@@ -45,6 +45,52 @@ enum FillShellSurface: Equatable {
     case review
 }
 
+enum FillStatusPresentation {
+    static func reviewing(
+        total: Int,
+        confirmed: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        let key = total == 1
+            ? "%lld blank  \u{00B7}  %lld confirmed"
+            : "%lld blanks  \u{00B7}  %lld confirmed"
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(total),
+            Int64(confirmed)
+        )
+    }
+
+    static func completed(
+        filled: Int,
+        fileName: String,
+        skipped: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        let key: String
+        if skipped > 0 {
+            key = filled == 1
+                ? "Filled %lld blank in %@. %lld skipped."
+                : "Filled %lld blanks in %@. %lld skipped."
+            return String(
+                format: L10n.string(key, language: language),
+                Int64(filled),
+                fileName as NSString,
+                Int64(skipped)
+            )
+        }
+
+        key = filled == 1
+            ? "Filled %lld blank in %@."
+            : "Filled %lld blanks in %@."
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(filled),
+            fileName as NSString
+        )
+    }
+}
+
 // MARK: - FillShell
 
 /// The top-level view for the Fill mode. Delegates body layout to the active
@@ -130,6 +176,9 @@ public struct FillShell: View {
     /// True while the first-time Keychain explanation is presented.
     @State private var isShowingKeychainNote = false
 
+    /// Native titlebar and toolbar clearance that persists across every Fill stage.
+    @State private var windowChromeTopInset: CGFloat = 0
+
     public init(model: FillModel, isActive: Bool = true) {
         self.model = model
         self.isActive = isActive
@@ -138,21 +187,28 @@ public struct FillShell: View {
     // MARK: - Body
 
     public var body: some View {
-        Group {
-            switch activeSurface {
-            case .library:
-                PortalLibraryBody(
-                    model: model,
-                    onExport: { summary in beginExportFromLibrary(summary) },
-                    onImport: { beginImportProfile() }
-                )
-            case .profile:
-                profileBuilderView
-            case .review:
-                fillReviewView
+        VStack(spacing: 0) {
+            WindowChromeTopSpacer(height: windowChromeTopInset, background: CounselTheme.appSurface)
+
+            Group {
+                switch activeSurface {
+                case .library:
+                    PortalLibraryBody(
+                        model: model,
+                        onExport: { summary in beginExportFromLibrary(summary) },
+                        onImport: { beginImportProfile() }
+                    )
+                case .profile:
+                    profileBuilderView
+                case .review:
+                    fillReviewView
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
+        .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         .navigationTitle("Fill from Profile")
         .toolbar { toolbarContent }
         .sheet(isPresented: $isSavingWithPassphrase) {
@@ -229,9 +285,7 @@ public struct FillShell: View {
                 hasSeenLibraryKeychainNote = true
             }
         } message: {
-            Text("Your portfolio library is encrypted with a key stored in your macOS "
-                + "Keychain. macOS will confirm with Touch ID (or your password); the key "
-                + "never leaves this Mac. You will only see this explanation once.")
+            Text("Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once.")
         }
     }
 
@@ -322,13 +376,16 @@ public struct FillShell: View {
         // on narrow windows while retaining every advanced command.
         ToolbarItemGroup(placement: .automatic) {
             Button(action: runProfilePrimaryAction) {
-                Label(profilePrimaryActionLabel, systemImage: profilePrimaryActionIcon)
+                Label(
+                    LocalizedStringKey(profilePrimaryActionLabel),
+                    systemImage: profilePrimaryActionIcon
+                )
             }
             .labelStyle(.titleAndIcon)
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
             .disabled(!canRunProfilePrimaryAction)
-            .help(profilePrimaryActionHelp)
+            .help(L10n.string(profilePrimaryActionHelp))
 
             Menu {
                 Button {
@@ -447,7 +504,7 @@ public struct FillShell: View {
                     .progressViewStyle(.linear)
                     .tint(CounselTheme.inkAccent)
                     .frame(maxWidth: 300)
-                Text(extractingLabel)
+                Text(verbatim: extractingLabel)
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textSecondary)
@@ -467,8 +524,10 @@ public struct FillShell: View {
                 bannerChrome {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(CounselTheme.danger)
-                    Text("Some sources could not be imported: "
-                         + model.sourceWarnings.prefix(3).joined(separator: "; "))
+                    Text(verbatim: String(
+                        format: L10n.string("Some sources could not be imported: %@"),
+                        model.sourceWarnings.prefix(3).joined(separator: "; ") as NSString
+                    ))
                         .font(.callout)
                         .foregroundStyle(CounselTheme.danger)
                         .lineLimit(2)
@@ -512,8 +571,15 @@ public struct FillShell: View {
         bannerChrome {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(CounselTheme.danger)
-            let names = keys.map(\.displayName).joined(separator: ", ")
-            Text("Conflicts in: \(names). Use the resolve controls below to keep one value per field.")
+            let names = keys.map {
+                ProfileFieldPresentation.localizedName(for: $0)
+            }.joined(separator: ", ")
+            Text(verbatim: String(
+                format: L10n.string(
+                    "Conflicts in: %@. Use the resolve controls below to keep one value per field."
+                ),
+                names as NSString
+            ))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
@@ -560,11 +626,11 @@ public struct FillShell: View {
             bannerChrome {
                 Image(systemName: "checkmark.seal")
                     .foregroundStyle(CounselTheme.inkAccent)
-                let skippedCount = report.skipped.count
-                let skipText = skippedCount > 0
-                    ? "  \u{00B7}  \(skippedCount) skipped"
-                    : ""
-                Text("Filled \(report.filledCount) blank\(report.filledCount == 1 ? "" : "s") in \(report.outputURL.lastPathComponent)\(skipText).")
+                Text(verbatim: FillStatusPresentation.completed(
+                    filled: report.filledCount,
+                    fileName: report.outputURL.lastPathComponent,
+                    skipped: report.skipped.count
+                ))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                 if let msg = applyMessage {
@@ -592,7 +658,10 @@ public struct FillShell: View {
             bannerChrome {
                 Image(systemName: "checkmark.seal")
                     .foregroundStyle(CounselTheme.inkAccent)
-                Text("\(total) blank\(total == 1 ? "" : "s")  \u{00B7}  \(confirmed) confirmed")
+                Text(verbatim: FillStatusPresentation.reviewing(
+                    total: total,
+                    confirmed: confirmed
+                ))
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textPrimary)
@@ -757,7 +826,10 @@ public struct FillShell: View {
 
     private var extractingLabel: String {
         let pct = Int((model.progress * 100).rounded())
-        return "Extracting  \(pct)%"
+        return String(
+            format: L10n.string("Extracting  %lld%%"),
+            Int64(pct)
+        )
     }
 
     // MARK: - Back to Library
@@ -780,8 +852,8 @@ public struct FillShell: View {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [Self.profileType]
-        panel.message = "Choose a .ldaprofile file to import into the library."
-        panel.prompt = "Import"
+        panel.message = L10n.string("Choose a .ldaprofile file to import into the library.")
+        panel.prompt = L10n.string("Import")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         pendingImportURL = url
         passphraseInput = ""
@@ -793,7 +865,10 @@ public struct FillShell: View {
     private func beginExportFromLibrary(_ summary: PortfolioSummary) {
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [Self.profileType]
-        savePanel.message = "Export \"\(summary.label)\" as an encrypted .ldaprofile file."
+        savePanel.message = String(
+            format: L10n.string("Export \"%@\" as an encrypted .ldaprofile file."),
+            summary.label
+        )
         savePanel.nameFieldStringValue = summary.label + ".ldaprofile"
         guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
         exportingSummary = summary
@@ -810,8 +885,8 @@ public struct FillShell: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.sourceContentTypes
-        panel.message = "Choose source documents to extract profile fields from."
-        panel.prompt = "Add"
+        panel.message = L10n.string("Choose source documents to extract profile fields from.")
+        panel.prompt = L10n.string("Add")
         guard panel.runModal() == .OK else { return }
         let new = panel.urls.filter { url in
             !model.sourcePaths.contains(url)
@@ -827,8 +902,8 @@ public struct FillShell: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = Self.targetContentTypes
-        panel.message = "Choose the Word or PDF document to fill."
-        panel.prompt = "Open"
+        panel.message = L10n.string("Choose the Word or PDF document to fill.")
+        panel.prompt = L10n.string("Open")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         applyMessage = nil
         // Security scope is now owned by FillModel (startTargetScope / stopTargetScope).
@@ -848,8 +923,8 @@ public struct FillShell: View {
         savePanel.canChooseDirectories = true
         savePanel.canCreateDirectories = true
         savePanel.allowsMultipleSelection = false
-        savePanel.message = "Choose a folder for the filled output document."
-        savePanel.prompt = "Save Here"
+        savePanel.message = L10n.string("Choose a folder for the filled output document.")
+        savePanel.prompt = L10n.string("Save Here")
         guard savePanel.runModal() == .OK, let dir = savePanel.url else { return }
         let needsScope = dir.startAccessingSecurityScopedResource()
         Task {
@@ -864,7 +939,7 @@ public struct FillShell: View {
         guard canSaveProfile else { return }
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [Self.profileType]
-        savePanel.message = "Save the current profile as an encrypted .ldaprofile file."
+        savePanel.message = L10n.string("Save the current profile as an encrypted .ldaprofile file.")
         savePanel.nameFieldStringValue = (model.profile?.label ?? "profile") + ".ldaprofile"
         guard savePanel.runModal() == .OK, let url = savePanel.url else { return }
         pendingSaveURL = url
@@ -879,8 +954,8 @@ public struct FillShell: View {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [Self.profileType]
-        panel.message = "Choose a .ldaprofile file to load."
-        panel.prompt = "Load"
+        panel.message = L10n.string("Choose a .ldaprofile file to load.")
+        panel.prompt = L10n.string("Load")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         pendingLoadURL = url
         passphraseInput = ""
@@ -892,18 +967,37 @@ public struct FillShell: View {
     private func announceStage(_ stage: FillStage) {
         switch stage {
         case .profileReady:
-            AccessibilityNotification.Announcement("Profile ready. Review and edit fields below.").post()
+            AccessibilityNotification.Announcement(
+                L10n.string("Profile ready. Review and edit fields below.")
+            ).post()
         case .reviewing:
             let count = model.blanks.count
             AccessibilityNotification.Announcement(
-                "Review ready. \(count) blank\(count == 1 ? "" : "s") to review."
+                String(
+                    format: L10n.string(
+                        count == 1
+                            ? "Review ready. %lld blank to review."
+                            : "Review ready. %lld blanks to review."
+                    ),
+                    Int64(count)
+                )
             ).post()
         case .done(let report):
             AccessibilityNotification.Announcement(
-                "Fill complete. \(report.filledCount) blank\(report.filledCount == 1 ? "" : "s") filled."
+                String(
+                    format: L10n.string(
+                        report.filledCount == 1
+                            ? "Fill complete. %lld blank filled."
+                            : "Fill complete. %lld blanks filled."
+                    ),
+                    Int64(report.filledCount)
+                )
             ).post()
         case .failed(let detail):
-            AccessibilityNotification.Announcement("Fill failed. \(detail)").post()
+            AccessibilityNotification.Announcement(String(
+                format: L10n.string("Fill failed. %@"),
+                detail as NSString
+            )).post()
         default:
             break
         }
@@ -914,7 +1008,7 @@ public struct FillShell: View {
         alert.messageText = title
         alert.informativeText = text
         alert.alertStyle = warning ? .warning : .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.string("OK"))
         alert.runModal()
     }
 

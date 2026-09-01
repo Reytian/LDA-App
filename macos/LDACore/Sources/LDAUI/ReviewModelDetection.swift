@@ -183,18 +183,17 @@ extension ReviewModel {
         guard let modelPath else {
             return LLMPassOutcome(
                 spans: [], attempted: true,
-                failure: "No AI model is installed for the selected detection level, "
-                    + "so names, companies, and addresses were not detected. "
-                    + "Choose a different level in Settings, or add the model file.",
+                failure: L10n.string("No AI model is installed for the selected detection level, so names, companies, and addresses were not detected. Choose a different level in Settings, or add the model file."),
                 cancelled: false
             )
         }
         guard FileManager.default.fileExists(atPath: modelPath) else {
             return LLMPassOutcome(
                 spans: [], attempted: true,
-                failure: "The AI model file could not be opened "
-                    + "(\((modelPath as NSString).lastPathComponent)), so names, companies, "
-                    + "and addresses were not detected.",
+                failure: String(
+                    format: L10n.string("The AI model file could not be opened (%@), so names, companies, and addresses were not detected."),
+                    (modelPath as NSString).lastPathComponent as NSString
+                ),
                 cancelled: false
             )
         }
@@ -211,9 +210,14 @@ extension ReviewModel {
                 return LLMPassOutcome(
                     spans: result.spans,
                     attempted: true,
-                    failure: "AI could not fully scan \(result.incompleteSegmentCount) "
-                        + (result.incompleteSegmentCount == 1 ? "segment" : "segments")
-                        + "; unscanned text may still contain names or companies.",
+                    failure: String(
+                        format: L10n.string(
+                            result.incompleteSegmentCount == 1
+                                ? "AI could not fully scan %lld segment; unscanned text may still contain names or companies."
+                                : "AI could not fully scan %lld segments; unscanned text may still contain names or companies."
+                        ),
+                        Int64(result.incompleteSegmentCount)
+                    ),
                     cancelled: false
                 )
             }
@@ -226,11 +230,14 @@ extension ReviewModel {
                 return LLMPassOutcome(
                     spans: result.spans,
                     attempted: true,
-                    failure: "AI detected \(n) "
-                        + (n == 1 ? "value" : "values")
-                        + " it could not locate exactly in this document; "
-                        + "\(n == 1 ? "it is" : "they are") still present and were "
-                        + "not removed. Check for missed names or companies.",
+                    failure: String(
+                        format: L10n.string(
+                            n == 1
+                                ? "AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies."
+                                : "AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies."
+                        ),
+                        Int64(n)
+                    ),
                     cancelled: false
                 )
             }
@@ -241,7 +248,7 @@ extension ReviewModel {
             return LLMPassOutcome(
                 spans: [],
                 attempted: true,
-                failure: "AI detection failed to run; this pass was pattern matching only.",
+                failure: L10n.string("AI detection failed to run; this pass was pattern matching only."),
                 cancelled: false
             )
         }
@@ -500,26 +507,6 @@ extension ReviewModel {
     /// A user-facing one-line description of an import or IO error.
     // internal for ReviewModelDetection.swift
     nonisolated static func describe(_ error: Error) -> String {
-        switch error {
-        case let ioError as DocumentIOError:
-            switch ioError {
-            case .unreadable(let detail):
-                return "The file could not be read. \(detail)"
-            case .unsupportedFormat(let detail):
-                return "Unsupported format. \(detail)"
-            case .corrupt(let detail):
-                return "The file is corrupt. \(detail)"
-            case .ocrUnavailable:
-                return "OCR is unavailable on this system."
-            case .decryptionFailed:
-                return "The document could not be decrypted."
-            case .keychainError(let status):
-                return "A Keychain error occurred (status \(status))."
-            case .tooLarge(let detail):
-                return "That file is too large to open. \(detail)"
-            }
-        default:
-            return error.localizedDescription
-        }
+        DocumentErrorPresentation.describe(error) ?? error.localizedDescription
     }
 }

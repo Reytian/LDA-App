@@ -26,6 +26,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 // MARK: - DetectionLevel
 
@@ -56,6 +57,10 @@ public enum DetectionLevel: String, CaseIterable, Sendable {
         }
     }
 
+    public var localizedDisplayName: LocalizedStringKey {
+        LocalizedStringKey(displayName)
+    }
+
     /// One line under the name in the picker.
     public var summary: String {
         switch self {
@@ -70,6 +75,10 @@ public enum DetectionLevel: String, CaseIterable, Sendable {
         case .mostThorough:
             return "Missed nothing in testing. Slowest by a wide margin."
         }
+    }
+
+    public var localizedSummary: LocalizedStringKey {
+        LocalizedStringKey(summary)
     }
 
     /// Whether this rung runs the on-device model. The derived replacement for
@@ -370,6 +379,35 @@ public enum MemoryGate {
             return "Needs \(Int(candidate)) GB of memory." + have
         }
         return "Needs more memory than this Mac has." + have
+    }
+
+    public static func localizedRequirementText(
+        for tier: ModelTier,
+        installedGB: Double = MemoryGate.installedGB(),
+        language: AppLanguage? = nil
+    ) -> String {
+        let installed = Int(installedGB.rounded())
+        let selectedLanguage = language ?? AppLanguage.selected()
+        for candidate in [16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0]
+        where tier.peakRSSGB <= budgetGB(installedGB: candidate) {
+            return String(
+                format: L10n.string(
+                    "Needs %lld GB of memory. This Mac has %lld GB.",
+                    language: language
+                ),
+                locale: selectedLanguage.locale,
+                Int64(candidate),
+                Int64(installed)
+            )
+        }
+        return String(
+            format: L10n.string(
+                "Needs more memory than this Mac has. This Mac has %lld GB.",
+                language: language
+            ),
+            locale: selectedLanguage.locale,
+            Int64(installed)
+        )
     }
 }
 
