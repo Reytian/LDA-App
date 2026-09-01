@@ -142,6 +142,7 @@ public struct RootShell: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .controlSize(.small)
                 .frame(width: 430)
                 .help("Review matters, anonymize documents, restore protected values, or fill a form")
             }

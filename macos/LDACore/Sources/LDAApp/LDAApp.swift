@@ -93,11 +93,11 @@ struct LDAApp: App {
         }
     }
 
-    /// Cmd+Return toggles the selected entity (Anonymize) or accepts the
+    /// Cmd+Return toggles the selected findings (Anonymize) or accepts the
     /// selected blank (Fill).
     private var toggleDisabled: Bool {
         switch modeStore.activeMode {
-        case .anonymize: return sessionModel.activeModel.selectedGroupID == nil
+        case .anonymize: return sessionModel.activeModel.selectedGroupIDs.isEmpty
         case .fill: return fillModel.selectedBlankID == nil
         case .matters, .deanonymize: return true
         }

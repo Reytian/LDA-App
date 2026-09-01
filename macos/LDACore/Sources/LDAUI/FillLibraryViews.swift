@@ -48,6 +48,9 @@ struct PortalLibraryBody: View {
 
     @State private var libraryNoticeDismissed = false
 
+    /// Native title-bar and toolbar clearance reported by the containing window.
+    @State private var windowChromeTopInset: CGFloat = 0
+
     // MARK: - Export trigger (passed in from shell)
 
     let onExport: (PortfolioSummary) -> Void
@@ -55,6 +58,13 @@ struct PortalLibraryBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Color.clear
+                .frame(height: windowChromeTopInset)
+                .background(CounselTheme.appSurface)
+                .allowsHitTesting(false)
+
+            libraryTopBar
+
             if case .failed(let detail) = model.stage {
                 libraryFailureBanner(detail)
             }
@@ -77,6 +87,7 @@ struct PortalLibraryBody: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
+        .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         // New Portfolio sheet.
         .sheet(isPresented: $isShowingNewPortfolio) {
             NewPortfolioSheet(model: model)
@@ -98,9 +109,6 @@ struct PortalLibraryBody: View {
             }
         } message: {
             Text("This action cannot be undone.")
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            libraryTopBar
         }
     }
 
@@ -272,6 +280,70 @@ struct PortalLibraryBody: View {
             return "Delete \"\(s.label)\"?"
         }
         return "Delete portfolio?"
+    }
+}
+
+enum WindowChromeLayoutPolicy {
+    static func topInset(windowFrameHeight: CGFloat, contentLayoutHeight: CGFloat) -> CGFloat {
+        max(0, windowFrameHeight - contentLayoutHeight)
+    }
+}
+
+private struct WindowContentTopInsetReader: NSViewRepresentable {
+    @Binding var topInset: CGFloat
+
+    func makeNSView(context: Context) -> WindowContentInsetView {
+        let view = WindowContentInsetView()
+        view.onInsetChange = updateTopInset
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowContentInsetView, context: Context) {
+        nsView.onInsetChange = updateTopInset
+        nsView.reportCurrentInset()
+    }
+
+    static func dismantleNSView(_ nsView: WindowContentInsetView, coordinator: ()) {
+        nsView.onInsetChange = nil
+    }
+
+    private func updateTopInset(_ newValue: CGFloat) {
+        guard abs(topInset - newValue) > 0.5 else { return }
+        DispatchQueue.main.async {
+            topInset = newValue
+        }
+    }
+}
+
+private final class WindowContentInsetView: NSView {
+    var onInsetChange: ((CGFloat) -> Void)?
+    private var contentLayoutObservation: NSKeyValueObservation?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        contentLayoutObservation = nil
+
+        guard let window else { return }
+        contentLayoutObservation = window.observe(
+            \.contentLayoutRect,
+            options: [.initial, .new]
+        ) { [weak self] _, _ in
+            self?.reportCurrentInset()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        reportCurrentInset()
+    }
+
+    func reportCurrentInset() {
+        guard let window else { return }
+        let topInset = WindowChromeLayoutPolicy.topInset(
+            windowFrameHeight: window.frame.height,
+            contentLayoutHeight: window.contentLayoutRect.height
+        )
+        onInsetChange?(topInset)
     }
 }
 

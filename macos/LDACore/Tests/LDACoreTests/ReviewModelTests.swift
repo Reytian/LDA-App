@@ -712,6 +712,45 @@ final class ReviewModelTests: XCTestCase {
         }
     }
 
+    func testBatchSelectionAppliesOneDecisionToSeveralGroups() {
+        let model = makeGroupedModel()
+        let person = model.groups(of: .person)[0]
+        let company = model.groups(of: .company)[0]
+        let email = model.groups(of: .email)[0]
+        model.selectedGroupIDs = [person.id, company.id]
+
+        model.setSelectedGroupsAccepted(false)
+
+        for entity in model.entities where person.ids.contains(entity.id) || company.ids.contains(entity.id) {
+            XCTAssertFalse(entity.accepted)
+        }
+        XCTAssertTrue(
+            model.entities.first(where: { email.ids.contains($0.id) })!.accepted,
+            "a batch decision must not spill into an unselected group"
+        )
+
+        model.setSelectedGroupsAccepted(true)
+        XCTAssertTrue(model.entities.allSatisfy(\.accepted))
+    }
+
+    func testKeyboardToggleAppliesToEverySelectedGroupAndKeepsTheSelection() {
+        let model = makeGroupedModel()
+        let selected = Set(model.entityGroups.prefix(2).map(\.id))
+        model.selectedGroupIDs = selected
+
+        model.toggleSelectedGroup()
+
+        XCTAssertEqual(model.selectedGroupIDs, selected, "the user can immediately reverse a batch action")
+        let selectedEntityIDs = Set(
+            model.entityGroups
+                .filter { selected.contains($0.id) }
+                .flatMap(\.ids)
+        )
+        for entity in model.entities where selectedEntityIDs.contains(entity.id) {
+            XCTAssertFalse(entity.accepted)
+        }
+    }
+
     func testToggleMixedGroupRejectsFirst() {
         // A group with mixed accept states reads as accepted (anyAccepted), so
         // the first toggle must move the whole group to rejected.
@@ -742,14 +781,31 @@ final class ReviewModelTests: XCTestCase {
 
     func testOpeningADocumentClearsGroupSelection() async throws {
         let model = makeGroupedModel()
-        model.selectNextGroup()
-        XCTAssertNotNil(model.selectedGroupID)
+        model.selectedGroupIDs = Set(model.entityGroups.prefix(2).map(\.id))
+        XCTAssertEqual(model.selectedGroupIDs.count, 2)
 
         let url = workDir.appendingPathComponent("clear.txt")
         try Data("Fresh text.".utf8).write(to: url)
         await model.open(url)
 
-        XCTAssertNil(model.selectedGroupID, "selection must not survive into a new document")
+        XCTAssertTrue(model.selectedGroupIDs.isEmpty, "selection must not survive into a new document")
+    }
+
+    func testSuccessfulRescanClearsThePreviousResultSelection() async {
+        let model = makeGroupedModel()
+        model.useLLM = false
+        model.status = .ready
+        model.selectedGroupIDs = Set(model.entityGroups.prefix(2).map(\.id))
+        XCTAssertEqual(model.selectedGroupIDs.count, 2)
+
+        await model.anonymize()
+
+        XCTAssertEqual(model.status, .ready)
+        XCTAssertFalse(model.entities.isEmpty, "the rescan fixture still produces a finding")
+        XCTAssertTrue(
+            model.selectedGroupIDs.isEmpty,
+            "a fresh result set must not inherit selections from the previous scan"
+        )
     }
 
     // MARK: - Failure recovery (audit F2)

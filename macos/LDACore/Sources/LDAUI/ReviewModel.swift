@@ -202,10 +202,23 @@ public final class ReviewModel: ObservableObject {
     /// could not fully scan the document. nil when AI ran cleanly or was off.
     @Published public var aiWarning: String?
 
-    /// The selected group row in the sidebar. Selection is shared between the
-    /// sidebar list and the keyboard review commands (next/previous/toggle) so
-    /// the menu shortcuts and the list always agree.
-    @Published public var selectedGroupID: String?
+    /// The selected group rows in the sidebar. A Set gives the macOS List its
+    /// native Command-click and Shift-click range selection, so a noisy first
+    /// scan can be triaged in batches without weakening detection. Keyboard
+    /// next/previous commands collapse this back to one selected row.
+    @Published public var selectedGroupIDs: Set<String> = []
+
+    /// The first selected group in display order. Kept as the single-selection
+    /// compatibility seam used by keyboard navigation and existing callers.
+    /// Assigning it deliberately replaces a multi-selection with one row.
+    public var selectedGroupID: String? {
+        get {
+            entityGroups.first(where: { selectedGroupIDs.contains($0.id) })?.id
+        }
+        set {
+            selectedGroupIDs = newValue.map { [$0] } ?? []
+        }
+    }
 
     /// Bumped when the Export menu command fires, so the window can present the
     /// export flow (which owns the panels and passphrase sheet).
@@ -374,7 +387,7 @@ public final class ReviewModel: ObservableObject {
         status = .importing
         sourceURL = url
         entities = []
-        selectedGroupID = nil
+        selectedGroupIDs = []
         progress = 0
         etaText = nil
         aiWarning = nil
@@ -468,6 +481,11 @@ public final class ReviewModel: ObservableObject {
             return
         }
 
+        // A completed re-scan replaces the entire result set. Clear its review
+        // selection before publishing the new entities so value-derived group
+        // IDs from the old pass cannot silently select findings in the new one.
+        // The cancellation branch above deliberately leaves selection intact.
+        selectedGroupIDs = []
         entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
         // AI is only "active" when the pass ran to full coverage; a load
@@ -701,13 +719,26 @@ public final class ReviewModel: ObservableObject {
         selectedGroupID = groups[(index + groups.count - 1) % groups.count].id
     }
 
-    /// Flip the accept state of the selected group: a group that reads as
-    /// accepted (any occurrence accepted) becomes fully rejected, otherwise
-    /// fully accepted. Every occurrence moves together.
+    /// Apply one decision to every selected group. This is the batch action
+    /// behind the sidebar's Redact and Keep Visible buttons.
+    public func setSelectedGroupsAccepted(_ accepted: Bool) {
+        guard !selectedGroupIDs.isEmpty else { return }
+        let ids = Set(
+            entityGroups
+                .filter { selectedGroupIDs.contains($0.id) }
+                .flatMap(\.ids)
+        )
+        setAccepted(ids: ids, accepted)
+    }
+
+    /// Flip the accept state of the selected group or groups. If any selected
+    /// group currently reads as accepted, the whole batch becomes rejected;
+    /// otherwise the whole batch becomes accepted. Selection stays in place so
+    /// the user can immediately reverse a batch decision.
     public func toggleSelectedGroup() {
-        guard let id = selectedGroupID,
-              let group = entityGroups.first(where: { $0.id == id }) else { return }
-        setAccepted(ids: group.ids, !group.anyAccepted)
+        let groups = entityGroups.filter { selectedGroupIDs.contains($0.id) }
+        guard !groups.isEmpty else { return }
+        setSelectedGroupsAccepted(!groups.contains(where: \.anyAccepted))
     }
 
     // MARK: - Export

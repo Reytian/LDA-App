@@ -53,7 +53,7 @@ public struct EntitySidebar: View {
         // previous, toggle) and the list always agree. Arrow keys navigate
         // natively once the list has focus; Space and Return flip the selected
         // group without touching the mouse.
-        List(selection: $model.selectedGroupID) {
+        List(selection: $model.selectedGroupIDs) {
             if session.entries.count > 1 {
                 Section {
                     ForEach(session.entries) { entry in
@@ -94,7 +94,7 @@ public struct EntitySidebar: View {
                         ForEach(groups) { group in
                             EntityGroupRow(
                                 group: group,
-                                isSelected: model.selectedGroupID == group.id,
+                                isSelected: model.selectedGroupIDs.contains(group.id),
                                 onSetAccepted: { accepted in
                                     model.setAccepted(ids: group.ids, accepted)
                                 },
@@ -126,12 +126,12 @@ public struct EntitySidebar: View {
             }
         }
         .onKeyPress(.space) {
-            guard model.selectedGroupID != nil else { return .ignored }
+            guard !model.selectedGroupIDs.isEmpty else { return .ignored }
             model.toggleSelectedGroup()
             return .handled
         }
         .onKeyPress(.return) {
-            guard model.selectedGroupID != nil else { return .ignored }
+            guard !model.selectedGroupIDs.isEmpty else { return .ignored }
             model.toggleSelectedGroup()
             return .handled
         }
@@ -174,6 +174,15 @@ public struct EntitySidebar: View {
     /// while that style is active.
     private var sidebarFooter: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if model.selectedGroupIDs.count > 1 {
+                batchSelectionBar
+            } else if model.entityGroups.count >= 5 {
+                Text("Tip: Command-click or Shift-click extra findings, then keep them visible together.")
+                    .font(.caption2)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Tip: select several extra findings to keep them visible together.")
+            }
             if isPseudonymEditingAvailable, !model.entities.isEmpty {
                 Text(PseudonymEditingPresentation.footnote)
                     .font(.caption2)
@@ -220,6 +229,43 @@ public struct EntitySidebar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    /// Actions for a native macOS multi-selection. Findings remain selected
+    /// after either action, which makes the decision easy to reverse.
+    private var batchSelectionBar: some View {
+        HStack(spacing: 8) {
+            Text("\(model.selectedGroupIDs.count) selected")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Spacer(minLength: 4)
+
+            Button("Redact") {
+                model.setSelectedGroupsAccepted(true)
+            }
+            .buttonStyle(.borderless)
+            .help("Redact every selected finding")
+
+            Button("Keep Visible") {
+                model.setSelectedGroupsAccepted(false)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(CounselTheme.danger)
+            .help("Keep every selected finding visible in the exported document")
+
+            Button {
+                model.selectedGroupIDs = []
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Clear selection")
+            .accessibilityLabel("Clear finding selection")
+        }
+        .padding(.bottom, 2)
     }
 
     private var sidebarEmptyState: some View {
@@ -279,7 +325,7 @@ public struct EntitySidebar: View {
 
     /// The ink-tinted selection background, or clear for unselected rows.
     private func rowBackground(for id: ReviewGroup.ID) -> Color {
-        model.selectedGroupID == id ? CounselTheme.inkAccent.opacity(0.10) : Color.clear
+        model.selectedGroupIDs.contains(id) ? CounselTheme.inkAccent.opacity(0.10) : Color.clear
     }
 }
 

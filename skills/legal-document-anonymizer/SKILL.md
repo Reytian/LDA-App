@@ -1,6 +1,9 @@
 ---
 name: legal-document-anonymizer
-description: Use when a user needs to anonymize confidential legal, commercial, or client documents before sharing them with Claude Code, ChatGPT, Claude, or any third-party AI tool, or needs to restore third-party AI output using a local mapping table. Handles LDA scan review, placeholder replacement, mapping custody, and de-anonymization.
+description: Use when a user needs to anonymize confidential legal, commercial, or client documents before sharing them with Claude Code, ChatGPT, Claude, or any third-party AI tool, needs to restore third-party AI output using a local mapping table, or needs to improve LDA review UX when a high-recall first scan produces too many repetitive findings. Handles safe batch review, result-derived selection state, placeholder replacement, mapping custody, and de-anonymization.
+author: Codex
+version: 1.1.0
+date: 2026-09-01
 metadata:
   short-description: Anonymize legal documents before third-party AI use
 ---
@@ -100,6 +103,17 @@ Before any third-party handoff, check for:
 - Placeholders are internally consistent for the same party or person.
 - The anonymized document still preserves enough legal structure for useful drafting or analysis.
 - The mapping file is stored locally in a matter-safe folder.
+
+## Review UX Safety for High-Recall Scans
+
+When a first scan produces many findings, reduce review effort without silently reducing privacy coverage:
+
+- Keep every finding selected for redaction by default. Do not auto-deselect low-confidence findings or tighten detection merely to shorten the list unless the user explicitly accepts the recall tradeoff.
+- Collapse exact repeated values into one review group, then provide native multi-selection and batch actions such as `Redact` and `Keep Visible` for unrelated false positives.
+- Do not group merely similar values by punctuation or normalization unless mapping and pseudonym overrides also share one identity. Near-duplicate display grouping can otherwise create conflicting restoration behavior.
+- Treat selected group IDs as state derived from the current result set. Clear them only when a successful re-scan replaces that result set. Preserve them when a scan is cancelled and the old results remain visible.
+
+Verify batch acceptance, batch reversal, keyboard activation, and successful re-scan invalidation in model tests. If the project has no native UI test target, document a manual smoke test for Command-click, Shift-click, batch actions, and keyboard commands.
 
 ## Known Limits
 

@@ -62,6 +62,14 @@ public struct AppShell: View {
     /// whether the dismissible completion card is still visible.
     @State private var hasSharedOutput = false
 
+    /// Narrow windows hide the workflow row so it cannot slide under the
+    /// compact toolbar during live resize.
+    @State private var isWindowNarrow = false
+
+    /// Full-screen and AppKit-zoomed windows have room for the product name.
+    /// Ordinary windows keep the short title even when their content is wide.
+    @State private var usesFullProductTitle = false
+
     /// First-run flag: the onboarding sheet shows once (R13/R17).
     @AppStorage("com.haotianyi.LDA.hasCompletedFirstRun") private var hasCompletedFirstRun = false
 
@@ -105,7 +113,9 @@ public struct AppShell: View {
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
         } detail: {
             VStack(spacing: 0) {
-                workflowProgressHeader
+                if WindowLayoutPolicy.showsWorkflowProgress(isWindowNarrow: isWindowNarrow) {
+                    workflowProgressHeader
+                }
                 statusBanner
                 if let handoffCompletion {
                     handoffCompletionCard(handoffCompletion)
@@ -115,6 +125,13 @@ public struct AppShell: View {
             .background(CounselTheme.paper)
         }
         .background(CounselTheme.appSurface)
+        .background(
+            WindowPresentationStateReader(
+                isNarrow: $isWindowNarrow,
+                usesFullProductTitle: $usesFullProductTitle
+            )
+                .frame(width: 0, height: 0)
+        )
         .navigationTitle(windowTitle)
         .toolbar { toolbarContent }
         .sheet(isPresented: $isPromptingPassphrase) {
@@ -198,10 +215,11 @@ public struct AppShell: View {
 
     /// The window title: the client, the active document, or the product name.
     private var windowTitle: String {
-        if let client = session.clientLabel {
-            return model.documentName.map { "\(client) \u{00B7} \($0)" } ?? client
-        }
-        return model.documentName ?? "Legal Document Anonymizer"
+        WindowTitleResolver.resolve(
+            client: session.clientLabel,
+            document: model.documentName,
+            usesFullProductTitle: usesFullProductTitle
+        )
     }
 
     /// Announce run completion to VoiceOver (status banners are otherwise silent).
@@ -1161,6 +1179,120 @@ public struct AppShell: View {
         }
         return types
     }()
+}
+
+enum WindowTitleResolver {
+    static func resolve(
+        client: String?,
+        document: String?,
+        usesFullProductTitle: Bool
+    ) -> String {
+        if let client {
+            return document.map { "\(client) \u{00B7} \($0)" } ?? client
+        }
+        return document ?? (usesFullProductTitle ? "Legal Document Anonymizer" : "LDA")
+    }
+}
+
+enum WindowLayoutPolicy {
+    static let narrowWidthThreshold: CGFloat = 1_200
+
+    static func isNarrow(windowWidth: CGFloat) -> Bool {
+        windowWidth < narrowWidthThreshold
+    }
+
+    static func showsWorkflowProgress(isWindowNarrow: Bool) -> Bool {
+        !isWindowNarrow
+    }
+
+    static func usesFullProductTitle(isFullScreen: Bool, isZoomed: Bool) -> Bool {
+        isFullScreen || isZoomed
+    }
+}
+
+private struct WindowPresentationStateReader: NSViewRepresentable {
+    @Binding var isNarrow: Bool
+    @Binding var usesFullProductTitle: Bool
+
+    func makeNSView(context: Context) -> WindowPresentationStateView {
+        let view = WindowPresentationStateView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: WindowPresentationStateView, context: Context) {
+        configure(nsView)
+        nsView.scheduleRefresh()
+    }
+
+    private func configure(_ view: WindowPresentationStateView) {
+        view.onPresentationChange = { narrow, fullProductTitle in
+            if isNarrow != narrow {
+                isNarrow = narrow
+            }
+            if usesFullProductTitle != fullProductTitle {
+                usesFullProductTitle = fullProductTitle
+            }
+        }
+    }
+}
+
+private final class WindowPresentationStateView: NSView {
+    var onPresentationChange: ((Bool, Bool) -> Void)?
+
+    private var observers: [NSObjectProtocol] = []
+    private var refreshIsScheduled = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeCurrentWindow()
+        scheduleRefresh()
+    }
+
+    func scheduleRefresh() {
+        guard !refreshIsScheduled else { return }
+        refreshIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshIsScheduled = false
+            guard let window = self.window else { return }
+            let isNarrow = WindowLayoutPolicy.isNarrow(windowWidth: window.frame.width)
+            let usesFullProductTitle = WindowLayoutPolicy.usesFullProductTitle(
+                isFullScreen: window.styleMask.contains(.fullScreen),
+                isZoomed: window.isZoomed
+            )
+            self.onPresentationChange?(isNarrow, usesFullProductTitle)
+        }
+    }
+
+    private func observeCurrentWindow() {
+        removeObservers()
+        guard let window else { return }
+
+        let notifications = [
+            NSWindow.didResizeNotification,
+            NSWindow.didEnterFullScreenNotification,
+            NSWindow.didExitFullScreenNotification
+        ]
+        observers = notifications.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.scheduleRefresh()
+            }
+        }
+    }
+
+    private func removeObservers() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
+    }
+
+    deinit {
+        removeObservers()
+    }
 }
 
 private enum HandoffCompletion: Equatable {
