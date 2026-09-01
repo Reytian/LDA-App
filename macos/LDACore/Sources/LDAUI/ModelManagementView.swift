@@ -148,14 +148,10 @@ public struct ModelManagementView: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            // The full statement, verbatim. Five falsifiable facts: scope,
-            // trigger, destination, duration, payload.
-            Text("Your documents never leave this Mac. Detection, redaction, and the "
-                + "encrypted mapping all run here, and nothing about a document is ever "
-                + "sent anywhere. LDA reaches the network for exactly one thing: fetching "
-                + "a detection model file when you press Download. It connects only to "
-                + "huggingface.co, only while a download you started is running, and it "
-                + "sends nothing but the request for that file.")
+            Text("Detection models process document text on this Mac. When you press "
+                + "Download, LDA connects to the configured model host to fetch the "
+                + "selected model file. Offline mode below tells LDA to refuse network "
+                + "requests, but it is an app setting rather than a firewall.")
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -430,7 +426,7 @@ public struct ModelManagementView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         if let gguf = UTType(filenameExtension: "gguf") { panel.allowedContentTypes = [gguf] }
-        panel.message = "Choose a local GGUF model. It will run fully on this Mac."
+        panel.message = "Choose a local GGUF model for on-device detection."
         panel.prompt = "Use Model"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         AISettings.setCustomModel(url: url)

@@ -5,7 +5,8 @@
 //  Tests for the --style flag on the anonymize subcommand: argument parsing
 //  (valid values, the token default, rejection of unknown values) and the
 //  pass-through to the service for both the single-document and session
-//  paths. Restore summaries surface ambiguousReplacements.
+//  paths. Ambiguous asterisk output is refused before CLI artifacts are
+//  written.
 //
 //  House rules: all comments and strings in English. Fixture strings and
 //  generated pseudonyms may be Chinese. No em-dash and no
@@ -128,34 +129,34 @@ final class CLIStyleTests: XCTestCase {
         XCTAssertEqual(mapping.style, .pseudonym)
     }
 
-    // MARK: - Restore summary carries the ambiguity report
+    // MARK: - Ambiguous asterisk output is blocked before release
 
-    func testRestoreSummaryJSONIncludesAmbiguousReplacements() throws {
+    func testRunAnonymizeBlocksAmbiguousAsteriskBeforeWritingArtifacts() throws {
         // Two CN mobiles that mask identically force an asterisk ambiguity.
         let url = tempDir.appendingPathComponent("phones.txt")
         try Data("A: 13812345678 B: 13887655678.".utf8).write(to: url)
         let outputDir = tempDir.appendingPathComponent("ast-out", isDirectory: true)
 
-        let result = try LDACLI.runAnonymize(
-            input: url,
-            outputDir: outputDir,
-            passphrase: passphrase,
-            style: .asterisk,
-            timestamp: { self.fixedTimestamp }
-        )
+        XCTAssertThrowsError(
+            try LDACLI.runAnonymize(
+                input: url,
+                outputDir: outputDir,
+                passphrase: passphrase,
+                style: .asterisk,
+                timestamp: { self.fixedTimestamp }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? OutboundReleaseError,
+                .ambiguousAsteriskMasks(["138****5678"])
+            )
+            XCTAssertTrue(error.localizedDescription.contains("Tokens"))
+            XCTAssertTrue(error.localizedDescription.contains("Pseudonyms"))
+        }
 
-        let report = try LDACLI.runRestore(
-            input: result.redactedFileURL,
-            mapping: result.mappingFileURL,
-            output: tempDir.appendingPathComponent("restored.txt"),
-            passphrase: passphrase
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputDir.path),
+            "the CLI must not create an output directory for refused content"
         )
-        let summary = RestoreSummaryJSON(report: report)
-        XCTAssertEqual(summary.ambiguousReplacements, ["138****5678"])
-        XCTAssertEqual(summary.restoredCount, 0)
-
-        // The JSON encodes the new field so scripts can see the refusal.
-        let encoded = try CLIJSON.encode(summary)
-        XCTAssertTrue(encoded.contains("\"ambiguousReplacements\":[\"138****5678\"]"))
     }
 }

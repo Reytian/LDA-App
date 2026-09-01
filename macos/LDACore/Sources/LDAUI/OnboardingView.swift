@@ -66,15 +66,14 @@ public struct OnboardingView: View {
 
             Divider()
 
-            // The promise. Kept alone under the lock mark: this is the app's
-            // reassurance signal (the same icon and accent as the On-device
-            // status indicator), and filing a caution beneath it would dress a
-            // caveat up as part of the guarantee.
+            // The privacy summary distinguishes LDA's own processing from the
+            // external services a user may choose for an exported document.
             Label {
-                Text("Your documents never leave this Mac. Detection, redaction, and the "
-                    + "encrypted mapping all run here, and nothing about a document is ever "
-                    + "sent anywhere. LDA uses the network for one thing only: downloading "
-                    + "a detection model when you ask it to.")
+                Text("LDA processes document contents and stores the encrypted mapping on "
+                    + "this Mac. If you ask it to download a detection model, it connects "
+                    + "to the model host. Copying or exporting a document lets you send it "
+                    + "to a service you choose, so review that service's privacy settings "
+                    + "first.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)

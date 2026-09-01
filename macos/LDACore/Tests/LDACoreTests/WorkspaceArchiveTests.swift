@@ -65,6 +65,57 @@ final class WorkspaceArchiveTests: XCTestCase {
         )
     }
 
+    private func makeManifest(documents: [WorkspaceDocumentRecord]) -> WorkspaceManifest {
+        WorkspaceManifest(
+            formatVersion: WorkspaceArchive.currentFormatVersion,
+            createdAtISO8601: Self.createdAt,
+            appVersion: nil,
+            matterLabel: nil,
+            matterScopeID: nil,
+            substitutionStyle: .token,
+            documents: documents
+        )
+    }
+
+    private func makeDocumentRecord(
+        id: UUID = UUID(),
+        name: String,
+        archivePath: String? = nil
+    ) -> WorkspaceDocumentRecord {
+        WorkspaceDocumentRecord(
+            id: id,
+            name: name,
+            contentKind: (name as NSString).pathExtension.lowercased(),
+            archivePath: archivePath ?? WorkspaceArchive.documentArchivePath(id: id, name: name)
+        )
+    }
+
+    private func emptySnapshot(documentID: UUID) -> WorkspaceReviewSnapshot {
+        WorkspaceReviewSnapshot(
+            documentID: documentID,
+            textDigest: WorkspaceReviewSnapshot.digest(of: ""),
+            entities: []
+        )
+    }
+
+    private func makePayload(
+        documents: [WorkspaceDocumentRecord],
+        snapshots: [WorkspaceReviewSnapshot]
+    ) throws -> WorkspacePayload {
+        var sources: [UUID: URL] = [:]
+        for document in documents {
+            sources[document.id] = try write(
+                document.id.uuidString + ".txt",
+                "document \(document.id.uuidString)"
+            )
+        }
+        return WorkspacePayload(
+            manifest: makeManifest(documents: documents),
+            documentSources: sources,
+            snapshots: snapshots
+        )
+    }
+
     /// A payload with two documents, decisions on both, a mapping, an
     /// override, and a matter scope.
     private func makeFullPayload() throws -> (payload: WorkspacePayload, sources: [UUID: URL]) {
@@ -388,6 +439,194 @@ final class WorkspaceArchiveTests: XCTestCase {
     }
 
     // MARK: - Cleanup contract and ceilings
+
+    func testWriterRejectsMoreSnapshotsThanManifestDocumentsBeforeWriting() throws {
+        let document = makeDocumentRecord(name: "one.txt")
+        let payload = try makePayload(
+            documents: [document],
+            snapshots: [
+                emptySnapshot(documentID: document.id),
+                emptySnapshot(documentID: UUID())
+            ]
+        )
+        let output = workDir.appendingPathComponent("too-many-snapshots.ldawork")
+
+        XCTAssertThrowsError(
+            try WorkspaceArchive.write(payload, to: output, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.writeFailed(let detail) = error else {
+                return XCTFail("expected writeFailed, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("more review snapshots"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testWriterRejectsDuplicateSnapshotDocumentIDsBeforeWriting() throws {
+        let first = makeDocumentRecord(name: "one.txt")
+        let second = makeDocumentRecord(name: "two.txt")
+        let payload = try makePayload(
+            documents: [first, second],
+            snapshots: [
+                emptySnapshot(documentID: first.id),
+                emptySnapshot(documentID: first.id)
+            ]
+        )
+        let output = workDir.appendingPathComponent("duplicate-snapshots.ldawork")
+
+        XCTAssertThrowsError(
+            try WorkspaceArchive.write(payload, to: output, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.writeFailed(let detail) = error else {
+                return XCTFail("expected writeFailed, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("duplicate review snapshot"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testWriterRejectsSnapshotOutsideManifestBeforeWriting() throws {
+        let first = makeDocumentRecord(name: "one.txt")
+        let second = makeDocumentRecord(name: "two.txt")
+        let payload = try makePayload(
+            documents: [first, second],
+            snapshots: [emptySnapshot(documentID: UUID())]
+        )
+        let output = workDir.appendingPathComponent("orphan-snapshot.ldawork")
+
+        XCTAssertThrowsError(
+            try WorkspaceArchive.write(payload, to: output, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.writeFailed(let detail) = error else {
+                return XCTFail("expected writeFailed, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("does not belong to a manifest document"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    func testManifestDocumentCapAccepts497AndRejects498BeforeUnpacking() throws {
+        let maximumDocumentCount = 497
+        let records = (0 ... maximumDocumentCount).map { index in
+            makeDocumentRecord(name: "document-\(index).txt")
+        }
+
+        let atLimitURL = workDir.appendingPathComponent("documents-at-limit.ldawork")
+        try writeRawArchive(
+            members: [
+                "manifest.json": try JSONEncoder().encode(
+                    makeManifest(documents: Array(records.prefix(maximumDocumentCount)))
+                )
+            ],
+            to: atLimitURL
+        )
+        let prepared = try WorkspaceArchive.prepare(
+            from: atLimitURL,
+            passphrase: Self.passphrase
+        )
+        XCTAssertEqual(prepared.manifest.documents.count, maximumDocumentCount)
+
+        let overLimitURL = workDir.appendingPathComponent("documents-over-limit.ldawork")
+        try writeRawArchive(
+            members: [
+                "manifest.json": try JSONEncoder().encode(makeManifest(documents: records))
+            ],
+            to: overLimitURL
+        )
+
+        let before = ZipImporter.liveExpansionCount
+        XCTAssertThrowsError(
+            try WorkspaceArchive.prepare(from: overLimitURL, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.tooLarge = error else {
+                return XCTFail("expected tooLarge, got \(error)")
+            }
+        }
+        XCTAssertEqual(ZipImporter.liveExpansionCount, before)
+    }
+
+    func testManifestRejectsDuplicateDocumentIDsBeforeUnpacking() throws {
+        let duplicateID = UUID()
+        let first = makeDocumentRecord(id: duplicateID, name: "first.txt")
+        let second = makeDocumentRecord(id: duplicateID, name: "second.txt")
+        let fileURL = workDir.appendingPathComponent("duplicate-document-id.ldawork")
+        try writeRawArchive(
+            members: [
+                "manifest.json": try JSONEncoder().encode(
+                    makeManifest(documents: [first, second])
+                ),
+                first.archivePath: Data("first".utf8),
+                second.archivePath: Data("second".utf8)
+            ],
+            to: fileURL
+        )
+
+        let before = ZipImporter.liveExpansionCount
+        XCTAssertThrowsError(
+            try WorkspaceArchive.prepare(from: fileURL, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.damagedFile = error else {
+                return XCTFail("expected damagedFile, got \(error)")
+            }
+        }
+        XCTAssertEqual(ZipImporter.liveExpansionCount, before)
+    }
+
+    func testManifestRejectsDuplicateArchivePathsBeforeUnpacking() throws {
+        let firstID = UUID()
+        let secondID = UUID()
+        let sharedPath = WorkspaceArchive.documentArchivePath(id: firstID, name: "shared.txt")
+        let first = makeDocumentRecord(id: firstID, name: "shared.txt", archivePath: sharedPath)
+        let second = makeDocumentRecord(id: secondID, name: "shared.txt", archivePath: sharedPath)
+        let fileURL = workDir.appendingPathComponent("duplicate-archive-path.ldawork")
+        try writeRawArchive(
+            members: [
+                "manifest.json": try JSONEncoder().encode(
+                    makeManifest(documents: [first, second])
+                ),
+                sharedPath: Data("shared".utf8)
+            ],
+            to: fileURL
+        )
+
+        let before = ZipImporter.liveExpansionCount
+        XCTAssertThrowsError(
+            try WorkspaceArchive.prepare(from: fileURL, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.damagedFile = error else {
+                return XCTFail("expected damagedFile, got \(error)")
+            }
+        }
+        XCTAssertEqual(ZipImporter.liveExpansionCount, before)
+    }
+
+    func testManifestRejectsNoncanonicalArchivePathBeforeUnpacking() throws {
+        let id = UUID()
+        let noncanonicalPath = "documents/\(id.uuidString)/./plain.txt"
+        let record = makeDocumentRecord(
+            id: id,
+            name: "plain.txt",
+            archivePath: noncanonicalPath
+        )
+        let fileURL = workDir.appendingPathComponent("noncanonical-archive-path.ldawork")
+        try writeRawArchive(
+            members: [
+                "manifest.json": try JSONEncoder().encode(makeManifest(documents: [record])),
+                noncanonicalPath: Data("plain".utf8)
+            ],
+            to: fileURL
+        )
+
+        let before = ZipImporter.liveExpansionCount
+        XCTAssertThrowsError(
+            try WorkspaceArchive.prepare(from: fileURL, passphrase: Self.passphrase)
+        ) { error in
+            guard case WorkspaceArchiveError.damagedFile = error else {
+                return XCTFail("expected damagedFile, got \(error)")
+            }
+        }
+        XCTAssertEqual(ZipImporter.liveExpansionCount, before)
+    }
 
     func testAnOpenedWorkspaceIsRegisteredUntilCleanedUp() throws {
         let (payload, _) = try makeFullPayload()

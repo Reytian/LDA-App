@@ -236,7 +236,7 @@ private struct AITab: View {
                         .font(.system(.headline, design: .serif))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text("Higher settings find more names, companies, and addresses, "
-                        + "and take longer. Everything runs on this Mac.")
+                        + "and take longer. Detection uses the selected model on this Mac.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -274,9 +274,8 @@ private struct AITab: View {
                     }
                 }
 
-                Label("Your documents never leave this Mac. Detection and redaction run "
-                      + "entirely on this machine. The only time LDA uses the network is "
-                      + "when you ask it to download a model.",
+                Label("LDA processes document contents on this Mac. Installing an optional "
+                      + "model uses a network connection to fetch its model file.",
                       systemImage: "lock.laptopcomputer")
                     .font(.caption)
                     .foregroundStyle(CounselTheme.textSecondary)

@@ -92,8 +92,6 @@ extension LDACLI {
             try requireExists(input)
         }
 
-        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
         // Client seeding (R10): load the client's stored mapping, if any.
         var store: ClientMappingStore?
         var clientProtection: MappingProtection?
@@ -115,6 +113,10 @@ extension LDACLI {
             seedMapping: seed,
             style: style
         )
+
+        // The shared service has now run the exact outbound restore verdict.
+        // Only after it passes may the CLI create or write destination files.
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
         // Save the union back so the client's next session keeps these
         // identities.

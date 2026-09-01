@@ -58,6 +58,23 @@ final class SealCandidateDetectorTests: XCTestCase {
         return context
     }
 
+    private func makeTransparentContext(width: Int, height: Int) throws -> CGContext {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw DocumentIOError.corrupt("test could not create a transparent fixture context")
+        }
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        return context
+    }
+
     private func image(from context: CGContext) throws -> CGImage {
         guard let image = context.makeImage() else {
             throw DocumentIOError.corrupt("test could not render a fixture image")
@@ -160,6 +177,74 @@ final class SealCandidateDetectorTests: XCTestCase {
         XCTAssertFalse(SealCandidateDetector.isSealRed(r: 40, g: 40, b: 40, a: 255), "black ink")
         XCTAssertFalse(SealCandidateDetector.isSealRed(r: 255, g: 215, b: 210, a: 255), "pale pink wash")
         XCTAssertFalse(SealCandidateDetector.isSealRed(r: 222, g: 43, b: 38, a: 40), "transparent red")
+    }
+
+    /// Visible seal ink can carry alpha when it comes from a composited scan
+    /// or a PDF raster. The detector must judge its unpremultiplied color.
+    func testSemiTransparentSealYieldsCandidate() throws {
+        let width = 600
+        let height = 400
+        let seal = CGRect(x: 220, y: 120, width: 160, height: 160)
+        let context = try makeTransparentContext(width: width, height: height)
+        context.setFillColor(red: 0.87, green: 0.17, blue: 0.15, alpha: 0.40)
+        context.fillEllipse(in: seal)
+
+        let candidates = try SealCandidateDetector.candidates(in: try image(from: context))
+        XCTAssertEqual(candidates.count, 1, "visible alpha-blended seal ink must stay detectable")
+        guard let candidate = candidates.first else { return }
+        XCTAssertTrue(
+            pixelRect(candidate, width: width, height: height).contains(seal),
+            "the candidate must cover the full semi-transparent seal"
+        )
+    }
+
+    /// Diagonal halftone cells are one printed stroke even when each cell
+    /// touches the next only at a corner.
+    func testDiagonalHalftoneStrokeYieldsOneCandidate() throws {
+        let width = 320
+        let height = 320
+        let context = try makeContext(width: width, height: height)
+        context.setFillColor(Self.sealRed)
+        for offset in stride(from: 0, to: 160, by: 2) {
+            context.fill(
+                CGRect(
+                    x: CGFloat(70 + offset),
+                    y: CGFloat(70 + offset),
+                    width: 2,
+                    height: 2
+                )
+            )
+        }
+
+        let candidates = try SealCandidateDetector.candidates(in: try image(from: context))
+        XCTAssertEqual(candidates.count, 1, "diagonal halftone cells must form one candidate")
+    }
+
+    /// A dotted seal outline with one clear pixel between dots must remain a
+    /// single connected candidate rather than being discarded as tiny specks.
+    func testDottedSealStrokeBridgesOnePixelGaps() throws {
+        let width = 320
+        let height = 320
+        let seal = CGRect(x: 70, y: 70, width: 180, height: 180)
+        let context = try makeContext(width: width, height: height)
+        context.setFillColor(Self.sealRed)
+
+        for x in stride(from: 70, to: 250, by: 3) {
+            context.fill(CGRect(x: CGFloat(x), y: 70, width: 2, height: 2))
+            context.fill(CGRect(x: CGFloat(x), y: 248, width: 2, height: 2))
+        }
+        for y in stride(from: 70, to: 250, by: 3) {
+            context.fill(CGRect(x: 70, y: CGFloat(y), width: 2, height: 2))
+            context.fill(CGRect(x: 248, y: CGFloat(y), width: 2, height: 2))
+        }
+
+        let candidates = try SealCandidateDetector.candidates(in: try image(from: context))
+        XCTAssertEqual(candidates.count, 1, "one-pixel halftone gaps must not split a seal")
+        guard let candidate = candidates.first else { return }
+        XCTAssertTrue(
+            pixelRect(candidate, width: width, height: height).contains(seal),
+            "the connected candidate must cover the full dotted outline"
+        )
     }
 
     // MARK: - Fixture (a): red circle

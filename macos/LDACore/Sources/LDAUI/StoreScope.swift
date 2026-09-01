@@ -69,4 +69,14 @@ enum StoreBlobKeys {
         defaults.removeObject(forKey: storageKey)
         LocalDataVault.deleteKey(account: vaultAccount(storageKey))
     }
+
+    /// Checked counterpart for a user-visible erasure flow. Destroy the key
+    /// first, then remove its ciphertext and any legacy plaintext. If the
+    /// Keychain refuses deletion, the persisted blob stays available for a
+    /// retry and the caller must not report success.
+    static func eraseAll(storageKey: String, defaults: UserDefaults) throws {
+        try LocalDataVault.deleteKeyChecked(account: vaultAccount(storageKey))
+        defaults.removeObject(forKey: sealed(storageKey))
+        defaults.removeObject(forKey: storageKey)
+    }
 }

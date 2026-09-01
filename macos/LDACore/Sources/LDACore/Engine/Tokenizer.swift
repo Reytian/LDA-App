@@ -21,11 +21,10 @@ import Foundation
 
 /// A tokenize result plus the emit internals an auditing caller needs.
 ///
-/// Only SessionTokenizer's seam pass uses this: to tell a substitution site
-/// apart from a coincidence in the redacted text you have to know what was
-/// emitted where, and neither the tokenized text nor the mapping records it
-/// (the mapping is keyed by replacement, and the same surface can be reached
-/// through a value, a surfaceText or an alias).
+/// SessionTokenizer's seam pass uses the emit details to tell a substitution
+/// site apart from a coincidence in the redacted text. The direct path also
+/// reads the repair flag so a local conflict can trigger the same coordinated
+/// whole-assignment repair for its one document.
 struct DetailedTokenizeResult {
     /// The public result, unchanged.
     let result: TokenizeResult
@@ -35,6 +34,24 @@ struct DetailedTokenizeResult {
     /// The spans after validity filtering, overlap resolution and sorting by
     /// start, which is the order the emit walk used.
     let acceptedSpans: [Span]
+    /// A later assignment made a replacement already in use match across the
+    /// new site's left edge. The earlier replacement must be reminted by a
+    /// whole-assignment pass rather than advancing the later candidate.
+    let requiresWholeAssignmentRepair: Bool
+}
+
+/// A direct tokenization result failed its literal-restore safety audit.
+public enum TokenizationSafetyError: LocalizedError, Equatable, Sendable {
+    case unresolvedSeams([String])
+
+    public var errorDescription: String? {
+        switch self {
+        case .unresolvedSeams(let seams):
+            return "The pseudonym output could not be verified for safe restoration. "
+                + "Do not release it until these conflicts are resolved: "
+                + seams.joined(separator: " ")
+        }
+    }
 }
 
 /// Builds tokenized text and the token map from a set of located spans.
@@ -43,6 +60,23 @@ struct DetailedTokenizeResult {
 /// the file system. The caller supplies the creation timestamp and source file
 /// name so that the result is deterministic and testable.
 public enum Tokenizer {
+    /// Refuse a direct tokenization result whose whole-assignment verifier
+    /// reported unresolved literal seams. Release paths call this before any
+    /// file, clipboard, CLI, GUI, or MCP output is produced.
+    @discardableResult
+    public static func requireSafeForRelease(
+        _ result: TokenizeResult
+    ) throws -> TokenizeResult {
+        guard result.unresolvedSeams.isEmpty else {
+            throw TokenizationSafetyError.unresolvedSeams(result.unresolvedSeams)
+        }
+        try OutboundReleasePreflight.requireSafe(
+            text: result.tokenizedText,
+            mapping: result.mapping
+        )
+        return result
+    }
+
     /// Tokenize the given text against the supplied spans.
     ///
     /// One unique token is minted per DISTINCT surface text. The same surface
@@ -148,12 +182,11 @@ public enum Tokenizer {
         )
     }
 
-    /// Shared core behind both public entry points and SessionTokenizer.
+    /// Shared core behind both public entry points.
     ///
     /// `overrides` must already be validated by PseudonymOverrideValidator
     /// against the FULL corpus this text belongs to; the core reserves and
-    /// applies them without revalidating. Internal rather than private so
-    /// SessionTokenizer can fold a session it validated once as a whole.
+    /// applies them without revalidating.
     static func tokenizeCore(
         text: String,
         spans: [Span],
@@ -164,17 +197,37 @@ public enum Tokenizer {
         uniquenessCorpus: [String],
         overrides: [String: String]
     ) -> TokenizeResult {
-        tokenizeDetailed(
+        let resetSeed = resettingUserOverrideEmissions(in: seedMapping)
+        let detailed = tokenizeDetailed(
             text: text,
             spans: spans,
             sourceFile: sourceFile,
             createdAtISO8601: createdAtISO8601,
-            seedMapping: seedMapping,
+            seedMapping: resetSeed,
             style: style,
             uniquenessCorpus: uniquenessCorpus,
             overrides: overrides,
             forbiddenReplacements: [:]
-        ).result
+        )
+        guard style == .pseudonym, detailed.requiresWholeAssignmentRepair else {
+            return detailed.result
+        }
+
+        // A left-edge seam can be inescapable by advancing the replacement
+        // emitted at the later site. Reuse the session repair loop as a
+        // one-document whole assignment so it bans and remints the owner of
+        // the replacement that actually matched. SessionTokenizer's fold
+        // calls tokenizeDetailed directly, so this does not recurse.
+        return SessionTokenizer.repairSingleDocument(
+            text: text,
+            spans: spans,
+            sourceFile: sourceFile,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: resetSeed,
+            style: style,
+            uniquenessCorpus: uniquenessCorpus,
+            overrides: overrides
+        )
     }
 
     /// tokenizeCore plus the two internals a caller needs to audit what was
@@ -210,26 +263,42 @@ public enum Tokenizer {
                 && span.start < span.end
         }
 
-        // Step 2: resolve any residual overlaps. Prefer the longest span; on
-        // equal length prefer the earliest start. Drop any span that overlaps an
-        // already-accepted span. This mirrors the Python candidate_spans sort
-        // (longest first, then earliest) followed by a greedy accept.
-        let ordered = validSpans.sorted { lhs, rhs in
-            let lhsLength = lhs.end - lhs.start
-            let rhsLength = rhs.end - rhs.start
-            if lhsLength != rhsLength {
-                return lhsLength > rhsLength
+        // Step 2: resolve any residual overlaps. SpanMerger normally gives us
+        // an already-disjoint set, so recognize that case in document order
+        // instead of comparing every span with every accepted predecessor.
+        // The fallback preserves the historical longest-first greedy rule for
+        // callers that do supply overlaps.
+        let byStart = validSpans.sorted { lhs, rhs in
+            if lhs.start != rhs.start {
+                return lhs.start < rhs.start
             }
-            return lhs.start < rhs.start
+            return lhs.end < rhs.end
+        }
+        let alreadyDisjoint = zip(byStart, byStart.dropFirst()).allSatisfy { pair in
+            pair.0.end <= pair.1.start
         }
 
-        var accepted: [Span] = []
-        for span in ordered {
-            let overlaps = accepted.contains { other in
-                span.start < other.end && span.end > other.start
+        var accepted: [Span]
+        if alreadyDisjoint {
+            accepted = byStart
+        } else {
+            let ordered = validSpans.sorted { lhs, rhs in
+                let lhsLength = lhs.end - lhs.start
+                let rhsLength = rhs.end - rhs.start
+                if lhsLength != rhsLength {
+                    return lhsLength > rhsLength
+                }
+                return lhs.start < rhs.start
             }
-            if !overlaps {
-                accepted.append(span)
+
+            accepted = []
+            for span in ordered {
+                let overlaps = accepted.contains { other in
+                    span.start < other.end && span.end > other.start
+                }
+                if !overlaps {
+                    accepted.append(span)
+                }
             }
         }
 
@@ -251,6 +320,9 @@ public enum Tokenizer {
         var typeCounters: [String: Int] = [:]
         var textToToken: [String: String] = [:]
         var entries: [String: MappingEntry] = [:]
+        var naturalPseudonymCorpus = PseudonymSeamGuard.NaturalCorpusIndex(
+            texts: style == .pseudonym ? [text] + uniquenessCorpus : []
+        )
 
         // Seed the walk from an existing mapping: known surfaces reuse their
         // token, counters continue past the seed maxima, and the seed entries
@@ -282,9 +354,8 @@ public enum Tokenizer {
                         entry,
                         surface: surface,
                         style: style,
-                        text: text,
                         reservedLiterals: reservedLiterals,
-                        uniquenessCorpus: uniquenessCorpus
+                        naturalPseudonymCorpus: &naturalPseudonymCorpus
                     ) else { continue }
                     textToToken[surface] = entry.token
                 }
@@ -300,6 +371,28 @@ public enum Tokenizer {
             textToToken: &textToToken
         )
         var pseudonyms = PseudonymGenerator()
+        let pseudonymReplacements = style == .pseudonym ? usedReplacements : []
+        var replacementPrefixes = PseudonymSeamGuard.ReplacementPrefixIndex(
+            replacements: pseudonymReplacements
+        )
+        let initialPseudonymAssignments: [String: String]
+        if style == .pseudonym {
+            initialPseudonymAssignments = textToToken.merging(overrides) { _, forced in
+                forced
+            }
+        } else {
+            initialPseudonymAssignments = [:]
+        }
+        var pseudonymSeams = PseudonymSeamGuard.MintingContext(
+            text: text,
+            spans: accepted,
+            initialReplacementBySurface: initialPseudonymAssignments,
+            scannedReplacements: pseudonymReplacements
+        )
+        let carriedReplacementOccursNaturally = style == .pseudonym
+            && pseudonymReplacements.contains { replacement in
+                naturalPseudonymCorpus.contains(replacement)
+            }
 
         for span in accepted {
             let surfaceText = span.text
@@ -347,34 +440,27 @@ public enum Tokenizer {
                     // and the longest-match-wins scan then restores the wrong
                     // entity over the site. See PseudonymSeamGuard.
                     //
-                    // Overrides are folded in whether or not their span has
-                    // been walked yet: forced text is emitted verbatim at
-                    // every one of its sites, so its seams are already known
-                    // and a pseudonym minted for an EARLIER span must see
-                    // them too.
-                    let emitted = textToToken.merging(overrides) { _, forced in
-                        forced
-                    }
-                    let provisional = PseudonymSeamGuard.renderProvisional(
-                        text: text,
-                        spans: accepted,
-                        replacementBySurface: emitted
-                    )
+                    // The seam context starts with seed reuse and every
+                    // override, including forced text whose span comes later.
+                    // It indexes bounded emission-site windows, so minting no
+                    // longer rebuilds the full document for every surface.
                     let banned = forbiddenReplacements[surfaceText] ?? []
                     replacement = pseudonyms.mint(type: span.type, surface: surfaceText) { candidate in
-                        usedReplacements.contains(candidate)
+                        if usedReplacements.contains(candidate)
                             || banned.contains(candidate)
                             || reservedLiterals.contains(candidate)
-                            || text.contains(candidate)
-                            || uniquenessCorpus.contains { $0.contains(candidate) }
-                            || provisional.text.contains(candidate)
-                            || PseudonymSeamGuard.completesLongerReplacement(
-                                candidate: candidate,
-                                surface: surfaceText,
-                                spans: accepted,
-                                document: provisional,
-                                replacements: usedReplacements
-                            )
+                            || naturalPseudonymCorpus.contains(candidate) {
+                            return true
+                        }
+                        if pseudonymSeams.spellsAtExistingSeam(candidate) {
+                            return true
+                        }
+                        return pseudonymSeams.completesLongerReplacement(
+                            candidate: candidate,
+                            surface: surfaceText,
+                            longerReplacements: replacementPrefixes
+                                .longerReplacements(startingWith: candidate)
+                        )
                     }
 
                 case .asterisk:
@@ -385,6 +471,13 @@ public enum Tokenizer {
                 }
             }
 
+            if style == .pseudonym {
+                pseudonymSeams.recordAssignment(
+                    surface: surfaceText,
+                    replacement: replacement
+                )
+                replacementPrefixes.insert(replacement)
+            }
             usedReplacements.insert(replacement)
             textToToken[surfaceText] = replacement
 
@@ -394,7 +487,8 @@ public enum Tokenizer {
                     value: surfaceText,
                     type: span.type,
                     surfaceText: surfaceText,
-                    aliases: []
+                    aliases: [],
+                    userOverrideEmissionCount: overrides[surfaceText] == replacement ? 0 : nil
                 ),
                 into: &entries
             )
@@ -406,6 +500,10 @@ public enum Tokenizer {
         // inserted token is re-scanned.
         var pieces: [String] = []
         var cursor = 0
+        let userOverrideEntryKeys = userOverrideEmissionEntryKeys(
+            currentOverrides: overrides,
+            entries: entries
+        )
 
         for span in accepted {
             // The span's surface text must already have a token. Every accepted
@@ -418,6 +516,12 @@ public enum Tokenizer {
                 pieces.append(utf16Substring(of: text, from: cursor, to: span.start))
             }
             pieces.append(token)
+            recordUserOverrideEmission(
+                replacement: token,
+                surface: span.text,
+                entryKeys: userOverrideEntryKeys,
+                entries: &entries
+            )
             cursor = span.end
         }
 
@@ -437,7 +541,9 @@ public enum Tokenizer {
         return DetailedTokenizeResult(
             result: TokenizeResult(tokenizedText: tokenizedText, mapping: mapping),
             replacementBySurface: textToToken,
-            acceptedSpans: accepted
+            acceptedSpans: accepted,
+            requiresWholeAssignmentRepair: carriedReplacementOccursNaturally
+                || pseudonymSeams.requiresWholeAssignmentRepair
         )
     }
 
@@ -461,9 +567,8 @@ public enum Tokenizer {
         _ entry: MappingEntry,
         surface: String,
         style: SubstitutionStyle,
-        text: String,
         reservedLiterals: Set<String>,
-        uniquenessCorpus: [String]
+        naturalPseudonymCorpus: inout PseudonymSeamGuard.NaturalCorpusIndex
     ) -> Bool {
         switch style {
         case .token:
@@ -471,8 +576,7 @@ public enum Tokenizer {
                 && !reservedLiterals.contains(entry.token)
         case .pseudonym:
             return parseToken(entry.token) == nil
-                && !text.contains(entry.token)
-                && !uniquenessCorpus.contains { $0.contains(entry.token) }
+                && !naturalPseudonymCorpus.contains(entry.token)
         case .asterisk:
             return entry.token == AsteriskMasking.mask(surface, type: entry.type)
         }
@@ -503,6 +607,81 @@ public enum Tokenizer {
                 textToToken[surface] = nil
             }
         }
+    }
+
+    /// Reset a forced replacement's site count at the start of one outbound
+    /// handoff while retaining the non-nil marker that identifies its origin.
+    /// SessionTokenizer calls this once before its document fold, then every
+    /// document contributes to the same accumulating count.
+    static func resettingUserOverrideEmissions(in seed: Mapping?) -> Mapping? {
+        guard var reset = seed else { return nil }
+        for key in Array(reset.entries.keys) {
+            guard var entry = reset.entries[key], entry.userOverrideEmissionCount != nil else {
+                continue
+            }
+            entry.userOverrideEmissionCount = 0
+            reset.entries[key] = entry
+        }
+        return reset
+    }
+
+    private struct UserOverrideEmissionKey: Hashable {
+        let replacement: String
+        let surface: String
+    }
+
+    /// Resolve every forced pseudonym to its mapping key once before emit.
+    ///
+    /// A current override can promote an older ordinary entry when its
+    /// existing replacement is exactly the text the user forced. A persisted
+    /// forced entry keeps its marker even when the later handoff no longer
+    /// carries an override list. Sorted entry keys preserve the historical
+    /// first-match rule without sorting and scanning the whole mapping for
+    /// every emitted span.
+    private static func userOverrideEmissionEntryKeys(
+        currentOverrides: [String: String],
+        entries: [String: MappingEntry]
+    ) -> [UserOverrideEmissionKey: String] {
+        guard !currentOverrides.isEmpty
+            || entries.values.contains(where: { $0.userOverrideEmissionCount != nil }) else {
+            return [:]
+        }
+
+        var result: [UserOverrideEmissionKey: String] = [:]
+        var resolved: Set<UserOverrideEmissionKey> = []
+        for key in entries.keys.sorted() {
+            guard let entry = entries[key] else { continue }
+            let surfaces = [entry.value, entry.surfaceText] + entry.aliases
+            for surface in surfaces where !surface.isEmpty {
+                let emission = UserOverrideEmissionKey(
+                    replacement: entry.token,
+                    surface: surface
+                )
+                guard resolved.insert(emission).inserted else { continue }
+                if entry.userOverrideEmissionCount != nil
+                    || currentOverrides[surface] == entry.token {
+                    result[emission] = key
+                }
+            }
+        }
+        return result
+    }
+
+    /// Count one actual emission for a forced pseudonym using the lookup
+    /// prepared before the emit walk.
+    private static func recordUserOverrideEmission(
+        replacement: String,
+        surface: String,
+        entryKeys: [UserOverrideEmissionKey: String],
+        entries: inout [String: MappingEntry]
+    ) {
+        let emission = UserOverrideEmissionKey(
+            replacement: replacement,
+            surface: surface
+        )
+        guard let key = entryKeys[emission], var entry = entries[key] else { return }
+        entry.userOverrideEmissionCount = (entry.userOverrideEmissionCount ?? 0) + 1
+        entries[key] = entry
     }
 
     /// Insert a freshly minted entry under a collision-free key.

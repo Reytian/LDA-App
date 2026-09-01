@@ -21,14 +21,12 @@
 //  the first one and eats the adjacent letter. Neither replacement occurs in
 //  the natural text, so every pre-existing check passes.
 //
-//  This guard closes that shape in both mint orders:
-//  - renderProvisional gives the mint loop the document as the restore scan
-//    will see it, so a candidate that the already-emitted seams already spell
-//    is rejected (the longer replacement minted after the shorter one).
-//  - completesLongerReplacement rejects a candidate that is a strict prefix
-//    of a replacement already in use whose remaining tail is exactly what
-//    follows one of the candidate's own sites (the shorter replacement minted
-//    after the longer one).
+//  This guard closes that shape in both mint orders. MintingContext indexes
+//  bounded windows around emission sites, so a candidate already spelled by
+//  an emitted seam is rejected without rendering the whole document. A
+//  replacement-prefix index handles the mirror order, where the candidate is
+//  a strict prefix of a replacement already in use and the following text
+//  completes the longer one.
 //
 //  User-supplied replacement text (overrides) reaches the same analysis
 //  through overrideSeamConflict, which renders the corpus with the forced
@@ -51,6 +49,359 @@ import Foundation
 
 /// Seam-aware checks over the document the literal restore scan will read.
 enum PseudonymSeamGuard {
+
+    /// Immutable source corpus indexed lazily by candidate UTF-16 length.
+    ///
+    /// The old mint predicate scanned every full document for every candidate.
+    /// Here each length is scanned once with a rolling hash. A hash hit is
+    /// confirmed by an exact literal search, so collisions can cost one scan
+    /// but can never reject or accept the wrong candidate.
+    struct NaturalCorpusIndex {
+        private static let hashBase: UInt64 = 1_099_511_628_211
+
+        private let texts: [String]
+        private let utf16Texts: [[UInt16]]
+        private var hashesByLength: [Int: Set<UInt64>] = [:]
+
+        init(texts: [String]) {
+            self.texts = texts
+            self.utf16Texts = texts.map { Array($0.utf16) }
+        }
+
+        mutating func contains(_ candidate: String) -> Bool {
+            let units = Array(candidate.utf16)
+            guard !units.isEmpty else { return false }
+
+            if hashesByLength[units.count] == nil {
+                hashesByLength[units.count] = hashes(ofLength: units.count)
+            }
+            guard hashesByLength[units.count]?.contains(Self.hash(units)) == true else {
+                return false
+            }
+
+            // Exact confirmation preserves the uniqueness contract even if
+            // two different UTF-16 windows share a 64-bit rolling hash.
+            return texts.contains { text in
+                (text as NSString).range(of: candidate, options: [.literal]).location
+                    != NSNotFound
+            }
+        }
+
+        private func hashes(ofLength length: Int) -> Set<UInt64> {
+            var found: Set<UInt64> = []
+            var leadingPower: UInt64 = 1
+            if length > 1 {
+                for _ in 1..<length {
+                    leadingPower = leadingPower &* Self.hashBase
+                }
+            }
+
+            for text in utf16Texts where text.count >= length {
+                var windowHash = Self.hash(Array(text[0..<length]))
+                found.insert(windowHash)
+
+                guard text.count > length else { continue }
+                for end in length..<text.count {
+                    let outgoing = UInt64(text[end - length]) &+ 1
+                    let incoming = UInt64(text[end]) &+ 1
+                    windowHash = (windowHash &- (outgoing &* leadingPower))
+                        &* Self.hashBase
+                        &+ incoming
+                    found.insert(windowHash)
+                }
+            }
+            return found
+        }
+
+        private static func hash(_ units: [UInt16]) -> UInt64 {
+            units.reduce(into: UInt64(0)) { partial, unit in
+                partial = partial &* hashBase &+ UInt64(unit) &+ 1
+            }
+        }
+    }
+
+    /// Used replacements grouped by every proper prefix they have.
+    ///
+    /// The mint loop asks only whether the current candidate is a prefix of a
+    /// longer replacement. Building that relation once as replacements enter
+    /// the assignment avoids filtering the whole mapping for every candidate.
+    struct ReplacementPrefixIndex {
+        private var indexed: Set<String> = []
+        private var longerByPrefix: [String: [String]] = [:]
+
+        init(replacements: Set<String>) {
+            for replacement in replacements {
+                insert(replacement)
+            }
+        }
+
+        mutating func insert(_ replacement: String) {
+            guard !replacement.isEmpty, indexed.insert(replacement).inserted else {
+                return
+            }
+
+            var end = replacement.startIndex
+            while end < replacement.endIndex {
+                end = replacement.index(after: end)
+                guard end < replacement.endIndex else {
+                    break
+                }
+                longerByPrefix[String(replacement[..<end]), default: []].append(replacement)
+            }
+        }
+
+        func longerReplacements(startingWith candidate: String) -> [String] {
+            longerByPrefix[candidate] ?? []
+        }
+    }
+
+    /// Incremental seam data for one raw tokenization fold.
+    ///
+    /// Only strings that intersect an emitted piece can be new in the
+    /// redacted document. This context therefore keeps bounded windows around
+    /// those pieces and indexes their substrings. Querying a mint candidate is
+    /// a set lookup, while adding a new assignment touches only that surface's
+    /// sites. The full renderer remains below for the completed-assignment
+    /// verifier, where it runs once per document rather than once per entity.
+    struct MintingContext {
+        private let original: NSString
+        private let spans: [Span]
+        private let spanIndicesBySurface: [String: [Int]]
+        private var replacementBySurface: [String: String]
+        private var scannedReplacements: Set<String>
+        private var indexedLength: Int
+        private var seamSpellings: Set<String> = []
+
+        /// True when assigning a later surface made an earlier replacement
+        /// match across the new site's left edge. Advancing the later
+        /// candidate may be inescapable, so the caller repairs the completed
+        /// assignment by reminting the owner of the matched replacement.
+        private(set) var requiresWholeAssignmentRepair = false
+
+        init(
+            text: String,
+            spans: [Span],
+            initialReplacementBySurface: [String: String],
+            scannedReplacements: Set<String>
+        ) {
+            self.original = text as NSString
+            self.spans = spans
+            var indices: [String: [Int]] = [:]
+            for (index, span) in spans.enumerated() {
+                indices[span.text, default: []].append(index)
+            }
+            self.spanIndicesBySurface = indices
+            self.replacementBySurface = initialReplacementBySurface
+            self.scannedReplacements = scannedReplacements
+            self.indexedLength = max(
+                1,
+                scannedReplacements.lazy.map(\.count).max() ?? 1
+            )
+            rebuildIndex()
+        }
+
+        /// Whether an already emitted seam spells this candidate somewhere it
+        /// was not emitted. Candidate lengths grow only at sequence rollover
+        /// points. When one exceeds the current bound, rebuild once at the new
+        /// bound, then resume constant-time lookups.
+        mutating func spellsAtExistingSeam(_ candidate: String) -> Bool {
+            if candidate.count > indexedLength {
+                indexedLength = candidate.count
+                rebuildIndex()
+            }
+            return seamSpellings.contains(candidate)
+        }
+
+        /// Whether a longer replacement already in use would consume the
+        /// candidate's own site using text immediately following it.
+        func completesLongerReplacement(
+            candidate: String,
+            surface: String,
+            longerReplacements: [String]
+        ) -> Bool {
+            guard !longerReplacements.isEmpty,
+                  let indices = spanIndicesBySurface[surface] else {
+                return false
+            }
+
+            let tails = longerReplacements.map {
+                String($0.dropFirst(candidate.count))
+            }
+            let required = tails.lazy.map { $0.utf16.count }.max() ?? 0
+            guard required > 0 else {
+                return false
+            }
+
+            for index in indices {
+                let following = renderedRight(ofSpanAt: index, limit: required)
+                if tails.contains(where: { following.hasPrefix($0) }) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        /// Record one newly assigned surface and index only its emission
+        /// sites. The set of scanned replacements deliberately excludes the
+        /// new replacement until after conflict detection, because an exact
+        /// match at the site that just emitted it is expected.
+        mutating func recordAssignment(surface: String, replacement: String) {
+            if replacementBySurface[surface] == replacement {
+                scannedReplacements.insert(replacement)
+                return
+            }
+
+            replacementBySurface[surface] = replacement
+            for index in spanIndicesBySurface[surface] ?? [] {
+                indexSite(at: index, detectingConflicts: true)
+            }
+            scannedReplacements.insert(replacement)
+        }
+
+        private mutating func rebuildIndex() {
+            seamSpellings.removeAll(keepingCapacity: true)
+            requiresWholeAssignmentRepair = false
+            for (index, span) in spans.enumerated()
+            where replacementBySurface[span.text] != nil {
+                indexSite(at: index, detectingConflicts: true)
+            }
+        }
+
+        private mutating func indexSite(
+            at index: Int,
+            detectingConflicts: Bool
+        ) {
+            guard spans.indices.contains(index),
+                  let replacement = replacementBySurface[spans[index].text] else {
+                return
+            }
+
+            let radius = max(0, indexedLength - 1)
+            let left = renderedLeft(ofSpanAt: index, limit: radius)
+            let right = renderedRight(ofSpanAt: index, limit: radius)
+            let characters = Array(left + replacement + right)
+            let siteStart = left.count
+            let siteEnd = siteStart + replacement.count
+
+            guard !characters.isEmpty else {
+                return
+            }
+            for start in characters.indices {
+                let furthestEnd = min(characters.count, start + indexedLength)
+                guard start < siteEnd, furthestEnd > siteStart else {
+                    continue
+                }
+                for end in (start + 1)...furthestEnd where end > siteStart {
+                    let spelling = String(characters[start..<end])
+                    seamSpellings.insert(spelling)
+
+                    guard detectingConflicts,
+                          scannedReplacements.contains(spelling) else {
+                        continue
+                    }
+                    let crossesLeftEdge = start < siteStart && end > siteStart
+                    let swallowsWholeSite = start == siteStart && end > siteEnd
+                    if crossesLeftEdge || swallowsWholeSite {
+                        requiresWholeAssignmentRepair = true
+                    }
+                }
+            }
+        }
+
+        /// Render only the characters immediately before one span, applying
+        /// assignments to earlier spans that enter the bounded window.
+        private func renderedLeft(ofSpanAt index: Int, limit: Int) -> String {
+            guard limit > 0 else { return "" }
+
+            var remaining = limit
+            var cursor = spans[index].start
+            var priorIndex = index - 1
+            var reversed: [String] = []
+
+            while remaining > 0 {
+                let gapStart = priorIndex >= 0 ? spans[priorIndex].end : 0
+                if cursor > gapStart {
+                    let gap = originalSuffix(from: gapStart, to: cursor, limit: remaining)
+                    reversed.append(gap)
+                    remaining -= gap.utf16.count
+                }
+                guard remaining > 0, priorIndex >= 0 else {
+                    break
+                }
+
+                let piece = renderedPiece(for: spans[priorIndex])
+                let suffix = utf16Suffix(piece, limit: remaining)
+                reversed.append(suffix)
+                remaining -= suffix.utf16.count
+                cursor = spans[priorIndex].start
+                priorIndex -= 1
+            }
+            return reversed.reversed().joined()
+        }
+
+        /// Render only the characters immediately after one span, applying
+        /// assignments to later spans that enter the bounded window.
+        private func renderedRight(ofSpanAt index: Int, limit: Int) -> String {
+            guard limit > 0 else { return "" }
+
+            var remaining = limit
+            var cursor = spans[index].end
+            var nextIndex = index + 1
+            var pieces: [String] = []
+
+            while remaining > 0 {
+                let gapEnd = nextIndex < spans.count
+                    ? spans[nextIndex].start
+                    : original.length
+                if gapEnd > cursor {
+                    let gap = originalPrefix(from: cursor, to: gapEnd, limit: remaining)
+                    pieces.append(gap)
+                    remaining -= gap.utf16.count
+                }
+                guard remaining > 0, nextIndex < spans.count else {
+                    break
+                }
+
+                let piece = renderedPiece(for: spans[nextIndex])
+                let prefix = utf16Prefix(piece, limit: remaining)
+                pieces.append(prefix)
+                remaining -= prefix.utf16.count
+                cursor = spans[nextIndex].end
+                nextIndex += 1
+            }
+            return pieces.joined()
+        }
+
+        private func renderedPiece(for span: Span) -> String {
+            replacementBySurface[span.text]
+                ?? original.substring(
+                    with: NSRange(location: span.start, length: span.end - span.start)
+                )
+        }
+
+        private func originalSuffix(from start: Int, to end: Int, limit: Int) -> String {
+            let length = min(limit, end - start)
+            return original.substring(
+                with: NSRange(location: end - length, length: length)
+            )
+        }
+
+        private func originalPrefix(from start: Int, to end: Int, limit: Int) -> String {
+            let length = min(limit, end - start)
+            return original.substring(with: NSRange(location: start, length: length))
+        }
+
+        private func utf16Suffix(_ text: String, limit: Int) -> String {
+            let value = text as NSString
+            let length = min(limit, value.length)
+            return value.substring(from: value.length - length)
+        }
+
+        private func utf16Prefix(_ text: String, limit: Int) -> String {
+            let value = text as NSString
+            return value.substring(to: min(limit, value.length))
+        }
+    }
 
     /// A rendering of the document part way through minting, plus where each
     /// span's emitted piece landed in it.

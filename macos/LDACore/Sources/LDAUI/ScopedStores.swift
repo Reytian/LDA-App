@@ -171,4 +171,15 @@ public enum ScopedStores {
         LearningStore.removeMatterScope(id: id, defaults: defaults)
         CustomPatternStore.removeMatterScope(id: id, defaults: defaults)
     }
+
+    /// Checked deletion boundary for a user-visible matter erase. Each
+    /// matter-scoped store owns a distinct vault key, and either Keychain
+    /// failure is returned instead of being reported as successful erasure.
+    public static func eraseMatterScope(
+        id: UUID,
+        defaults: UserDefaults = .standard
+    ) throws {
+        try LearningStore.eraseMatterScope(id: id, defaults: defaults)
+        try CustomPatternStore.eraseMatterScope(id: id, defaults: defaults)
+    }
 }

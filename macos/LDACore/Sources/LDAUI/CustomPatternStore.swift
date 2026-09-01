@@ -90,6 +90,17 @@ public final class CustomPatternStore: ObservableObject {
         StoreBlobKeys.removeAll(storageKey: storageKey, defaults: defaults)
     }
 
+    /// Checked erasure used by matter deletion. Unlike removeMatterScope,
+    /// failure to destroy the unique vault key is surfaced to the caller.
+    public nonisolated static func eraseMatterScope(
+        id: UUID,
+        defaults: UserDefaults = .standard,
+        baseKey: String = CustomPatternStore.defaultStorageKey
+    ) throws {
+        let storageKey = StoreScope.matter(id: id).storageKey(base: baseKey)
+        try StoreBlobKeys.eraseAll(storageKey: storageKey, defaults: defaults)
+    }
+
     /// Append a new, empty term ready for editing.
     public func add() {
         patterns.append(CustomPattern(text: "", type: .company))

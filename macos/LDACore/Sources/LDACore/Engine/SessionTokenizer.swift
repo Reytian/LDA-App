@@ -100,7 +100,8 @@ public enum SessionTokenizer {
             createdAtISO8601: createdAtISO8601,
             seedMapping: seedMapping,
             style: style,
-            overrides: [:]
+            overrides: [:],
+            uniquenessCorpus: []
         )
     }
 
@@ -137,7 +138,41 @@ public enum SessionTokenizer {
             createdAtISO8601: createdAtISO8601,
             seedMapping: seedMapping,
             style: style,
-            overrides: overrides
+            overrides: overrides,
+            uniquenessCorpus: []
+        )
+    }
+
+    /// Run the coordinated assignment repair for one direct Tokenizer call.
+    ///
+    /// Tokenizer invokes this only after its local seam data finds a conflict
+    /// that requires changing an earlier replacement. Keeping this entry
+    /// inside SessionTokenizer reuses the proven ban-and-refold direction,
+    /// while fold continues to call Tokenizer.tokenizeDetailed directly and
+    /// therefore cannot recurse into the public direct path.
+    static func repairSingleDocument(
+        text: String,
+        spans: [Span],
+        sourceFile: String,
+        createdAtISO8601: String,
+        seedMapping: Mapping?,
+        style: SubstitutionStyle,
+        uniquenessCorpus: [String],
+        overrides: [String: String]
+    ) -> TokenizeResult {
+        let repaired = tokenizeCore(
+            documents: [SessionDocument(name: sourceFile, text: text, spans: spans)],
+            sourceLabel: sourceFile,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: seedMapping,
+            style: style,
+            overrides: overrides,
+            uniquenessCorpus: uniquenessCorpus
+        )
+        return TokenizeResult(
+            tokenizedText: repaired.documents.first?.tokenizedText ?? text,
+            mapping: repaired.mapping,
+            unresolvedSeams: repaired.unresolvedSeams
         )
     }
 
@@ -165,7 +200,8 @@ public enum SessionTokenizer {
         createdAtISO8601: String,
         seedMapping: Mapping?,
         style: SubstitutionStyle,
-        overrides: [String: String]
+        overrides: [String: String],
+        uniquenessCorpus: [String]
     ) -> SessionTokenizeResult {
         var forbidden: [String: Set<String>] = [:]
         var passes = 0
@@ -178,6 +214,7 @@ public enum SessionTokenizer {
                 seedMapping: seedMapping,
                 style: style,
                 overrides: overrides,
+                uniquenessCorpus: uniquenessCorpus,
                 forbiddenReplacements: forbidden
             )
 
@@ -273,9 +310,10 @@ public enum SessionTokenizer {
         seedMapping: Mapping?,
         style: SubstitutionStyle,
         overrides: [String: String],
+        uniquenessCorpus: [String],
         forbiddenReplacements: [String: Set<String>]
     ) -> Folded {
-        var mapping = seedMapping ?? Mapping(
+        var mapping = Tokenizer.resettingUserOverrideEmissions(in: seedMapping) ?? Mapping(
             entries: [:],
             createdAtISO8601: createdAtISO8601,
             sourceFile: sourceLabel,
@@ -292,8 +330,10 @@ public enum SessionTokenizer {
         let allTexts = documents.map { $0.text }
 
         for (index, document) in documents.enumerated() {
-            var corpus = allTexts
-            corpus.remove(at: index)
+            var corpus = uniquenessCorpus
+            corpus += allTexts.enumerated().compactMap { otherIndex, text in
+                otherIndex == index ? nil : text
+            }
             let detailed = Tokenizer.tokenizeDetailed(
                 text: document.text,
                 spans: document.spans,

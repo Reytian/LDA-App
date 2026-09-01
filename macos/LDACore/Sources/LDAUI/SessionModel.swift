@@ -24,6 +24,7 @@ public enum MatterManagementError: LocalizedError, Sendable {
     case labelInUse(String)
     case reservedAlias(String, currentLabel: String)
     case archivedMatter(String)
+    case deletionRequiresArchive(String)
     case renameRecoveryRequired
     case archiveRecoveryRequired
 
@@ -39,6 +40,8 @@ public enum MatterManagementError: LocalizedError, Sendable {
             return "\"\(alias)\" is a previous name for \"\(currentLabel)\". Open the current matter instead."
         case .archivedMatter(let label):
             return "\"\(label)\" is archived. Restore it from Matters before opening it."
+        case .deletionRequiresArchive(let label):
+            return "Archive \"\(label)\" before deleting it permanently."
         case .renameRecoveryRequired:
             return "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue."
         case .archiveRecoveryRequired:
@@ -294,9 +297,11 @@ public final class SessionModel: ObservableObject {
 
     // MARK: - Tray management (R19)
 
-    /// Add documents to the session. A .zip expands into its supported
-    /// documents. Each document gets its own configured ReviewModel and is
-    /// imported immediately; the last added document becomes selected.
+    /// Add documents to the session. Chosen folders expand through
+    /// FolderImporter's deterministic, whole-batch rules, then a directly
+    /// chosen .zip expands into its supported documents. Each document gets
+    /// its own configured ReviewModel and is imported immediately; the last
+    /// added document becomes selected.
     ///
     /// - Parameter budget: the unpacking allowance for this whole import. One
     ///   ledger covers every archive in the batch, so selecting many small
@@ -306,11 +311,18 @@ public final class SessionModel: ObservableObject {
     public func addDocuments(_ urls: [URL], budget: ArchiveBudget = ArchiveBudget()) async {
         let importGeneration = documentImportGeneration
         importFailure = nil
+        let selection: [URL]
+        do {
+            selection = try FolderImporter.expandSelection(urls)
+        } catch {
+            importFailure = error.localizedDescription
+            return
+        }
         // A .zip expands into a temp directory whose files stay readable for
         // as long as the tray holds them (re-scan and export both re-read the
         // source), so the expansion is cleaned when the tray empties and at
         // termination, not here. See discardExpandedArchives().
-        guard let resolved = expandArchives(in: urls, budget: budget) else { return }
+        guard let resolved = expandArchives(in: selection, budget: budget) else { return }
 
         for url in resolved {
             guard importGeneration == documentImportGeneration else { return }
@@ -512,6 +524,12 @@ public final class SessionModel: ObservableObject {
             style: style,
             overrides: activePseudonymOverrides(for: style)
         )
+        // Exact restore-side verdict before any session mapping, client
+        // profile, record, sealed chip, or parked state is changed.
+        try OutboundReleasePreflight.requireSafe(
+            texts: result.documents.map(\.tokenizedText),
+            mapping: result.mapping
+        )
         // Record the full-name/short-name grouping in the shared mapping,
         // mirroring LDAService.anonymizeSession. Tokens and values are
         // untouched (byte-identical restore); only grouping metadata is added.
@@ -700,6 +718,12 @@ public final class SessionModel: ObservableObject {
     }
     public var makeMatterPatternStore: (UUID) -> CustomPatternStore = {
         CustomPatternStore(scope: .matter(id: $0))
+    }
+
+    /// Checked erasure of the two matter-scoped store layers. Injectable so
+    /// tests can use process-unique base keys instead of production accounts.
+    public var eraseMatterScope: (UUID, UserDefaults) throws -> Void = { id, defaults in
+        try ScopedStores.eraseMatterScope(id: id, defaults: defaults)
     }
 
     /// The scoped facades the document models read. Rebuilt whenever the
@@ -1080,13 +1104,15 @@ public final class SessionModel: ObservableObject {
             + CustomPatternEngine.detect(text, patterns: emptyModel.customPatternProvider())
         let spans = SpanMerger.merge(deterministic: deterministic, llm: [])
 
-        let result = Tokenizer.tokenize(
-            text: text,
-            spans: spans,
-            sourceFile: clientLabel ?? "clipboard",
-            createdAtISO8601: createdAtISO8601,
-            seedMapping: seed,
-            style: outputStyleProvider()
+        let result = try Tokenizer.requireSafeForRelease(
+            Tokenizer.tokenize(
+                text: text,
+                spans: spans,
+                sourceFile: clientLabel ?? "clipboard",
+                createdAtISO8601: createdAtISO8601,
+                seedMapping: seed,
+                style: outputStyleProvider()
+            )
         )
         sessionMapping = result.mapping
 
@@ -1386,6 +1412,114 @@ public final class SessionModel: ObservableObject {
             throw archiveError
         }
         return true
+    }
+
+    /// Permanently delete one archived matter's app-owned state. All encrypted
+    /// stores and the parked owner are resolved before the first mutation. The
+    /// metadata identity is removed last, leaving a discoverable retry target
+    /// if any earlier exact deletion fails.
+    public func deleteMatter(_ candidate: String) throws {
+        let label = try validatedMatterLabel(candidate)
+        let clients = try clientStore()
+        let records = try recordStore()
+        let matters = try matterStore()
+        let clientResolution = try clients.listResolvedLabels { identifier in
+            clientProtection(identifier)
+        }
+        let recordResolution = try records.resolve(protection: recordProtection())
+        let metadataResolution = try matters.list(protection: matterProtection())
+        guard clientResolution.unreadableCount == 0,
+              recordResolution.unreadableCount == 0,
+              metadataResolution.unreadableCount == 0 else {
+            throw MatterManagementError.incompleteWorkspace
+        }
+
+        guard let metadata = metadataResolution.metadata.first(where: {
+            $0.label == label || $0.aliases.contains(label)
+        }), metadata.isArchived else {
+            throw MatterManagementError.deletionRequiresArchive(label)
+        }
+
+        var ownedLabels = Set(metadata.aliases)
+        ownedLabels.insert(metadata.label)
+        if let clientLabel, ownedLabels.contains(clientLabel) {
+            // A correctly archived matter is no longer the live session. Fail
+            // closed if storage and memory disagree instead of discarding work.
+            throw MatterManagementError.deletionRequiresArchive(metadata.label)
+        }
+
+        let parked = try parkedSessionForMatterDeletion()
+        let parkedBelongsToMatter = parked?.state.clientLabel.map {
+            ownedLabels.contains($0)
+        } ?? false
+
+        // Mutation begins only after every required encrypted store and parked
+        // artifact has been unlocked and attributed.
+        if let parked, parkedBelongsToMatter {
+            try discardParkedSession((url: parked.url, state: parked.state))
+            if parked.usesLegacyLabel {
+                legacyDefaults().removeObject(forKey: Self.parkedClientLabelKey)
+            }
+        }
+        let defaults = scopeDefaults()
+        try eraseMatterScope(metadata.id, defaults)
+        defaults.removeObject(forKey: Self.matterScopeToggleKey(for: metadata.id))
+
+        for ownedLabel in ownedLabels.sorted() {
+            try clients.delete(
+                label: ownedLabel,
+                protection: clientProtection(ownedLabel)
+            )
+        }
+        for record in recordResolution.records {
+            guard let candidate = record.clientLabel else { continue }
+            let recordLabel = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ownedLabels.contains(recordLabel) else { continue }
+            try records.delete(id: record.id)
+        }
+
+        try matters.delete(id: metadata.id)
+    }
+
+    /// Decode the parked container without migration or canonical rewrite.
+    /// Deletion preflight must be read-only, and an unreadable owner must block
+    /// deletion because the app cannot prove which matter the file belongs to.
+    private func parkedSessionForMatterDeletion() throws -> (
+        url: URL,
+        state: ParkedSessionState,
+        usesLegacyLabel: Bool
+    )? {
+        let url = try parkedMappingURL()
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        do {
+            return (
+                url,
+                try ParkedSessionStore.load(from: url, protection: parkedProtection()),
+                false
+            )
+        } catch {
+            // Pre-encrypted-label parked files stored a bare Mapping plus one
+            // legacy UserDefaults label. Read both without migrating them so
+            // preflight remains mutation-free; successful target deletion
+            // removes the exact legacy label together with the parked file.
+            do {
+                return (
+                    url,
+                    ParkedSessionState(
+                        mapping: try MappingStore.load(
+                            from: url,
+                            protection: parkedProtection()
+                        ),
+                        clientLabel: legacyDefaults().string(
+                            forKey: Self.parkedClientLabelKey
+                        )
+                    ),
+                    true
+                )
+            } catch {
+                throw MatterManagementError.incompleteWorkspace
+            }
+        }
     }
 
     private func validatedMatterLabel(_ candidate: String) throws -> String {

@@ -218,13 +218,6 @@ public enum LDAService {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
 
-        // Ensure the output directory exists so a caller can point at a fresh
-        // path without having to create it first.
-        try FileManager.default.createDirectory(
-            at: outputDir,
-            withIntermediateDirectories: true
-        )
-
         // Detect entities once, then tokenize. The tokenized text and the mapping
         // drive both the edit surface and the mapping sidecar. The detector is
         // declared at function scope so a later image-PII pass (Task 6) can reuse
@@ -259,12 +252,14 @@ public enum LDAService {
         let spans = ext == "docx" && imageExtraction == nil
             ? SpanSplitter.splitAtLineBreaks(detected, in: imported.text)
             : detected
-        var tokenized = Tokenizer.tokenize(
-            text: imported.text,
-            spans: spans,
-            sourceFile: input.lastPathComponent,
-            createdAtISO8601: createdAtISO8601,
-            style: style
+        var tokenized = try Tokenizer.requireSafeForRelease(
+            Tokenizer.tokenize(
+                text: imported.text,
+                spans: spans,
+                sourceFile: input.lastPathComponent,
+                createdAtISO8601: createdAtISO8601,
+                style: style
+            )
         )
         // Record the full-name/short-name grouping (全称/简称归并) in the
         // mapping: each defined short name's entry points at its canonical
@@ -274,6 +269,13 @@ public enum LDAService {
         tokenized.mapping = EntityRescan.linkAliases(
             in: tokenized.mapping,
             pairs: EntityRescan.aliasPairs(in: imported.text, confirmed: detected)
+        )
+
+        // The release preflight above must finish before the destination is
+        // touched. This keeps a refused asterisk export artifact-free.
+        try FileManager.default.createDirectory(
+            at: outputDir,
+            withIntermediateDirectories: true
         )
 
         // Standalone image input produces TWO artifacts and returns early:
@@ -482,9 +484,13 @@ public enum LDAService {
         let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
 
         if ext == "docx" {
+            // Report against one PRE-restore view of every visible text part.
+            // A post-restore scan cannot count successful substitutions, and a
+            // body-only scan omits headers, footers, notes, and comments.
+            let preRestoreText = try DocxParts.restoreReportText(from: editedRedacted)
+            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
+
             if loadedMapping.style == .token {
-                // Restore on the docx runs, then re-import the restored docx to
-                // surface any orphan tokens the user left behind.
                 let tokenToValue = Dictionary(
                     uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
                 )
@@ -493,26 +499,24 @@ public enum LDAService {
                     tokenToValue: tokenToValue,
                     to: output
                 )
-                let restoredText = try DocxImporter().importDocument(output).text
-                let report = Restorer.restore(text: restoredText, mapping: loadedMapping)
                 return RestoreReport(
                     outputURL: output,
                     restoredCount: report.restoredCount,
                     orphanTokens: report.orphanTokens,
-                    suspectPlaceholders: report.suspectPlaceholders
+                    suspectPlaceholders: report.suspectPlaceholders,
+                    ambiguousReplacements: report.ambiguousReplacements
                 )
             }
 
-            // Literal styles: the report comes from the PRE-restore text (a
-            // post-restore scan could no longer see which replacements were
-            // present), and the docx rewrite follows the same restore plan as
-            // that scan, so an ambiguous asterisk mask is left verbatim in the
-            // written document exactly where the report flags it.
-            let preRestoreText = try DocxImporter().importDocument(editedRedacted).text
-            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
+            // The literal rewrite follows the same restore plan as the report,
+            // so an ambiguous asterisk mask is left verbatim exactly where the
+            // package-wide report flags it.
             try DocxRedactor.restoreLiteral(
                 redactedDocx: editedRedacted,
-                plan: Restorer.literalRestorePlan(for: loadedMapping),
+                plan: Restorer.literalRestorePlan(
+                    for: loadedMapping,
+                    refusingReplacements: Set(report.ambiguousReplacements)
+                ),
                 to: output
             )
             return RestoreReport(

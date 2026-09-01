@@ -222,13 +222,17 @@ extension ReviewModel {
                 style: style
             )
 
-        return Tokenizer.tokenize(
+        let tokenized = Tokenizer.tokenize(
             text: text,
             spans: accepted.map(\.span),
             sourceFile: "preview",
             createdAtISO8601: "preview",
             seedMapping: seed,
             style: style
-        ).tokenizedText
+        )
+        guard tokenized.unresolvedSeams.isEmpty else {
+            return "Safe Preview unavailable: pseudonym restoration could not be verified."
+        }
+        return tokenized.tokenizedText
     }
 }

@@ -30,6 +30,7 @@ struct MatterWorkspaceView: View {
     @State private var matterToRename: MatterSummary?
     @State private var pendingTransition: PendingMatterTransition?
     @State private var pendingArchive: PendingMatterArchive?
+    @State private var pendingDelete: MatterSummary?
     @State private var workspaceError: String?
 
     init(
@@ -128,6 +129,25 @@ struct MatterWorkspaceView: View {
             } else {
                 Text("The matter will move out of Active. Its encrypted identities and history are kept and can be restored later.")
             }
+        }
+        .confirmationDialog(
+            "Delete \(pendingDelete?.label ?? "matter") permanently?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pendingDelete {
+                Button("Delete Matter", role: .destructive) {
+                    delete(pendingDelete)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDelete = nil
+            }
+        } message: {
+            Text("This removes the matter's encrypted identities, local history, and matter-only rules from LDA. Saved or exported workspace, redacted, report, and restored files are not affected.")
         }
         .alert(
             "Could not update matter",
@@ -250,6 +270,16 @@ struct MatterWorkspaceView: View {
                                 )
                             }
                             .disabled(metadataLoadFailed)
+
+                            if MatterWorkspacePresentation.canDelete(summary) {
+                                Divider()
+                                Button(role: .destructive) {
+                                    pendingDelete = summary
+                                } label: {
+                                    Label("Delete Matter", systemImage: "trash")
+                                }
+                                .disabled(loadFailed)
+                            }
                         }
                 }
                 .listStyle(.sidebar)
@@ -290,7 +320,8 @@ struct MatterWorkspaceView: View {
                 onAnonymize: { open(summary, destination: .anonymize) },
                 onRestore: { open(summary, destination: .restore) },
                 onRename: { matterToRename = summary },
-                onArchiveToggle: { requestArchiveToggle(summary) }
+                onArchiveToggle: { requestArchiveToggle(summary) },
+                onDelete: { pendingDelete = summary }
             )
         } else {
             MatterWorkspaceEmptyView(scope: scope) {
@@ -405,7 +436,7 @@ struct MatterWorkspaceView: View {
 
     private var emptySidebarMessage: String {
         scope == .archived
-            ? "Archived matters stay encrypted here until you restore them."
+            ? "Archived matters stay encrypted here until you restore or delete them."
             : "Start one to keep its protected handoffs together."
     }
 
@@ -466,6 +497,21 @@ struct MatterWorkspaceView: View {
         }
         pendingArchive = nil
     }
+
+    private func delete(_ summary: MatterSummary) {
+        guard MatterWorkspacePresentation.canDelete(summary) else {
+            pendingDelete = nil
+            return
+        }
+        do {
+            try session.deleteMatter(summary.label)
+            selectedMatterID = nil
+            reload()
+        } catch {
+            workspaceError = error.localizedDescription
+        }
+        pendingDelete = nil
+    }
 }
 
 private struct MatterSidebarRow: View {
@@ -507,6 +553,7 @@ private struct MatterDetailView: View {
     let onRestore: () -> Void
     let onRename: () -> Void
     let onArchiveToggle: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         ScrollView {
@@ -565,7 +612,13 @@ private struct MatterDetailView: View {
                             systemImage: summary.isArchived
                                 ? "arrow.uturn.backward.circle"
                                 : "archivebox"
-                        )
+                            )
+                    }
+                    if MatterWorkspacePresentation.canDelete(summary) {
+                        Divider()
+                        Button(role: .destructive, action: onDelete) {
+                            Label("Delete Matter", systemImage: "trash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

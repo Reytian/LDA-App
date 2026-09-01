@@ -871,10 +871,9 @@ public struct AppShell: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
-                .help("Documents, placeholders, and mappings never leave this Mac. "
-                    + "LDA uses the network only to download a detection model "
-                    + "you ask for, and only while that download runs.")
-                .accessibilityLabel(Text("On-device: nothing leaves this Mac"))
+                .help("Detection and redaction run on this Mac. "
+                    + "A detection-model download uses a network connection while it runs.")
+                .accessibilityLabel(Text("On-device detection and redaction"))
 
             // When the user-presence upgrade failed, say so here rather than
             // letting the On-device badge imply a Touch ID gate that is not
@@ -932,7 +931,7 @@ public struct AppShell: View {
     /// partial session (F5, partially: a tooltip is hover-only, so this cannot
     /// be the whole answer. See the audit doc.)
     private var copyForAIHelp: String {
-        let base = "so you can paste it into any AI tool. Nothing leaves this Mac."
+        let base = "so you can paste it into any AI tool."
         let ready = session.entries.filter { $0.model.canExport }.count
         // A failed import can never become ready, so counting it in the
         // denominator reads as "you are about to leave that document out" when
@@ -1048,28 +1047,21 @@ public struct AppShell: View {
         exportMessage = nil
         handoffCompletion = nil
         hasSharedOutput = false
-        let scoped = panel.urls.map { (url: $0, needsScope: $0.startAccessingSecurityScopedResource()) }
+        let selectedURLs = panel.urls
+        let scoped = selectedURLs.map {
+            (url: $0, needsScope: $0.startAccessingSecurityScopedResource())
+        }
         let releaseScopes = {
             for item in scoped where item.needsScope {
                 item.url.stopAccessingSecurityScopedResource()
             }
         }
-        // Folder discovery and the batch budgets run BEFORE anything enters
-        // the tray, inside the selection's sandbox scopes. A budget breach
-        // rejects the whole batch; documents already in the tray stay put.
-        let resolved: [URL]
-        do {
-            resolved = try FolderImporter.expandSelection(panel.urls)
-        } catch {
-            releaseScopes()
-            exportMessage = error.localizedDescription
-            return
-        }
         Task {
             // defer releases the sandbox scopes even if the Task is cancelled
-            // mid-import; leaking one can make later opens of the same URL fail.
+            // mid-import. SessionModel performs folder discovery while these
+            // scopes remain live, so panel opens and drops share one boundary.
             defer { releaseScopes() }
-            await session.addDocuments(resolved)
+            await session.addDocuments(selectedURLs)
             // A refused archive shows where a refused folder shows. Without
             // this the document would simply not appear and the user would be
             // left guessing which of their files the app dropped.

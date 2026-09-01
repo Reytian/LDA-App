@@ -23,14 +23,16 @@ final class ImageTextExtractorTests: XCTestCase {
     static let plantedPhone = "13812345678"
     static let plantedID = "110101199003074514"
     static let plantedEmail = "zhangwei@example.com"
-    static let plantedCaseNumber = "（2026）粤03民初12345号"
+    // Halfwidth parentheses are legal input to the detector and avoid a
+    // known Vision ambiguity between fullwidth parentheses and CJK glyphs.
+    static let plantedCaseNumber = "(2026)粤03民初12345号"
 
     static let fixtureLines = [
         "民事起诉状",
         "原告：张伟，电话\(plantedPhone)",
         "身份证号码\(plantedID)",
         "邮箱 \(plantedEmail)",
-        "案号\(plantedCaseNumber)"
+        "案号: \(plantedCaseNumber)"
     ]
 
     private var createdURLs: [URL] = []

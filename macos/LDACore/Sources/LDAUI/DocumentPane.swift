@@ -142,7 +142,8 @@ public struct DocumentPane: View {
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text("PDF, Word (.docx), plain text, or a .zip of them. "
-                    + "Several files become one session. Everything stays on this Mac.")
+                    + "Several files become one session. "
+                    + "Detection and redaction run on this Mac.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }

@@ -91,6 +91,33 @@ public struct MatterMetadataStore {
             }
         }
 
+        // Readability is not enough for a destructive workspace boundary. Two
+        // readable files that claim the same stable id, label, or alias leave
+        // ownership ambiguous, so surface one integrity failure and make every
+        // caller that requires a complete resolution fail closed.
+        var seenIDs: Set<UUID> = []
+        var ownerByLabel: [String: UUID] = [:]
+        var hasOwnershipConflict = false
+        for item in metadata {
+            if !seenIDs.insert(item.id).inserted {
+                hasOwnershipConflict = true
+                break
+            }
+            for label in Set([item.label] + item.aliases) {
+                if let owner = ownerByLabel[label], owner != item.id {
+                    hasOwnershipConflict = true
+                    break
+                }
+                ownerByLabel[label] = item.id
+            }
+            if hasOwnershipConflict {
+                break
+            }
+        }
+        if hasOwnershipConflict {
+            unreadableCount += 1
+        }
+
         return MatterMetadataResolution(
             metadata: metadata.sorted {
                 $0.label.localizedStandardCompare($1.label) == .orderedAscending
@@ -183,6 +210,15 @@ public struct MatterMetadataStore {
         }
         item.label = newLabel
         try save(item, protection: protection)
+    }
+
+    /// Delete one exact metadata identity. The shared metadata Keychain key is
+    /// retained because it also protects every other matter's file.
+    public func delete(id: UUID) throws {
+        let url = fileURL(for: id)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     private func save(

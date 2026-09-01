@@ -165,8 +165,9 @@ public enum Restorer {
     /// - ambiguousReplacements lists the replacements whose sites could not
     ///   be attributed to one entity: a replacement two entities share
     ///   outright, and under the asterisk style a replacement that a shorter
-    ///   replacement also matches at the same position. Those sites are left
-    ///   verbatim, never guessed.
+    ///   replacement also matches at the same position, or a user-forced
+    ///   pseudonym returned more times than this handoff emitted it. Those
+    ///   sites are left verbatim, never guessed.
     /// - suspectPlaceholders stays empty: there is no token grammar to
     ///   mangle in these styles.
     private static func restoreLiteralStyle(text: String, mapping: Mapping) -> RestoreResult {
@@ -178,11 +179,15 @@ public enum Restorer {
             in: text,
             replacements: Array(valuesByReplacement.keys)
         )
+        let overReturnedUserOverrides = userOverridesExceedingEmissionCount(
+            in: accepted,
+            mapping: mapping
+        )
         let pass = emitLiteralRestore(
             text: text,
             accepted: accepted,
             valuesByReplacement: valuesByReplacement,
-            sharedByTwoEntities: sharedByTwoEntities,
+            refusedEverywhere: sharedByTwoEntities.union(overReturnedUserOverrides),
             refusingPrefixConflicts: refusesPrefixConflicts(mapping)
         )
 
@@ -217,6 +222,29 @@ public enum Restorer {
         return valuesByReplacement
     }
 
+    /// Forced pseudonyms carry the number of sites emitted in this handoff.
+    /// When the reply contains more, no occurrence can be attributed safely:
+    /// the AI may have moved or rewritten the sentence, so even the first N
+    /// sites are uncertain. Refuse that replacement everywhere.
+    private static func userOverridesExceedingEmissionCount(
+        in accepted: [AcceptedLiteralMatch],
+        mapping: Mapping
+    ) -> Set<String> {
+        var returnedCounts: [String: Int] = [:]
+        for match in accepted {
+            returnedCounts[match.replacement, default: 0] += 1
+        }
+
+        var refused: Set<String> = []
+        for entry in mapping.entries.values {
+            guard let emitted = entry.userOverrideEmissionCount else { continue }
+            if returnedCounts[entry.token, default: 0] > max(0, emitted) {
+                refused.insert(entry.token)
+            }
+        }
+        return refused
+    }
+
     /// What one literal restore pass produced, before the orphan report.
     private struct LiteralRestorePass {
         var text = ""
@@ -235,7 +263,7 @@ public enum Restorer {
         text: String,
         accepted: [AcceptedLiteralMatch],
         valuesByReplacement: [String: [String]],
-        sharedByTwoEntities: Set<String>,
+        refusedEverywhere: Set<String>,
         refusingPrefixConflicts: Bool
     ) -> LiteralRestorePass {
         let nsText = text as NSString
@@ -252,7 +280,7 @@ public enum Restorer {
 
             if refusesSite(
                 match,
-                sharedByTwoEntities: sharedByTwoEntities,
+                refusedEverywhere: refusedEverywhere,
                 refusingPrefixConflicts: refusingPrefixConflicts
             ) {
                 pass.text += nsText.substring(with: match.range)
@@ -286,10 +314,10 @@ public enum Restorer {
     /// bytes and is flagged instead.
     private static func refusesSite(
         _ match: AcceptedLiteralMatch,
-        sharedByTwoEntities: Set<String>,
+        refusedEverywhere: Set<String>,
         refusingPrefixConflicts: Bool
     ) -> Bool {
-        if sharedByTwoEntities.contains(match.replacement) {
+        if refusedEverywhere.contains(match.replacement) {
             return true
         }
         return refusingPrefixConflicts && match.shadowsShorterReplacement
@@ -423,10 +451,19 @@ public enum Restorer {
 
     /// Build the restore plan for a literal-style mapping. The single place
     /// the style's ambiguity policy is decided, so a surface that substitutes
-    /// on its own cannot drift from the report.
-    public static func literalRestorePlan(for mapping: Mapping) -> LiteralRestorePlan {
-        LiteralRestorePlan(
-            replacementToValue: unambiguousReplacementMap(mapping),
+    /// on its own cannot drift from the report. A caller that already scanned
+    /// the whole return surface passes its reported ambiguous replacements so
+    /// package writers leave those sites verbatim too.
+    public static func literalRestorePlan(
+        for mapping: Mapping,
+        refusingReplacements: Set<String> = []
+    ) -> LiteralRestorePlan {
+        var replacements = unambiguousReplacementMap(mapping)
+        for refused in refusingReplacements {
+            replacements[refused] = nil
+        }
+        return LiteralRestorePlan(
+            replacementToValue: replacements,
             allReplacements: Set(
                 mapping.entries.values.map(\.token).filter { !$0.isEmpty }
             ),

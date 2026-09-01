@@ -210,7 +210,7 @@ public struct CompanionMenu: View {
         if let client = session.clientLabel {
             Text("Client: \(client)")
         }
-        Text("On-device. Nothing leaves this Mac.")
+        Text("Detection and redaction run on this Mac.")
 
         Divider()
 

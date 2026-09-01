@@ -5,7 +5,8 @@
 //  Tests for the optional "style" argument on the handle-first MCP anonymize
 //  tools: the schema advertises it, dispatch honors it end to end through the
 //  vault, an unknown value is a readable isError result rather than a silent
-//  default, and the restore summary carries ambiguousReplacements.
+//  default, and ambiguous asterisk output is refused without changing the
+//  vault.
 //
 //  House rules: all comments and strings in English. Fixture strings and
 //  generated pseudonyms may be Chinese. No em-dash and no
@@ -202,28 +203,78 @@ final class MCPStyleTests: XCTestCase {
         XCTAssertTrue(text.contains("pseudonym"), "the error should list the allowed values")
     }
 
-    func testRestoreSummaryCarriesAmbiguousReplacements() throws {
-        // Two CN mobiles masking identically force the asterisk refusal.
+    func testAnonymizeBlocksAmbiguousAsteriskBeforeCreatingVaultArtifacts() throws {
+        // Two CN mobiles masking identically force the outbound refusal.
         let handle = try stage("A: 13812345678 B: 13887655678.", named: "phones.txt")
+        let vault = VaultTestSupport.vault(root: vaultDir)
+        let before = try vault.list()
 
-        let anonymizeResponse = try callTool("anonymize", arguments: [
+        // This injected reservation seam would fail the call if reached. The
+        // typed ambiguity must be raised first, proving the implementation did
+        // not merely reserve a directory and clean it up afterward. The
+        // plaintext seam delegates to the vault's scoped helper and proves the
+        // handler did not create its own input copy in the staging directory.
+        var reservationAttempts = 0
+        var plaintextScopeCalls = 0
+        XCTAssertThrowsError(
+            try server.callAnonymizeHandle([
+                "handle": handle,
+                "passphrase": passphrase,
+                "style": "asterisk"
+            ], prepareDerived: { _ in
+                reservationAttempts += 1
+                throw CocoaError(.fileWriteUnknown)
+            }, withPlaintextSource: { vault, scopedHandle, body in
+                plaintextScopeCalls += 1
+                return try vault.withPlaintextFileURL(handle: scopedHandle, body)
+            })
+        ) { error in
+            XCTAssertEqual(
+                error as? OutboundReleaseError,
+                .ambiguousAsteriskMasks(["138****5678"])
+            )
+        }
+        XCTAssertEqual(reservationAttempts, 0)
+        XCTAssertEqual(plaintextScopeCalls, 1)
+
+        let response = try callTool("anonymize", arguments: [
             "handle": handle,
             "passphrase": passphrase,
             "style": "asterisk"
         ], id: 8)
-        let anonymizeSummary = try toolSummary(from: anonymizeResponse)
-        let redactedHandle = try XCTUnwrap(anonymizeSummary["redactedHandle"] as? String)
 
-        let restoreResponse = try callTool("restore", arguments: [
-            "redactedHandle": redactedHandle,
-            "passphrase": passphrase
-        ], id: 9)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["isError"] as? Bool, true)
+        let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+        let text = try XCTUnwrap(content.first?["text"] as? String)
+        XCTAssertTrue(text.contains("ambiguous_asterisk_masks"), text)
+        XCTAssertTrue(text.contains("count=1"), text)
+        XCTAssertTrue(text.contains("Tokens"), text)
+        XCTAssertTrue(text.contains("Pseudonyms"), text)
+        XCTAssertFalse(text.contains("13812345678"), text)
+        XCTAssertFalse(text.contains("13887655678"), text)
+        XCTAssertFalse(text.contains("138"), text)
+        XCTAssertFalse(text.contains("5678"), text)
+        XCTAssertFalse(text.contains("****"), text)
+        let wireData = try JSONSerialization.data(withJSONObject: response)
+        let wireText = try XCTUnwrap(String(data: wireData, encoding: .utf8))
+        for forbidden in ["13812345678", "13887655678", "138", "5678", "****"] {
+            XCTAssertFalse(wireText.contains(forbidden), wireText)
+        }
 
-        let restoreSummary = try toolSummary(from: restoreResponse)
         XCTAssertEqual(
-            restoreSummary["ambiguousReplacements"] as? [String],
-            ["138****5678"]
+            try vault.list(),
+            before,
+            "a refused MCP release must not register a redacted artifact"
         )
-        XCTAssertEqual(restoreSummary["restoredCount"] as? Int, 0)
+        let objectDirectories = try FileManager.default.contentsOfDirectory(
+            at: vaultDir.appendingPathComponent("objects", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(
+            objectDirectories.map(\.lastPathComponent).sorted(),
+            [handle],
+            "the aborted prepared slot must not leave an artifact directory"
+        )
     }
 }

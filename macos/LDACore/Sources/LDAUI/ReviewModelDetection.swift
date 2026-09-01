@@ -267,18 +267,15 @@ extension ReviewModel {
         let sourceFile = source?.lastPathComponent ?? "document.txt"
         let sourceExt = source?.pathExtension.lowercased() ?? "txt"
 
-        try FileManager.default.createDirectory(
-            at: outputDir,
-            withIntermediateDirectories: true
-        )
-
         // Declared var so non-body redaction can fold in new mapping entries below.
-        var tokenized = Tokenizer.tokenize(
-            text: text,
-            spans: acceptedSpans,
-            sourceFile: sourceFile,
-            createdAtISO8601: createdAtISO8601,
-            style: style
+        var tokenized = try Tokenizer.requireSafeForRelease(
+            Tokenizer.tokenize(
+                text: text,
+                spans: acceptedSpans,
+                sourceFile: sourceFile,
+                createdAtISO8601: createdAtISO8601,
+                style: style
+            )
         )
         // Record the full-name/short-name grouping in the mapping, mirroring
         // LDAService.anonymize. Tokens and values are untouched, so restore
@@ -286,6 +283,13 @@ extension ReviewModel {
         tokenized.mapping = EntityRescan.linkAliases(
             in: tokenized.mapping,
             pairs: EntityRescan.aliasPairs(in: text, confirmed: acceptedSpans)
+        )
+
+        // Tokenizer.requireSafeForRelease has already run the exact Restorer
+        // asterisk verdict. Only now may this export mutate the destination.
+        try FileManager.default.createDirectory(
+            at: outputDir,
+            withIntermediateDirectories: true
         )
 
         // An image source additionally yields a redacted PNG under the same

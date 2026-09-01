@@ -167,5 +167,10 @@ final class ReviewModelWorkspaceTests: XCTestCase {
         XCTAssertEqual(result.appliedCount, 1)
         XCTAssertEqual(result.droppedCount, 1)
         XCTAssertTrue(result.didRelocate)
+        XCTAssertEqual(target.status, .imported)
+        XCTAssertFalse(
+            target.canExport,
+            "a workspace that lost a protected value must require another scan"
+        )
     }
 }

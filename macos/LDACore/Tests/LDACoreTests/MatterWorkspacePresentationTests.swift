@@ -204,6 +204,22 @@ final class MatterWorkspacePresentationTests: XCTestCase {
         XCTAssertTrue(summaries.first { $0.label == "Archived Matter" }?.isArchived == true)
     }
 
+    func testDeleteActionIsAvailableOnlyForArchivedMatters() throws {
+        let summaries = MatterWorkspacePresentation.summaries(
+            clientLabels: [],
+            records: [],
+            metadata: [
+                MatterMetadata(label: "Active Matter", isArchived: false),
+                MatterMetadata(label: "Archived Matter", isArchived: true)
+            ]
+        )
+        let active = try XCTUnwrap(summaries.first { $0.label == "Active Matter" })
+        let archived = try XCTUnwrap(summaries.first { $0.label == "Archived Matter" })
+
+        XCTAssertFalse(MatterWorkspacePresentation.canDelete(active))
+        XCTAssertTrue(MatterWorkspacePresentation.canDelete(archived))
+    }
+
     private func record(
         createdAt: String,
         client: String?,

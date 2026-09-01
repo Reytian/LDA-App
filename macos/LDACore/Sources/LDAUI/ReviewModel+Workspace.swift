@@ -83,10 +83,11 @@ extension ReviewModel {
 
         entities = outcome.restored
         selectedGroupID = nil
-        // A snapshot is only written for a document that finished a pass, so
-        // restoring one restores the reviewed state, export gate included.
-        status = .ready
-        progress = 1
+        // A dropped record is a protected value that this build could not
+        // locate. Keep the document out of the export gate until the user
+        // scans it again. A complete relocation can retain reviewed state.
+        status = outcome.dropped == 0 ? .ready : .imported
+        progress = outcome.dropped == 0 ? 1 : 0
         etaText = nil
         return WorkspaceSnapshotApplication(
             appliedCount: outcome.restored.count,

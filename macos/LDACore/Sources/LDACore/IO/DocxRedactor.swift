@@ -10,8 +10,9 @@
 //  covered substring is deleted from every other overlapped run. All other runs
 //  and all formatting are preserved. The redacted .docx is the edit surface.
 //
-//  restore: because each token sits within a single run after redaction, do a
-//  per-run find/replace of token -> value across all w:t runs and re-zip to out.
+//  restore: find tokens in each part's whole concatenated text and write values
+//  back through the run planner. This also handles a token Word split across
+//  runs after redaction.
 //
 //  restoreLiteral: the pseudonym and asterisk styles have no brace grammar, so
 //  a replacement is an ordinary string that Word may have split across runs and
@@ -210,8 +211,9 @@ public enum DocxRedactor {
     // MARK: - Restore
 
     /// Replace every token in a redacted .docx with its value and write to out.
-    /// Each token lives entirely within one run, so a per-run find/replace using
-    /// the token grammar is correct and safe.
+    /// Token sites are found in whole-part text and written through the shared
+    /// run planner, so later Word formatting cannot strand a split token that
+    /// the package-wide restore report counted.
     ///
     /// Tokens are restored in the body AND in every other text-bearing part
     /// (headers, footers, footnotes, endnotes, comments), so a value redacted in a
@@ -225,21 +227,14 @@ public enum DocxRedactor {
         let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
         var layout = try DocxDocumentXML.parse(data)
 
-        let tokenRegex = try NSRegularExpression(pattern: TokenGrammar.placeholderPattern)
-
-        for index in layout.segments.indices {
-            guard case .runText(let text) = layout.segments[index] else { continue }
-            guard text.contains("{") else { continue }
-
-            let replaced = replaceTokens(in: text, using: tokenRegex, tokenToValue: tokenToValue)
-            if replaced != text {
-                layout.segments[index] = .runText(replaced)
-            }
-        }
+        _ = try restoreTokensInLayout(&layout, tokenToValue: tokenToValue)
 
         var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
         // Restore tokens in the non-body text parts too.
-        let nonBody = DocxParts.restoreNonBodyParts(url: redactedDocx, tokenToValue: tokenToValue)
+        let nonBody = try DocxParts.restoreNonBodyParts(
+            url: redactedDocx,
+            tokenToValue: tokenToValue
+        )
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
         }
@@ -277,9 +272,9 @@ public enum DocxRedactor {
     /// site, so an ambiguous asterisk mask stays verbatim in the document and
     /// this surface reaches the same verdicts as the report.
     ///
-    /// Returns what the BODY part did. The report scans the body text, so the
-    /// returned outcome is directly comparable with it; the other text parts
-    /// are restored on the same plan but have never been part of that report.
+    /// Returns what the body part did. LDAService reports over the package-wide
+    /// pre-restore text independently, while this outcome remains useful to
+    /// callers that operate directly on DocxRedactor.
     @discardableResult
     public static func restoreLiteral(
         redactedDocx: URL,
@@ -292,7 +287,10 @@ public enum DocxRedactor {
 
         var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
         // Restore literal replacements in the non-body text parts too.
-        let nonBody = DocxParts.restoreNonBodyPartsLiteral(url: redactedDocx, plan: plan)
+        let nonBody = try DocxParts.restoreNonBodyPartsLiteral(
+            url: redactedDocx,
+            plan: plan
+        )
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
         }
@@ -361,6 +359,46 @@ public enum DocxRedactor {
         )
     }
 
+    /// Restore mapped brace tokens across one whole parsed part. The report
+    /// scans this same concatenated text, so every mapped site it counts must
+    /// be writable through the run coverage below.
+    @discardableResult
+    static func restoreTokensInLayout(
+        _ layout: inout DocxLayout,
+        tokenToValue: [String: String]
+    ) throws -> Int {
+        let regex = try NSRegularExpression(pattern: TokenGrammar.placeholderPattern)
+        let text = layout.text as NSString
+        let matches = regex.matches(
+            in: layout.text,
+            range: NSRange(location: 0, length: text.length)
+        )
+        var edits: [TextEdit] = []
+        for match in matches {
+            let token = text.substring(with: match.range)
+            guard let value = tokenToValue[token],
+                  runsCover(match.range, runs: layout.runs) else {
+                continue
+            }
+            edits.append(
+                TextEdit(
+                    start: match.range.location,
+                    end: match.range.location + match.range.length,
+                    insertText: value
+                )
+            )
+        }
+
+        for (segmentIndex, segmentEdits) in try planRunEdits(
+            edits,
+            runs: layout.runs,
+            segments: layout.segments
+        ) {
+            try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
+        }
+        return edits.count
+    }
+
     /// Whether run text covers `range` end to end with no gap.
     ///
     /// Every character of a part's concatenated text is either run text or a
@@ -383,21 +421,4 @@ public enum DocxRedactor {
         return false
     }
 
-    /// Replace all grammar-matched tokens in a single run's text with their
-    /// mapped values. Tokens absent from tokenToValue are left untouched so the
-    /// orphan guard downstream can flag them.
-    ///
-    /// The scan is shared with Restorer (see TokenSubstitution): a docx run and
-    /// a plain-text surface must agree on what a token is and on leaving an
-    /// unknown one verbatim, or the same document restores differently
-    /// depending on which surface it came back on.
-    private static func replaceTokens(
-        in text: String,
-        using regex: NSRegularExpression,
-        tokenToValue: [String: String]
-    ) -> String {
-        TokenSubstitution.substitute(in: text, matching: regex) { token in
-            tokenToValue[token]
-        }.text
-    }
 }

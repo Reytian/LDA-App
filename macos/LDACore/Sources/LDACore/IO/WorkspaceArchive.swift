@@ -46,6 +46,11 @@ public enum WorkspaceArchive {
     /// read. Bump only when the inner layout changes.
     public static let currentFormatVersion = 1
 
+    /// Maximum documents in one workspace manifest. At two possible archive
+    /// entries per document plus five fixed entries, 497 stays within the
+    /// shared 1,000-entry archive ceiling.
+    public static let maximumDocumentCount = 497
+
     /// The file extension and its exported uniform type identifier. Both are
     /// declared in packaging/Info.plist; the constants live here so the app,
     /// the save panel, and the packaging test agree on one spelling.
@@ -105,6 +110,16 @@ public enum WorkspaceArchive {
 
     /// Assemble the inner zip in memory.
     private static func buildArchiveBytes(_ payload: WorkspacePayload) throws -> Data {
+        do {
+            try payload.manifest.validateDocuments()
+        } catch let error as WorkspaceManifestValidationError {
+            throw writerError(for: error)
+        }
+        try validateSnapshots(
+            payload.snapshots,
+            for: payload.manifest
+        )
+
         let archive: Archive
         do {
             archive = try Archive(data: Data(), accessMode: .create)
@@ -226,5 +241,50 @@ public enum WorkspaceArchive {
 
     private static func describe(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "\(error)"
+    }
+
+    private static func writerError(
+        for error: WorkspaceManifestValidationError
+    ) -> WorkspaceArchiveError {
+        switch error {
+        case .tooManyDocuments:
+            return .tooLarge(
+                "A workspace can contain at most \(maximumDocumentCount) documents."
+            )
+        case .duplicateDocumentID:
+            return .writeFailed("The workspace contains a duplicate document identifier.")
+        case .duplicateArchivePath:
+            return .writeFailed("The workspace contains a duplicate document archive path.")
+        case .noncanonicalArchivePath:
+            return .writeFailed("The workspace contains a noncanonical document archive path.")
+        }
+    }
+
+    /// Keep review entries in a one-to-zero-or-one relation with manifest
+    /// documents. Besides preventing ambiguous state, this is what makes the
+    /// 497-document ceiling stay within the shared 1,000-entry archive limit.
+    private static func validateSnapshots(
+        _ snapshots: [WorkspaceReviewSnapshot],
+        for manifest: WorkspaceManifest
+    ) throws {
+        guard snapshots.count <= manifest.documents.count else {
+            throw WorkspaceArchiveError.writeFailed(
+                "The workspace contains more review snapshots than manifest documents."
+            )
+        }
+        let documentIDs = Set(manifest.documents.map(\.id))
+        var snapshotIDs: Set<UUID> = []
+        for snapshot in snapshots {
+            guard snapshotIDs.insert(snapshot.documentID).inserted else {
+                throw WorkspaceArchiveError.writeFailed(
+                    "The workspace contains a duplicate review snapshot document identifier."
+                )
+            }
+            guard documentIDs.contains(snapshot.documentID) else {
+                throw WorkspaceArchiveError.writeFailed(
+                    "A review snapshot does not belong to a manifest document."
+                )
+            }
+        }
     }
 }

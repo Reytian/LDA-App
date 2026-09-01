@@ -136,6 +136,13 @@ public struct MappingEntry: Equatable, Sendable, Codable {
     /// entries and for entries with no known alias relationship. Optional and
     /// absent from older sidecars, which decode as nil.
     public var canonicalToken: String?
+    /// Number of times this replacement was emitted in the current outbound
+    /// handoff when it originated as a user-forced pseudonym. Nil means this
+    /// is an ordinary minted or legacy replacement. A non-nil value is reset
+    /// and recounted for every new handoff, then travels with the mapping so a
+    /// later restore can distinguish expected sites from extra AI-authored
+    /// occurrences. Optional so older sidecars decode as ordinary entries.
+    public var userOverrideEmissionCount: Int?
 
     public init(
         token: String,
@@ -143,7 +150,8 @@ public struct MappingEntry: Equatable, Sendable, Codable {
         type: EntityType,
         surfaceText: String,
         aliases: [String],
-        canonicalToken: String? = nil
+        canonicalToken: String? = nil,
+        userOverrideEmissionCount: Int? = nil
     ) {
         self.token = token
         self.value = value
@@ -151,6 +159,7 @@ public struct MappingEntry: Equatable, Sendable, Codable {
         self.surfaceText = surfaceText
         self.aliases = aliases
         self.canonicalToken = canonicalToken
+        self.userOverrideEmissionCount = userOverrideEmissionCount
     }
 }
 
@@ -210,10 +219,19 @@ public struct TokenizeResult: Sendable {
     public var tokenizedText: String
     /// The token map built during tokenization.
     public var mapping: Mapping
+    /// Literal-restore seams the direct whole-assignment verifier could not
+    /// repair. A non-empty list means this output must not be released without
+    /// an explicit warning or refusal.
+    public var unresolvedSeams: [String]
 
-    public init(tokenizedText: String, mapping: Mapping) {
+    public init(
+        tokenizedText: String,
+        mapping: Mapping,
+        unresolvedSeams: [String] = []
+    ) {
         self.tokenizedText = tokenizedText
         self.mapping = mapping
+        self.unresolvedSeams = unresolvedSeams
     }
 }
 

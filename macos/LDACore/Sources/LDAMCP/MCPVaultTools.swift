@@ -151,7 +151,19 @@ extension MCPServer {
     /// anonymize: run the pipeline over a staged original and register the
     /// redacted artifact (plus its encrypted mapping sidecar) in the vault.
     /// The response carries the new handle and aggregate counts only.
-    func callAnonymizeHandle(_ arguments: [String: Any]) throws -> [String: Any] {
+    func callAnonymizeHandle(
+        _ arguments: [String: Any],
+        prepareDerived: (DocumentVault) throws -> DocumentVault.DerivedSlot = {
+            try $0.prepareDerived(kind: .redacted)
+        },
+        withPlaintextSource: (
+            DocumentVault,
+            String,
+            (URL) throws -> AnonymizeResult
+        ) throws -> AnonymizeResult = { vault, handle, body in
+            try vault.withPlaintextFileURL(handle: handle, body)
+        }
+    ) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
         let vault = openVault()
@@ -160,40 +172,74 @@ extension MCPServer {
             throw MCPVaultToolError.notAnOriginal(handle)
         }
 
-        let slot = try vault.prepareDerived(kind: .redacted)
+        // Run the complete release-gated service operation before reserving a
+        // derived slot. The original uses the vault's established scoped
+        // plaintext helper, which supplies PID-tagged cleanup and dead-owner
+        // recovery. The separate staging directory receives only redacted
+        // output and an encrypted mapping. Its temporary passphrase avoids a
+        // Keychain item that would outlive a refused run.
+        let fileManager = FileManager.default
+        let stagingDirectory = fileManager.temporaryDirectory.appendingPathComponent(
+            "lda-mcp-anonymize-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: stagingDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? fileManager.removeItem(at: stagingDirectory) }
+
+        let stagingOutput = stagingDirectory.appendingPathComponent("output", isDirectory: true)
+        let stagingPassphrase = UUID().uuidString + UUID().uuidString
+        let createdAt = MCPServer.iso8601Now()
+        let style = try styleArgument(from: arguments)
+        let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
+            try LDAService.anonymize(
+                input: inputURL,
+                outputDir: stagingOutput,
+                protection: .passphrase(stagingPassphrase),
+                createdAtISO8601: createdAt,
+                llmModelPath: modelPath,
+                style: style
+            )
+        }
+        let stagedMapping = try MappingStore.load(
+            from: stagedResult.mappingFileURL,
+            protection: .passphrase(stagingPassphrase)
+        )
+
+        // Only a fully successful, release-safe run may reserve vault state.
+        let slot = try prepareDerived(vault)
         do {
             // The mapping key derives from the redacted handle: opaque,
             // deterministic, and per-document (one shared key would be a
             // single point of failure for every sidecar).
             let protection = vaultMappingProtection(from: arguments, accountBase: slot.handle)
-            let createdAt = MCPServer.iso8601Now()
-            let style = try styleArgument(from: arguments)
-            let result = try vault.withPlaintextFileURL(handle: handle) { inputURL in
-                try LDAService.anonymize(
-                    input: inputURL,
-                    outputDir: slot.directory,
-                    protection: protection,
-                    createdAtISO8601: createdAt,
-                    llmModelPath: modelPath,
-                    style: style
-                )
-            }
+            let redactedURL = slot.directory.appendingPathComponent(
+                stagedResult.redactedFileURL.lastPathComponent
+            )
+            try fileManager.moveItem(at: stagedResult.redactedFileURL, to: redactedURL)
+            let mappingURL = slot.directory.appendingPathComponent(
+                stagedResult.mappingFileURL.lastPathComponent
+            )
+            try MappingStore.save(stagedMapping, to: mappingURL, protection: protection)
             let committed = try vault.commit(
                 slot: slot,
-                primaryFile: result.redactedFileURL,
+                primaryFile: redactedURL,
                 stagedAtISO8601: createdAt,
                 sourceHandle: handle,
-                mappingFile: result.mappingFileURL,
+                mappingFile: mappingURL,
                 mappingAccountBase: slot.handle
             )
             return [
                 "redactedHandle": committed.handle,
-                "entityCount": result.entityCount,
-                "entityTypes": entityTypeStrings(result.entities),
-                "perTypeCounts": MCPServer.perTypeCounts(result.entities),
-                "imageRedactionCount": result.imageRedactionCount,
-                "embeddedMediaCount": result.embeddedMediaCount,
-                "unboxedTokenCount": result.unboxedTokenCount
+                "entityCount": stagedResult.entityCount,
+                "entityTypes": entityTypeStrings(stagedResult.entities),
+                "perTypeCounts": MCPServer.perTypeCounts(stagedResult.entities),
+                "imageRedactionCount": stagedResult.imageRedactionCount,
+                "embeddedMediaCount": stagedResult.embeddedMediaCount,
+                "unboxedTokenCount": stagedResult.unboxedTokenCount
             ]
         } catch {
             vault.abort(slot: slot)
@@ -453,12 +499,24 @@ extension MCPServer {
             return MCPServer.describeBoundarySafe(pathError)
         case let serviceError as LDAServiceError:
             return MCPServer.describeBoundarySafe(serviceError)
+        case let releaseError as OutboundReleaseError:
+            return MCPServer.describeBoundarySafe(releaseError)
         case let ioError as DocumentIOError:
             return MCPServer.describeBoundarySafe(ioError)
         default:
             // The type name only. String(describing: error) can interpolate
             // associated values, and those regularly carry paths.
             return "unexpected_error: \(String(describing: type(of: error)))"
+        }
+    }
+
+    /// Masks retain fragments of client values, so the wire response carries
+    /// only the stable error code, aggregate count, and safe-style guidance.
+    private static func describeBoundarySafe(_ error: OutboundReleaseError) -> String {
+        switch error {
+        case .ambiguousAsteriskMasks(let masks):
+            return "ambiguous_asterisk_masks: count=\(masks.count). "
+                + "Switch to Tokens or Pseudonyms before copying or exporting."
         }
     }
 

@@ -49,7 +49,17 @@ final class LDAServiceImageTests: XCTestCase {
     }
 
     private func makeFixturePNG() throws -> URL {
-        track(try ImageFixtureRenderer.writePNG(lines: ImageTextExtractorTests.fixtureLines))
+        // The service tests ask one live Vision pass to recover four distinct
+        // structured values. Larger glyphs keep that integration fixture
+        // stable when the full suite runs several Vision tests concurrently.
+        track(
+            try ImageFixtureRenderer.writePNG(
+                lines: ImageTextExtractorTests.fixtureLines,
+                width: 2_200,
+                fontSize: 80,
+                lineHeight: 140
+            )
+        )
     }
 
     // MARK: - Anonymize (live Vision)

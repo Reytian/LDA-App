@@ -255,11 +255,70 @@ public struct ImageTextExtractor: DocumentImporter {
     /// orientation is applied on either side, keeping boxes consistent).
     internal static func loadImage(at url: URL) throws -> CGImage {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              CGImageSourceGetCount(source) > 0 else {
             throw DocumentIOError.unreadable(
                 "\(url.lastPathComponent) could not be decoded as an image."
             )
         }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any]
+        _ = try validatedPixelDimensions(
+            in: properties,
+            filename: url.lastPathComponent
+        )
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw DocumentIOError.unreadable(
+                "\(url.lastPathComponent) could not be decoded as an image."
+            )
+        }
+        try ImportLimits.enforceDecodedImageSize(
+            width: image.width,
+            height: image.height,
+            filename: url.lastPathComponent
+        )
         return image
+    }
+
+    /// Read trustworthy positive integer dimensions from first-frame metadata
+    /// and enforce the decoded-pixel ceiling before ImageIO allocates the
+    /// raster. Missing, fractional, non-finite, or nonpositive dimensions fail
+    /// closed because the post-decode check would be too late to bound memory.
+    internal static func validatedPixelDimensions(
+        in properties: [CFString: Any]?,
+        filename: String
+    ) throws -> (width: Int, height: Int) {
+        guard let properties,
+              let widthNumber = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let heightNumber = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            throw DocumentIOError.corrupt(
+                "\(filename) does not declare valid positive pixel dimensions."
+            )
+        }
+
+        func dimension(_ number: NSNumber) throws -> Int {
+            let value = number.doubleValue
+            guard value.isFinite,
+                  value > 0,
+                  value.rounded(.towardZero) == value else {
+                throw DocumentIOError.corrupt(
+                    "\(filename) does not declare valid positive pixel dimensions."
+                )
+            }
+            guard value <= Double(ImportLimits.maxDecodedImagePixels) else {
+                throw DocumentIOError.tooLarge(
+                    "\(filename) is larger than the 50 megapixel decoded-image limit."
+                )
+            }
+            return Int(value)
+        }
+
+        let width = try dimension(widthNumber)
+        let height = try dimension(heightNumber)
+        try ImportLimits.enforceDecodedImageSize(
+            width: width,
+            height: height,
+            filename: filename
+        )
+        return (width, height)
     }
 }

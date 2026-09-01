@@ -98,11 +98,48 @@ enum DocxParts {
     static func loadTextBearingParts(from url: URL) -> [LoadedPart] {
         var loaded: [LoadedPart] = []
         for path in textBearingPartPaths(in: url) {
-            guard let data = try? DocxZip.readEntry(path, from: url),
-                  let layout = try? DocxDocumentXML.parse(data) else { continue }
-            loaded.append(LoadedPart(path: path, layout: layout))
+            guard let part = try? loadRequiredTextBearingPart(path, from: url) else {
+                continue
+            }
+            loaded.append(part)
         }
         return loaded
+    }
+
+    /// Strict counterpart used by restoration. Once a package has enumerated a
+    /// supplementary text part, silently omitting it would make the report and
+    /// restored output look complete while leaving an unknown part untouched.
+    private static func loadRequiredTextBearingParts(from url: URL) throws -> [LoadedPart] {
+        try textBearingPartPaths(in: url).map {
+            try loadRequiredTextBearingPart($0, from: url)
+        }
+    }
+
+    private static func loadRequiredTextBearingPart(
+        _ path: String,
+        from url: URL
+    ) throws -> LoadedPart {
+        let data = try DocxZip.readEntry(path, from: url)
+        do {
+            return LoadedPart(path: path, layout: try DocxDocumentXML.parse(data))
+        } catch {
+            throw DocumentIOError.corrupt(
+                "cannot parse \(path): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// The package-wide visible text used to report restoration outcomes.
+    /// Body and supplementary parts are separated with NUL, which XML 1.0
+    /// cannot contain, so an ordinary replacement can never match across the
+    /// synthetic boundary. One combined scan also keeps orphan reporting
+    /// global to the package rather than falsely orphaning a replacement in
+    /// every individual part where it does not occur.
+    static func restoreReportText(from url: URL) throws -> String {
+        let bodyData = try DocxZip.readEntry(docxMainPartPath, from: url)
+        let body = try DocxDocumentXML.parse(bodyData)
+        let partTexts = try loadRequiredTextBearingParts(from: url).map { $0.layout.text }
+        return ([body.text] + partTexts).joined(separator: "\u{0000}")
     }
 
     // MARK: - Redaction of text-bearing parts
@@ -208,26 +245,16 @@ enum DocxParts {
     static func restoreNonBodyParts(
         url: URL,
         tokenToValue: [String: String]
-    ) -> [String: Data] {
+    ) throws -> [String: Data] {
         var replacements: [String: Data] = [:]
-        guard let regex = try? NSRegularExpression(pattern: TokenGrammar.placeholderPattern) else {
-            return replacements
-        }
-        for path in textBearingPartPaths(in: url) {
-            guard let data = try? DocxZip.readEntry(path, from: url),
-                  var layout = try? DocxDocumentXML.parse(data) else { continue }
-            var changed = false
-            for index in layout.segments.indices {
-                guard case .runText(let text) = layout.segments[index] else { continue }
-                guard text.contains("{") else { continue }
-                let replaced = substituteTokens(in: text, using: regex, tokenToValue: tokenToValue)
-                if replaced != text {
-                    layout.segments[index] = .runText(replaced)
-                    changed = true
-                }
-            }
-            if changed {
-                replacements[path] = DocxDocumentXML.serialize(layout)
+        for part in try loadRequiredTextBearingParts(from: url) {
+            var layout = part.layout
+            let restoredCount = try DocxRedactor.restoreTokensInLayout(
+                &layout,
+                tokenToValue: tokenToValue
+            )
+            if restoredCount > 0 {
+                replacements[part.path] = DocxDocumentXML.serialize(layout)
             }
         }
         return replacements
@@ -244,14 +271,13 @@ enum DocxParts {
     static func restoreNonBodyPartsLiteral(
         url: URL,
         plan: Restorer.LiteralRestorePlan
-    ) -> [String: Data] {
+    ) throws -> [String: Data] {
         var replacements: [String: Data] = [:]
-        for path in textBearingPartPaths(in: url) {
-            guard let data = try? DocxZip.readEntry(path, from: url),
-                  var layout = try? DocxDocumentXML.parse(data) else { continue }
-            guard let outcome = try? DocxRedactor.restoreLiteralInLayout(&layout, plan: plan),
-                  outcome.restoredCount > 0 else { continue }
-            replacements[path] = DocxDocumentXML.serialize(layout)
+        for part in try loadRequiredTextBearingParts(from: url) {
+            var layout = part.layout
+            let outcome = try DocxRedactor.restoreLiteralInLayout(&layout, plan: plan)
+            guard outcome.restoredCount > 0 else { continue }
+            replacements[part.path] = DocxDocumentXML.serialize(layout)
         }
         return replacements
     }
@@ -341,34 +367,6 @@ enum DocxParts {
             try DocxRedactor.applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &working)
         }
         return DocxDocumentXML.serialize(working)
-    }
-
-    /// Single left-to-right token substitution over one run's text, identical in
-    /// behavior to DocxRedactor.replaceTokens.
-    private static func substituteTokens(
-        in text: String,
-        using regex: NSRegularExpression,
-        tokenToValue: [String: String]
-    ) -> String {
-        let ns = text as NSString
-        let full = NSRange(location: 0, length: ns.length)
-        let matches = regex.matches(in: text, range: full)
-        guard !matches.isEmpty else { return text }
-        var result = ""
-        var cursor = 0
-        for match in matches {
-            let range = match.range
-            if range.location > cursor {
-                result += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
-            }
-            let token = ns.substring(with: range)
-            result += tokenToValue[token] ?? token
-            cursor = range.location + range.length
-        }
-        if cursor < ns.length {
-            result += ns.substring(from: cursor)
-        }
-        return result
     }
 
     // MARK: - docProps metadata scrub

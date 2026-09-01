@@ -91,47 +91,38 @@ final class LDAServiceStyleTests: XCTestCase {
         XCTAssertTrue(report.ambiguousReplacements.isEmpty)
     }
 
-    // MARK: - Asterisk, txt round trip with a collision
+    // MARK: - Ambiguous asterisk output is blocked before release
 
-    func testTextAsteriskRestoreRefusesAmbiguousMask() throws {
-        // Two CN mobiles that mask to the same 138****5678, plus one email
-        // whose mask is unique. Restore must bring back the email and refuse
-        // both phones.
+    func testTextAsteriskAnonymizeBlocksAmbiguousMaskBeforeWritingArtifacts() throws {
+        // Two CN mobiles mask to the same 138****5678. The service must reuse
+        // the restore verdict before any redacted file or mapping is written.
         let phoneA = "13812345678"
         let phoneB = "13887655678"
         let original = "A: \(phoneA) B: \(phoneB) mail \(Self.email)."
         let input = try writeText(original, name: "contacts.txt")
         let outputDir = workDir.appendingPathComponent("out-ast", isDirectory: true)
 
-        let result = try LDAService.anonymize(
-            input: input,
-            outputDir: outputDir,
-            protection: .passphrase(Self.passphrase),
-            createdAtISO8601: Self.createdAt,
-            style: .asterisk
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: input,
+                outputDir: outputDir,
+                protection: .passphrase(Self.passphrase),
+                createdAtISO8601: Self.createdAt,
+                style: .asterisk
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? OutboundReleaseError,
+                .ambiguousAsteriskMasks(["138****5678"])
+            )
+            XCTAssertTrue(error.localizedDescription.contains("Tokens"))
+            XCTAssertTrue(error.localizedDescription.contains("Pseudonyms"))
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputDir.path),
+            "preflight must run before the service creates its output directory"
         )
-
-        let redacted = try String(contentsOf: result.redactedFileURL, encoding: .utf8)
-        XCTAssertFalse(redacted.contains(phoneA))
-        XCTAssertFalse(redacted.contains(phoneB))
-        XCTAssertFalse(redacted.contains(Self.email))
-        XCTAssertTrue(redacted.contains("138****5678"))
-
-        let restoredURL = workDir.appendingPathComponent("restored-ast.txt")
-        let report = try LDAService.restore(
-            editedRedacted: result.redactedFileURL,
-            mapping: result.mappingFileURL,
-            protection: .passphrase(Self.passphrase),
-            output: restoredURL
-        )
-
-        let restored = try String(contentsOf: restoredURL, encoding: .utf8)
-        XCTAssertTrue(restored.contains(Self.email), "the unique mask restores")
-        XCTAssertTrue(restored.contains("138****5678"), "the colliding mask stays masked")
-        XCTAssertFalse(restored.contains(phoneA), "an ambiguous mask must never be guessed")
-        XCTAssertFalse(restored.contains(phoneB), "an ambiguous mask must never be guessed")
-        XCTAssertEqual(report.ambiguousReplacements, ["138****5678"])
-        XCTAssertEqual(report.restoredCount, 1)
     }
 
     // MARK: - Pseudonym, docx round trip

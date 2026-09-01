@@ -203,6 +203,26 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
+    func testSafePreviewShowsARefusalInsteadOfUnverifiedPseudonymOutput() {
+        let text = "北京鼎盛科技有限公司与甲公司签署。"
+        let entities = [
+            ReviewEntity(
+                span: span(in: text, value: "北京鼎盛科技有限公司", type: .company),
+                accepted: true,
+                token: "甲公司"
+            )
+        ]
+
+        XCTAssertEqual(
+            ReviewModel.redactedPreviewText(
+                text: text,
+                entities: entities,
+                style: .pseudonym
+            ),
+            "Safe Preview unavailable: pseudonym restoration could not be verified."
+        )
+    }
+
     func testTokenLookupIncludesSavedClientAliases() {
         let entry = MappingEntry(
             token: "{PERSON_4}",

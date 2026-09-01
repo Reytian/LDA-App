@@ -146,9 +146,30 @@ extension WorkspaceArchive {
             )
         }
         do {
-            return try JSONDecoder().decode(WorkspaceManifest.self, from: bytes)
+            let manifest = try JSONDecoder().decode(WorkspaceManifest.self, from: bytes)
+            try manifest.validateDocuments()
+            return manifest
+        } catch let error as WorkspaceManifestValidationError {
+            throw readerError(for: error)
         } catch {
             throw WorkspaceArchiveError.damagedFile("Its manifest could not be read.")
+        }
+    }
+
+    private static func readerError(
+        for error: WorkspaceManifestValidationError
+    ) -> WorkspaceArchiveError {
+        switch error {
+        case .tooManyDocuments:
+            return .tooLarge(
+                "A workspace can contain at most \(maximumDocumentCount) documents."
+            )
+        case .duplicateDocumentID:
+            return .damagedFile("Its manifest repeats a document identifier.")
+        case .duplicateArchivePath:
+            return .damagedFile("Its manifest repeats a document archive path.")
+        case .noncanonicalArchivePath:
+            return .damagedFile("Its manifest names a noncanonical document archive path.")
         }
     }
 

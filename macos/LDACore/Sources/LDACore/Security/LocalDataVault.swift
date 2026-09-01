@@ -59,12 +59,22 @@ public enum LocalDataVault {
     /// Remove the account's key. Best-effort cleanup for tests and rotation; a
     /// missing item is treated as success.
     public static func deleteKey(account: String) {
+        try? deleteKeyChecked(account: account)
+    }
+
+    /// Remove the account's key and surface a Keychain refusal to the caller.
+    /// Matter deletion uses this path because reporting success while the
+    /// re-identification key remains would make the erasure claim false.
+    public static func deleteKeyChecked(account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw DocumentIOError.keychainError(status)
+        }
     }
 
     // MARK: - Keychain key management

@@ -99,7 +99,7 @@ struct WorkspaceOpenSheet: View {
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Text("Enter the passphrase this workspace file was saved with. "
-                + "Everything in it stays on this Mac.")
+                + "Its contents are decrypted locally after you enter the passphrase.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

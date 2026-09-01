@@ -118,6 +118,16 @@ public struct WorkspaceDocumentRecord: Codable, Equatable, Sendable {
 /// before any other field is trusted (see WorkspaceArchive's version probe).
 public struct WorkspaceManifest: Codable, Equatable, Sendable {
 
+    private enum CodingKeys: String, CodingKey {
+        case formatVersion
+        case createdAtISO8601
+        case appVersion
+        case matterLabel
+        case matterScopeID
+        case substitutionStyle
+        case documents
+    }
+
     /// Payload schema version. Distinct from EncryptedContainer.containerVersion,
     /// which versions the crypto envelope.
     public var formatVersion: Int
@@ -160,6 +170,77 @@ public struct WorkspaceManifest: Codable, Equatable, Sendable {
         self.substitutionStyle = substitutionStyle
         self.documents = documents
     }
+
+    /// Decode the document list with its format ceiling enforced before an
+    /// attacker-authored manifest can allocate an unbounded record array.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+        createdAtISO8601 = try container.decode(String.self, forKey: .createdAtISO8601)
+        appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+        matterLabel = try container.decodeIfPresent(String.self, forKey: .matterLabel)
+        matterScopeID = try container.decodeIfPresent(UUID.self, forKey: .matterScopeID)
+        substitutionStyle = try container.decode(SubstitutionStyle.self, forKey: .substitutionStyle)
+
+        var documentContainer = try container.nestedUnkeyedContainer(forKey: .documents)
+        if let count = documentContainer.count,
+           count > WorkspaceArchive.maximumDocumentCount {
+            throw WorkspaceManifestValidationError.tooManyDocuments
+        }
+        var decoded: [WorkspaceDocumentRecord] = []
+        decoded.reserveCapacity(
+            min(documentContainer.count ?? 0, WorkspaceArchive.maximumDocumentCount)
+        )
+        while !documentContainer.isAtEnd {
+            guard decoded.count < WorkspaceArchive.maximumDocumentCount else {
+                throw WorkspaceManifestValidationError.tooManyDocuments
+            }
+            decoded.append(try documentContainer.decode(WorkspaceDocumentRecord.self))
+        }
+        documents = decoded
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatVersion, forKey: .formatVersion)
+        try container.encode(createdAtISO8601, forKey: .createdAtISO8601)
+        try container.encodeIfPresent(appVersion, forKey: .appVersion)
+        try container.encodeIfPresent(matterLabel, forKey: .matterLabel)
+        try container.encodeIfPresent(matterScopeID, forKey: .matterScopeID)
+        try container.encode(substitutionStyle, forKey: .substitutionStyle)
+        try container.encode(documents, forKey: .documents)
+    }
+
+    /// Validate the relationships that make each manifest record distinct and
+    /// bind it to the only archive path this format's writer emits.
+    func validateDocuments() throws {
+        guard documents.count <= WorkspaceArchive.maximumDocumentCount else {
+            throw WorkspaceManifestValidationError.tooManyDocuments
+        }
+        var ids: Set<UUID> = []
+        var paths: Set<String> = []
+        for document in documents {
+            guard ids.insert(document.id).inserted else {
+                throw WorkspaceManifestValidationError.duplicateDocumentID
+            }
+            guard paths.insert(document.archivePath).inserted else {
+                throw WorkspaceManifestValidationError.duplicateArchivePath
+            }
+            guard document.archivePath == WorkspaceArchive.documentArchivePath(
+                id: document.id,
+                name: document.name
+            ) else {
+                throw WorkspaceManifestValidationError.noncanonicalArchivePath
+            }
+        }
+    }
+}
+
+enum WorkspaceManifestValidationError: Error {
+    case tooManyDocuments
+    case duplicateDocumentID
+    case duplicateArchivePath
+    case noncanonicalArchivePath
 }
 
 /// The smallest thing that can be decoded from any manifest, of any version.

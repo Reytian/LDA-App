@@ -16,11 +16,9 @@
 //  at restore time: a site the redacted text spells with two different masks
 //  is refused and flagged rather than guessed.
 //
-//  These tests pin the fixed shapes, the refusal and its blast radius, and,
-//  at the end, the one related shape the seam guard cannot reach. That last
-//  one is labelled KNOWN GAP and asserts today's wrong output on purpose, so
-//  the residue stays visible and a future fix trips it loudly rather than
-//  passing silently.
+//  These tests pin the fixed shapes, the refusal and its blast radius, and
+//  the whole-assignment repair required when a later replacement gives an
+//  earlier pseudonym a new seam meaning.
 //
 //  House rules: all comments and strings in English. Fixture strings and
 //  generated pseudonyms may be Chinese. No em-dash and no
@@ -387,38 +385,129 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
         )
     }
 
-    /// The guard renders the document once per minted surface, so a document
-    /// with many distinct entities must not turn tokenization quadratic in
-    /// wall-clock terms. Measured at roughly 0.9s for this fixture against
-    /// 0.35s without the guard, so the bound below is a blowup smoke guard,
-    /// not a tight budget.
-    func testPseudonymMintingStaysFastOnManyDistinctEntities() {
+    /// Builds the release-scale fixture without repeatedly searching the
+    /// growing document for each span. Fixture construction is intentionally
+    /// outside the timed region.
+    private func pseudonymPerformanceFixture(
+        entityCount: Int
+    ) -> (document: String, spans: [Span]) {
+        precondition(entityCount.isMultiple(of: 2))
+
         var document = "送达清单。"
-        for index in 1...300 {
-            document += "第\(index)项：上海市浦东新区世纪大道\(index)号，联系人王小明\(index)。"
-        }
         var spans: [Span] = []
-        for index in 1...300 {
-            spans.append(span("上海市浦东新区世纪大道\(index)号", in: document, type: .address))
-            spans.append(span("王小明\(index)", in: document, type: .person))
+        spans.reserveCapacity(entityCount)
+
+        for index in 1...(entityCount / 2) {
+            let address = "上海市浦东新区世纪大道\(index)号"
+            let person = "王小明\(index)"
+            document += "第\(index)项："
+
+            let addressStart = document.utf16.count
+            document += address
+            spans.append(
+                Span(
+                    start: addressStart,
+                    end: addressStart + address.utf16.count,
+                    type: .address,
+                    text: address,
+                    source: .manual,
+                    confidence: 1.0,
+                    priority: 10
+                )
+            )
+
+            document += "，联系人"
+            let personStart = document.utf16.count
+            document += person
+            spans.append(
+                Span(
+                    start: personStart,
+                    end: personStart + person.utf16.count,
+                    type: .person,
+                    text: person,
+                    source: .manual,
+                    confidence: 1.0,
+                    priority: 10
+                )
+            )
+            document += "。"
         }
 
-        let started = Date()
-        let tokenized = Tokenizer.tokenize(
-            text: document,
-            spans: spans,
-            sourceFile: "doc.txt",
-            createdAtISO8601: "2026-08-31T00:00:00Z",
-            style: .pseudonym
-        )
-        let elapsed = Date().timeIntervalSince(started)
+        return (document, spans)
+    }
 
-        let restored = Restorer.restore(
-            text: tokenized.tokenizedText,
-            mapping: tokenized.mapping
+    private func timedPseudonymTokenization(
+        _ fixture: (document: String, spans: [Span])
+    ) throws -> (seconds: Double, result: TokenizeResult) {
+        var tokenized: TokenizeResult?
+        let elapsed = ContinuousClock().measure {
+            tokenized = Tokenizer.tokenize(
+                text: fixture.document,
+                spans: fixture.spans,
+                sourceFile: "doc.txt",
+                createdAtISO8601: "2026-08-31T00:00:00Z",
+                style: .pseudonym
+            )
+        }
+        let result = try XCTUnwrap(tokenized)
+        XCTAssertEqual(result.mapping.entries.count, fixture.spans.count)
+        XCTAssertTrue(result.unresolvedSeams.isEmpty)
+        let components = elapsed.components
+        let seconds = Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
+        return (seconds, result)
+    }
+
+    private func median(_ values: [Double]) -> Double {
+        let sorted = values.sorted()
+        return sorted[sorted.count / 2]
+    }
+
+    /// Tripling the number of distinct entities must not make pseudonym
+    /// tokenization more than six times slower. The regression implementation
+    /// rendered the full document once per minted surface and was measured at
+    /// 6.3 seconds for 1,500 entities versus 55.1 seconds for 4,500, a ratio
+    /// of 8.7. Local seam windows should keep the same correctness contract
+    /// while bringing that growth below this deliberately loose ceiling.
+    func testPseudonymMintingDoesNotScaleWithAFullDocumentRenderPerEntity() throws {
+        _ = try timedPseudonymTokenization(pseudonymPerformanceFixture(entityCount: 20))
+
+        let small = pseudonymPerformanceFixture(entityCount: 1_500)
+        let large = pseudonymPerformanceFixture(entityCount: 4_500)
+        var smallSamples: [Double] = []
+        var largeSamples: [Double] = []
+        var smallResult: TokenizeResult?
+
+        // Alternate sizes so thermal or background-load drift cannot favor
+        // every sample of one fixture. The median rejects one noisy outlier.
+        for _ in 0..<3 {
+            let measuredSmall = try timedPseudonymTokenization(small)
+            smallSamples.append(measuredSmall.seconds)
+            smallResult = measuredSmall.result
+
+            let measuredLarge = try timedPseudonymTokenization(large)
+            largeSamples.append(measuredLarge.seconds)
+        }
+
+        let smallElapsed = median(smallSamples)
+        let largeElapsed = median(largeSamples)
+
+        XCTAssertLessThan(
+            largeElapsed,
+            smallElapsed * 6.0,
+            "tripling entities took \(largeElapsed / smallElapsed)x longer"
         )
-        XCTAssertEqual(restored.text, document)
-        XCTAssertLessThan(elapsed, 5.0)
+        XCTAssertLessThan(
+            largeElapsed,
+            15.0,
+            "4,500 entities took \(largeElapsed)s"
+        )
+
+        // Restoration is deliberately outside every timed region. It proves
+        // the faster assignment still preserves the literal round trip.
+        let result = try XCTUnwrap(smallResult)
+        let restored = Restorer.restore(text: result.tokenizedText, mapping: result.mapping)
+        XCTAssertEqual(restored.text, small.document)
     }
 
     // MARK: - Asterisk prefix conflicts: refuse and flag
@@ -665,10 +754,10 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
         )
     }
 
-    // MARK: - KNOWN GAP (asserting today's wrong output on purpose)
+    // MARK: - Whole-assignment repair for a preceding-text seam
 
-    /// KNOWN GAP, pseudonym style, preceding-text seam in the unfixable mint
-    /// order. This is the mirror of
+    /// Pseudonym style, preceding-text seam in the unfixable mint order. This
+    /// is the mirror of
     /// testPersonPseudonymAvoidsASeamLeftByAnEarlierAddressSite with the
     /// person ahead of the address: 张某 is minted while the document still
     /// reads 扩张北京市..., so nothing is wrong yet, and the address emitted
@@ -679,7 +768,7 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
     /// 张 blocks the entire sequence and minting would not terminate. The fix
     /// is to remint the earlier pseudonym, which needs a repair pass over the
     /// whole assignment rather than a mint-time filter.
-    func testKnownGapPrecedingTextSeamSwallowsALaterAddressSite() {
+    func testDirectTokenizerRepairsPrecedingTextSeamByRemintingEarlierPerson() {
         let document = "经办人王小明。扩张北京市朝阳区建国路1号。"
         let tokenized = Tokenizer.tokenize(
             text: document,
@@ -691,15 +780,52 @@ final class RestorerPrefixAdjacencyTests: XCTestCase {
             createdAtISO8601: "2026-08-31T00:00:00Z",
             style: .pseudonym
         )
-        XCTAssertEqual(tokenized.tokenizedText, "经办人张某。扩张某地址A。")
 
         let restored = Restorer.restore(
             text: tokenized.tokenizedText,
             mapping: tokenized.mapping
         )
-        // Wanted: the original document. 张某 matches across the 扩张 seam
-        // first, which injects a real name and drops the address site.
-        XCTAssertEqual(restored.text, "经办人王小明。扩王小明地址A。")
-        XCTAssertNotEqual(restored.text, document)
+        XCTAssertEqual(restored.text, document)
+        XCTAssertEqual(restored.restoredCount, 2)
+        XCTAssertTrue(restored.orphanTokens.isEmpty)
+        XCTAssertTrue(tokenized.unresolvedSeams.isEmpty)
+        XCTAssertFalse(tokenized.tokenizedText.contains("王小明"))
+        XCTAssertFalse(tokenized.tokenizedText.contains("北京市朝阳区建国路1号"))
+    }
+
+    /// A mapping carried from another matter may contain a pseudonym that is
+    /// ordinary boilerplate in this document. Nothing here emits 甲公司, so
+    /// no remint can move the collision. Direct tokenization must preserve the
+    /// session verifier's warning instead of returning a falsely safe result.
+    func testDirectTokenizerReportsAnUnrepairableCarriedSeedCollision() throws {
+        let document = "本合同由甲公司与丙方签署。"
+        let seeded = entry(
+            replacement: "甲公司",
+            value: "北京鼎盛科技有限公司",
+            type: .company
+        )
+        let seed = Mapping(
+            entries: [seeded.token: seeded],
+            createdAtISO8601: "2026-08-31T00:00:00Z",
+            sourceFile: "earlier matter",
+            style: .pseudonym
+        )
+
+        let tokenized = Tokenizer.tokenize(
+            text: document,
+            spans: [],
+            sourceFile: "contract.txt",
+            createdAtISO8601: "2026-08-31T00:00:00Z",
+            seedMapping: seed,
+            style: .pseudonym
+        )
+
+        XCTAssertFalse(tokenized.unresolvedSeams.isEmpty)
+        XCTAssertThrowsError(try Tokenizer.requireSafeForRelease(tokenized)) { error in
+            guard case TokenizationSafetyError.unresolvedSeams(let seams) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertEqual(seams, tokenized.unresolvedSeams)
+        }
     }
 }

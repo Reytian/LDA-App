@@ -44,8 +44,9 @@ public enum SealCandidateDetector {
     /// keeps a strong lead; pale pink washes and warm paper do not.
     static let minRedLead = 50
 
-    /// Alpha floor: nearly transparent pixels are not visible ink.
-    static let minAlpha = 128
+    /// Alpha floor before unpremultiplying color channels. Pixels below one
+    /// quarter opacity are too faint to treat as visible ink.
+    static let minAlpha = 64
 
     /// Minimum size of a candidate cluster, in ORIGINAL pixels, measured on
     /// the larger bounding-box dimension. Keeps specks and bullet dots out
@@ -75,7 +76,17 @@ public enum SealCandidateDetector {
     public static func candidates(in image: CGImage) throws -> [CGRect] {
         let bitmap = try rasterize(image)
         let mask = redMask(of: bitmap)
-        let clusters = components(in: mask, width: bitmap.width, height: bitmap.height)
+        let connectivity = connectivityMask(
+            from: mask,
+            width: bitmap.width,
+            height: bitmap.height
+        )
+        let clusters = components(
+            in: connectivity,
+            sourceMask: mask,
+            width: bitmap.width,
+            height: bitmap.height
+        )
         let rects = clusters.compactMap { cluster in
             candidateRect(
                 for: cluster,
@@ -100,14 +111,19 @@ public enum SealCandidateDetector {
         try candidates(in: ImageTextExtractor.loadImage(at: url))
     }
 
-    /// The red-dominance predicate, on RGBA8 channel values (premultiplied
-    /// alpha; opaque documents are unaffected). Internal so the threshold is
-    /// testable directly.
+    /// The red-dominance predicate on premultiplied RGBA8 channel values.
+    /// Color is normalized before applying the seal-ink thresholds so visible
+    /// alpha-blended seals are judged by their ink color, not their opacity.
+    /// Internal so the threshold is testable directly.
     static func isSealRed(r: Int, g: Int, b: Int, a: Int) -> Bool {
-        a >= minAlpha
-            && r >= minRedChannel
-            && r - g >= minRedLead
-            && r - b >= minRedLead
+        guard a >= minAlpha else { return false }
+        let halfAlpha = a / 2
+        let normalizedRed = min(255, (r * 255 + halfAlpha) / a)
+        let normalizedGreen = min(255, (g * 255 + halfAlpha) / a)
+        let normalizedBlue = min(255, (b * 255 + halfAlpha) / a)
+        return normalizedRed >= minRedChannel
+            && normalizedRed - normalizedGreen >= minRedLead
+            && normalizedRed - normalizedBlue >= minRedLead
     }
 
     // MARK: - Rasterization
@@ -189,6 +205,32 @@ public enum SealCandidateDetector {
         return mask
     }
 
+    /// Grow each accepted pixel by one scan pixel in every direction. Printed
+    /// halftones often contain a clear pixel between adjacent ink cells, so
+    /// connectivity uses this mask while candidate area still counts only the
+    /// accepted red pixels in the source mask.
+    private static func connectivityMask(
+        from sourceMask: [Bool],
+        width: Int,
+        height: Int
+    ) -> [Bool] {
+        var connected = sourceMask
+        for index in sourceMask.indices where sourceMask[index] {
+            let x = index % width
+            let y = index / width
+            let minX = max(0, x - 1)
+            let maxX = min(width - 1, x + 1)
+            let minY = max(0, y - 1)
+            let maxY = min(height - 1, y + 1)
+            for neighborY in minY...maxY {
+                for neighborX in minX...maxX {
+                    connected[neighborY * width + neighborX] = true
+                }
+            }
+        }
+        return connected
+    }
+
     /// One connected red cluster, in scan coordinates (row 0 is the top).
     private struct Cluster {
         var minX: Int
@@ -198,15 +240,21 @@ public enum SealCandidateDetector {
         var pixelCount: Int
     }
 
-    /// Group the mask into 4-connected components with an iterative flood
-    /// fill (explicit stack, no recursion), visiting each pixel once so the
-    /// walk is linear in the scan size.
-    private static func components(in mask: [Bool], width: Int, height: Int) -> [Cluster] {
-        var visited = [Bool](repeating: false, count: mask.count)
+    /// Group the connectivity mask into 8-connected components with an
+    /// iterative flood fill. Only source-mask pixels contribute to area, so
+    /// the one-pixel bridge cannot promote an isolated speck by itself.
+    private static func components(
+        in connectivityMask: [Bool],
+        sourceMask: [Bool],
+        width: Int,
+        height: Int
+    ) -> [Cluster] {
+        var visited = [Bool](repeating: false, count: connectivityMask.count)
         var clusters: [Cluster] = []
         var stack: [Int] = []
 
-        for start in 0..<mask.count where mask[start] && !visited[start] {
+        for start in 0..<connectivityMask.count
+        where connectivityMask[start] && !visited[start] {
             var cluster = Cluster(
                 minX: start % width, maxX: start % width,
                 minY: start / width, maxY: start / width,
@@ -219,29 +267,59 @@ public enum SealCandidateDetector {
             while let index = stack.popLast() {
                 let x = index % width
                 let y = index / width
-                cluster.pixelCount += 1
+                if sourceMask[index] {
+                    cluster.pixelCount += 1
+                }
                 cluster.minX = min(cluster.minX, x)
                 cluster.maxX = max(cluster.maxX, x)
                 cluster.minY = min(cluster.minY, y)
                 cluster.maxY = max(cluster.maxY, y)
 
-                // Straight-line neighbor checks: no per-pixel allocation in
-                // the flood fill's hot loop.
-                if x > 0, mask[index - 1], !visited[index - 1] {
+                if x > 0, connectivityMask[index - 1], !visited[index - 1] {
                     visited[index - 1] = true
                     stack.append(index - 1)
                 }
-                if x < width - 1, mask[index + 1], !visited[index + 1] {
+                if x < width - 1,
+                   connectivityMask[index + 1],
+                   !visited[index + 1] {
                     visited[index + 1] = true
                     stack.append(index + 1)
                 }
-                if y > 0, mask[index - width], !visited[index - width] {
+                if y > 0,
+                   connectivityMask[index - width],
+                   !visited[index - width] {
                     visited[index - width] = true
                     stack.append(index - width)
                 }
-                if y < height - 1, mask[index + width], !visited[index + width] {
+                if y < height - 1,
+                   connectivityMask[index + width],
+                   !visited[index + width] {
                     visited[index + width] = true
                     stack.append(index + width)
+                }
+                if x > 0, y > 0,
+                   connectivityMask[index - width - 1],
+                   !visited[index - width - 1] {
+                    visited[index - width - 1] = true
+                    stack.append(index - width - 1)
+                }
+                if x < width - 1, y > 0,
+                   connectivityMask[index - width + 1],
+                   !visited[index - width + 1] {
+                    visited[index - width + 1] = true
+                    stack.append(index - width + 1)
+                }
+                if x > 0, y < height - 1,
+                   connectivityMask[index + width - 1],
+                   !visited[index + width - 1] {
+                    visited[index + width - 1] = true
+                    stack.append(index + width - 1)
+                }
+                if x < width - 1, y < height - 1,
+                   connectivityMask[index + width + 1],
+                   !visited[index + width + 1] {
+                    visited[index + width + 1] = true
+                    stack.append(index + width + 1)
                 }
             }
             clusters.append(cluster)

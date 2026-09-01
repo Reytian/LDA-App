@@ -42,6 +42,13 @@ public enum ImportLimits {
     /// is spent by every archive that gesture expands, however they nest.
     public static let maxArchiveUncompressedBytes: Int = 500 * 1024 * 1024
 
+    /// Largest raster accepted after decompression (50 megapixels).
+    ///
+    /// Compressed PNG and JPEG files can be small on disk while requiring a
+    /// multi-gigabyte drawing context. This ceiling is checked from ImageIO
+    /// metadata before decode and again against the decoded CGImage.
+    public static let maxDecodedImagePixels: Int = 50_000_000
+
 #if DEBUG
     /// Debug-only override of the archive budget, so the actual-bytes metering
     /// can be exercised with kilobyte fixtures instead of writing 500 MB in a
@@ -75,6 +82,27 @@ public enum ImportLimits {
             throw DocumentIOError.tooLarge(
                 "\(url.lastPathComponent) is \(describe(bytes: size)); the limit is "
                     + "\(describe(bytes: maxDocumentBytes)) per document."
+            )
+        }
+    }
+
+    /// Refuse decoded image dimensions whose pixel product exceeds the
+    /// ceiling. Multiplication is overflow checked so hostile metadata cannot
+    /// wrap a huge image into an apparently small count.
+    public static func enforceDecodedImageSize(
+        width: Int,
+        height: Int,
+        filename: String
+    ) throws {
+        guard width > 0, height > 0 else {
+            throw DocumentIOError.corrupt(
+                "\(filename) does not declare valid positive pixel dimensions."
+            )
+        }
+        let product = width.multipliedReportingOverflow(by: height)
+        guard !product.overflow, product.partialValue <= maxDecodedImagePixels else {
+            throw DocumentIOError.tooLarge(
+                "\(filename) is larger than the 50 megapixel decoded-image limit."
             )
         }
     }

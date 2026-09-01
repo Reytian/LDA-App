@@ -33,6 +33,7 @@
 //  en-dash-as-separator anywhere.
 //
 
+import Darwin
 import Foundation
 
 // MARK: - Errors
@@ -107,6 +108,24 @@ private struct ComplianceReportFormatProbe: Decodable {
 /// writes the explicitly chosen readable pair.
 public enum ComplianceReportArchive {
 
+    /// Holds an exclusive, cross-process claim on one readable report suffix.
+    /// The marker is hidden and contains no report data.
+    struct ReadablePairReservation {
+        let markdown: URL
+        let pdf: URL
+        private let marker: URL
+
+        fileprivate init(markdown: URL, pdf: URL, marker: URL) {
+            self.markdown = markdown
+            self.pdf = pdf
+            self.marker = marker
+        }
+
+        func release() {
+            try? FileManager.default.removeItem(at: marker)
+        }
+    }
+
     // MARK: Format constants
 
     /// The payload schema version this build WRITES and the highest it reads.
@@ -179,15 +198,76 @@ public enum ComplianceReportArchive {
         _ bundle: ComplianceReportBundle,
         into directory: URL
     ) throws -> (markdown: URL, pdf: URL) {
-        let markdownURL = directory.appendingPathComponent(markdownFileName)
-        let pdfURL = directory.appendingPathComponent(pdfFileName)
+        let reservation = try reserveReadablePair(in: directory)
+        defer { reservation.release() }
         do {
-            try Data(bundle.markdown.utf8).write(to: markdownURL, options: [.atomic])
-            try bundle.pdf.write(to: pdfURL, options: [.atomic])
+            try Data(bundle.markdown.utf8).write(
+                to: reservation.markdown,
+                options: [.atomic]
+            )
+            try bundle.pdf.write(to: reservation.pdf, options: [.atomic])
         } catch {
             throw ComplianceReportArchiveError.writeFailed(describe(error))
         }
-        return (markdownURL, pdfURL)
+        return (reservation.markdown, reservation.pdf)
+    }
+
+    /// Atomically claim the first report suffix whose Markdown and PDF members
+    /// are absent. O_EXCL makes the marker a cross-process reservation, and the
+    /// post-claim existence check closes the handoff race with a writer that
+    /// removed its marker immediately before this process acquired it.
+    static func reserveReadablePair(
+        in directory: URL
+    ) throws -> ReadablePairReservation {
+        let fileManager = FileManager.default
+        var counter = 1
+        while true {
+            let baseName = counter == 1 ? "report" : "report_\(counter)"
+            let markdown = directory.appendingPathComponent("\(baseName).md")
+            let pdf = directory.appendingPathComponent("\(baseName).pdf")
+            let marker = directory.appendingPathComponent(
+                ".\(baseName).lda-report-reservation"
+            )
+            let markdownExists = fileManager.fileExists(atPath: markdown.path)
+            let pdfExists = fileManager.fileExists(atPath: pdf.path)
+            guard !markdownExists && !pdfExists else {
+                counter += 1
+                continue
+            }
+
+            let descriptor = marker.withUnsafeFileSystemRepresentation { path -> Int32 in
+                guard let path else { return -1 }
+                return Darwin.open(
+                    path,
+                    O_WRONLY | O_CREAT | O_EXCL,
+                    S_IRUSR | S_IWUSR
+                )
+            }
+            let reservationErrno = errno
+            if descriptor < 0 {
+                if reservationErrno == EEXIST {
+                    counter += 1
+                    continue
+                }
+                let detail = String(cString: strerror(reservationErrno))
+                throw ComplianceReportArchiveError.writeFailed(
+                    "Could not reserve a report file name: \(detail)"
+                )
+            }
+            Darwin.close(descriptor)
+
+            if fileManager.fileExists(atPath: markdown.path)
+                || fileManager.fileExists(atPath: pdf.path) {
+                try? fileManager.removeItem(at: marker)
+                counter += 1
+                continue
+            }
+            return ReadablePairReservation(
+                markdown: markdown,
+                pdf: pdf,
+                marker: marker
+            )
+        }
     }
 
     // MARK: Reading

@@ -134,6 +134,13 @@ enum MatterWorkspacePresentation {
         }
     }
 
+    /// Permanent deletion is deliberately a second step after archive. This
+    /// policy is shared by the context menu and detail menu so an active
+    /// matter never gains a destructive action through one UI surface only.
+    static func canDelete(_ summary: MatterSummary) -> Bool {
+        summary.isArchived
+    }
+
     static func cleanedLabel(_ candidate: String) -> String? {
         let cleaned = candidate
             .components(separatedBy: .whitespacesAndNewlines)

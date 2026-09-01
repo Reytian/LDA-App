@@ -118,6 +118,17 @@ public final class LearningStore: ObservableObject {
         StoreBlobKeys.removeAll(storageKey: storageKey, defaults: defaults)
     }
 
+    /// Checked erasure used by matter deletion. Unlike removeMatterScope,
+    /// failure to destroy the unique vault key is surfaced to the caller.
+    public nonisolated static func eraseMatterScope(
+        id: UUID,
+        defaults: UserDefaults = .standard,
+        baseKey: String = LearningStore.defaultStorageKey
+    ) throws {
+        let storageKey = StoreScope.matter(id: id).storageKey(base: baseKey)
+        try StoreBlobKeys.eraseAll(storageKey: storageKey, defaults: defaults)
+    }
+
     /// A stable key for a value and type. Pure, so usable off the main actor.
     public nonisolated static func key(value: String, type: EntityType) -> String {
         "\(type.rawValue)|\(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"

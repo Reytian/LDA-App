@@ -86,7 +86,7 @@ final class DocxNonBodyPartsTests: XCTestCase {
 
     /// A token in the header must round-trip back to its original surface on
     /// restore (the non-body parts carry tokens the same way the body does).
-    func testRestoreRoundTripsHeaderAndBody() throws {
+    func testTokenRestoreReportCountsBodyAndEveryNonBodyOccurrence() throws {
         let input = try writeFullFixtureDocx()
 
         let result = try LDAService.anonymize(
@@ -98,12 +98,18 @@ final class DocxNonBodyPartsTests: XCTestCase {
         )
 
         let restored = workDir.appendingPathComponent("restored.docx")
-        _ = try LDAService.restore(
+        let report = try LDAService.restore(
             editedRedacted: result.redactedFileURL,
             mapping: result.mappingFileURL,
             protection: .passphrase("pw"),
             output: restored
         )
+
+        // One body email plus six occurrences across the header, footer,
+        // footnote, endnote, and comment parts must contribute to one report.
+        XCTAssertEqual(report.restoredCount, 7)
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertTrue(report.suspectPlaceholders.isEmpty)
 
         // The header email returns verbatim in the restored package.
         let header = try readPart("word/header1.xml", from: restored)
@@ -113,6 +119,145 @@ final class DocxNonBodyPartsTests: XCTestCase {
         // The body restores too: importing the restored body shows no tokens.
         let body = try DocxImporter().importDocument(restored).text
         XCTAssertFalse(body.contains("{"), "restored body should carry no tokens")
+    }
+
+    func testTokenRestoreWritesASupplementaryTokenSplitAcrossRuns() throws {
+        let result = try anonymizeFullFixture()
+        let mapping = try MappingStore.load(
+            from: result.mappingFileURL,
+            protection: .passphrase("pw")
+        )
+        let emailToken = try XCTUnwrap(
+            mapping.entries.values.first { $0.value == Self.headerEmail }?.token
+        )
+        let splitIndex = emailToken.index(
+            emailToken.startIndex,
+            offsetBy: emailToken.count / 2
+        )
+        let splitToken = String(emailToken[..<splitIndex])
+            + "</w:t></w:r><w:r><w:t>"
+            + String(emailToken[splitIndex...])
+        let header = try readPart("word/header1.xml", from: result.redactedFileURL)
+        XCTAssertTrue(header.contains(emailToken))
+
+        let edited = workDir.appendingPathComponent("split-header-token.docx")
+        try DocxZip.rewrite(
+            source: result.redactedFileURL,
+            replacing: [
+                "word/header1.xml": Data(
+                    header.replacingOccurrences(of: emailToken, with: splitToken).utf8
+                )
+            ],
+            to: edited
+        )
+
+        let restored = workDir.appendingPathComponent("restored-split-header-token.docx")
+        let report = try LDAService.restore(
+            editedRedacted: edited,
+            mapping: result.mappingFileURL,
+            protection: .passphrase("pw"),
+            output: restored
+        )
+        let restoredVisibleText = try DocxParts.restoreReportText(from: restored)
+
+        XCTAssertEqual(report.restoredCount, 7)
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertTrue(restoredVisibleText.contains(Self.headerEmail))
+        XCTAssertFalse(
+            restoredVisibleText.contains(emailToken),
+            "every site counted as restored must actually be rewritten"
+        )
+    }
+
+    /// Pseudonym restore uses ordinary replacement strings in the body, while
+    /// supplementary parts can also carry brace tokens minted during package
+    /// redaction. Both replacement shapes belong to the same package-wide
+    /// report and every mapped occurrence in this fixture is present.
+    func testPseudonymRestoreReportCountsBodyAndEveryNonBodyOccurrence() throws {
+        let input = try writeFullFixtureDocx()
+
+        let result = try LDAService.anonymize(
+            input: input,
+            outputDir: workDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: nil,
+            style: .pseudonym
+        )
+
+        let restored = workDir.appendingPathComponent("restored-pseudonym.docx")
+        let report = try LDAService.restore(
+            editedRedacted: result.redactedFileURL,
+            mapping: result.mappingFileURL,
+            protection: .passphrase("pw"),
+            output: restored
+        )
+
+        XCTAssertEqual(report.restoredCount, 7)
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertTrue(report.suspectPlaceholders.isEmpty)
+        XCTAssertTrue(report.ambiguousReplacements.isEmpty)
+
+        let header = try readPart("word/header1.xml", from: restored)
+        XCTAssertTrue(header.contains(Self.headerEmail))
+        XCTAssertTrue(header.contains(Self.headerID))
+        let comments = try readPart("word/comments.xml", from: restored)
+        XCTAssertTrue(comments.contains(Self.commentEmail))
+    }
+
+    func testRestoreReportFailsWhenAnEnumeratedSupplementaryPartIsMalformed() throws {
+        let result = try anonymizeFullFixture()
+        let malformed = workDir.appendingPathComponent("malformed-header.docx")
+        let brokenHeader = Data(
+            "<w:hdr xmlns:w=\"urn:test\"><w:p><w:r><w:t>unterminated".utf8
+        )
+        try DocxZip.rewrite(
+            source: result.redactedFileURL,
+            replacing: ["word/header1.xml": brokenHeader],
+            to: malformed
+        )
+
+        XCTAssertTrue(DocxParts.textBearingPartPaths(in: malformed).contains("word/header1.xml"))
+        XCTAssertThrowsError(try DocxParts.restoreReportText(from: malformed)) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("word/header1.xml"),
+                "the visible failure must identify the supplementary part: \(error)"
+            )
+        }
+    }
+
+    func testTokenRestorationFailsWhenAnEnumeratedSupplementaryPartCannotBeRead() throws {
+        let result = try anonymizeFullFixture()
+        let damaged = workDir.appendingPathComponent("unreadable-header.docx")
+        try FileManager.default.copyItem(at: result.redactedFileURL, to: damaged)
+        try corruptCompressedPayload(of: "word/header1.xml", in: damaged)
+
+        XCTAssertTrue(DocxParts.textBearingPartPaths(in: damaged).contains("word/header1.xml"))
+        let mapping = try MappingStore.load(
+            from: result.mappingFileURL,
+            protection: .passphrase("pw")
+        )
+        let tokenToValue = Dictionary(
+            uniqueKeysWithValues: mapping.entries.values.map { ($0.token, $0.value) }
+        )
+        let output = workDir.appendingPathComponent("must-not-exist.docx")
+
+        XCTAssertThrowsError(
+            try DocxRedactor.restore(
+                redactedDocx: damaged,
+                tokenToValue: tokenToValue,
+                to: output
+            )
+        ) { error in
+            XCTAssertTrue(
+                error.localizedDescription.contains("word/header1.xml"),
+                "the visible failure must identify the unreadable supplementary part: \(error)"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: output.path),
+            "restoration must fail before writing a partial package"
+        )
     }
 
     // MARK: - Targeted unit coverage
@@ -412,6 +557,49 @@ final class DocxNonBodyPartsTests: XCTestCase {
     private func readPart(_ path: String, from docx: URL) throws -> String {
         let data = try DocxZip.readEntry(path, from: docx)
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func anonymizeFullFixture() throws -> AnonymizeResult {
+        try LDAService.anonymize(
+            input: writeFullFixtureDocx(),
+            outputDir: workDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: nil
+        )
+    }
+
+    /// Flip one byte in the target entry's compressed payload while preserving
+    /// its local header and the central directory. ZIP enumeration therefore
+    /// still names the part, but extraction fails its deflate or CRC check.
+    private func corruptCompressedPayload(of targetPath: String, in archiveURL: URL) throws {
+        var bytes = try Data(contentsOf: archiveURL)
+        let localHeader = [UInt8](arrayLiteral: 0x50, 0x4B, 0x03, 0x04)
+        var cursor = 0
+
+        while cursor + 30 <= bytes.count {
+            guard Array(bytes[cursor ..< cursor + 4]) == localHeader else {
+                cursor += 1
+                continue
+            }
+            let nameLength = Int(bytes[cursor + 26]) | (Int(bytes[cursor + 27]) << 8)
+            let extraLength = Int(bytes[cursor + 28]) | (Int(bytes[cursor + 29]) << 8)
+            let nameStart = cursor + 30
+            let nameEnd = nameStart + nameLength
+            guard nameEnd <= bytes.count else { break }
+            let path = String(data: bytes[nameStart ..< nameEnd], encoding: .utf8)
+            if path == targetPath {
+                let payloadStart = nameEnd + extraLength
+                guard payloadStart < bytes.count else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                bytes[payloadStart] ^= 0xFF
+                try bytes.write(to: archiveURL, options: .atomic)
+                return
+            }
+            cursor = nameEnd + extraLength
+        }
+        throw CocoaError(.fileReadNoSuchFile)
     }
 
     // MARK: - Fixture authoring

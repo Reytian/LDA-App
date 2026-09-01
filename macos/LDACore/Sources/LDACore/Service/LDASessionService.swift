@@ -157,6 +157,10 @@ extension LDAService {
             seedMapping: seedMapping,
             style: style
         )
+        try OutboundReleasePreflight.requireSafe(
+            texts: result.documents.map(\.tokenizedText),
+            mapping: result.mapping
+        )
 
         // Record the full-name/short-name grouping found in each document in
         // the ONE shared mapping. Tokens and values are untouched, so restore

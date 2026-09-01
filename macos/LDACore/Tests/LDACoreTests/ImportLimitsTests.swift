@@ -15,6 +15,7 @@
 //
 
 import XCTest
+import ImageIO
 @testable import LDACore
 
 final class ImportLimitsTests: XCTestCase {
@@ -81,6 +82,94 @@ final class ImportLimitsTests: XCTestCase {
         // follows produces the specific "not found" error.
         let missing = workDir.appendingPathComponent("nope.txt")
         XCTAssertNoThrow(try ImportLimits.enforceDocumentSize(at: missing))
+    }
+
+    // MARK: - Decoded image budget
+
+    func testDecodedImagePixelBudgetAcceptsTheExactBoundary() {
+        XCTAssertNoThrow(
+            try ImportLimits.enforceDecodedImageSize(
+                width: 10_000,
+                height: 5_000,
+                filename: "boundary.png"
+            )
+        )
+    }
+
+    func testDecodedImagePixelBudgetRejectsOnePixelBeyondTheBoundary() {
+        XCTAssertThrowsError(
+            try ImportLimits.enforceDecodedImageSize(
+                width: 10_000,
+                height: 5_001,
+                filename: "compressed.png"
+            )
+        ) { error in
+            guard case DocumentIOError.tooLarge(let detail) = error else {
+                return XCTFail("expected tooLarge, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("compressed.png"))
+            XCTAssertTrue(detail.contains("50 megapixel"))
+        }
+    }
+
+    func testDecodedImagePixelBudgetCannotBeBypassedByIntegerOverflow() {
+        XCTAssertThrowsError(
+            try ImportLimits.enforceDecodedImageSize(
+                width: Int.max,
+                height: 2,
+                filename: "hostile.jpg"
+            )
+        ) { error in
+            guard case DocumentIOError.tooLarge = error else {
+                return XCTFail("expected tooLarge, got \(error)")
+            }
+        }
+    }
+
+    func testDecodedImagePixelBudgetRejectsNonpositiveDimensions() {
+        for (width, height) in [(0, 100), (100, 0), (-1, 100), (100, -1)] {
+            XCTAssertThrowsError(
+                try ImportLimits.enforceDecodedImageSize(
+                    width: width,
+                    height: height,
+                    filename: "invalid.png"
+                )
+            ) { error in
+                guard case DocumentIOError.corrupt(let detail) = error else {
+                    return XCTFail("expected corrupt, got \(error)")
+                }
+                XCTAssertTrue(detail.contains("invalid.png"))
+                XCTAssertTrue(detail.contains("positive pixel dimensions"))
+            }
+        }
+    }
+
+    func testImageMetadataRequiresPositiveIntegerPixelDimensionsBeforeDecode() throws {
+        XCTAssertThrowsError(
+            try ImageTextExtractor.validatedPixelDimensions(
+                in: nil,
+                filename: "missing-metadata.png"
+            )
+        )
+        XCTAssertThrowsError(
+            try ImageTextExtractor.validatedPixelDimensions(
+                in: [
+                    kCGImagePropertyPixelWidth: NSNumber(value: 10.5),
+                    kCGImagePropertyPixelHeight: NSNumber(value: 100)
+                ],
+                filename: "fractional-metadata.png"
+            )
+        )
+
+        let dimensions = try ImageTextExtractor.validatedPixelDimensions(
+            in: [
+                kCGImagePropertyPixelWidth: NSNumber(value: 2_000),
+                kCGImagePropertyPixelHeight: NSNumber(value: 1_500)
+            ],
+            filename: "ordinary.png"
+        )
+        XCTAssertEqual(dimensions.width, 2_000)
+        XCTAssertEqual(dimensions.height, 1_500)
     }
 
     // MARK: - Every importer enforces it
