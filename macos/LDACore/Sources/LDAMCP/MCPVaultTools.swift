@@ -23,8 +23,8 @@
 //  exact length and position (a weak side channel). The spec chose offsets so
 //  a local caller can slice the text itself; anything finer than type plus
 //  offsets stays on the machine. The per-entity ids and the detectionId it
-//  also returns derive from type and offsets only (MCPDetectionIdentity), so
-//  they add nothing to that disclosure.
+//  also returns derive from the handle, type, and offsets
+//  (MCPDetectionIdentity), so they add nothing to that disclosure.
 //
 //  Every error thrown here is rendered by describeBoundarySafe, which maps
 //  each failure to error-code-plus-handle wording and never interpolates a
@@ -234,7 +234,7 @@ extension MCPServer {
         // caller named, and afterwards tells whether the caller reviewed the
         // detection that actually ran. Excluded TYPES are the engine's job on
         // every channel, including headers, footers, notes, and image text.
-        let observer = MCPDetectionObserver(excludedIds: review.excludedIds)
+        let observer = MCPDetectionObserver(handle: handle, excludedIds: review.excludedIds)
         let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
             try LDAService.anonymize(
                 input: inputURL,
@@ -347,7 +347,8 @@ extension MCPServer {
     /// host launched this server, so returning the detected surface text
     /// would upload the exact bytes this product exists to keep local. The
     /// ids let a caller name entities to anonymize's excludeEntityIds; they
-    /// derive from type and offsets only, so they disclose nothing new.
+    /// derive from the handle, type, and offsets, so they disclose nothing
+    /// new and are never valid for another document.
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
@@ -355,7 +356,7 @@ extension MCPServer {
             try LDAService.detect(input: url, llmModelPath: modelPath)
         }
 
-        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0) }
+        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0, handle: handle) }
         let entities: [[String: Any]] = zip(spans, ids).map { span, id in
             [
                 "id": id,

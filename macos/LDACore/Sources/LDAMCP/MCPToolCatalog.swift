@@ -108,7 +108,7 @@ extension MCPServer {
                     "excludeEntityIds": [
                         "type": "array",
                         "items": ["type": "string"],
-                        "description": "Ids from detect_entities for THIS handle whose values must stay visible. Body text only: an occurrence of the same value in a header, footer, note, or comment is still redacted (use excludeTypes for that). Requires detectionId. An id the fresh detection does not know is refused (unknown_entity_id) and nothing is written."
+                        "description": "Ids from detect_entities for THIS handle whose values must stay visible. Body text only: an occurrence of the same value in a header, footer, note, or comment is still redacted (use excludeTypes for that). Requires detectionId. An id the fresh detection does not know, including any id from another document, is refused (unknown_entity_id) and nothing is written."
                     ],
                     "excludeTypes": [
                         "type": "array",
@@ -160,7 +160,7 @@ extension MCPServer {
         ],
         [
             "name": "detect_entities",
-            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from type and offsets only), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
+            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from the handle, type, and offsets, so it is never valid for another document), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

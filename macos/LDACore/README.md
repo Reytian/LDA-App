@@ -201,7 +201,8 @@ together with `editedHandle`.
 ### The review step: choose which PII to redact
 
 `detect_entities` names every detected entity with an `id` (the first 12 hex
-characters of SHA-256 over `TYPE|start|end`) and the whole set with a
+characters of SHA-256 over `handle|TYPE|start|end`, so an id belongs to one
+document and is never valid for another) and the whole set with a
 `detectionId` (16 hex characters over the handle, whether a model took part,
 and the sorted ids). Both derive from information the tool already returns,
 so an agent can review the list and say "redact everything except these"
@@ -213,8 +214,9 @@ without ever seeing a name:
 `excludeEntityIds` applies to body text only (a header occurrence of the same
 value is still redacted); `excludeTypes` applies everywhere, including
 headers, footers, notes, comments, and the image channel. `anonymize` detects
-again on its own: an excluded id it does not find is refused with
-`unknown_entity_id` and nothing is written; a detection that changed while
+again on its own: an excluded id it does not find (including any id minted
+for another document) is refused with `unknown_entity_id` and nothing is
+written; a detection that changed while
 every excluded id is still present proceeds (over-redaction is the safe
 direction) and reports `detectionChanged: true`. `anonymize_session` accepts
 `excludeTypes` only, because ids are single-document by construction.

@@ -7,11 +7,14 @@
 //  anonymize_session are validated, and how anonymize checks the caller's
 //  exclusions against the detection it actually runs.
 //
-//  Identity without content: an entity id is derived from its TYPE and its
-//  OFFSETS only, both of which detect_entities already discloses, so an id
-//  adds no information to the wire. The detectionId fingerprints the whole set
-//  (plus the handle and whether a model was used) so anonymize can tell the
-//  caller when the detection it ran differs from the one they reviewed.
+//  Identity without content: an entity id is derived from the HANDLE it was
+//  detected in, its TYPE, and its OFFSETS, all of which detect_entities
+//  already discloses, so an id adds no information to the wire. Binding the
+//  handle in makes an id name one span of one document: an id carried over
+//  from another document never matches, so it cannot keep the wrong
+//  document's value visible. The detectionId fingerprints the whole set (plus
+//  the handle and whether a model was used) so anonymize can tell the caller
+//  when the detection it ran differs from the one they reviewed.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -25,15 +28,19 @@ import LDACore
 
 enum MCPDetectionIdentity {
 
-    /// Hex characters of an entity id: SHA-256 over "TYPE|start|end".
+    /// Hex characters of an entity id: SHA-256 over "handle|TYPE|start|end".
     static let entityIdLength = 12
 
     /// Hex characters of a detection id: SHA-256 over "handle|model|ids".
     static let detectionIdLength = 16
 
-    /// The wire id of one detected span. Type and offsets only, never text.
-    static func entityId(for span: Span) -> String {
-        hexDigest(of: "\(span.type.rawValue)|\(span.start)|\(span.end)", length: entityIdLength)
+    /// The wire id of one detected span: the handle it belongs to, its type,
+    /// and its offsets. Never text, and never valid for another handle.
+    static func entityId(for span: Span, handle: String) -> String {
+        hexDigest(
+            of: "\(handle)|\(span.type.rawValue)|\(span.start)|\(span.end)",
+            length: entityIdLength
+        )
     }
 
     /// The fingerprint of one detection: the handle it ran on, whether a model
@@ -138,17 +145,21 @@ final class MCPDetectionObserver {
         let detectionChanged: Bool
     }
 
+    private let handle: String
     private let excludedIds: Set<String>
     private var freshIds: [String] = []
 
-    init(excludedIds: Set<String>) {
+    /// - Parameter handle: the document being anonymized; ids are bound to
+    ///   it, so an id minted for another handle can never match here.
+    init(handle: String, excludedIds: Set<String>) {
+        self.handle = handle
         self.excludedIds = excludedIds
     }
 
     /// The spanFilter verdict for one body span: record it, keep it unless the
     /// caller excluded its id.
     func keep(_ span: Span) -> Bool {
-        let id = MCPDetectionIdentity.entityId(for: span)
+        let id = MCPDetectionIdentity.entityId(for: span, handle: handle)
         freshIds.append(id)
         return !excludedIds.contains(id)
     }

@@ -6,8 +6,9 @@
 //  an id per entity and a detectionId for the set, and anonymize accepts
 //  excludeEntityIds (with the detectionId they came with) and excludeTypes so
 //  an agent can say "redact everything except these" without ever seeing a
-//  name. Ids derive from type and offsets only, both of which the tool already
-//  discloses, so they add no information to the wire.
+//  name. Ids derive from the handle, the type, and the offsets, all of which
+//  the tool already discloses, so they add no information to the wire, and
+//  they cannot be carried from one document to another.
 //
 //  Every test drives the server over JSON-RPC, exactly as an agent host would,
 //  and recomputes the expected ids with CryptoKit so the wire contract is
@@ -176,8 +177,8 @@ final class MCPReviewExclusionTests: XCTestCase {
         digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func expectedEntityId(type: String, start: Int, end: Int) -> String {
-        String(hex(SHA256.hash(data: Data("\(type)|\(start)|\(end)".utf8))).prefix(12))
+    private func expectedEntityId(handle: String, type: String, start: Int, end: Int) -> String {
+        String(hex(SHA256.hash(data: Data("\(handle)|\(type)|\(start)|\(end)".utf8))).prefix(12))
     }
 
     private func expectedDetectionId(handle: String, modelPathPresent: Bool, ids: [String]) -> String {
@@ -213,7 +214,7 @@ final class MCPReviewExclusionTests: XCTestCase {
 
     // MARK: - detect_entities ids
 
-    func testDetectEntitiesReturnsStableIdsDerivedFromTypeAndOffsetsOnly() throws {
+    func testDetectEntitiesReturnsStableIdsBoundToTheHandleTypeAndOffsets() throws {
         let handle = try stageText(Self.twoEmailsText)
 
         let first = try detection(for: handle)
@@ -230,11 +231,12 @@ final class MCPReviewExclusionTests: XCTestCase {
             XCTAssertEqual(
                 id,
                 expectedEntityId(
+                    handle: handle,
                     type: try XCTUnwrap(entity["type"] as? String),
                     start: try XCTUnwrap(entity["start"] as? Int),
                     end: try XCTUnwrap(entity["end"] as? Int)
                 ),
-                "the id is SHA-256 over type|start|end, first 12 hex characters"
+                "the id is SHA-256 over handle|type|start|end, first 12 hex characters"
             )
             XCTAssertNil(entity["text"], "no surface text rides along with the id")
             ids.append(id)
@@ -250,6 +252,14 @@ final class MCPReviewExclusionTests: XCTestCase {
             ids,
             "ids are stable across calls"
         )
+
+        // Ids are bound to the handle: the same text staged under another
+        // handle yields different ids, so an id cannot be carried across
+        // documents to keep a different document's value visible.
+        let twin = try stageText(Self.twoEmailsText, named: "twin.txt")
+        let twinIds = try detection(for: twin).entities.compactMap { $0["id"] as? String }
+        XCTAssertEqual(twinIds.count, ids.count)
+        XCTAssertTrue(Set(twinIds).isDisjoint(with: Set(ids)), "ids must not be portable across handles")
     }
 
     // MARK: - Exclusion by id
@@ -331,34 +341,53 @@ final class MCPReviewExclusionTests: XCTestCase {
         XCTAssertEqual(try listedHandleCount(), 1)
     }
 
-    /// Over-redaction is the safe direction: a changed detection whose
-    /// excluded ids are all still present proceeds and says so.
-    func testAChangedDetectionWithEveryExcludedIdPresentProceedsAndSaysSo() throws {
+    /// An id from another document is never honored, even when that
+    /// document has an entity at the same offsets: ids are bound to the
+    /// handle, so a foreign id fails hard as unknown, and nothing is written.
+    func testAForeignEntityIdIsRefusedEvenWhenItsOffsetsMatch() throws {
         let shorter = "Reach \(Self.firstEmail) or \(Self.secondEmail)."
         let longer = shorter + " Signed \(Self.bodyDate)."
         let shorterHandle = try stageText(shorter, named: "one.txt")
         let longerHandle = try stageText(longer, named: "two.txt")
         let detected = try detection(for: shorterHandle)
-        let target = try entityId(covering: Self.firstEmail, in: shorter, from: detected.entities)
+        let foreign = try entityId(covering: Self.firstEmail, in: shorter, from: detected.entities)
 
-        // The longer document shares the email offsets, so the id is present
-        // there too, but its detection set (and handle) differ.
-        let changed = try summary(tool: "anonymize", arguments: [
+        let refused = try call(tool: "anonymize", arguments: [
             "handle": longerHandle,
             "passphrase": passphrase,
-            "excludeEntityIds": [target],
+            "excludeEntityIds": [foreign],
             "detectionId": detected.detectionId
+        ])
+
+        XCTAssertTrue(refused.isError, "a foreign id must not keep a value visible: \(refused.text)")
+        XCTAssertTrue(refused.text.hasPrefix("unknown_entity_id: count=1"), refused.text)
+        XCTAssertEqual(try listedHandleCount(), 2, "nothing was written")
+        XCTAssertEqual(try objectDirectoryNames(), [shorterHandle, longerHandle].sorted())
+    }
+
+    /// Over-redaction is the safe direction: when every excluded id is
+    /// present but the supplied detectionId does not match this run's
+    /// detection, anonymize proceeds and says so.
+    func testAStaleDetectionIdWithEveryExcludedIdPresentProceedsAndSaysSo() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+        let target = try entityId(covering: Self.firstEmail, in: Self.twoEmailsText, from: detected.entities)
+
+        let changed = try summary(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": [target],
+            "detectionId": "0000000000000000"
         ])
         XCTAssertEqual(changed["detectionChanged"] as? Bool, true, "\(changed)")
         XCTAssertEqual(changed["excludedCount"] as? Int, 1)
         let redacted = try readRedacted(try XCTUnwrap(changed["redactedHandle"] as? String))
         XCTAssertTrue(redacted.contains(Self.firstEmail), redacted)
         XCTAssertFalse(redacted.contains(Self.secondEmail), redacted)
-        XCTAssertTrue(redacted.contains("{DATE_1}"), redacted)
 
         // Control: the detection the ids came from is not "changed".
         let unchanged = try summary(tool: "anonymize", arguments: [
-            "handle": shorterHandle,
+            "handle": handle,
             "passphrase": passphrase,
             "excludeEntityIds": [target],
             "detectionId": detected.detectionId
