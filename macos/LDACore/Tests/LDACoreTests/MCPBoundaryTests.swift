@@ -489,4 +489,131 @@ final class MCPBoundaryTests: XCTestCase {
         XCTAssertTrue(failing.isError)
         assertNoScratchPlaintextRemains()
     }
+
+    // MARK: - The review step and the docx round trip
+
+    /// The review fields (ids, detectionId, excludedCount, detectionChanged),
+    /// the restore format field, and the editedHandle path ride the same wire
+    /// as everything else, so the same scan covers them: a party-shaped docx
+    /// filename, planted values in the body and the header, exclusions by id
+    /// and by type, an edited .docx staged back by the human under another
+    /// party-shaped name, an export, and every new refusal.
+    ///
+    /// Excluded values are visible in the redacted text BY THE CALLER'S CHOICE
+    /// and read_redacted returns that text, so the fixture excludes an amount
+    /// and the URL type, neither of which is on the forbidden list, while the
+    /// email, phone, dates, and filenames must never cross.
+    func testReviewStepAndDocxRoundTripNeverLeakNamesPathsOrPlantedValues() throws {
+        let email = "wang.wu.3319@example.com"
+        let phone = "13987654321"
+        let date = "2024-05-20"
+        let headerDate = "2023-11-30"
+        let fileBase = "WangWu-v-ZhaoLiu-share-transfer"
+        let original = workDir.appendingPathComponent("\(fileBase).docx")
+        try DocxFixtureSupport.write(
+            paragraphs: [[
+                .plain("Contact "), .bold(email), .plain(" or "), .plain(phone),
+                .italic(" before \(date) for USD 1,250,000; see https://example.com/deal-room.")
+            ]],
+            header: [[.plain("Dated \(headerDate)")]],
+            to: original
+        )
+        let vault = VaultTestSupport.vault(root: vaultDir)
+        let handle = try vault.stage(fileURL: original, stagedAtISO8601: "2026-09-02T00:00:00Z").handle
+
+        // Review: ids and a detectionId come back; the amount is left visible.
+        let detected = try summary(of: try call(tool: "detect_entities", arguments: ["handle": handle]))
+        let detectionId = try XCTUnwrap(detected["detectionId"] as? String)
+        let entities = try XCTUnwrap(detected["entities"] as? [[String: Any]])
+        let amountId = try XCTUnwrap(
+            entities.first { ($0["type"] as? String) == "AMOUNT" }?["id"] as? String,
+            "fixture: the amount must be detected: \(entities)"
+        )
+
+        let anonymized = try summary(of: try call(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": [amountId],
+            "detectionId": detectionId,
+            "excludeTypes": ["URL"]
+        ]))
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(anonymized["excludedCount"] as? Int), 1)
+        XCTAssertEqual(anonymized["detectionChanged"] as? Bool, false)
+        let redactedHandle = try XCTUnwrap(anonymized["redactedHandle"] as? String)
+        try call(tool: "read_redacted", arguments: ["handle": redactedHandle])
+
+        // Restore the stored .docx, then an edited copy the human staged back.
+        let stored = try summary(of: try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle, "passphrase": passphrase
+        ]))
+        XCTAssertEqual(stored["format"] as? String, "docx")
+        let storedRestoredHandle = try XCTUnwrap(stored["restoredHandle"] as? String)
+
+        let redactedCopy = workDir.appendingPathComponent("\(fileBase)-redacted.docx")
+        try vault.readDocumentBytes(handle: redactedHandle).write(to: redactedCopy)
+        let edited = workDir.appendingPathComponent("\(fileBase)-edited.docx")
+        try DocxFixtureSupport.editingBody(
+            of: redactedCopy, replacing: " before ", with: " no later than ", to: edited
+        )
+        let editedHandle = try vault.stage(fileURL: edited, stagedAtISO8601: "2026-09-02T00:00:00Z").handle
+        let viaHandle = try summary(of: try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle, "editedHandle": editedHandle, "passphrase": passphrase
+        ]))
+        XCTAssertEqual(viaHandle["format"] as? String, "docx")
+        let editedRestoredHandle = try XCTUnwrap(viaHandle["restoredHandle"] as? String)
+        try call(tool: "export", arguments: ["handle": editedRestoredHandle])
+        try call(tool: "list_pending", arguments: [:])
+
+        // The new refusals are part of the wire too.
+        XCTAssertTrue(try call(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase,
+            "excludeEntityIds": ["ffffffffffff"], "detectionId": detectionId
+        ]).isError)
+        XCTAssertTrue(try call(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeEntityIds": [amountId]
+        ]).isError)
+        XCTAssertTrue(try call(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeTypes": ["SOCIAL"]
+        ]).isError)
+        XCTAssertTrue(try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle, "editedHandle": storedRestoredHandle, "passphrase": passphrase
+        ]).isError)
+        XCTAssertTrue(try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle, "editedText": "x", "editedHandle": editedHandle, "passphrase": passphrase
+        ]).isError)
+
+        assertWireNeverContained([
+            fileBase,
+            original.path,
+            original.lastPathComponent,
+            edited.lastPathComponent,
+            vaultDir.path,
+            workDir.path,
+            "/Users/",
+            email,
+            phone,
+            date,
+            headerDate,
+            // Vault scratch plaintext names carry the host PID; none may ride out.
+            "pt_"
+        ])
+        assertNoScratchPlaintextRemains()
+
+        // The scan covered the new fields: they were on the wire. A tool
+        // summary rides inside a JSON text block, so its keys appear with
+        // escaped quotes.
+        let wire = wireText()
+        for field in ["\\\"detectionId\\\"", "\\\"id\\\"", "\\\"excludedCount\\\"", "\\\"detectionChanged\\\"", "\\\"format\\\""] {
+            XCTAssertTrue(wire.contains(field), "the boundary scan must cover \(field)")
+        }
+
+        // And the round trip worked: the restored bytes carry the values back.
+        let restoredCopy = workDir.appendingPathComponent("restored-check.docx")
+        try vault.readDocumentBytes(handle: editedRestoredHandle).write(to: restoredCopy)
+        let restoredText = try DocxFixtureSupport.bodyText(of: restoredCopy)
+        XCTAssertTrue(restoredText.contains(email))
+        XCTAssertTrue(restoredText.contains(phone))
+        XCTAssertTrue(restoredText.contains("no later than"))
+        XCTAssertFalse(restoredText.contains("{"))
+    }
 }

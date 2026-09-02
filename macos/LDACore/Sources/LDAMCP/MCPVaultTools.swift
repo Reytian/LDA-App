@@ -105,6 +105,13 @@ enum MCPVaultToolError: Error {
     case unknownEntityId(count: Int)
     /// anonymize_session received excludeEntityIds, which are single-document.
     case entityIdsNotSupportedForSessions
+    /// restore's editedHandle named a restored artifact, which holds real
+    /// values again and so cannot be an edit surface.
+    case notAnEditSurface(String)
+    /// restore's editedHandle named an artifact whose format cannot carry
+    /// placeholders (an image or a PDF). The format string is the vault's own
+    /// normalized vocabulary, never a filename.
+    case unsupportedEditFormat(handle: String, format: String)
 
     var message: String {
         switch self {
@@ -124,6 +131,13 @@ enum MCPVaultToolError: Error {
             return "entity_ids_not_supported: anonymize_session accepts excludeTypes only; "
                 + "per-entity ids are single-document, so call anonymize per document "
                 + "to exclude by id."
+        case .notAnEditSurface(let handle):
+            return "not_an_edit_surface: \(handle) refers to a restored artifact, which holds "
+                + "real values again; pass the edited redacted document instead (a doc_... the "
+                + "human staged, or a red_... artifact)"
+        case .unsupportedEditFormat(let handle, let format):
+            return "unsupported_format: \(handle) is a \(format) artifact and cannot be an edit "
+                + "surface; editedHandle accepts docx, txt, or md"
         }
     }
 }

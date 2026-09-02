@@ -172,12 +172,13 @@ extension MCPServer {
         ],
         [
             "name": "restore",
-            "description": "Restore placeholder tokens back to their original values using a redacted artifact's encrypted mapping. Pass editedText with the (possibly AI-edited) redacted text to restore that; omit it to restore the stored artifact as-is. The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
+            "description": "Restore placeholders back to their original values using a redacted artifact's encrypted mapping. Three shapes: (1) omit editedText and editedHandle to restore the stored redacted artifact as-is (a .docx keeps its formatting); (2) pass editedText with the (possibly AI-edited) redacted TEXT to restore that: the result is TEXT (format txt) even when the redacted artifact was a .docx, so Word formatting is NOT kept on this path; (3) pass editedHandle, the handle of the EDITED redacted document that came back, to restore it with redactedHandle's mapping: a .docx keeps its formatting. To keep Word formatting end to end: export the redacted .docx, have the human edit that file itself (accept all tracked changes before staging), stage it with `lda vault stage <file>`, and pass its doc_... handle as editedHandle. Every response reports format (docx, txt, or md), restoredCount, orphanTokens, suspectPlaceholders, and ambiguousReplacements. The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
                     "redactedHandle": ["type": "string", "description": "Handle of the redacted artifact whose mapping to use (red_...)."],
-                    "editedText": ["type": "string", "description": "Optional edited redacted text to restore; it is written into the vault as its own artifact first."],
+                    "editedText": ["type": "string", "description": "Optional edited redacted TEXT to restore; it is written into the vault as its own artifact first. Restores to text (format txt): formatting is not kept on this path. Mutually exclusive with editedHandle."],
+                    "editedHandle": ["type": "string", "description": "Optional handle of the EDITED redacted document that came back (a doc_... the human staged with `lda vault stage <file>`, or a red_... artifact). Restored with redactedHandle's mapping; a .docx keeps its formatting, text and Markdown restore as text. Restored artifacts (res_...), images, and PDFs are refused. Mutually exclusive with editedText."],
                     "passphrase": ["type": "string", "description": "Optional passphrase that protects the mapping sidecar."]
                 ],
                 "required": ["redactedHandle"]
