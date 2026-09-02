@@ -274,11 +274,21 @@ extension ReviewModel {
         let sourceFile = source?.lastPathComponent ?? "document.txt"
         let sourceExt = source?.pathExtension.lowercased() ?? "txt"
 
+        // DOCX replacement happens run by run inside paragraphs, and the
+        // paragraph newline, line break, and tab characters exist in no run,
+        // so a span crossing one cannot round-trip. Split such spans into
+        // per-run parts before tokenizing, mirroring LDAService.anonymize.
+        // Alias pairs below keep the unsplit spans because a break never
+        // divides a name surface.
+        let exportSpans = sourceExt == "docx" && source != nil
+            ? SpanSplitter.splitAtBreaks(acceptedSpans, in: text)
+            : acceptedSpans
+
         // Declared var so non-body redaction can fold in new mapping entries below.
         var tokenized = try Tokenizer.requireSafeForRelease(
             Tokenizer.tokenize(
                 text: text,
-                spans: acceptedSpans,
+                spans: exportSpans,
                 sourceFile: sourceFile,
                 createdAtISO8601: createdAtISO8601,
                 style: style
@@ -320,7 +330,7 @@ extension ReviewModel {
         if sourceExt == "docx", let source {
             embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
             let replacements = Self.buildReplacements(
-                spans: acceptedSpans,
+                spans: exportSpans,
                 mapping: tokenized.mapping
             )
             // Redact the body AND every other text-bearing part (headers, footers,
