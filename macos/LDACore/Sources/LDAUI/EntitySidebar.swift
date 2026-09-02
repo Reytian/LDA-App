@@ -28,6 +28,9 @@ public struct EntitySidebar: View {
     /// Opens the Settings scene reliably (does not rely on menu wiring).
     @Environment(\.openSettings) private var openSettings
 
+    /// The window's undo manager, so a Protect action lands in Edit > Undo.
+    @Environment(\.undoManager) private var undoManager
+
     /// True while the add-a-missed-term popover is presented.
     @State private var isAddingTerm = false
 
@@ -53,6 +56,20 @@ public struct EntitySidebar: View {
         // previous, toggle) and the list always agree. Arrow keys navigate
         // natively once the list has focus; Space and Return flip the selected
         // group without touching the mouse.
+        ScrollViewReader { proxy in
+            groupList
+                .onChange(of: model.groupToReveal) { _, id in
+                    // A legend click or a Protect action asks for the group to
+                    // be scrolled into view; consume the request once.
+                    guard let id else { return }
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    model.groupToReveal = nil
+                }
+        }
+    }
+
+    /// The tray plus one section per entity type, with selection on the model.
+    private var groupList: some View {
         List(selection: $model.selectedGroupIDs) {
             if session.entries.count > 1 {
                 Section {
@@ -101,6 +118,7 @@ public struct EntitySidebar: View {
                                 pseudonymEditing: pseudonymEditingContext(for: group)
                             )
                             .tag(group.id)
+                            .id(group.id)
                             .listRowBackground(rowBackground(for: group.id))
                         }
                     } header: {
@@ -209,19 +227,7 @@ public struct EntitySidebar: View {
                 Spacer(minLength: 0)
 
                 if !model.documentText.isEmpty {
-                    Button {
-                        isAddingTerm = true
-                    } label: {
-                        Label("Protect a missed item", systemImage: "plus.circle")
-                            .font(CounselTheme.Typography.supporting)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add something the detection missed; every occurrence will be redacted")
-                    .accessibilityLabel(Text("Protect a missed item"))
-                    .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
-                        AddTermPopover(model: model, isPresented: $isAddingTerm)
-                    }
+                    protectControl
                 }
             }
         }
@@ -231,6 +237,73 @@ public struct EntitySidebar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    /// The Protect control (R5 plus select-to-protect). While the Original
+    /// view has a selection it becomes a primary "Protect “value”…" button;
+    /// otherwise it is the quiet typed-path label. Both open the same chooser.
+    @ViewBuilder
+    private var protectControl: some View {
+        if let value = selectedValue {
+            Button {
+                isAddingTerm = true
+            } label: {
+                Label {
+                    Text(verbatim: String(
+                        format: L10n.string("Protect “%@”\u{2026}"),
+                        ProtectSelectionPresentation.menuValue(value) as NSString
+                    ))
+                } icon: {
+                    Image(systemName: "text.badge.plus")
+                }
+                .font(CounselTheme.Typography.supporting)
+            }
+            .buttonStyle(.bordered)
+            .tint(CounselTheme.inkAccentFill)
+            .help(LocalizedStringKey(protectHelpKey))
+            .accessibilityLabel(Text("Protect the selected text"))
+            .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
+                AddTermPopover(
+                    model: model,
+                    isPresented: $isAddingTerm,
+                    selection: value,
+                    undoManager: undoManager
+                )
+            }
+        } else {
+            Button {
+                isAddingTerm = true
+            } label: {
+                Label("Protect a missed item", systemImage: "plus.circle")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .buttonStyle(.borderless)
+            .disabled(model.status == .detecting)
+            .help(LocalizedStringKey(protectHelpKey))
+            .accessibilityLabel(Text("Protect a missed item"))
+            .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
+                AddTermPopover(model: model, isPresented: $isAddingTerm, undoManager: undoManager)
+            }
+        }
+    }
+
+    /// The trimmed Original-view selection, when one can be protected.
+    private var selectedValue: String? {
+        guard model.canProtectSelection, let raw = model.selectedText else { return nil }
+        let value = ProtectSelectionRules.trim(raw)
+        return value.isEmpty ? nil : value
+    }
+
+    /// The help text follows the state: scanning, Safe Preview, or Original.
+    private var protectHelpKey: String {
+        if model.status == .detecting {
+            return "Available when the scan finishes."
+        }
+        if model.previewMode == .safePreview {
+            return "Switch to Original to select text to protect."
+        }
+        return "Select text in the document, then protect it as a kind. Every occurrence is redacted."
     }
 
     /// Actions for a native macOS multi-selection. Findings remain selected

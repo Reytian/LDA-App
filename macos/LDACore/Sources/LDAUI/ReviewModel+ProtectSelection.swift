@@ -177,22 +177,30 @@ enum ProtectSelectionRules {
 
 extension ReviewModel {
 
-    /// The one gate every Protect Selection entry point reads: Original mode
-    /// is shown, a non-empty selection exists inside the text, and the entity
-    /// list is not being rebuilt.
-    public var canProtectSelection: Bool {
-        guard previewMode == .original, !documentText.isEmpty else { return false }
-        guard let range = selectedTextRange, range.length > 0,
-              range.location >= 0,
-              NSMaxRange(range) <= (documentText as NSString).length else {
-            return false
-        }
+    /// The state gate: a document is loaded and the entity list is not being
+    /// rebuilt. The context menu reads this one, because a right-click selects
+    /// the word under the pointer before the menu is built.
+    public var canProtectText: Bool {
+        guard !documentText.isEmpty else { return false }
         switch status {
         case .imported, .ready:
             return true
         case .idle, .importing, .detecting, .failed:
             return false
         }
+    }
+
+    /// The one gate every Protect Selection entry point reads: Original mode
+    /// is shown, a non-empty selection exists inside the text, and the entity
+    /// list is not being rebuilt.
+    public var canProtectSelection: Bool {
+        guard canProtectText, previewMode == .original else { return false }
+        guard let range = selectedTextRange, range.length > 0,
+              range.location >= 0,
+              NSMaxRange(range) <= (documentText as NSString).length else {
+            return false
+        }
+        return true
     }
 
     /// The raw selected substring, or nil when the selection is empty or stale.
