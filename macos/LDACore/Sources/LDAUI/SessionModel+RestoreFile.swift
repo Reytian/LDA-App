@@ -34,7 +34,7 @@ extension SessionModel {
     }
 
     /// The order table, pure so it can be checked row by row.
-    public static func resolveRestoreMappingSource(
+    nonisolated public static func resolveRestoreMappingSource(
         sidecar: URL?,
         sessionMapping: Mapping?,
         clientMapping: Mapping?
@@ -46,11 +46,13 @@ extension SessionModel {
     }
 
     /// Resolve the mapping source for `editedFile`. The sibling check comes
-    /// first and touches nothing but the file system, so a file that brought
-    /// its own key never costs a Keychain prompt for the parked round trip.
+    /// first and touches nothing but the file system (inside the chosen
+    /// file's related-item grant, or a sandboxed stat would report it
+    /// absent), so a file that brought its own key never costs a Keychain
+    /// prompt for the parked round trip.
     public func restoreMappingSource(for editedFile: URL) throws -> RestoreMappingSource {
         let sibling = Self.sidecarURL(for: editedFile)
-        if FileManager.default.fileExists(atPath: sibling.path) {
+        if RelatedSidecarAccess.sidecarExists(sibling, primary: editedFile) {
             return .sidecar(sibling)
         }
         // Just-in-time parked-session resume (no-op when a mapping is already
@@ -75,22 +77,37 @@ extension SessionModel {
     /// The Keychain account a sidecar was sealed under: its own base name.
     /// Save Redacted and Export for AI both write sidecars that way, so the
     /// name found next to the file is the whole key.
-    public static func sidecarKeychainAccount(for sidecarURL: URL) -> String {
+    nonisolated public static func sidecarKeychainAccount(for sidecarURL: URL) -> String {
         sidecarURL.deletingPathExtension().lastPathComponent
     }
 
     /// Open a sidecar. Without a passphrase the Keychain account derived from
     /// the file name is used; with one, the passphrase is.
-    public static func loadSidecarMapping(at sidecarURL: URL, passphrase: String? = nil) throws -> Mapping {
+    ///
+    /// `primary` is the user-chosen file the sidecar sits next to. When given,
+    /// the read runs inside that file's related-item grant, which is what
+    /// lets the sandboxed app reach a sibling it was never handed directly.
+    /// A sidecar the user picked in an open panel is granted on its own and
+    /// needs no primary.
+    nonisolated public static func loadSidecarMapping(
+        at sidecarURL: URL,
+        primary: URL? = nil,
+        passphrase: String? = nil
+    ) throws -> Mapping {
         let protection: MappingProtection = passphrase.map { .passphrase($0) }
             ?? .keychain(account: sidecarKeychainAccount(for: sidecarURL))
-        return try MappingStore.load(from: sidecarURL, protection: protection)
+        guard let primary else {
+            return try MappingStore.load(from: sidecarURL, protection: protection)
+        }
+        return try RelatedSidecarAccess.read(sidecar: sidecarURL, primary: primary) { url in
+            try MappingStore.load(from: url, protection: protection)
+        }
     }
 
     /// Whether a failed Keychain load means "ask for the passphrase": the
     /// sidecar was sealed with one (the container tag does not match) or its
     /// key is not on this Mac. Anything else is a genuine failure to report.
-    public static func sidecarLoadNeedsPassphrase(_ error: Error) -> Bool {
+    nonisolated public static func sidecarLoadNeedsPassphrase(_ error: Error) -> Bool {
         guard let ioError = error as? DocumentIOError else { return false }
         switch ioError {
         case .decryptionFailed, .keychainError:

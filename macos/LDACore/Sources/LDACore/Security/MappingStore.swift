@@ -37,6 +37,14 @@ public enum MappingProtection {
 /// is responsible only for JSON encode/decode of the Mapping payload.
 public enum MappingStore {
 
+    /// The sidecar's file extension, as written by every export.
+    public static let fileExtension = "ldamap"
+
+    /// The exported uniform type identifier declared in the app's Info.plist.
+    /// Declared there as a related item type, so a sandbox grant on the file
+    /// a sidecar sits next to extends to the sidecar.
+    public static let uniformTypeIdentifier = "com.haotianyi.LDA.mapping"
+
     // MARK: - Shared container instance
 
     private static let container = EncryptedContainer(

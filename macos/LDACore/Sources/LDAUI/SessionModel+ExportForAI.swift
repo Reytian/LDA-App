@@ -44,8 +44,8 @@ extension SessionModel {
     /// The sidecar path for a Markdown export: same folder, same base name,
     /// the .ldamap extension. Pure, so the export and the restore side agree
     /// on the name without touching the disk.
-    public static func sidecarURL(for markdownURL: URL) -> URL {
-        markdownURL.deletingPathExtension().appendingPathExtension("ldamap")
+    nonisolated public static func sidecarURL(for markdownURL: URL) -> URL {
+        markdownURL.deletingPathExtension().appendingPathExtension(MappingStore.fileExtension)
     }
 
     /// Export the session for an AI tool into `url`, which the user has
@@ -70,9 +70,14 @@ extension SessionModel {
         // Save Redacted sidecar, so Restore derives the Keychain account from
         // the name it finds next to the file. No passphrase prompt: this file
         // never leaves the Mac, and uploading it by mistake leaks nothing.
+        // Written as the related item of the chosen file, which is what the
+        // sandbox's save-panel grant covers.
         let sidecarURL = Self.sidecarURL(for: url)
         let base = url.deletingPathExtension().lastPathComponent
-        try MappingStore.save(mapping, to: sidecarURL, protection: exportSidecarProtection(base))
+        let protection = exportSidecarProtection(base)
+        try RelatedSidecarAccess.write(sidecar: sidecarURL, primary: url) { destination in
+            try MappingStore.save(mapping, to: destination, protection: protection)
+        }
 
         return ExportForAIResult(
             markdownURL: url,
