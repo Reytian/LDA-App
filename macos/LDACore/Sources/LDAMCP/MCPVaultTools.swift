@@ -112,6 +112,13 @@ enum MCPVaultToolError: Error {
     /// placeholders (an image or a PDF). The format string is the vault's own
     /// normalized vocabulary, never a filename.
     case unsupportedEditFormat(handle: String, format: String)
+    /// restore's editedHandle named an original holding no placeholder of the
+    /// mapping, so nothing could be restored and nothing was written. The
+    /// suspect count (never the strings) helps the human repair a mangled file.
+    case noPlaceholdersFound(editedHandle: String, redactedHandle: String, suspectPlaceholderCount: Int)
+    /// restore's editedHandle named a redacted artifact that carries a
+    /// different mapping.
+    case mappingMismatch(String)
 
     var message: String {
         switch self {
@@ -138,6 +145,15 @@ enum MCPVaultToolError: Error {
         case .unsupportedEditFormat(let handle, let format):
             return "unsupported_format: \(handle) is a \(format) artifact and cannot be an edit "
                 + "surface; editedHandle accepts docx, txt, or md"
+        case .noPlaceholdersFound(let edited, let redacted, let suspects):
+            let repair = suspects > 0
+                ? "; suspectPlaceholderCount=\(suspects): repair the placeholders and stage the file again"
+                : ""
+            return "no_placeholders_found: \(edited) contains no placeholder of \(redacted)'s mapping; "
+                + "nothing was written" + repair
+        case .mappingMismatch(let handle):
+            return "mapping_mismatch: \(handle) was redacted with a different mapping; "
+                + "pass it as redactedHandle instead"
         }
     }
 }

@@ -187,14 +187,15 @@ launch); exports land only in the vault's own `outbox/`.
 | `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
-| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements`; plus `editedRedactedHandle` on the `editedText` path |
+| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
 | `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
 | `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned, per-tool call counts |
 
 Error results are boundary-safe codes plus handles: `unknown_handle`,
 `not_an_original`, `not_redacted`, `not_exportable`, `missing_mapping`,
 `detection_id_required`, `unknown_entity_id`, `entity_ids_not_supported`,
-`not_an_edit_surface`, `unsupported_format`, plus argument errors for an
+`not_an_edit_surface`, `unsupported_format`, `no_placeholders_found`,
+`mapping_mismatch`, plus argument errors for an
 unknown `excludeTypes` value, an unknown `style`, and `editedText` given
 together with `editedHandle`.
 
@@ -239,6 +240,12 @@ human   lda vault stage Agreement-edited.docx                -> doc_c3
 agent   restore {redactedHandle: red_b2, editedHandle: doc_c3} -> res_d4, format docx
 agent   export {handle: res_d4}                              -> outbox/Agreement-edited_restored.docx
 ```
+
+`editedHandle` accepts only a document that belongs to this round trip: a
+human-staged file must still hold at least one placeholder of the mapping
+(otherwise `no_placeholders_found`, and nothing is written), its suspect
+placeholders come back as a count only, and a redacted artifact is accepted
+only when it carries this very mapping (otherwise `mapping_mismatch`).
 
 The restored `.docx` keeps every run property of the runs that held
 placeholders and copies every untouched package part (styles, numbering,
