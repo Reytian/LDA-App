@@ -19,6 +19,9 @@
 //     numbering. This mirrors ImageRedactionResolver's token policy.
 //   - Scrub author/title metadata in docProps/core.xml and docProps/app.xml.
 //   - Neutralize external mailto:/tel: hyperlink Targets in the .rels parts.
+//   - Scrub the markup-borne PII of every text-bearing part and of
+//     word/people.xml (field targets, revision and comment authors), via
+//     DocxMarkupScrub, whether or not detection found anything in its text.
 //
 //  Offset convention: per-part w:t offsets are UTF-16 code units into that part's
 //  own concatenated text, matching Span in CoreTypes.swift.
@@ -90,6 +93,9 @@ enum DocxParts {
     struct LoadedPart {
         var path: String
         var layout: DocxLayout
+        /// The part's original bytes, so an untouched part can be re-emitted
+        /// byte for byte.
+        var data: Data
     }
 
     /// Loads and parses every additional text-bearing part. Parts that fail to
@@ -121,7 +127,7 @@ enum DocxParts {
     ) throws -> LoadedPart {
         let data = try DocxZip.readEntry(path, from: url)
         do {
-            return LoadedPart(path: path, layout: try DocxDocumentXML.parse(data))
+            return LoadedPart(path: path, layout: try DocxDocumentXML.parse(data), data: data)
         } catch {
             throw DocumentIOError.corrupt(
                 "cannot parse \(path): \(error.localizedDescription)"
@@ -189,7 +195,6 @@ enum DocxParts {
                 detect(part.layout.text),
                 in: part.layout.text
             )
-            guard !spans.isEmpty else { continue }
 
             // Resolve a token for each accepted span, extending the mapping.
             var replacementsForPart: [Replacement] = []
@@ -202,11 +207,22 @@ enum DocxParts {
                 )
                 replacementsForPart.append(Replacement(span: span, token: token))
             }
-            guard !replacementsForPart.isEmpty else { continue }
 
-            if let rewritten = try? redactLayout(part.layout, replacements: replacementsForPart) {
-                replacements[part.path] = rewritten
+            // Every part also loses the PII its markup carries (field targets,
+            // revision authors), even when detection found nothing in its text.
+            // A part neither pass touched is not listed, so it copies through
+            // byte for byte.
+            guard let rewritten = redactedPartXML(part, replacements: replacementsForPart) else { continue }
+            let scrubbed = DocxMarkupScrub.scrubRedactedPart(rewritten)
+            if !replacementsForPart.isEmpty || scrubbed != rewritten {
+                replacements[part.path] = Data(scrubbed.utf8)
             }
+        }
+
+        // Blank the people named in word/people.xml.
+        if let data = try? DocxZip.readEntry(DocxMarkupScrub.peoplePartPath, from: url),
+           let xml = String(data: data, encoding: .utf8) {
+            replacements[DocxMarkupScrub.peoplePartPath] = Data(DocxMarkupScrub.scrubPeoplePart(xml).utf8)
         }
 
         // Scrub author/title metadata.
@@ -351,13 +367,23 @@ enum DocxParts {
 
     // MARK: - Layout redaction (shared plan/apply, mirrors DocxRedactor)
 
-    /// Apply replacements to a parsed layout and return the serialized bytes. This
+    /// The part's XML after applying `replacements`: the original bytes when
+    /// there is nothing to redact, so an untouched part stays byte-identical;
+    /// nil when the part cannot be rewritten.
+    private static func redactedPartXML(_ part: LoadedPart, replacements: [Replacement]) -> String? {
+        if replacements.isEmpty {
+            return String(data: part.data, encoding: .utf8)
+        }
+        return try? redactLayout(part.layout, replacements: replacements)
+    }
+
+    /// Apply replacements to a parsed layout and return the serialized XML. This
     /// reuses DocxRedactor's run-edit planning so cross-run spans and multiple
     /// spans per run behave identically to the body path.
     private static func redactLayout(
         _ layout: DocxLayout,
         replacements: [Replacement]
-    ) throws -> Data {
+    ) throws -> String {
         var working = layout
         let edits = try DocxRedactor.planRunEdits(
             replacements,
@@ -367,7 +393,7 @@ enum DocxParts {
         for (segmentIndex, segmentEdits) in edits {
             try DocxRedactor.applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &working)
         }
-        return DocxDocumentXML.serialize(working)
+        return DocxDocumentXML.serializeXML(working)
     }
 
     // MARK: - docProps metadata scrub
@@ -443,10 +469,12 @@ enum DocxParts {
     // MARK: - External hyperlink neutralization
 
     /// Schemes whose external Target values carry PII and must be neutralized.
-    private static let sensitiveSchemes = ["mailto:", "tel:"]
+    /// Shared with DocxMarkupScrub, which applies the same rule to field
+    /// instructions.
+    static let sensitiveSchemes = ["mailto:", "tel:"]
 
     /// Replacement Target value written over a neutralized external link.
-    private static let neutralizedTarget = "about:blank"
+    static let neutralizedTarget = "about:blank"
 
     /// Rewrite the Target attribute of every Relationship that is TargetMode
     /// "External" and whose Target starts with a sensitive scheme (mailto:/tel:),

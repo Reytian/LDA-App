@@ -16,6 +16,7 @@
 
 import Foundation
 import XCTest
+import ZIPFoundation
 @testable import LDACore
 
 enum DocxTestPackage {
@@ -117,6 +118,20 @@ enum DocxTestPackage {
             throw DocumentIOError.corrupt("\(path) is not UTF-8")
         }
         return xml
+    }
+
+    /// Every file entry of the package as (path, UTF-8 text), so a test can
+    /// assert a value appears in NO part at all. Non-UTF-8 entries are skipped.
+    static func allTextParts(in url: URL) throws -> [(path: String, xml: String)] {
+        let archive = try Archive(url: url, accessMode: .read)
+        var parts: [(path: String, xml: String)] = []
+        for entry in archive where entry.type == .file {
+            var collected = Data()
+            _ = try archive.extract(entry) { collected.append($0) }
+            guard let xml = String(data: collected, encoding: .utf8) else { continue }
+            parts.append((entry.path, xml))
+        }
+        return parts
     }
 
     /// Build a UTF-16 span from a surface's first occurrence in text.

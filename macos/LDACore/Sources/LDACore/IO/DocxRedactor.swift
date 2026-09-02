@@ -42,11 +42,14 @@ public enum DocxRedactor {
     /// The body is always redacted. When `nonBody` is supplied (a detector plus
     /// the body mapping), every other text-bearing part (headers, footers,
     /// footnotes, endnotes, comments) is also redacted, the docProps author/title
-    /// metadata is scrubbed, and external mailto:/tel: hyperlink Targets are
-    /// neutralized, all in the same single rewrite. Any token minted for a surface
-    /// found only in a non-body part is returned so the caller can fold it into the
-    /// mapping sidecar (and therefore restore it). When `nonBody` is nil the
-    /// behavior is exactly the body-only legacy path.
+    /// metadata is scrubbed, external mailto:/tel: hyperlink Targets are
+    /// neutralized, and the markup-borne PII of every part is scrubbed
+    /// (mailto:/tel: field instruction targets, revision and comment authors,
+    /// word/people.xml; see DocxMarkupScrub), all in the same single rewrite.
+    /// Any token minted for a surface found only in a non-body part is returned
+    /// so the caller can fold it into the mapping sidecar (and therefore restore
+    /// it). When `nonBody` is nil the behavior is exactly the body-only legacy
+    /// path used to fill forms: run text is rewritten and nothing else changes.
     @discardableResult
     public static func redact(
         original: URL,
@@ -68,10 +71,14 @@ public enum DocxRedactor {
             try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
         }
 
-        var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
+        let bodyXML = DocxDocumentXML.serializeXML(layout)
+        var rewriteParts: [String: Data] = [docxMainPartPath: Data(bodyXML.utf8)]
         var newEntries: [MappingEntry] = []
 
         if let nonBody {
+            // The redacted copy also loses the PII the body keeps in markup:
+            // mailto:/tel: field targets and revision authors.
+            rewriteParts[docxMainPartPath] = Data(DocxMarkupScrub.scrubRedactedPart(bodyXML).utf8)
             let result = DocxParts.redactNonBodyParts(
                 url: original,
                 mapping: nonBody.mapping,

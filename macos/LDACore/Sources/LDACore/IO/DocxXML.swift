@@ -26,7 +26,8 @@ let docxMainPartPath = "word/document.xml"
 
 // MARK: - Run model
 
-/// A single w:t run discovered in document.xml.
+/// A single text element (w:t, or w:delText inside a tracked deletion)
+/// discovered in document.xml.
 ///
 /// charStart and charLength are UTF-16 offsets into the concatenated visible
 /// text produced by DocxLayout. textSegmentIndex points at the segment in the
@@ -48,8 +49,9 @@ struct DocxRun: Sendable {
 ///
 /// - markup: raw XML that is copied through verbatim (tags, attributes,
 ///   whitespace, anything that is not editable run text).
-/// - runText: the decoded text content of a single w:t element. This is the only
-///   segment kind a redact pass rewrites. On serialization it is XML-escaped.
+/// - runText: the decoded text content of a single w:t or w:delText element.
+///   This is the only segment kind a redact pass rewrites. On serialization it
+///   is XML-escaped.
 enum DocxSegment: Sendable {
     case markup(String)
     case runText(String)
@@ -204,8 +206,10 @@ enum DocxDocumentXML {
     /// Parse document.xml bytes into a DocxLayout.
     ///
     /// The parser walks the raw XML once. It recognizes:
-    /// - "<w:t ...>...</w:t>" elements: their decoded text becomes a runText
-    ///   segment and a DocxRun entry.
+    /// - "<w:t ...>...</w:t>" and "<w:delText ...>...</w:delText>" elements:
+    ///   their decoded text becomes a runText segment and a DocxRun entry. The
+    ///   text of a tracked deletion is still in the file, so it is detected and
+    ///   redacted exactly like visible text and restores into its own element.
     /// - "<w:p" paragraph starts: a "\n" is inserted into the concatenated text
     ///   BEFORE each paragraph except the first, so paragraph boundaries map to
     ///   newlines without trailing-newline noise.
@@ -273,12 +277,14 @@ enum DocxDocumentXML {
                 continue
             }
 
-            if name == "w:t" && !tagInfo.isClosing && !tagInfo.isSelfClosing {
-                // A text run. Capture the open tag, the raw inner text up to the
-                // matching close tag, and emit a runText segment plus a run entry.
+            if DocxRunText.textElementNames.contains(name) && !tagInfo.isClosing && !tagInfo.isSelfClosing {
+                // A text element. Capture the open tag, the raw inner text up to
+                // the matching close tag, and emit a runText segment plus a run
+                // entry.
                 let openTag = String(scalars[i ..< tagInfo.tagEnd])
-                guard let close = findClose(scalars, openTagEnd: tagInfo.tagEnd, closeTag: "</w:t>") else {
-                    throw DocumentIOError.corrupt("unterminated w:t element")
+                let closeTag = "</\(name)>"
+                guard let close = findClose(scalars, openTagEnd: tagInfo.tagEnd, closeTag: closeTag) else {
+                    throw DocumentIOError.corrupt("unterminated \(name) element")
                 }
                 let rawInner = String(scalars[tagInfo.tagEnd ..< close.contentEnd])
                 let decoded = xmlDecode(rawInner)
@@ -293,7 +299,7 @@ enum DocxDocumentXML {
                 concatenated.append(decoded)
                 utf16Cursor += runLength
 
-                segments.append(.markup("</w:t>"))
+                segments.append(.markup(closeTag))
 
                 runs.append(
                     DocxRun(
@@ -338,6 +344,12 @@ enum DocxDocumentXML {
     /// Serialize a layout back into document.xml bytes. Markup segments are
     /// emitted verbatim; runText segments are XML-escaped.
     static func serialize(_ layout: DocxLayout) -> Data {
+        Data(serializeXML(layout).utf8)
+    }
+
+    /// The serialized part as a string, for callers that post-process the
+    /// markup before writing it.
+    static func serializeXML(_ layout: DocxLayout) -> String {
         var out = ""
         for segment in layout.segments {
             switch segment {
@@ -347,7 +359,7 @@ enum DocxDocumentXML {
                 out += xmlEncode(text)
             }
         }
-        return Data(out.utf8)
+        return out
     }
 
     // MARK: - Tag scanning
