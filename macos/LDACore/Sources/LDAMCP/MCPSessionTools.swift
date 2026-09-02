@@ -75,6 +75,9 @@ extension MCPServer {
             throw MCPToolError.missingArgument("handles")
         }
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        // excludeTypes only: per-entity ids are single-document by
+        // construction, and the parser refuses them here explicitly.
+        let review = try MCPReviewArguments.parse(arguments, allowsEntityIds: false)
         let vault = openVault()
 
         // Validate every handle up front so no work happens on a bad set.
@@ -118,7 +121,8 @@ extension MCPServer {
                 createdAtISO8601: createdAt,
                 llmModelPath: modelPath,
                 seedMapping: seed,
-                style: style
+                style: style,
+                excludedTypes: review.excludedTypes
             )
             return (result, inputs.map { $0.lastPathComponent })
         }
@@ -172,6 +176,9 @@ extension MCPServer {
                 "totalEntityCount": allSpans.count,
                 "entityTypes": entityTypeStrings(allSpans),
                 "perTypeCounts": MCPServer.perTypeCounts(allSpans),
+                // How many detected values excludeTypes left visible across
+                // the whole session.
+                "excludedCount": session.documents.reduce(0) { $0 + $1.excludedEntityCount },
                 // Sites this session would restore to a DIFFERENT party's real
                 // name. Empty in the ordinary case. Non-empty means the
                 // artifacts above are written, look finished, and must not be

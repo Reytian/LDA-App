@@ -29,17 +29,22 @@ public struct SessionDocumentOutput: Sendable {
     public var entityCount: Int
     /// The accepted spans (post-merge) tokenized in this document.
     public var entities: [Span]
+    /// How many detected spans the caller's excludedTypes left visible in
+    /// this document. Always 0 when no exclusion was supplied.
+    public var excludedEntityCount: Int
 
     public init(
         sourceURL: URL,
         redactedMarkdown: String,
         entityCount: Int,
-        entities: [Span]
+        entities: [Span],
+        excludedEntityCount: Int = 0
     ) {
         self.sourceURL = sourceURL
         self.redactedMarkdown = redactedMarkdown
         self.entityCount = entityCount
         self.entities = entities
+        self.excludedEntityCount = excludedEntityCount
     }
 }
 
@@ -94,6 +99,9 @@ extension LDAService {
     ///     a different style contributes restore entries only; the session
     ///     mints fresh replacements in its own style for those surfaces.
     ///   - style: how replacements are rendered across the whole session.
+    ///   - excludedTypes: entity types left visible in every document (the
+    ///     caller's review step). Per-entity exclusion is single-document by
+    ///     construction and lives on anonymize, not here.
     /// - Returns: the per-document intermediates, the shared mapping, and
     ///   unresolvedSeams: any site the seam pass could not stop from
     ///   restoring to the wrong entity. That list is a correctness warning,
@@ -109,7 +117,8 @@ extension LDAService {
         createdAtISO8601: String,
         llmModelPath: String? = nil,
         seedMapping: Mapping? = nil,
-        style: SubstitutionStyle = .token
+        style: SubstitutionStyle = .token,
+        excludedTypes: Set<EntityType> = []
     ) throws -> SessionAnonymizeResult {
         guard !inputs.isEmpty else {
             throw LDAServiceError.noReadableSources
@@ -118,10 +127,17 @@ extension LDAService {
         // One detector for the whole session so the model loads at most once.
         let detector = makeDetector(modelPath: llmModelPath)
 
+        // Excluded types are dropped per document BEFORE the session-wide
+        // sweep below, whose needles derive from these filtered spans, so an
+        // excluded type cannot re-enter through the cross-document rescan.
+        let exclusion = SpanExclusion(excludedTypes: excludedTypes, bodyFilter: nil)
         var sessionDocuments: [SessionDocument] = []
+        var excludedCounts: [Int] = []
         for input in inputs {
             let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-            let spans = try detector.detectText(imported.text)
+            let candidates = try detector.detectText(imported.text)
+            let spans = exclusion.filterBody(candidates)
+            excludedCounts.append(candidates.count - spans.count)
             sessionDocuments.append(
                 SessionDocument(
                     name: input.lastPathComponent,
@@ -181,7 +197,8 @@ extension LDAService {
                 sourceURL: inputs[index],
                 redactedMarkdown: document.tokenizedText,
                 entityCount: spansByIndex[index].count,
-                entities: spansByIndex[index]
+                entities: spansByIndex[index],
+                excludedEntityCount: excludedCounts[index]
             )
         }
         // Carry the seam pass's verdict out with the result. A seam it could

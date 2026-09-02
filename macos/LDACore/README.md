@@ -165,6 +165,87 @@ lda fill --portfolio "Meridian Pacific" --input agreement.docx \
   report; they are not auto-filled.
 - One profile per run. Multi-party fills require separate runs.
 
+## MCP server (lda-mcp)
+
+`lda-mcp` speaks newline-delimited JSON-RPC 2.0 over stdin and stdout: an
+agent host launches it and pipes requests in. Everything a tool returns enters
+the model context of that host and leaves the machine, and file paths are
+themselves PII (legal folders are named after the parties), so the surface is
+handle-first: the human stages documents with `lda vault stage <path>`, tools
+accept and return opaque handles, only `read_redacted` returns body text (and
+only redacted text), and no original text, detected value, filename, or path
+crosses the wire, in results or in error messages. The vault lives at
+`~/Library/Application Support/LDA/Vault` (override with `LDA_VAULT_DIR` at
+launch); exports land only in the vault's own `outbox/`.
+
+### Tools
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle` |
+| `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `detectionChanged` |
+| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
+| `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
+| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements`; plus `editedRedactedHandle` on the `editedText` path |
+| `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
+| `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned, per-tool call counts |
+
+Error results are boundary-safe codes plus handles: `unknown_handle`,
+`not_an_original`, `not_redacted`, `not_exportable`, `missing_mapping`,
+`detection_id_required`, `unknown_entity_id`, `entity_ids_not_supported`,
+`not_an_edit_surface`, `unsupported_format`, plus argument errors for an
+unknown `excludeTypes` value, an unknown `style`, and `editedText` given
+together with `editedHandle`.
+
+### The review step: choose which PII to redact
+
+`detect_entities` names every detected entity with an `id` (the first 12 hex
+characters of SHA-256 over `TYPE|start|end`) and the whole set with a
+`detectionId` (16 hex characters over the handle, whether a model took part,
+and the sorted ids). Both derive from information the tool already returns,
+so an agent can review the list and say "redact everything except these"
+without ever seeing a name:
+
+1. `detect_entities {handle}` and read the `entities` list.
+2. `anonymize {handle, excludeEntityIds: [ids], detectionId, excludeTypes: ["DATE"]}`.
+
+`excludeEntityIds` applies to body text only (a header occurrence of the same
+value is still redacted); `excludeTypes` applies everywhere, including
+headers, footers, notes, comments, and the image channel. `anonymize` detects
+again on its own: an excluded id it does not find is refused with
+`unknown_entity_id` and nothing is written; a detection that changed while
+every excluded id is still present proceeds (over-redaction is the safe
+direction) and reports `detectionChanged: true`. `anonymize_session` accepts
+`excludeTypes` only, because ids are single-document by construction.
+
+### Word round trip: .docx in, restored .docx out
+
+Formatting is preserved only when the edited document itself is a `.docx`
+that travels through the vault. `restore` with `editedText` restores to TEXT
+(`format: "txt"`) even when the redacted artifact was a `.docx`; formatting is
+kept only through `editedHandle` with a `.docx`.
+
+```
+human   lda vault stage Agreement.docx                      -> doc_a1
+agent   detect_entities {handle: doc_a1}                     -> ids, detectionId (optional review)
+agent   anonymize {handle: doc_a1, excludeTypes: ["DATE"]}   -> red_b2
+agent   export {handle: red_b2}                              -> outbox/Agreement_redacted.docx
+human   edits outbox/Agreement_redacted.docx in Word, keeping the placeholders
+        (accept all tracked changes), saves it as Agreement-edited.docx
+human   lda vault stage Agreement-edited.docx                -> doc_c3
+agent   restore {redactedHandle: red_b2, editedHandle: doc_c3} -> res_d4, format docx
+agent   export {handle: res_d4}                              -> outbox/Agreement-edited_restored.docx
+```
+
+The restored `.docx` keeps every run property of the runs that held
+placeholders and copies every untouched package part (styles, numbering,
+media) byte for byte. Two redaction-time edits are deliberately not reversed:
+the `docProps` author and title scrub, and the neutralized `mailto:` and
+`tel:` hyperlink targets. Staging the edited file is the human's action by
+design; an agent that ran the CLI itself would be handling the path the
+surface keeps out of context.
+
 ## Security posture
 
 ### At rest
@@ -350,9 +431,10 @@ handle, never a document name.
   launch); exports land only in the vault's own `outbox/`. The old path-taking
   core tools are removed; `extract_profile`, `fill`, and the portfolio tools
   are refused unless the server is launched with
-  `LDA_MCP_LEGACY_PATH_TOOLS=1`. Vault contents are plaintext on disk in this
-  phase (`attest` says so honestly); encryption at rest and XPC key holding
-  are the next phases.
+  `LDA_MCP_LEGACY_PATH_TOOLS=1`. Vault objects and the registry are encrypted
+  at rest (`attest` reports it); XPC key holding is the next phase. The tool
+  table, the review step, and the Word round trip are described under "MCP
+  server (lda-mcp)" above.
 - **MCP host trust.** The gated legacy tools read and write only inside the
   user's home directory and the system temporary directory. Set
   `LDA_MCP_ALLOWED_ROOTS` (colon separated) when launching the server to allow

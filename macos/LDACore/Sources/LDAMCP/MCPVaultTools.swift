@@ -22,7 +22,9 @@
 //  returns per-entity character OFFSETS, which reveal each original surface's
 //  exact length and position (a weak side channel). The spec chose offsets so
 //  a local caller can slice the text itself; anything finer than type plus
-//  offsets stays on the machine.
+//  offsets stays on the machine. The per-entity ids and the detectionId it
+//  also returns derive from type and offsets only (MCPDetectionIdentity), so
+//  they add nothing to that disclosure.
 //
 //  Every error thrown here is rendered by describeBoundarySafe, which maps
 //  each failure to error-code-plus-handle wording and never interpolates a
@@ -96,6 +98,20 @@ enum MCPVaultToolError: Error {
     case notRedacted(handle: String, kind: VaultArtifactKind)
     /// The artifact's stored bytes are not UTF-8 text.
     case unreadableArtifact(String)
+    /// excludeEntityIds was given without the detectionId the ids came with.
+    case detectionIdRequired
+    /// Some excluded ids are not in the detection anonymize just ran: the
+    /// caller reviewed a different detection, so nothing was written.
+    case unknownEntityId(count: Int)
+    /// anonymize_session received excludeEntityIds, which are single-document.
+    case entityIdsNotSupportedForSessions
+    /// restore's editedHandle named a restored artifact, which holds real
+    /// values again and so cannot be an edit surface.
+    case notAnEditSurface(String)
+    /// restore's editedHandle named an artifact whose format cannot carry
+    /// placeholders (an image or a PDF). The format string is the vault's own
+    /// normalized vocabulary, never a filename.
+    case unsupportedEditFormat(handle: String, format: String)
 
     var message: String {
         switch self {
@@ -106,6 +122,22 @@ enum MCPVaultToolError: Error {
                 + "this tool accepts redacted artifacts only"
         case .unreadableArtifact(let handle):
             return "unreadable_artifact: \(handle) could not be decoded as text"
+        case .detectionIdRequired:
+            return "detection_id_required: pass the detectionId that came with these ids"
+        case .unknownEntityId(let count):
+            return "unknown_entity_id: count=\(count). Run detect_entities again and "
+                + "re-review; no redacted artifact was written."
+        case .entityIdsNotSupportedForSessions:
+            return "entity_ids_not_supported: anonymize_session accepts excludeTypes only; "
+                + "per-entity ids are single-document, so call anonymize per document "
+                + "to exclude by id."
+        case .notAnEditSurface(let handle):
+            return "not_an_edit_surface: \(handle) refers to a restored artifact, which holds "
+                + "real values again; pass the edited redacted document instead (a doc_... the "
+                + "human staged, or a red_... artifact)"
+        case .unsupportedEditFormat(let handle, let format):
+            return "unsupported_format: \(handle) is a \(format) artifact and cannot be an edit "
+                + "surface; editedHandle accepts docx, txt, or md"
         }
     }
 }
@@ -166,6 +198,9 @@ extension MCPServer {
     ) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        // The review step's arguments are validated before any vault work so
+        // a bad type or a missing detectionId costs no detection pass.
+        let review = try MCPReviewArguments.parse(arguments, allowsEntityIds: true)
         let vault = openVault()
         let entry = try vault.entry(handle: handle)
         guard entry.kind == .original else {
@@ -194,6 +229,12 @@ extension MCPServer {
         let stagingPassphrase = UUID().uuidString + UUID().uuidString
         let createdAt = MCPServer.iso8601Now()
         let style = try styleArgument(from: arguments)
+        // The observer rides the engine's spanFilter seam: it sees every body
+        // span the run detects (ids only are kept), excludes the ids the
+        // caller named, and afterwards tells whether the caller reviewed the
+        // detection that actually ran. Excluded TYPES are the engine's job on
+        // every channel, including headers, footers, notes, and image text.
+        let observer = MCPDetectionObserver(excludedIds: review.excludedIds)
         let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
             try LDAService.anonymize(
                 input: inputURL,
@@ -201,8 +242,23 @@ extension MCPServer {
                 protection: .passphrase(stagingPassphrase),
                 createdAtISO8601: createdAt,
                 llmModelPath: modelPath,
-                style: style
+                style: style,
+                spanFilter: observer.keep,
+                excludedTypes: review.excludedTypes
             )
+        }
+        // An id the fresh detection does not know means the caller reviewed a
+        // different detection. Refuse before any vault state exists: the
+        // staging directory above is removed by the defer, so nothing is
+        // written. A changed set whose excluded ids are all present proceeds
+        // (over-redaction is the safe direction) and is reported below.
+        let verdict = observer.verdict(
+            handle: handle,
+            modelPathPresent: modelPath != nil,
+            review: review
+        )
+        guard verdict.unknownIdCount == 0 else {
+            throw MCPVaultToolError.unknownEntityId(count: verdict.unknownIdCount)
         }
         let stagedMapping = try MappingStore.load(
             from: stagedResult.mappingFileURL,
@@ -239,7 +295,12 @@ extension MCPServer {
                 "perTypeCounts": MCPServer.perTypeCounts(stagedResult.entities),
                 "imageRedactionCount": stagedResult.imageRedactionCount,
                 "embeddedMediaCount": stagedResult.embeddedMediaCount,
-                "unboxedTokenCount": stagedResult.unboxedTokenCount
+                "unboxedTokenCount": stagedResult.unboxedTokenCount,
+                // The review step's outcome: how many body values the caller
+                // left visible, and whether the detection this run made
+                // differs from the one the caller reviewed.
+                "excludedCount": stagedResult.excludedEntityCount,
+                "detectionChanged": verdict.detectionChanged
             ]
         } catch {
             vault.abort(slot: slot)
@@ -281,10 +342,12 @@ extension MCPServer {
 
     // MARK: detect_entities
 
-    /// detect_entities: types, counts, and offsets only, never span text.
+    /// detect_entities: types, counts, offsets, and ids only, never span text.
     /// Everything a tool returns enters the model context of whatever agent
     /// host launched this server, so returning the detected surface text
-    /// would upload the exact bytes this product exists to keep local.
+    /// would upload the exact bytes this product exists to keep local. The
+    /// ids let a caller name entities to anonymize's excludeEntityIds; they
+    /// derive from type and offsets only, so they disclose nothing new.
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
@@ -292,132 +355,25 @@ extension MCPServer {
             try LDAService.detect(input: url, llmModelPath: modelPath)
         }
 
-        let entities: [[String: Any]] = spans.map { span in
+        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0) }
+        let entities: [[String: Any]] = zip(spans, ids).map { span, id in
             [
+                "id": id,
                 "type": span.type.rawValue,
                 "start": span.start,
                 "end": span.end
             ]
         }
         return [
+            "detectionId": MCPDetectionIdentity.detectionId(
+                handle: handle,
+                modelPathPresent: modelPath != nil,
+                ids: ids
+            ),
             "entityCount": spans.count,
             "entityTypes": entityTypeStrings(spans),
             "entities": entities
         ]
-    }
-
-    // MARK: restore
-
-    /// restore: handle to handle. The primary form takes editedText (redacted
-    /// text coming FROM the model is fine inbound), writes it into the vault
-    /// as its own redacted artifact, and restores that. Without editedText the
-    /// redacted artifact restores as it stands. The restored artifact stays IN
-    /// the vault; the human exports it through the export flow or the app.
-    func callRestoreHandle(_ arguments: [String: Any]) throws -> [String: Any] {
-        let redactedHandle = try requireStringArgument(arguments, key: "redactedHandle")
-        let vault = openVault()
-        let entry = try vault.entry(handle: redactedHandle)
-        guard entry.kind == .redacted else {
-            throw MCPVaultToolError.notRedacted(handle: redactedHandle, kind: entry.kind)
-        }
-        let mappingURL = try vault.mappingFileURL(forHandle: redactedHandle)
-        let accountBase = entry.mappingAccountBase ?? entry.handle
-        let protection = vaultMappingProtection(from: arguments, accountBase: accountBase)
-        let stagedAt = MCPServer.iso8601Now()
-
-        let editedText = (arguments["editedText"] as? String)
-            .flatMap { $0.isEmpty ? nil : $0 }
-
-        if let editedText {
-            // Persist the inbound edited text as its own redacted artifact
-            // first, so the exact text that was restored is on record and can
-            // itself be exported or re-restored.
-            let editedSlot = try vault.prepareDerived(kind: .redacted)
-            let editedEntry: VaultEntry
-            do {
-                let editedURL = editedSlot.directory.appendingPathComponent("edited_redacted.txt")
-                try CompanionWriter.writeText(editedText, to: editedURL)
-                editedEntry = try vault.commit(
-                    slot: editedSlot,
-                    primaryFile: editedURL,
-                    stagedAtISO8601: stagedAt,
-                    sourceHandle: redactedHandle,
-                    mappingFile: mappingURL,
-                    mappingAccountBase: accountBase
-                )
-            } catch {
-                vault.abort(slot: editedSlot)
-                throw error
-            }
-
-            let restoredSlot = try vault.prepareDerived(kind: .restored)
-            do {
-                let result = try LDAService.restoreText(
-                    editedText,
-                    mapping: mappingURL,
-                    protection: protection
-                )
-                let restoredURL = restoredSlot.directory.appendingPathComponent("restored.txt")
-                try TextDocumentIO.exportText(result.text, to: restoredURL)
-                let committed = try vault.commit(
-                    slot: restoredSlot,
-                    primaryFile: restoredURL,
-                    stagedAtISO8601: stagedAt,
-                    sourceHandle: editedEntry.handle,
-                    mappingFile: nil,
-                    mappingAccountBase: nil
-                )
-                return [
-                    "restoredHandle": committed.handle,
-                    "editedRedactedHandle": editedEntry.handle,
-                    "restoredCount": result.restoredCount,
-                    "orphanTokens": result.orphanTokens,
-                    "suspectPlaceholders": result.suspectPlaceholders,
-                    // Replacement strings that two or more entities share
-                    // (asterisk masks can collide); restore refuses to guess
-                    // at them. Replacement strings are boundary-safe: they are
-                    // what the redacted text already shows.
-                    "ambiguousReplacements": result.ambiguousReplacements
-                ]
-            } catch {
-                vault.abort(slot: restoredSlot)
-                throw error
-            }
-        }
-
-        // No edited text: restore the stored redacted artifact directly.
-        let restoredSlot = try vault.prepareDerived(kind: .restored)
-        do {
-            let outputExtension = entry.format == "docx" ? "docx" : "txt"
-            let outputURL = restoredSlot.directory
-                .appendingPathComponent("restored.\(outputExtension)")
-            let report = try vault.withPlaintextFileURL(handle: redactedHandle) { redactedURL in
-                try LDAService.restore(
-                    editedRedacted: redactedURL,
-                    mapping: mappingURL,
-                    protection: protection,
-                    output: outputURL
-                )
-            }
-            let committed = try vault.commit(
-                slot: restoredSlot,
-                primaryFile: outputURL,
-                stagedAtISO8601: stagedAt,
-                sourceHandle: redactedHandle,
-                mappingFile: nil,
-                mappingAccountBase: nil
-            )
-            return [
-                "restoredHandle": committed.handle,
-                "restoredCount": report.restoredCount,
-                "orphanTokens": report.orphanTokens,
-                "suspectPlaceholders": report.suspectPlaceholders,
-                "ambiguousReplacements": report.ambiguousReplacements
-            ]
-        } catch {
-            vault.abort(slot: restoredSlot)
-            throw error
-        }
     }
 
     // MARK: export

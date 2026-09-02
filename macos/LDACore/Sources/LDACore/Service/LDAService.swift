@@ -62,6 +62,11 @@ public struct AnonymizeResult: Sendable {
     /// UI can surface "N seal candidates boxed". Always 0 for non-image input
     /// and when includeSealCandidates is false.
     public var sealCandidateCount: Int
+    /// How many detected BODY spans the caller's exclusions (spanFilter and
+    /// excludedTypes) dropped before tokenization. Those values stay visible
+    /// in the redacted output by the caller's choice. Always 0 when no
+    /// exclusion was supplied.
+    public var excludedEntityCount: Int
 
     public init(
         redactedFileURL: URL,
@@ -73,7 +78,8 @@ public struct AnonymizeResult: Sendable {
         embeddedMediaCount: Int = 0,
         unboxedTokenCount: Int = 0,
         sealCandidateCount: Int = 0,
-        redactedImageURL: URL? = nil
+        redactedImageURL: URL? = nil,
+        excludedEntityCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
@@ -85,6 +91,7 @@ public struct AnonymizeResult: Sendable {
         self.embeddedMediaCount = embeddedMediaCount
         self.unboxedTokenCount = unboxedTokenCount
         self.sealCandidateCount = sealCandidateCount
+        self.excludedEntityCount = excludedEntityCount
     }
 }
 
@@ -206,6 +213,12 @@ public enum LDAService {
     ///     default), red-region seal CANDIDATE boxes are merged into the
     ///     redacted image's coverage; candidates only, never certain seal
     ///     detections. Ignored for every other input format.
+    ///   - spanFilter: the caller's review step over BODY spans: return false
+    ///     to leave a detected value visible. Consulted for every detected
+    ///     body span in detection order, before the type test, so a caller may
+    ///     also use it to observe the detection set. Nil keeps every span.
+    ///   - excludedTypes: entity types left visible on EVERY channel (body,
+    ///     docx headers, footers, notes, comments, and the image-PII pass).
     public static func anonymize(
         input: URL,
         outputDir: URL,
@@ -213,7 +226,9 @@ public enum LDAService {
         createdAtISO8601: String,
         llmModelPath: String? = nil,
         style: SubstitutionStyle = .token,
-        includeSealCandidates: Bool = true
+        includeSealCandidates: Bool = true,
+        spanFilter: ((Span) -> Bool)? = nil,
+        excludedTypes: Set<EntityType> = []
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
@@ -244,7 +259,17 @@ public enum LDAService {
             imported = try importDocument(input, extension: ext)
         }
         let detector = makeDetector(modelPath: llmModelPath)
-        let detected = try detector.detectText(imported.text)
+        // The caller's review step: drop excluded spans BEFORE splitting,
+        // tokenization, and alias linking, so an excluded value never mints a
+        // token or enters the mapping. Types are excluded on every channel;
+        // the per-span filter is body-only (see SpanExclusion).
+        let exclusion = SpanExclusion(excludedTypes: excludedTypes, bodyFilter: spanFilter)
+        let candidates = try detector.detectText(imported.text)
+        let detected = exclusion.filterBody(candidates)
+        let excludedEntityCount = candidates.count - detected.count
+        let detectSupplementary: (String) -> [Span] = { text in
+            exclusion.filterSupplementary(detector.detectForImages(text))
+        }
         // DOCX replacement happens run by run inside paragraphs, and the
         // paragraph newline, line break, and tab characters exist in no run,
         // so a span crossing one cannot round-trip. Split such spans into
@@ -327,7 +352,8 @@ public enum LDAService {
                 embeddedMediaCount: 0,
                 unboxedTokenCount: coverage.unlocatedRangeCount,
                 sealCandidateCount: render.sealCandidateCount,
-                redactedImageURL: imageURL
+                redactedImageURL: imageURL,
+                excludedEntityCount: excludedEntityCount
             )
         }
 
@@ -358,7 +384,7 @@ public enum LDAService {
                 original: input,
                 replacements: replacements,
                 to: redactedFileURL,
-                nonBody: (mapping: tokenized.mapping, detect: detector.detectForImages)
+                nonBody: (mapping: tokenized.mapping, detect: detectSupplementary)
             )
             for entry in nonBodyEntries {
                 tokenized.mapping.entries[entry.token] = entry
@@ -403,7 +429,7 @@ public enum LDAService {
                     let resolved = ImageRedactionResolver.resolve(
                         mapping: tokenized.mapping,
                         observations: observations,
-                        detect: detector.detectForImages
+                        detect: detectSupplementary
                     )
                     boxes += resolved.boxes
                     // Merge image-origin entries into the mapping before it is saved
@@ -450,7 +476,8 @@ public enum LDAService {
             entities: spans,
             imageRedactionCount: imageRedactionCount,
             embeddedMediaCount: embeddedMediaCount,
-            unboxedTokenCount: unboxedTokenCount
+            unboxedTokenCount: unboxedTokenCount,
+            excludedEntityCount: excludedEntityCount
         )
     }
 

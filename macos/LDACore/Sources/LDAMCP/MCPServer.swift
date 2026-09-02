@@ -647,6 +647,8 @@ private enum RequestID {
 enum MCPToolError: Error {
     case missingArgument(String)
     case invalidArgument(key: String, value: String, allowed: [String])
+    /// Two arguments that select different shapes of one tool were both given.
+    case mutuallyExclusiveArguments([String])
 
     var message: String {
         switch self {
@@ -654,6 +656,8 @@ enum MCPToolError: Error {
             return "Missing or empty required argument: \(key)"
         case .invalidArgument(let key, let value, let allowed):
             return "Invalid value \"\(value)\" for argument \(key). Allowed: \(allowed.joined(separator: ", "))"
+        case .mutuallyExclusiveArguments(let keys):
+            return "Arguments \(keys.joined(separator: " and ")) are mutually exclusive; pass only one of them."
         }
     }
 }

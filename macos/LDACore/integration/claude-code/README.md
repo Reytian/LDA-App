@@ -40,7 +40,8 @@ project):
 
 Behavior on a blocked call: the tool call is refused (exit 2) and the agent
 sees a one-line explanation pointing it at the MCP tools instead
-(`list_pending`, `anonymize`, `read_redacted`, `restore`, `export`, `attest`).
+(`list_pending`, `detect_entities`, `anonymize`, `anonymize_session`,
+`read_redacted`, `restore`, `export`, `attest`).
 
 Bash commands invoking `lda vault` or `lda-mcp` are also refused: `lda vault
 list` prints original filenames (the handle-to-name correlation the MCP
@@ -57,3 +58,41 @@ tilde paths, backslash-escaped `Application\ Support` spellings inside Bash
 commands, Grep/Glob path and pattern arguments, the `LDA_VAULT_DIR` override,
 and pass-through for unrelated paths, unrelated tools, and malformed hook
 payloads.
+
+## The tool surface the agent sees
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `list_pending` | none | handles plus neutral metadata (`kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`) |
+| `detect_entities` | `handle`, `modelPath?` | `detectionId` and `entities[]` of `{id, type, start, end}`; the detected text never leaves the machine |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, counts per type, `excludedCount`, `detectionChanged` |
+| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, counts, `excludedCount`, `unresolvedSeams` |
+| `read_redacted` | `handle` (red_) | the redacted `text`; the only tool that returns body text |
+| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format`, `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements` |
+| `export` | `handle` (red_ or res_) | `ok`; the file lands in the vault's `outbox/` |
+| `attest` | none | the server's data-boundary posture and byte counters |
+
+Review before redacting: call `detect_entities` once, then pass the ids to
+keep visible as `excludeEntityIds` together with the `detectionId` they came
+with, and whole types as `excludeTypes`. An id the fresh detection does not
+know is refused (`unknown_entity_id`) and nothing is written.
+
+## Word round trip (.docx in, restored .docx out)
+
+`restore` with `editedText` restores to TEXT (`format: "txt"`) even when the
+redacted artifact was a `.docx`. Formatting is kept only when the edited
+`.docx` itself travels through the vault and is passed as `editedHandle`:
+
+1. Human: `lda vault stage Agreement.docx` (doc_a1).
+2. Agent: `anonymize {handle: doc_a1}` (red_b2), then `export {handle: red_b2}`;
+   the redacted file appears as `outbox/Agreement_redacted.docx`.
+3. Human: edits that file in Word, keeping the placeholders (accept all
+   tracked changes), saves it as `Agreement-edited.docx`, and stages it:
+   `lda vault stage Agreement-edited.docx` (doc_c3).
+4. Agent: `restore {redactedHandle: red_b2, editedHandle: doc_c3}` (res_d4,
+   `format: "docx"`), then `export {handle: res_d4}`; the restored file appears
+   as `outbox/Agreement-edited_restored.docx` with its formatting intact.
+
+Staging is the human's action by design: an agent that ran the CLI itself
+would be handling the path this surface keeps out of context, which is why the
+hook above also refuses `lda vault` and `lda-mcp` in Bash.
