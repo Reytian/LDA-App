@@ -14,6 +14,13 @@
 //  back through the run planner. This also handles a token Word split across
 //  runs after redaction.
 //
+//  Formatting of a cross-run entity (known limitation): the mapping records
+//  values, not run boundaries, so a restored value is written whole into the
+//  first run its token covers and takes that run's formatting. An email whose
+//  first letters were bold and whose remainder was not comes back entirely
+//  bold. Every other run keeps its own formatting. RestoreReport has no field
+//  for this yet, so it is documented here rather than surfaced per document.
+//
 //  restoreLiteral: the pseudonym and asterisk styles have no brace grammar, so
 //  a replacement is an ordinary string that Word may have split across runs and
 //  whose ambiguity can only be judged against its neighbours. That pass decides
