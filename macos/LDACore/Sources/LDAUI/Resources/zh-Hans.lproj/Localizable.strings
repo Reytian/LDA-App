@@ -30,7 +30,6 @@
 "Add Field" = "添加字段";
 "Add Sources" = "添加源文档";
 "Add Term" = "添加词条";
-"Add something the detection missed; every occurrence will be redacted" = "添加检测遗漏的内容，其每次出现都将被脱敏";
 "Add source documents and click Extract, or load a saved .ldaprofile." = "添加源文档并点按“提取”，或载入已保存的 .ldaprofile。";
 "Add source documents to extract profile fields from (PDF, Word, or plain text)" = "添加用于提取档案字段的源文档（PDF、Word 或纯文本）";
 "Add source documents, then click Extract to build a profile." = "添加源文档，然后点按“提取”以创建档案。";

@@ -30,7 +30,6 @@
 "Add Field" = "新增欄位";
 "Add Sources" = "新增來源";
 "Add Term" = "新增詞彙";
-"Add something the detection missed; every occurrence will be redacted" = "新增偵測遺漏的內容，每次出現都會被遮蔽";
 "Add source documents and click Extract, or load a saved .ldaprofile." = "新增來源文件並按一下「擷取」，或載入已儲存的 .ldaprofile。";
 "Add source documents to extract profile fields from (PDF, Word, or plain text)" = "新增來源文件以擷取客戶資料欄位（PDF、Word 或純文字）";
 "Add source documents, then click Extract to build a profile." = "新增來源文件，然後按一下「擷取」以建立客戶資料。";

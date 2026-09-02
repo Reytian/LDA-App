@@ -30,7 +30,6 @@
 "Add Field" = "Add Field";
 "Add Sources" = "Add Sources";
 "Add Term" = "Add Term";
-"Add something the detection missed; every occurrence will be redacted" = "Add something the detection missed; every occurrence will be redacted";
 "Add source documents and click Extract, or load a saved .ldaprofile." = "Add source documents and click Extract, or load a saved .ldaprofile.";
 "Add source documents to extract profile fields from (PDF, Word, or plain text)" = "Add source documents to extract profile fields from (PDF, Word, or plain text)";
 "Add source documents, then click Extract to build a profile." = "Add source documents, then click Extract to build a profile.";

@@ -30,7 +30,6 @@
 "Add Field" = "Ajouter un champ";
 "Add Sources" = "Ajouter des sources";
 "Add Term" = "Ajouter un terme";
-"Add something the detection missed; every occurrence will be redacted" = "Ajoutez un élément non détecté. Toutes ses occurrences seront masquées";
 "Add source documents and click Extract, or load a saved .ldaprofile." = "Ajoutez des documents sources et cliquez sur Extraire, ou chargez un fichier .ldaprofile enregistré.";
 "Add source documents to extract profile fields from (PDF, Word, or plain text)" = "Ajoutez des documents sources dont extraire les champs du profil (PDF, Word ou texte brut)";
 "Add source documents, then click Extract to build a profile." = "Ajoutez des documents sources, puis cliquez sur Extraire pour créer un profil.";
