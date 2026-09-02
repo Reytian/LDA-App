@@ -23,9 +23,12 @@
 //     Restore happens on the edited companion, not the PDF.
 //
 //  Token model: tokens are unique opaque strings like {PERSON_1} matching the
-//  grammar TokenGrammar.placeholderPattern (\{[A-Z][A-Z0-9]*_\d+\}). During
-//  restore a token always lives within a single run, so per-run find/replace of
-//  token -> value is correct and safe.
+//  grammar TokenGrammar.placeholderPattern (\{[A-Z][A-Z0-9]*_\d+\}). Redaction
+//  writes a token into the first run its span covers, but later editing (Word
+//  re-splits runs by rsid, spell-check state, and formatting) can leave a token
+//  spread across several w:t runs. Restore therefore finds tokens in each
+//  part's whole concatenated text and writes values back through the run
+//  planner (DocxRedactor), never by per-run find/replace.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
