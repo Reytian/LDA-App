@@ -48,7 +48,8 @@ final class MultilingualLayoutTests: XCTestCase {
     func testRestoreCardsWrapLocalizedCopyInsideMinimumWindowBudget() {
         let cardPairWidth: CGFloat = 860
         let cardSpacing: CGFloat = 20
-        let cardWidth = (cardPairWidth - cardSpacing) / 2
+        let cardCount = CGFloat(RestoreCardCopy.allCases.count)
+        let cardWidth = (cardPairWidth - cardSpacing * (cardCount - 1)) / cardCount
         let cardHorizontalPadding: CGFloat = 24
         let bodyWidth = cardWidth - (cardHorizontalPadding * 2)
 
@@ -239,24 +240,10 @@ private struct ModePickerProbe: View {
 }
 
 private enum RestoreCardCopy: CaseIterable {
-    case paste
     case file
 
     func localized(in language: AppLanguage) -> LocalizedRestoreCardCopy {
         switch self {
-        case .paste:
-            return LocalizedRestoreCardCopy(
-                icon: "arrow.left.doc.on.clipboard",
-                title: L10n.string("Paste back an AI reply", language: language),
-                body: L10n.string(
-                    "You copied redacted text with Copy for AI and worked on it in an AI tool. "
-                        + "Paste the reply here: every placeholder is swapped back to the real value "
-                        + "using this session's mapping.",
-                    language: language
-                ),
-                buttonTitle: L10n.string("Paste from AI\u{2026}", language: language),
-                isProminent: true
-            )
         case .file:
             return LocalizedRestoreCardCopy(
                 icon: "doc.badge.arrow.up",
@@ -269,7 +256,7 @@ private enum RestoreCardCopy: CaseIterable {
                     language: language
                 ),
                 buttonTitle: L10n.string("Choose File & Restore\u{2026}", language: language),
-                isProminent: false
+                isProminent: true
             )
         }
     }

@@ -8,6 +8,44 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(AppMode.deanonymize.rawValue, "Restore")
     }
 
+    // MARK: - Export for AI copy
+
+    func testExportCompletionDetailNamesTheFileAndTheSkippedDocuments() {
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.exportCompletionDetail(
+                documentCount: 1,
+                skippedCount: 0,
+                fileName: "Redacted for AI.md",
+                language: .english
+            ),
+            "1 redacted document is in Redacted for AI.md. "
+                + "Upload it to your AI tool, then bring the answer back in Restore."
+        )
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.exportCompletionDetail(
+                documentCount: 2,
+                skippedCount: 1,
+                fileName: "Redacted for AI.md",
+                language: .english
+            ),
+            "2 redacted documents are in Redacted for AI.md. "
+                + "Upload it to your AI tool, then bring the answer back in Restore. "
+                + "1 unscanned document was not included."
+        )
+    }
+
+    func testExportForAIHelpCountsOnlyWhenSeveralDocumentsCouldBeIncluded() {
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.exportForAIHelp(ready: 1, candidates: 1, language: .english),
+            "Save the redacted text as one Markdown file to upload to any AI tool."
+        )
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.exportForAIHelp(ready: 1, candidates: 3, language: .english),
+            "Save the redacted text from 1 of 3 documents (only the ones already scanned are included) "
+                + "as one Markdown file to upload to any AI tool."
+        )
+    }
+
     // MARK: - Cross-document re-scan advice
 
     func testRescanAdviceIsSilentWhenEveryDocumentIsCovered() {
@@ -26,7 +64,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(
             advice,
             "b.txt still contains 1 name protected elsewhere in this session. "
-                + "Run Scan on it again, then copy."
+                + "Run Scan on it again, then export again."
         )
     }
 
@@ -39,7 +77,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(
             advice,
             "b.txt, c.txt still contain 3 names protected elsewhere in this session. "
-                + "Run Scan on them again, then copy."
+                + "Run Scan on them again, then export again."
         )
     }
 
@@ -79,7 +117,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(
             advice,
             "b.txt still contains 2 names protected elsewhere in this session. "
-                + "Run Scan on it again, then copy. "
+                + "Run Scan on it again, then export again. "
                 + "b.txt still contains 1 name you chose not to redact before. "
                 + "Scan will skip it again, so use Protect a missed item "
                 + "if it should be protected here."
@@ -95,7 +133,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertNil(AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: []))
     }
 
-    func testSeamAdviceOpensByTellingTheUserNotToSendTheCopy() {
+    func testSeamAdviceOpensByTellingTheUserNotToUploadTheFile() {
         // The user cannot find this one by reading the copied text, so the
         // sentence has to lead with the instruction, not the explanation.
         let advice = AnonymizeWorkflowPresentation.unresolvedSeamAdvice(for: [
@@ -105,10 +143,10 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
 
         XCTAssertEqual(
             advice,
-            "Do not send this copy. Restoring the AI's reply would put the "
+            "Do not upload this file. Restoring the AI's reply would put the "
                 + "wrong party's name at 1 redacted site. Clear any replacement text you "
                 + "typed by hand for these names (Use Automatic), or change Output style "
-                + "in Settings, then copy again."
+                + "in Settings, then export again."
         )
     }
 
@@ -121,10 +159,10 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
 
         XCTAssertEqual(
             advice,
-            "Do not send this copy. Restoring the AI's reply would put the "
+            "Do not upload this file. Restoring the AI's reply would put the "
                 + "wrong party's name at 3 redacted sites. Clear any replacement text you "
                 + "typed by hand for these names (Use Automatic), or change Output style "
-                + "in Settings, then copy again."
+                + "in Settings, then export again."
         )
     }
 
@@ -157,7 +195,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(
             advice,
             "b.txt still contains 1 name protected elsewhere in this session. "
-                + "Run Scan on it again, then copy. "
+                + "Run Scan on it again, then export again. "
                 + "c.txt still contains 2 names you chose not to redact before. "
                 + "Scan will skip them again, so use Protect a missed item "
                 + "if they should be protected here."

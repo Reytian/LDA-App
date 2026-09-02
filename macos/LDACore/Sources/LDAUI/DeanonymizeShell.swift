@@ -3,19 +3,12 @@
 //  LDAUI
 //
 //  The Restore mode: everything that brings REAL values back after work
-//  was done on redacted text. Two paths, presented as two cards:
-//
-//  1. Paste back an AI reply. The counterpart of "Copy for AI" in the
-//     Anonymize mode: the reply still carries placeholders; pasting it here
-//     swaps the real values back in using the session's mappings. The sheet
-//     itself is window-level (owned by RootShell) so the menu bar and the
-//     companion can also summon it; this card just requests it.
-//
-//  2. Restore a redacted file. A previously exported redacted document plus
-//     its .ldamap sidecar (and passphrase, if one was set) round-trips back
-//     to the original values. This flow lived behind the Cmd+R menu item
-//     inside the Anonymize shell before; as the second half of the product's
-//     core promise it deserves a first-class surface.
+//  was done on redacted text. One card: restore a redacted file. A
+//  previously exported redacted document plus its .ldamap sidecar (and
+//  passphrase, if one was set) round-trips back to the original values. This
+//  flow lived behind the Cmd+R menu item inside the Anonymize shell before;
+//  as the second half of the product's core promise it deserves a first-class
+//  surface.
 //
 //  The heavy lifting stays in ReviewModel.restore / LDAService.restore; this
 //  view is chrome, file pickers, and honest result reporting (orphaned or
@@ -42,9 +35,6 @@ public struct DeanonymizeShell: View {
     /// layers do not contribute items.
     private let isActive: Bool
 
-    /// Asks the window to present the paste-and-restore sheet.
-    private let onPasteFromAI: () -> Void
-
     /// A one-line outcome message shown after a restore completes or fails.
     @State private var resultMessage: String?
     @State private var resultIsWarning = false
@@ -52,12 +42,10 @@ public struct DeanonymizeShell: View {
 
     public init(
         session: SessionModel,
-        isActive: Bool = true,
-        onPasteFromAI: @escaping () -> Void
+        isActive: Bool = true
     ) {
         self.session = session
         self.isActive = isActive
-        self.onPasteFromAI = onPasteFromAI
     }
 
     // MARK: - Body
@@ -72,7 +60,6 @@ public struct DeanonymizeShell: View {
                     VStack(spacing: 24) {
                         header
                         HStack(alignment: .top, spacing: 20) {
-                            pasteCard
                             fileCard
                         }
                         .frame(maxWidth: 860)
@@ -117,22 +104,6 @@ public struct DeanonymizeShell: View {
 
     // MARK: - Cards
 
-    private var pasteCard: some View {
-        card(
-            icon: "arrow.left.doc.on.clipboard",
-            title: "Paste back an AI reply",
-            body: LocalizedStringKey(
-                "You copied redacted text with Copy for AI and worked on it in an AI tool. "
-                    + "Paste the reply here: every placeholder is swapped back to the real value "
-                    + "using this session's mapping."
-            ),
-            buttonTitle: "Paste from AI\u{2026}",
-            buttonHelp: "Paste the AI's answer and restore the real values (Cmd+Shift+V)",
-            isProminent: true,
-            action: onPasteFromAI
-        )
-    }
-
     private var fileCard: some View {
         card(
             icon: "doc.badge.arrow.up",
@@ -145,7 +116,7 @@ public struct DeanonymizeShell: View {
             ),
             buttonTitle: "Choose File & Restore\u{2026}",
             buttonHelp: "Pick an edited redacted document and write the restored original (Cmd+R)",
-            isProminent: false,
+            isProminent: true,
             action: presentRestore
         )
     }

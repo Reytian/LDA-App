@@ -3,15 +3,14 @@
 //  LDAUI
 //
 //  Session-level views: the document tray rows shown at the top of the entity
-//  sidebar (R19), the add-a-missed-term popover (R5), and the paste-and-
-//  restore sheet that closes the AI round-trip (framework stage 4).
+//  sidebar (R19), the add-a-missed-term popover (R5), and the menu-bar
+//  companion's clipboard round trip.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import LDACore
 
 // MARK: - Document tray row
@@ -276,7 +275,7 @@ public struct CompanionMenu: View {
         do {
             guard let restored = try session.restorePasted(text) else {
                 session.companionNote = L10n.string(
-                    "Nothing to restore against yet. Copy for AI first."
+                    "Nothing to restore against yet. Export for AI first."
                 )
                 return
             }
@@ -299,8 +298,8 @@ public struct CompanionMenu: View {
                 // "item", not "placeholder": a refused mask is counted here
                 // too, and it is not a placeholder.
                 let flaggedKey = flagged == 1
-                    ? " %lld item needs review; use Restore from AI in the app."
-                    : " %lld items need review; use Restore from AI in the app."
+                    ? " %lld item needs review; use Restore in the app."
+                    : " %lld items need review; use Restore in the app."
                 note += String(format: L10n.string(flaggedKey), Int64(flagged))
             }
             session.companionNote = note
@@ -310,179 +309,5 @@ public struct CompanionMenu: View {
                 DocumentErrorPresentation.describeOrFallback(error) as NSString
             )
         }
-    }
-}
-
-// MARK: - Paste and restore sheet (stage 4)
-
-/// The bring-back half of the round-trip: paste the AI's output, restore the
-/// real values against the session mapping, review what matched (orphans and
-/// damaged placeholders are flagged, never guessed), and save the final file.
-struct PasteRestoreSheet: View {
-    @ObservedObject var session: SessionModel
-    @Binding var isPresented: Bool
-
-    @State private var pasted = ""
-    @State private var result: RestoreResult?
-    @State private var errorText: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Bring back the AI's answer")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("Paste what the AI returned. The protected values are restored on this Mac; anything that cannot be matched with certainty is flagged, never guessed.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            TextEditor(text: $pasted)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 220)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(CounselTheme.hairline, lineWidth: 1)
-                )
-
-            HStack {
-                Button("Paste from Clipboard") {
-                    if let clip = NSPasteboard.general.string(forType: .string) {
-                        pasted = clip
-                    }
-                }
-                Spacer()
-            }
-
-            if let result {
-                resultSummary(result)
-            }
-            if let errorText {
-                Text(verbatim: errorText)
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Spacer()
-                Button("Close", role: .cancel) { isPresented = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Restore") { restore() }
-                    .disabled(pasted.isEmpty)
-                Button("Save Restored\u{2026}") { save() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(CounselTheme.inkAccentFill)
-                    .disabled(result == nil)
-            }
-        }
-        .padding(20)
-        .frame(minWidth: 560, minHeight: 460)
-        .background(CounselTheme.raised)
-    }
-
-    // MARK: - Result summary
-
-    @ViewBuilder
-    private func resultSummary(_ result: RestoreResult) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label {
-                Text(verbatim: RestoreResultPresentation.restoredSentence(result.restoredCount))
-            } icon: {
-                Image(systemName: result.restoredCount > 0 ? "checkmark.seal" : "info.circle")
-            }
-            .font(.callout)
-            .foregroundStyle(CounselTheme.textPrimary)
-
-            if let orphan = RestoreResultPresentation.orphanSentence(result.orphanTokens) {
-                Label {
-                    Text(verbatim: orphan)
-                } icon: {
-                    Image(systemName: "questionmark.diamond")
-                }
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-            }
-
-            if let damaged = RestoreResultPresentation.damagedSentence(
-                result.suspectPlaceholders
-            ) {
-                Label {
-                    Text(verbatim: damaged)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle")
-                }
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-            }
-
-            if let ambiguous = RestoreResultPresentation
-                .ambiguousSentence(result.ambiguousReplacements) {
-                Label {
-                    Text(verbatim: ambiguous)
-                } icon: {
-                    Image(systemName: "questionmark.square.dashed")
-                }
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.danger)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - Actions
-
-    private func restore() {
-        errorText = nil
-        do {
-            guard let restored = try session.restorePasted(pasted) else {
-                errorText = L10n.string("There is nothing to restore against yet. Use Copy for AI first (or pick this session's client profile).")
-                return
-            }
-            result = restored
-        } catch {
-            errorText = DocumentErrorPresentation.describeOrFallback(error)
-        }
-    }
-
-    private func save() {
-        guard let result else { return }
-        let panel = NSSavePanel()
-        panel.message = L10n.string("Save the restored document.")
-        var types: [UTType] = []
-        if let md = UTType(filenameExtension: "md") { types.append(md) }
-        types.append(.plainText)
-        if let docx = UTType("org.openxmlformats.wordprocessingml.document") {
-            types.append(docx)
-        }
-        panel.allowedContentTypes = types
-        panel.nameFieldStringValue = defaultSaveName()
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        do {
-            if url.pathExtension.lowercased() == "docx" {
-                // The agreed fidelity floor: a clean regenerated Word document.
-                try SimpleDocxWriter.write(result.text, to: url)
-            } else {
-                try TextDocumentIO.exportText(result.text, to: url)
-            }
-            isPresented = false
-        } catch {
-            errorText = String(
-                format: L10n.string("Could not save: %@"),
-                DocumentErrorPresentation.describeOrFallback(error) as NSString
-            )
-        }
-    }
-
-    /// Default save name: the active document's base name. A .docx original
-    /// offers a Word file back (the original-format round-trip); everything
-    /// else offers Markdown.
-    private func defaultSaveName() -> String {
-        guard let entry = session.activeEntry else { return "restored.md" }
-        let base = entry.url.deletingPathExtension().lastPathComponent
-        let ext = entry.url.pathExtension.lowercased() == "docx" ? "docx" : "md"
-        return "\(base)_restored.\(ext)"
     }
 }

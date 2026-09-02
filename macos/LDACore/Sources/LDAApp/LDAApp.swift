@@ -219,16 +219,15 @@ struct LDAApp: App {
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(!sessionModel.activeModel.canAnonymize)
 
-                Button(localized("Copy for AI")) {
-                    sessionModel.requestCopyForAI()
+                // Export for AI lives in the Anonymize shell, whose completion
+                // card names the file just written, so the menu lands the user
+                // there before the save panel opens.
+                Button(localized("Export for AI…")) {
+                    modeStore.activeMode = .anonymize
+                    sessionModel.requestExportForAI()
                 }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-
-                Button(localized("Paste from AI…")) {
-                    modeStore.activeMode = .deanonymize
-                    sessionModel.requestPasteRestore()
-                }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!sessionModel.entries.contains { $0.model.canExport })
 
                 Divider()
 

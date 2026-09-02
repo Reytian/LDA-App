@@ -880,7 +880,7 @@ private struct MatterDetailView: View {
                     Text("Start with an anonymized handoff")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("After Copy for AI, this page will show the documents and counts for the handoff.")
+                    Text("After Export for AI, this page will show the documents and counts for the handoff.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
@@ -1066,7 +1066,7 @@ private struct NewMatterSheet: View {
                 .onSubmit(create)
 
             Label(
-                "The matter appears in this workspace after your first Copy for AI.",
+                "The matter appears in this workspace after your first Export for AI.",
                 systemImage: "lock.laptopcomputer"
             )
             .font(CounselTheme.Typography.supporting)

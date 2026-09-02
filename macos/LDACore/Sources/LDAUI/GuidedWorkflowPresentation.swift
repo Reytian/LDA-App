@@ -70,23 +70,25 @@ enum AnonymizeWorkflowPresentation {
         return includedDocumentIDs.contains(activeDocumentID)
     }
 
-    static func copyCompletionDetail(
+    static func exportCompletionDetail(
         documentCount: Int,
         skippedCount: Int,
+        fileName: String,
         language: AppLanguage? = nil
     ) -> String {
         let readyKey = documentCount == 1
-            ? "%lld redacted document is ready to paste into an AI tool. Bring the answer back in Restore."
-            : "%lld redacted documents are ready to paste into an AI tool. Bring the answer back in Restore."
+            ? "%lld redacted document is in %@. Upload it to your AI tool, then bring the answer back in Restore."
+            : "%lld redacted documents are in %@. Upload it to your AI tool, then bring the answer back in Restore."
         var detail = String(
             format: L10n.string(readyKey, language: language),
-            Int64(documentCount)
+            Int64(documentCount),
+            fileName as NSString
         )
 
         if skippedCount > 0 {
             let skippedKey = skippedCount == 1
-                ? "%lld unscanned document was not copied."
-                : "%lld unscanned documents were not copied."
+                ? "%lld unscanned document was not included."
+                : "%lld unscanned documents were not included."
             detail += " " + String(
                 format: L10n.string(skippedKey, language: language),
                 Int64(skippedCount)
@@ -114,20 +116,20 @@ enum AnonymizeWorkflowPresentation {
         )
     }
 
-    static func copyForAIHelp(
+    static func exportForAIHelp(
         ready: Int,
         candidates: Int,
         language: AppLanguage? = nil
     ) -> String {
         guard candidates > 1 else {
             return L10n.string(
-                "Copy the redacted text so you can paste it into any AI tool.",
+                "Save the redacted text as one Markdown file to upload to any AI tool.",
                 language: language
             )
         }
         return String(
             format: L10n.string(
-                "Copy the redacted text from %lld of %lld documents (only the ones already scanned are included) so you can paste it into any AI tool.",
+                "Save the redacted text from %lld of %lld documents (only the ones already scanned are included) as one Markdown file to upload to any AI tool.",
                 language: language
             ),
             Int64(ready),
@@ -215,12 +217,12 @@ enum AnonymizeWorkflowPresentation {
         let key: String
         if warnings.count == 1 {
             key = total == 1
-                ? "%@ still contains 1 name protected elsewhere in this session. Run Scan on it again, then copy."
-                : "%@ still contains %lld names protected elsewhere in this session. Run Scan on it again, then copy."
+                ? "%@ still contains 1 name protected elsewhere in this session. Run Scan on it again, then export again."
+                : "%@ still contains %lld names protected elsewhere in this session. Run Scan on it again, then export again."
         } else {
             key = total == 1
-                ? "%@ still contain 1 name protected elsewhere in this session. Run Scan on them again, then copy."
-                : "%@ still contain %lld names protected elsewhere in this session. Run Scan on them again, then copy."
+                ? "%@ still contain 1 name protected elsewhere in this session. Run Scan on them again, then export again."
+                : "%@ still contain %lld names protected elsewhere in this session. Run Scan on them again, then export again."
         }
         if total == 1 {
             return String(
@@ -298,8 +300,8 @@ enum AnonymizeWorkflowPresentation {
     ) -> String? {
         guard issueCount > 0 else { return nil }
         let key = issueCount == 1
-            ? "Do not send this copy. Restoring the AI's reply would put the wrong party's name at 1 redacted site. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then copy again."
-            : "Do not send this copy. Restoring the AI's reply would put the wrong party's name at %lld redacted sites. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then copy again."
+            ? "Do not upload this file. Restoring the AI's reply would put the wrong party's name at 1 redacted site. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then export again."
+            : "Do not upload this file. Restoring the AI's reply would put the wrong party's name at %lld redacted sites. Clear any replacement text you typed by hand for these names (Use Automatic), or change Output style in Settings, then export again."
         guard issueCount > 1 else {
             return L10n.string(key, language: language)
         }
@@ -398,7 +400,7 @@ enum FillProfilePrimaryAction: Equatable {
 extension ReviewModel {
     /// Build the protected body text shown in Safe Preview. Existing token
     /// assignments from a client or session handoff are used as a seed so the
-    /// preview stays aligned after Copy for AI. Before the first handoff, the
+    /// preview stays aligned after Export for AI. Before the first handoff, the
     /// tokenizer mints deterministic provisional tokens using the same rules as
     /// export. Rejected entities are omitted from the span list and therefore
     /// remain visible in the preview.

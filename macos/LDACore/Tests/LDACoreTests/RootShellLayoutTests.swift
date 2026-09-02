@@ -116,6 +116,20 @@ final class RootShellLayoutTests: XCTestCase {
         XCTAssertLessThan(conservativeHeaderWidth, minimumDetailWidth)
     }
 
+    func testExportForAIDelegatesToTheFlowAndNoLongerTouchesTheClipboard() throws {
+        let source = try String(contentsOf: Self.appShellSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("ExportForAIFlow.run(session: session)"),
+            "the shell must route Export for AI through the flow that asks for the destination first"
+        )
+        XCTAssertFalse(
+            source.contains("NSPasteboard.general.setString(handoff.combined"),
+            "the clipboard handoff is gone; the file is the only outbound artifact"
+        )
+        XCTAssertFalse(source.contains("Copy for AI"))
+    }
+
     func testTopLevelSurfacesAvoidManualTitleBarOffsets() throws {
         for url in Self.topLevelSurfaceURLs {
             let source = try String(contentsOf: url, encoding: .utf8)
@@ -301,7 +315,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         try assertFontRole(
             in: Self.matterSourceURL,
-            after: "The matter appears in this workspace after your first Copy for AI.",
+            after: "The matter appears in this workspace after your first Export for AI.",
             role: "CounselTheme.Typography.supporting"
         )
         try assertFontRole(

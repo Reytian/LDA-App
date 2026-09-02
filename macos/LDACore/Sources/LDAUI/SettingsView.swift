@@ -92,7 +92,7 @@ private struct HistoryTab: View {
                     if loadFailed {
                         Text("The history could not be read.")
                     } else {
-                        Text("No sessions recorded yet. Records appear after your first Copy for AI.")
+                        Text("No sessions recorded yet. Records appear after your first Export for AI.")
                     }
                 }
                 .font(.callout)

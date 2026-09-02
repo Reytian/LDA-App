@@ -5,9 +5,10 @@
 //  The multi-document session above ReviewModel (R12/R19): a tray of
 //  documents, each with its own ReviewModel for import/detect/review, plus the
 //  session-level round-trip actions: build the shared redacted Markdown for
-//  the AI handoff (one mapping across every document, optionally seeded from
-//  and saved back to a client profile, R10), and restore pasted AI output
-//  against that session mapping.
+//  the Export for AI handoff (one mapping across every document, optionally
+//  seeded from and saved back to a client profile, R10), and restore the AI's
+//  output (a file, or the companion's clipboard text) against that session
+//  mapping.
 //
 //  House rules: user-facing copy is localized. No prohibited dash separators.
 //
@@ -91,14 +92,11 @@ public final class SessionModel: ObservableObject {
     @Published public private(set) var clientLabel: String?
 
     /// The shared session mapping after the most recent hand-to-AI build.
-    /// Restore-from-paste runs against this.
+    /// Restore (a file, or the companion's clipboard) runs against this.
     @Published public private(set) var sessionMapping: Mapping?
 
-    /// Bumped when the Copy for AI menu command fires.
-    @Published public var copyForAIRequestToken = 0
-
-    /// Bumped when the Restore from AI menu command fires.
-    @Published public var pasteRestoreRequestToken = 0
+    /// Bumped when the Export for AI menu command fires.
+    @Published public var exportForAIRequestToken = 0
 
     /// Bumped when the File > Open menu command fires.
     @Published public var openRequestToken = 0
@@ -164,6 +162,15 @@ public final class SessionModel: ObservableObject {
     /// production default is the client's derived Keychain account.
     public var clientProtection: (String) -> MappingProtection = {
         ClientMappingStore.defaultProtection(label: $0)
+    }
+
+    /// How the .ldamap written next to an Export for AI file is protected,
+    /// given the export's base name. Injectable for tests; the production
+    /// default is the Keychain account named after that base name, the same
+    /// rule Save Redacted uses, so Restore can derive the account from the
+    /// sidecar's own name.
+    public var exportSidecarProtection: (String) -> MappingProtection = {
+        .keychain(account: $0)
     }
 
     /// The session record store (R18). Injectable for tests.
@@ -247,7 +254,7 @@ public final class SessionModel: ObservableObject {
         }
     }
 
-    /// Supplies the output style for Copy for AI and the clipboard companion.
+    /// Supplies the output style for Export for AI and the clipboard companion.
     /// The default reads the persisted setting live, so a change in Settings
     /// applies to the next handoff; tests inject a fixed closure.
     public var outputStyleProvider: () -> SubstitutionStyle = { AISettings.outputStyle() }
@@ -507,8 +514,11 @@ public final class SessionModel: ObservableObject {
         }
     }
 
-    /// Build the session's redacted Markdown intermediates against ONE shared
-    /// mapping, seeded from (and saved back to) the active client profile.
+    /// Build the session's redacted Markdown for the Export for AI handoff
+    /// against ONE shared mapping, seeded from (and saved back to) the active
+    /// client profile. SessionModel+ExportForAI.swift writes the result to
+    /// disk; the menu-bar companion restores against the mapping this leaves
+    /// in sessionMapping.
     ///
     /// Documents whose review is ready are included; documents still
     /// unprocessed are counted as skipped. Returns nil when nothing is ready.
@@ -931,8 +941,8 @@ public final class SessionModel: ObservableObject {
     }
 
     /// Resume an awaiting-AI parked session after a relaunch: reload the
-    /// parked mapping (and its client label) so Restore from AI works without
-    /// redoing anything. No-op when nothing is parked.
+    /// parked mapping (and its client label) so Restore works without redoing
+    /// anything. No-op when nothing is parked.
     public func resumeParkedSession() {
         guard sessionMapping == nil,
               let url = try? parkedMappingURL(),
@@ -1061,9 +1071,10 @@ public final class SessionModel: ObservableObject {
 
     // MARK: - Bring back and restore (stage 4)
 
-    /// Restore pasted AI output against the session mapping (or, when the app
-    /// was reopened mid round-trip, the client profile's stored mapping).
-    /// Returns nil when there is no mapping to restore against.
+    /// Restore text against the session mapping (or, when the app was
+    /// reopened mid round-trip, the parked or client profile mapping). The
+    /// menu-bar companion's Restore Clipboard runs through here. Returns nil
+    /// when there is no mapping to restore against.
     public func restorePasted(_ text: String) throws -> RestoreResult? {
         // Just-in-time parked-session resume (no-op when a mapping is already
         // loaded or nothing is parked). Keeps Keychain access user-initiated.
@@ -1546,8 +1557,8 @@ public final class SessionModel: ObservableObject {
         return cleaned
     }
 
-    /// Ask the shell to run the Copy for AI flow (menu command hook).
-    public func requestCopyForAI() { copyForAIRequestToken += 1 }
+    /// Ask the shell to run the Export for AI flow (menu command hook).
+    public func requestExportForAI() { exportForAIRequestToken += 1 }
 
     /// Ask the shell to present the document open panel (menu command hook).
     ///
@@ -1557,13 +1568,4 @@ public final class SessionModel: ObservableObject {
     /// keyboard-only user genuinely had no way out of a failed import. That,
     /// not the Scan for PII gate, was the real dead end behind audit item F2.
     public func requestOpen() { openRequestToken += 1 }
-
-    /// Ask the shell to present the Restore from AI sheet (menu command hook).
-    /// Resumes a parked session first (just in time, not at launch): the
-    /// parked mapping is Keychain-protected, and touching the Keychain must
-    /// happen in response to a user action, never as a surprise at startup.
-    public func requestPasteRestore() {
-        resumeParkedSession()
-        pasteRestoreRequestToken += 1
-    }
 }

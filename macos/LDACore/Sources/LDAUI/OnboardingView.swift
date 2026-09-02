@@ -62,15 +62,15 @@ public struct OnboardingView: View {
                 )
                 step(
                     number: "2",
-                    icon: "arrow.right.doc.on.clipboard",
+                    icon: "doc.richtext",
                     title: "Hand the safe copy to any AI",
-                    text: "Copy for AI puts a redacted copy on the clipboard. Paste it into ChatGPT, Claude, or any tool, with your instructions."
+                    text: "Export for AI saves a redacted Markdown file. Upload it to ChatGPT, Claude, or any tool, with your instructions."
                 )
                 step(
                     number: "3",
-                    icon: "arrow.left.doc.on.clipboard",
+                    icon: "doc.badge.arrow.up",
                     title: "Bring the answer back",
-                    text: "The Restore tab puts the real values back in the AI's answer, and flags anything it cannot match with certainty. Save the final document in its original format."
+                    text: "Restore takes the file the AI gave back and puts the real values in, flagging anything it cannot match with certainty. Save the final document in its original format."
                 )
             }
 
@@ -93,8 +93,8 @@ public struct OnboardingView: View {
             //
             // The clipboard sentence is scoped to the MENU-BAR companion on
             // purpose. It is the only path in the app that puts real values on
-            // the clipboard; Restore's own paste-back and file flows write a
-            // file and never touch it. An unscoped version told every user that
+            // the clipboard; Restore's own file flow writes a file and never
+            // touches it. An unscoped version told every user that
             // the flow this sheet just taught them produces something that
             // evaporates, which is both untrue and needlessly alarming. It also
             // avoids promising the clearing outright, because quitting the app

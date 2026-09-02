@@ -35,7 +35,8 @@ public struct AppShell: View {
     /// items from all live layers, so an inactive shell must contribute none.
     private let isActive: Bool
 
-    /// Switches the window to Restore after a copy or export handoff.
+    /// Switches the window to Restore after an Export for AI or Save Redacted
+    /// handoff.
     private let onOpenRestore: () -> Void
 
     /// Opens the guided Matters workspace for choosing an existing matter.
@@ -54,7 +55,7 @@ public struct AppShell: View {
     /// A one-line outcome message shown after an export completes or fails.
     @State private var exportMessage: String?
 
-    /// The most recent successful copy or save handoff, shown as a recovery
+    /// The most recent successful export or save handoff, shown as a recovery
     /// card with the exact next action instead of a truncated banner sentence.
     @State private var handoffCompletion: HandoffCompletion?
 
@@ -182,8 +183,8 @@ public struct AppShell: View {
             guard model.canAnonymize else { return }
             Task { await model.anonymize() }
         }
-        .onChange(of: session.copyForAIRequestToken) { _, _ in
-            runCopyForAI()
+        .onChange(of: session.exportForAIRequestToken) { _, _ in
+            runExportForAI()
         }
         .onChange(of: session.openRequestToken) { _, _ in
             presentOpenPanel()
@@ -263,14 +264,19 @@ public struct AppShell: View {
                 // The mode's primary action (Scan for PII) lives in the status
                 // banner, not here: toolbar items overflow into the >> menu on
                 // narrow windows, and the primary action must never disappear.
+                // Two doors, one Restore. Export for AI writes the whole
+                // session as ONE Markdown file for chat or upload; Save
+                // Redacted writes one document in its original format for
+                // editors that keep formatting. Both leave an encrypted
+                // .ldamap next to the file, and Restore opens either.
                 Button {
-                    runCopyForAI()
+                    runExportForAI()
                 } label: {
-                    Label("Copy for AI", systemImage: "arrow.right.doc.on.clipboard")
+                    Label("Export for AI\u{2026}", systemImage: "doc.richtext")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.entries.contains { $0.model.canExport })
-                .help(copyForAIHelp)
+                .help(exportForAIHelp)
 
                 Button {
                     beginExport()
@@ -279,7 +285,7 @@ public struct AppShell: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
-                .help("Save a redacted document plus the encrypted mapping needed to restore it")
+                .help("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
 
                 // Next to Save Redacted, because it is the other thing a user
                 // saves at the end of a sitting: the redacted output goes out,
@@ -404,38 +410,27 @@ public struct AppShell: View {
         pendingClientSelection = nil
     }
 
-    // MARK: - Hand to AI (stage 3)
+    // MARK: - Export for AI (stage 3)
 
-    /// Build the session's redacted Markdown, put it on the clipboard, and give
-    /// plain next-step guidance in the banner.
-    private func runCopyForAI() {
-        do {
-            let createdAt = ISO8601DateFormatter().string(from: Date())
-            guard let handoff = try session.buildHandToAI(createdAtISO8601: createdAt) else {
-                exportMessage = L10n.string(
-                    "Scan a document for PII first, then copy it for the AI."
-                )
-                return
-            }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(handoff.combined, forType: .string)
-
+    /// Ask where the redacted Markdown should go, THEN build the handoff and
+    /// write it with its encrypted sidecar. ExportForAIFlow owns the ordering
+    /// (panel first, so a cancelled export parks nothing and records nothing);
+    /// this shell only shows the outcome.
+    private func runExportForAI() {
+        switch ExportForAIFlow.run(session: session) {
+        case .cancelled:
+            return
+        case .nothingReady:
+            exportMessage = L10n.string("Scan a document for PII first, then export it for the AI.")
+        case .exported(let result):
             exportMessage = nil
-            handoffCompletion = .copied(
-                documentCount: handoff.documentCount,
-                skippedCount: handoff.skippedCount,
-                rescanWarnings: handoff.rescanWarnings,
-                seamIssues: handoff.seamIssues
-            )
+            handoffCompletion = .exportedForAI(result)
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,
-                includedDocumentIDs: Set(handoff.perDocument.keys)
+                includedDocumentIDs: result.includedDocumentIDs
             )
-        } catch {
-            exportMessage = String(
-                format: L10n.string("Could not prepare the redacted copy. %@"),
-                error.localizedDescription as NSString
-            )
+        case .failed(let message):
+            exportMessage = message
         }
     }
 
@@ -511,30 +506,26 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
-            case .copied(
-                let documentCount,
-                let skippedCount,
-                let rescanWarnings,
-                let seamIssues
-            ):
+            case .exportedForAI(let result):
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Safe text copied")
+                    Text("Redacted file saved")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text(verbatim: AnonymizeWorkflowPresentation.copyCompletionDetail(
-                        documentCount: documentCount,
-                        skippedCount: skippedCount
+                    Text(verbatim: AnonymizeWorkflowPresentation.exportCompletionDetail(
+                        documentCount: result.documentCount,
+                        skippedCount: result.skippedCount,
+                        fileName: result.markdownURL.lastPathComponent
                     ))
                         .font(CounselTheme.Typography.supporting)
-                        .foregroundStyle(skippedCount > 0
+                        .foregroundStyle(result.skippedCount > 0
                             ? CounselTheme.danger
                             : CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     // The cross-document sweep runs at scan time, so a
                     // document scanned before its partners were added can
                     // still carry their names. Saying which ones is the whole
-                    // point: the user cannot see it from the copied text.
-                    if let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: rescanWarnings) {
+                    // point: the user cannot see it from the exported file.
+                    if let advice = AnonymizeWorkflowPresentation.rescanAdvice(for: result.rescanWarnings) {
                         Text(verbatim: advice)
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.danger)
@@ -542,17 +533,17 @@ public struct AppShell: View {
                     }
                     // A seam the session pass could not repair. Unlike every
                     // other warning on this card, the user cannot verify it
-                    // by reading the copied text: the copy is correct and the
-                    // damage only appears once the AI's reply is restored. So
-                    // the engine's own line is shown verbatim under the
+                    // by reading the exported file: the file is correct and
+                    // the damage only appears once the AI's reply is restored.
+                    // So the engine's own line is shown verbatim under the
                     // advice, naming the document and the swap.
                     if let seamAdvice = AnonymizeWorkflowPresentation
-                        .unresolvedSeamAdvice(issueCount: seamIssues.count) {
+                        .unresolvedSeamAdvice(issueCount: result.seamIssues.count) {
                         Text(verbatim: seamAdvice)
                             .font(CounselTheme.Typography.supporting.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
-                        ForEach(Array(seamIssues.enumerated()), id: \.offset) { _, issue in
+                        ForEach(Array(result.seamIssues.enumerated()), id: \.offset) { _, issue in
                             Text(verbatim: AnonymizeWorkflowPresentation
                                 .unresolvedSeamDescription(for: issue))
                                 .font(CounselTheme.Typography.supporting)
@@ -568,17 +559,12 @@ public struct AppShell: View {
 
             Spacer(minLength: 12)
 
-            if case .exported(let result, _) = completion {
-                Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(
-                        [result.redactedURL, result.mappingURL]
-                            + (result.redactedImageURL.map { [$0] } ?? [])
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .fixedSize()
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting(completion.revealedFiles)
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .fixedSize()
 
             Button("Go to Restore") {
                 onOpenRestore()
@@ -966,11 +952,11 @@ public struct AppShell: View {
         }
     }
 
-    /// The Copy for AI tooltip, enriched with how many of the session's
+    /// The Export for AI tooltip, enriched with how many of the session's
     /// documents are ready so a multi-document user is not silently handed a
     /// partial session (F5, partially: a tooltip is hover-only, so this cannot
     /// be the whole answer. See the audit doc.)
-    private var copyForAIHelp: String {
+    private var exportForAIHelp: String {
         let ready = session.entries.filter { $0.model.canExport }.count
         // A failed import can never become ready, so counting it in the
         // denominator reads as "you are about to leave that document out" when
@@ -979,7 +965,7 @@ public struct AppShell: View {
             if case .failed = $0.model.status { return false }
             return true
         }.count
-        return AnonymizeWorkflowPresentation.copyForAIHelp(
+        return AnonymizeWorkflowPresentation.exportForAIHelp(
             ready: ready,
             candidates: candidates
         )
@@ -1178,8 +1164,8 @@ public struct AppShell: View {
         }
     }
 
-    // The de-anonymize flows (paste-back sheet and file-based restore) live in
-    // DeanonymizeShell; the sheet presentation is window-level in RootShell.
+    // The Restore flow (choose or drop the file that came back) lives in
+    // DeanonymizeShell.
 
     /// True when the directory lives inside iCloud Drive (any app container or
     /// the Desktop and Documents sync surface).
@@ -1317,13 +1303,19 @@ private final class WindowPresentationStateView: NSView {
 }
 
 private enum HandoffCompletion: Equatable {
-    case copied(
-        documentCount: Int,
-        skippedCount: Int,
-        rescanWarnings: [SessionModel.RescanWarning],
-        seamIssues: [SessionSeamIssue]
-    )
+    case exportedForAI(SessionModel.ExportForAIResult)
     case exported(result: ExportResult, protection: String)
+
+    /// The files the Reveal in Finder button selects.
+    var revealedFiles: [URL] {
+        switch self {
+        case .exportedForAI(let result):
+            return [result.markdownURL, result.mappingURL]
+        case .exported(let result, _):
+            return [result.redactedURL, result.mappingURL]
+                + (result.redactedImageURL.map { [$0] } ?? [])
+        }
+    }
 }
 
 private struct PendingClientSelection {

@@ -419,9 +419,10 @@ final class LocalizationFeatureTests: XCTestCase {
     }
 
     func testPrimaryAnonymizeStatusCopyUsesTheSelectedInterfaceLanguage() {
-        let completion = AnonymizeWorkflowPresentation.copyCompletionDetail(
+        let completion = AnonymizeWorkflowPresentation.exportCompletionDetail(
             documentCount: 2,
             skippedCount: 1,
+            fileName: "Redacted for AI.md",
             language: .french
         )
         XCTAssertTrue(completion.contains("documents caviardés"), completion)
@@ -435,14 +436,14 @@ final class LocalizationFeatureTests: XCTestCase {
         XCTAssertTrue(detecting.contains("42%"), detecting)
         XCTAssertTrue(detecting.contains("正在检测个人信息"), detecting)
 
-        let help = AnonymizeWorkflowPresentation.copyForAIHelp(
+        let help = AnonymizeWorkflowPresentation.exportForAIHelp(
             ready: 1,
             candidates: 3,
             language: .traditionalChinese
         )
         XCTAssertTrue(help.contains("1"), help)
         XCTAssertTrue(help.contains("3"), help)
-        XCTAssertFalse(help.contains("Copy the redacted text"), help)
+        XCTAssertFalse(help.contains("Save the redacted text"), help)
     }
 
     func testImageExportWarningsUseTheSelectedInterfaceLanguage() throws {
