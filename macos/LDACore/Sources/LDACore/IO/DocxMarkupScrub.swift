@@ -51,9 +51,10 @@ enum DocxMarkupScrub {
     // MARK: - Field instructions
 
     /// A complex-field instruction element with its content, in either the
-    /// live or the tracked-deletion spelling.
+    /// live (w:instrText) or the tracked-deletion (w:delInstrText) spelling.
+    /// The close tag is a backreference so the two never pair up crosswise.
     private static let instructionElementPattern =
-        #"(<w:(?:del)?instrText\b[^>]*>)(.*?)(</w:(?:del)?instrText>)"#
+        #"(<w:(instrText|delInstrText)\b[^>]*>)(.*?)(</w:\2>)"#
 
     /// A simple field start tag; its instruction lives in the w:instr attribute.
     private static let simpleFieldPattern = #"<w:fldSimple\b[^>]*>"#
@@ -82,8 +83,8 @@ enum DocxMarkupScrub {
             in: xml
         ) { match, ns in
             ns.substring(with: match.range(at: 1))
-                + neutralizeSensitiveTargets(in: ns.substring(with: match.range(at: 2)))
-                + ns.substring(with: match.range(at: 3))
+                + neutralizeSensitiveTargets(in: ns.substring(with: match.range(at: 3)))
+                + ns.substring(with: match.range(at: 4))
         }
         return rewriteMatches(of: simpleFieldPattern, options: [], in: elementsDone) { match, ns in
             let element = ns.substring(with: match.range)
