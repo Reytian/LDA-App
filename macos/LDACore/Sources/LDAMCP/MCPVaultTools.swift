@@ -22,7 +22,9 @@
 //  returns per-entity character OFFSETS, which reveal each original surface's
 //  exact length and position (a weak side channel). The spec chose offsets so
 //  a local caller can slice the text itself; anything finer than type plus
-//  offsets stays on the machine.
+//  offsets stays on the machine. The per-entity ids and the detectionId it
+//  also returns derive from type and offsets only (MCPDetectionIdentity), so
+//  they add nothing to that disclosure.
 //
 //  Every error thrown here is rendered by describeBoundarySafe, which maps
 //  each failure to error-code-plus-handle wording and never interpolates a
@@ -96,6 +98,13 @@ enum MCPVaultToolError: Error {
     case notRedacted(handle: String, kind: VaultArtifactKind)
     /// The artifact's stored bytes are not UTF-8 text.
     case unreadableArtifact(String)
+    /// excludeEntityIds was given without the detectionId the ids came with.
+    case detectionIdRequired
+    /// Some excluded ids are not in the detection anonymize just ran: the
+    /// caller reviewed a different detection, so nothing was written.
+    case unknownEntityId(count: Int)
+    /// anonymize_session received excludeEntityIds, which are single-document.
+    case entityIdsNotSupportedForSessions
 
     var message: String {
         switch self {
@@ -106,6 +115,15 @@ enum MCPVaultToolError: Error {
                 + "this tool accepts redacted artifacts only"
         case .unreadableArtifact(let handle):
             return "unreadable_artifact: \(handle) could not be decoded as text"
+        case .detectionIdRequired:
+            return "detection_id_required: pass the detectionId that came with these ids"
+        case .unknownEntityId(let count):
+            return "unknown_entity_id: count=\(count). Run detect_entities again and "
+                + "re-review; no redacted artifact was written."
+        case .entityIdsNotSupportedForSessions:
+            return "entity_ids_not_supported: anonymize_session accepts excludeTypes only; "
+                + "per-entity ids are single-document, so call anonymize per document "
+                + "to exclude by id."
         }
     }
 }
@@ -166,6 +184,9 @@ extension MCPServer {
     ) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        // The review step's arguments are validated before any vault work so
+        // a bad type or a missing detectionId costs no detection pass.
+        let review = try MCPReviewArguments.parse(arguments, allowsEntityIds: true)
         let vault = openVault()
         let entry = try vault.entry(handle: handle)
         guard entry.kind == .original else {
@@ -194,6 +215,12 @@ extension MCPServer {
         let stagingPassphrase = UUID().uuidString + UUID().uuidString
         let createdAt = MCPServer.iso8601Now()
         let style = try styleArgument(from: arguments)
+        // The observer rides the engine's spanFilter seam: it sees every body
+        // span the run detects (ids only are kept), excludes the ids the
+        // caller named, and afterwards tells whether the caller reviewed the
+        // detection that actually ran. Excluded TYPES are the engine's job on
+        // every channel, including headers, footers, notes, and image text.
+        let observer = MCPDetectionObserver(excludedIds: review.excludedIds)
         let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
             try LDAService.anonymize(
                 input: inputURL,
@@ -201,8 +228,23 @@ extension MCPServer {
                 protection: .passphrase(stagingPassphrase),
                 createdAtISO8601: createdAt,
                 llmModelPath: modelPath,
-                style: style
+                style: style,
+                spanFilter: observer.keep,
+                excludedTypes: review.excludedTypes
             )
+        }
+        // An id the fresh detection does not know means the caller reviewed a
+        // different detection. Refuse before any vault state exists: the
+        // staging directory above is removed by the defer, so nothing is
+        // written. A changed set whose excluded ids are all present proceeds
+        // (over-redaction is the safe direction) and is reported below.
+        let verdict = observer.verdict(
+            handle: handle,
+            modelPathPresent: modelPath != nil,
+            review: review
+        )
+        guard verdict.unknownIdCount == 0 else {
+            throw MCPVaultToolError.unknownEntityId(count: verdict.unknownIdCount)
         }
         let stagedMapping = try MappingStore.load(
             from: stagedResult.mappingFileURL,
@@ -239,7 +281,12 @@ extension MCPServer {
                 "perTypeCounts": MCPServer.perTypeCounts(stagedResult.entities),
                 "imageRedactionCount": stagedResult.imageRedactionCount,
                 "embeddedMediaCount": stagedResult.embeddedMediaCount,
-                "unboxedTokenCount": stagedResult.unboxedTokenCount
+                "unboxedTokenCount": stagedResult.unboxedTokenCount,
+                // The review step's outcome: how many body values the caller
+                // left visible, and whether the detection this run made
+                // differs from the one the caller reviewed.
+                "excludedCount": stagedResult.excludedEntityCount,
+                "detectionChanged": verdict.detectionChanged
             ]
         } catch {
             vault.abort(slot: slot)
@@ -281,10 +328,12 @@ extension MCPServer {
 
     // MARK: detect_entities
 
-    /// detect_entities: types, counts, and offsets only, never span text.
+    /// detect_entities: types, counts, offsets, and ids only, never span text.
     /// Everything a tool returns enters the model context of whatever agent
     /// host launched this server, so returning the detected surface text
-    /// would upload the exact bytes this product exists to keep local.
+    /// would upload the exact bytes this product exists to keep local. The
+    /// ids let a caller name entities to anonymize's excludeEntityIds; they
+    /// derive from type and offsets only, so they disclose nothing new.
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
@@ -292,14 +341,21 @@ extension MCPServer {
             try LDAService.detect(input: url, llmModelPath: modelPath)
         }
 
-        let entities: [[String: Any]] = spans.map { span in
+        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0) }
+        let entities: [[String: Any]] = zip(spans, ids).map { span, id in
             [
+                "id": id,
                 "type": span.type.rawValue,
                 "start": span.start,
                 "end": span.end
             ]
         }
         return [
+            "detectionId": MCPDetectionIdentity.detectionId(
+                handle: handle,
+                modelPathPresent: modelPath != nil,
+                ids: ids
+            ),
             "entityCount": spans.count,
             "entityTypes": entityTypeStrings(spans),
             "entities": entities
