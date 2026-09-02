@@ -115,64 +115,178 @@ enum AssignableEntityTypes {
     static let vocabulary: [EntityType] = manual + [.unknown]
 }
 
-// MARK: - Add a missed term (R5)
+// MARK: - Add a missed term (R5) and the Protect chooser
 
-/// A small popover to protect a value the detector missed: type or paste the
-/// exact text, choose its kind, and every occurrence is added for redaction.
+/// The kind chooser behind every Protect action. Two modes share one popover:
+/// the typed path ("Protect a missed item": type or paste the exact text) and
+/// the selection path (the trimmed selection is fixed, the guessed kind is
+/// preselected, and the primary button carries the occurrence count or the
+/// retype / re-accept wording). Kinds are listed in AssignableEntityTypes
+/// order with their hue dots, so the chooser doubles as a legend.
 struct AddTermPopover: View {
     @ObservedObject var model: ReviewModel
     @Binding var isPresented: Bool
 
-    @State private var text = ""
-    @State private var type: EntityType = .person
+    /// The trimmed selection to protect, or nil for the typed path.
+    let selection: String?
+    /// The window's undo manager, so the action lands in Edit > Undo.
+    let undoManager: UndoManager?
+
+    @State private var text: String
+    @State private var type: EntityType
     @State private var feedback: String?
 
-    /// The kinds a user can assign by hand.
-    private static let assignableTypes: [EntityType] = AssignableEntityTypes.manual
+    init(
+        model: ReviewModel,
+        isPresented: Binding<Bool>,
+        selection: String? = nil,
+        undoManager: UndoManager? = nil
+    ) {
+        _model = ObservedObject(wrappedValue: model)
+        _isPresented = isPresented
+        let trimmed = selection.map(ProtectSelectionRules.trim).flatMap { $0.isEmpty ? nil : $0 }
+        self.selection = trimmed
+        self.undoManager = undoManager
+        _text = State(initialValue: trimmed ?? "")
+        _type = State(initialValue: trimmed.map { ManualTypeGuess.guess(for: $0) } ?? .person)
+    }
+
+    /// What already exists for the value being protected.
+    private var variant: ProtectVariant {
+        model.protectVariant(for: selection ?? text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private var occurrences: Int {
+        if case .protect(let count) = variant { return count }
+        return model.occurrenceCount(of: selection ?? text)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Protect a missed item")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
+            if let selection {
+                Text(verbatim: ProtectSelectionPresentation.chooserTitle(value: selection, variant: variant))
+                    .font(.headline)
+                    .foregroundStyle(CounselTheme.textPrimary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
 
-            Text("Type the exact text as it appears in the document. Every occurrence will be redacted.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: ProtectSelectionPresentation.chooserSubtitle(occurrences: occurrences))
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            } else {
+                Text("Protect a missed item")
+                    .font(.headline)
+                    .foregroundStyle(CounselTheme.textPrimary)
 
-            TextField("Exact text", text: $text)
-                .textFieldStyle(.roundedBorder)
+                Text("Type the exact text as it appears in the document. Every occurrence will be redacted.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Picker("Kind", selection: $type) {
-                ForEach(Self.assignableTypes, id: \.self) { kind in
-                    Text(EntityTypePresentation.localizedKey(for: kind)).tag(kind)
-                }
+                TextField("Exact text", text: $text)
+                    .textFieldStyle(.roundedBorder)
             }
 
+            Text("Kind")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(CounselTheme.textSecondary)
+
+            kindGrid
+
             if let feedback {
-                Text(feedback)
+                Text(verbatim: feedback)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { isPresented = false }
                     .keyboardShortcut(.cancelAction)
-                Button("Protect") { add() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(CounselTheme.inkAccentFill)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button {
+                    confirm()
+                } label: {
+                    Text(verbatim: primaryTitle)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+                .disabled(isPrimaryDisabled)
             }
         }
         .padding(16)
         .frame(width: 340)
     }
 
-    private func add() {
-        let added = model.addManualEntity(text: text, type: type)
+    /// Two columns of kinds, each with its hue dot; the selected one is marked.
+    private var kindGrid: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), alignment: .topLeading),
+                GridItem(.flexible(), alignment: .topLeading)
+            ],
+            alignment: .leading,
+            spacing: 6
+        ) {
+            ForEach(AssignableEntityTypes.manual, id: \.self) { kind in
+                Button {
+                    type = kind
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: type == kind ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(type == kind ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                        Circle()
+                            .fill(CounselTheme.color(for: kind))
+                            .frame(width: 8, height: 8)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                        Text(EntityTypePresentation.localizedKey(for: kind))
+                            .font(.callout)
+                            .foregroundStyle(CounselTheme.textPrimary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(EntityTypePresentation.localizedKey(for: kind)))
+                .accessibilityAddTraits(type == kind ? [.isSelected] : [])
+            }
+        }
+    }
+
+    private var primaryTitle: String {
+        guard selection != nil else { return L10n.string("Protect") }
+        return ProtectSelectionPresentation.chooserAction(
+            variant: variant,
+            chosen: type,
+            occurrences: occurrences
+        )
+    }
+
+    private var isPrimaryDisabled: Bool {
+        if selection != nil {
+            if case .protect(let count) = variant { return count == 0 }
+            return false
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func confirm() {
+        if let selection {
+            let outcome = model.protectValue(selection, type: type, undoManager: undoManager)
+            guard outcome.refusal != .emptySelection else {
+                feedback = String(
+                    format: L10n.string("\"%@\" was not found in the document (or is already protected)."),
+                    selection as NSString
+                )
+                return
+            }
+            // Anything else (protected, or a block the notice row explains).
+            isPresented = false
+            return
+        }
+        let added = model.addManualEntity(text: text, type: type, undoManager: undoManager)
         if added > 0 {
             isPresented = false
         } else {

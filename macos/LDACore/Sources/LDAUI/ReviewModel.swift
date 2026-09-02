@@ -220,6 +220,29 @@ public final class ReviewModel: ObservableObject {
         }
     }
 
+    /// The Original-mode text selection the document pane reports (UTF-16, the
+    /// same convention as Span). nil when nothing is selected or Safe Preview
+    /// is shown. Every Protect Selection entry point reads canProtectSelection,
+    /// which is derived from this.
+    @Published public var selectedTextRange: NSRange?
+
+    /// Which surface the document pane shows. Owned here (not as pane state)
+    /// so the selection gate, the menus, and a tray switch between documents
+    /// all agree on it.
+    @Published public var previewMode: DocumentPreviewMode = .original
+
+    /// The transient confirmation (or explanation) after a Protect action; the
+    /// pane renders it and clears it after a few seconds or on the next change.
+    @Published public var protectNotice: ProtectNotice?
+
+    /// Bumped when the Review menu's Protect Selection command fires, so the
+    /// pane can open the kind chooser anchored to the selection.
+    @Published public var protectSelectionRequestToken: Int = 0
+
+    /// The group the sidebar should scroll into view, set by a legend click or
+    /// a Protect action. The sidebar consumes it; nil means nothing pending.
+    @Published public var groupToReveal: String?
+
     /// Bumped when the Export menu command fires, so the window can present the
     /// export flow (which owns the panels and passphrase sheet).
     @Published public var exportRequestToken: Int = 0
@@ -388,6 +411,10 @@ public final class ReviewModel: ObservableObject {
         sourceURL = url
         entities = []
         selectedGroupIDs = []
+        selectedTextRange = nil
+        protectNotice = nil
+        groupToReveal = nil
+        previewMode = .original
         progress = 0
         etaText = nil
         aiWarning = nil
@@ -612,16 +639,25 @@ public final class ReviewModel: ObservableObject {
 
     /// Protect a value the detector missed: find every occurrence of `text` in
     /// the current document and add each as an accepted manual entity. Ranges
-    /// that overlap an existing entity are skipped so nothing double-tokenizes.
+    /// that overlap an existing entity are skipped so nothing double-tokenizes
+    /// (typing a value you cannot see must never delete detections; the
+    /// select-to-protect path in protectSelection has its own overlap policy).
+    /// When an UndoManager is given, the addition registers as one undoable
+    /// action named after the kind.
     ///
     /// - Returns: how many occurrences were added (0 means the text was not
     ///   found, or every occurrence was already covered).
     @discardableResult
-    public func addManualEntity(text: String, type: EntityType) -> Int {
+    public func addManualEntity(
+        text: String,
+        type: EntityType,
+        undoManager: UndoManager? = nil
+    ) -> Int {
         let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, !documentText.isEmpty else { return 0 }
 
         let nsText = documentText as NSString
+        let before = entities
         var added = 0
         var searchStart = 0
         while searchStart < nsText.length {
@@ -652,6 +688,9 @@ public final class ReviewModel: ObservableObject {
                 added += 1
             }
             searchStart = range.location + max(range.length, 1)
+        }
+        if added > 0 {
+            registerProtectUndo(restoring: before, reapplying: entities, type: type, undoManager: undoManager)
         }
         return added
     }

@@ -294,6 +294,21 @@ struct LDAApp: App {
                 }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(toggleDisabled)
+
+                Divider()
+
+                // Protect Selection (Anonymize only): opens the kind chooser on
+                // the text selected in the document pane. Cmd+Shift+P is free
+                // in this app; the retired clipboard shortcuts are deliberately
+                // not reused so muscle memory cannot fire this by accident.
+                Button(localized("Protect Selection\u{2026}")) {
+                    sessionModel.activeModel.requestProtectSelection()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(
+                    modeStore.activeMode != .anonymize
+                        || !sessionModel.activeModel.canProtectSelection
+                )
             }
         }
 

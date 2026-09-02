@@ -2,26 +2,28 @@
 //  DocumentPane.swift
 //  LDAUI
 //
-//  The paper-forward document pane: the serif edit surface where the imported
-//  text is shown with faint entity tint highlights and colored underlines, and
-//  accepted entities are highlighted for review. A Safe Preview mode renders
-//  the actual tokenized body text before the user copies or saves it.
+//  The paper-forward document pane: the serif reading surface where the
+//  imported text is shown with review highlights, and a Safe Preview mode that
+//  renders the actual protected body text before the user exports it.
 //
 //  Rendering model:
-//  - The full document text is shown as a serif body on the paper surface,
-//    inside a vertically scrolling reading column capped at a comfortable
-//    measure and centered with generous gutters.
-//  - Each entity's span is visually marked by building one AttributedString from
-//    the document text and applying, over each span's UTF-16 range, a faint tint
-//    background plus a colored underline in the entity's Counsel hue.
-//  - Safe Preview replaces accepted values with opaque placeholders and leaves
-//    rejected values visible, using the same tokenization rules as export.
-//  - Spans are applied from the end of the document toward the start so that the
-//    UTF-16 to AttributedString index mapping stays valid as attributes are set.
+//  - The text is rendered by DocumentTextView, an NSTextView inside its own
+//    scroll view, so the user can select text and the selection range (UTF-16,
+//    the Span convention) reaches the model for "Protect as <kind>".
+//  - Styling is a pure function (DocumentTextStyler): the underline carries
+//    the type hue in both review states, the fill carries state, Safe Preview
+//    tokens take the type hue in the monospaced chip face, and every highlight
+//    has a tooltip. The styled strings are cached here and rebuilt only when
+//    the text or the entity list changes, never on progress ticks.
+//  - The preview mode lives on the ReviewModel so the menus and the sidebar
+//    footer agree with the picker; a scan that finishes flips it to Safe
+//    Preview, and Safe Preview clears the selection because it is not
+//    selectable.
+//  - A transient notice row under the header confirms or explains a Protect
+//    action, with Undo, Change Kind, or Protect Anyway.
 //
-//  While the document is empty or the session is still importing or detecting, a
-//  graceful placeholder with a ProgressView and the current status is shown
-//  instead of the (empty) reading column.
+//  While the document is empty or the session is still importing, a graceful
+//  placeholder or the drop zone is shown instead of the reading column.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -31,7 +33,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LDACore
 
-/// The document review pane. Renders the editable, paper-styled text surface
+/// The document review pane. Renders the paper-styled, selectable text surface
 /// with entity highlights and sealed token chips, and a drag-and-drop intake
 /// zone before any document is open. Dropping files (or a .zip) at any time
 /// adds them to the session's tray (R19).
@@ -39,26 +41,33 @@ public struct DocumentPane: View {
     @ObservedObject private var session: SessionModel
     @ObservedObject private var model: ReviewModel
 
+    /// The window's undo manager, so a Protect action lands in Edit > Undo.
+    @Environment(\.undoManager) private var undoManager
+
     /// True while a draggable document hovers over the drop zone.
     @State private var isDropTargeted = false
 
-    /// The plain document text as an AttributedString, rebuilt only when the
-    /// text itself changes. Kept separate from the styled copy so an entity
-    /// toggle never re-parses the whole document.
-    @State private var baseDocument = AttributedString("")
+    /// The styled Original text, rebuilt only when the text or the entity
+    /// list changes. Without this cache the pane re-styled the full document
+    /// on EVERY published model change, including each progress tick during
+    /// detection, which stalls the window on long documents.
+    @State private var styledDocument = NSAttributedString()
 
-    /// The styled document (base plus entity highlights), rebuilt only when
-    /// the text or the entity list changes. Without this cache the computed
-    /// property re-built the full AttributedString on EVERY published model
-    /// change, including each progress tick during detection, which stalls
-    /// the window on long documents.
-    @State private var styledDocument = AttributedString("")
+    /// The tokenized Safe Preview text, rebuilt with the entity list.
+    @State private var safePreviewDocument = NSAttributedString()
 
-    /// The tokenized body shown by Safe Preview, rebuilt with the entity list.
-    @State private var safePreviewDocument = AttributedString("")
+    /// True while the pointer rests on the notice row (pauses auto-dismiss).
+    @State private var isNoticeHovered = false
 
-    /// Original review surface or the protected text that will be shared.
-    @State private var previewMode: DocumentPreviewMode = .original
+    /// True while the Change Kind chooser is presented from the notice row.
+    @State private var isChangingKind = false
+
+    /// True when the hosting window is narrow (WindowLayoutPolicy); the
+    /// legend then collapses to its menu button like the rest of the chrome.
+    @State private var isWindowNarrow = false
+
+    /// The measured width of the header's content row, for the legend tier.
+    @State private var headerWidth: CGFloat = 0
 
     public init(session: SessionModel, model: ReviewModel) {
         self.session = session
@@ -86,45 +95,48 @@ public struct DocumentPane: View {
             return true
         } isTargeted: { _ in }
         .onAppear {
-            rebuildBase()
+            restyle()
         }
         .onChange(of: model.documentText) { _, _ in
-            rebuildBase()
+            restyle()
         }
-        .onChange(of: model.entities) { _, newEntities in
-            restyle(entities: newEntities)
+        .onChange(of: model.entities) { _, entities in
+            restyle()
+            dismissNotice(ifSupersededBy: entities)
         }
         .onChange(of: model.status) { _, status in
             switch status {
             case .ready:
-                previewMode = .safePreview
+                model.previewMode = .safePreview
             case .idle, .importing, .imported:
-                previewMode = .original
+                model.previewMode = .original
             case .detecting, .failed:
                 break
             }
         }
+        .onChange(of: model.previewMode) { _, mode in
+            // Safe Preview is not selectable, so no selection can exist there.
+            if !mode.allowsTextSelection {
+                model.selectedTextRange = nil
+            }
+        }
+        .onChange(of: model.protectNotice?.id) { _, _ in
+            announceNotice()
+        }
     }
 
-    /// Re-parse the document text and re-apply the current entity styling.
-    private func rebuildBase() {
-        baseDocument = AttributedString(model.documentText)
-        restyle(entities: model.entities)
-    }
-
-    /// Apply entity styling onto a copy of the cached base document.
-    private func restyle(entities: [ReviewEntity]) {
-        styledDocument = Self.applyEntityStyles(
-            base: baseDocument,
+    /// Rebuild both styled surfaces from the current text and entities.
+    private func restyle() {
+        styledDocument = DocumentTextStyler.styledOriginal(
             text: model.documentText,
-            entities: entities
+            entities: model.entities
         )
         let preview = ReviewModel.redactedPreviewText(
             text: model.documentText,
-            entities: entities,
+            entities: model.entities,
             style: model.outputStyleProvider()
         )
-        safePreviewDocument = Self.styleTokenLiterals(in: preview)
+        safePreviewDocument = DocumentTextStyler.styledSafePreview(text: preview)
     }
 
     // MARK: - Drop zone (empty state)
@@ -232,40 +244,39 @@ public struct DocumentPane: View {
 
     // MARK: - Reading column
 
-    /// The preview switch plus a scrolling, width-capped reading column.
+    /// The preview header, the transient notice, and the selectable text.
     private var readingColumn: some View {
         VStack(spacing: 0) {
             previewHeader
 
-            ScrollView(.vertical) {
-                Text(previewMode == .original ? styledDocument : safePreviewDocument)
-                    .font(.system(.body, design: .serif))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                    .modifier(PreviewTextSelection(
-                        enabled: previewMode.allowsTextSelection
-                    ))
-                    .lineSpacing(Layout.lineSpacing)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: Layout.columnWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, Layout.gutter)
-                    .padding(.vertical, Layout.columnVerticalInset)
+            if let notice = model.protectNotice {
+                noticeRow(notice)
             }
+
+            DocumentTextView(
+                content: model.previewMode == .original ? styledDocument : safePreviewDocument,
+                isSelectable: model.previewMode.allowsTextSelection,
+                menuContext: menuContext,
+                chooserRequestToken: model.protectSelectionRequestToken,
+                makeChooser: { dismiss in AnyView(chooser(dismiss: dismiss)) },
+                onSelectionChange: { range in model.selectedTextRange = range },
+                onCancel: { model.protectNotice = nil }
+            )
         }
     }
 
     private var previewHeader: some View {
-        HStack(spacing: 14) {
-            Picker("Document preview", selection: $previewMode) {
+        HStack(spacing: HeaderLayout.spacing) {
+            Picker("Document preview", selection: $model.previewMode) {
                 ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
                     Text(mode.localizedKey).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 250)
+            .frame(width: HeaderLayout.pickerWidth)
 
-            if previewMode == .safePreview {
+            if model.previewMode == .safePreview {
                 if model.visibleCount > 0 {
                     Label(
                         "\(model.visibleCount) kept visible",
@@ -277,20 +288,176 @@ public struct DocumentPane: View {
                     Label("Accepted findings replaced", systemImage: "checkmark.shield")
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
-            } else {
+            } else if model.entities.isEmpty {
+                // The legend replaces this caption as soon as findings exist.
                 Text("Original text with review highlights")
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
             Spacer(minLength: 0)
+
+            DocumentLegend(
+                model: model,
+                isNarrow: isWindowNarrow,
+                availableWidth: legendAvailableWidth
+            )
         }
         .font(.callout)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: HeaderWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(HeaderWidthKey.self) { headerWidth = $0 }
+        .background(WindowNarrownessReader(isNarrow: $isWindowNarrow).frame(width: 0, height: 0))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(CounselTheme.raised)
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    /// The room left for the legend after the picker and the status label.
+    private var legendAvailableWidth: CGFloat {
+        let statusWidth = model.previewMode == .safePreview ? HeaderLayout.safePreviewLabelEstimate : 0
+        return max(0, headerWidth - HeaderLayout.pickerWidth - statusWidth - 2 * HeaderLayout.spacing)
+    }
+
+    // MARK: - Protect Selection wiring
+
+    /// What the text view needs to build its Protect menu items.
+    private var menuContext: DocumentTextMenuContext {
+        DocumentTextMenuContext(
+            isOriginalVisible: model.previewMode == .original,
+            canProtect: model.canProtectText,
+            assignableTypes: AssignableEntityTypes.manual,
+            guess: { ManualTypeGuess.guess(for: $0) },
+            onProtect: { type in protectCurrentSelection(as: type) },
+            onShowOriginal: { model.previewMode = .original }
+        )
+    }
+
+    /// Protect whatever is selected right now as `type` (context menu path).
+    private func protectCurrentSelection(as type: EntityType) {
+        guard let range = model.selectedTextRange else { return }
+        model.protectSelection(range: range, type: type, undoManager: undoManager)
+    }
+
+    /// The kind chooser for the current selection (Review menu path).
+    private func chooser(dismiss: @escaping () -> Void) -> some View {
+        AddTermPopover(
+            model: model,
+            isPresented: Binding(get: { true }, set: { if !$0 { dismiss() } }),
+            selection: model.selectedText,
+            undoManager: undoManager
+        )
+    }
+
+    // MARK: - Notice row
+
+    /// The transient confirmation or explanation after a Protect action.
+    private func noticeRow(_ notice: ProtectNotice) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: notice.canUndo ? "checkmark.shield" : "info.circle")
+                .foregroundStyle(notice.canUndo ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                .accessibilityHidden(true)
+
+            Text(verbatim: notice.message)
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textPrimary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            if notice.offersProtectAnyway {
+                Button("Protect Anyway") {
+                    model.protectValue(
+                        notice.value,
+                        type: notice.type,
+                        undoManager: undoManager,
+                        allowRoleLabel: true
+                    )
+                }
+                .buttonStyle(.borderless)
+            }
+
+            if notice.canUndo, undoManager != nil {
+                Button("Undo") {
+                    undoManager?.undo()
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(verbatim: String(
+                    format: L10n.string("Undo protecting %@"),
+                    notice.value as NSString
+                )))
+            }
+
+            if notice.canChangeKind {
+                Button("Change Kind") {
+                    isChangingKind = true
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text(verbatim: String(
+                    format: L10n.string("Change the kind for %@"),
+                    notice.value as NSString
+                )))
+                .popover(isPresented: $isChangingKind, arrowEdge: .bottom) {
+                    AddTermPopover(
+                        model: model,
+                        isPresented: $isChangingKind,
+                        selection: notice.value,
+                        undoManager: undoManager
+                    )
+                }
+            }
+
+            Button {
+                model.protectNotice = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text("Dismiss"))
+        }
+        .font(.callout)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+        .onHover { isNoticeHovered = $0 }
+        .task(id: notice.id) {
+            await autoDismiss(notice)
+        }
+    }
+
+    /// Dismiss the notice after a few seconds, waiting while it is hovered.
+    private func autoDismiss(_ notice: ProtectNotice) async {
+        try? await Task.sleep(for: .seconds(NoticeTiming.autoDismissSeconds))
+        while isNoticeHovered, !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(NoticeTiming.hoverPollSeconds))
+        }
+        guard !Task.isCancelled, model.protectNotice?.id == notice.id else { return }
+        model.protectNotice = nil
+    }
+
+    /// A later change to the entity list supersedes the notice.
+    private func dismissNotice(ifSupersededBy entities: [ReviewEntity]) {
+        guard let notice = model.protectNotice else { return }
+        if Set(entities.map(\.id)) != notice.entityIDs {
+            model.protectNotice = nil
+        }
+    }
+
+    /// Announce a successful protection to VoiceOver (the row is otherwise silent).
+    private func announceNotice() {
+        guard let announcement = model.protectNotice?.announcement else { return }
+        AccessibilityNotification.Announcement(announcement).post()
     }
 
     // MARK: - Busy placeholder
@@ -304,7 +471,7 @@ public struct DocumentPane: View {
 
     /// A graceful placeholder shown during import.
     private var progressPlaceholder: some View {
-        VStack(spacing: Layout.placeholderSpacing) {
+        VStack(spacing: NoticeTiming.placeholderSpacing) {
             ProgressView()
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
@@ -314,182 +481,45 @@ public struct DocumentPane: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
-        .padding(Layout.gutter)
+        .padding(DocumentTextLayout.gutter)
     }
 
-    // MARK: - Attributed document
+    // MARK: - Constants
 
-    /// Build the attributed document from scratch. Pure and side-effect free.
-    /// Kept as the single-call entry point for tests and previews; the view
-    /// itself uses the cached base + applyEntityStyles split.
-    static func makeAttributed(
-        text: String,
-        entities: [ReviewEntity]
-    ) -> AttributedString {
-        applyEntityStyles(base: AttributedString(text), text: text, entities: entities)
+    private enum HeaderLayout {
+        /// The segmented Original / Safe Preview picker.
+        static let pickerWidth: CGFloat = 250
+        /// Spacing between the header's elements.
+        static let spacing: CGFloat = 14
+        /// Room reserved for the Safe Preview status label beside the legend.
+        static let safePreviewLabelEstimate: CGFloat = 220
     }
 
-    /// Apply entity styling onto a copy of an already-parsed base document.
-    /// Spans are applied back to front so the UTF-16 to AttributedString index
-    /// mapping computed against the original text stays valid for every span.
-    static func applyEntityStyles(
-        base: AttributedString,
-        text: String,
-        entities: [ReviewEntity]
-    ) -> AttributedString {
-        var attributed = base
-
-        let utf16 = text.utf16
-        let total = utf16.count
-
-        let ordered = entities.sorted { $0.span.start > $1.span.start }
-
-        for entity in ordered {
-            let span = entity.span
-            guard span.start >= 0, span.end <= total, span.start < span.end else {
-                continue
-            }
-            guard let range = attributedRange(
-                start: span.start,
-                end: span.end,
-                in: text,
-                attributed: attributed
-            ) else {
-                continue
-            }
-            apply(entity: entity, to: &attributed, range: range)
-        }
-
-        return attributed
-    }
-
-    /// Style placeholder literals in the protected preview without changing
-    /// its text. Token detection uses the same grammar as restore.
-    private static func styleTokenLiterals(in text: String) -> AttributedString {
-        var attributed = AttributedString(text)
-        guard let regex = try? NSRegularExpression(
-            pattern: TokenGrammar.placeholderPattern
-        ) else { return attributed }
-
-        let nsText = text as NSString
-        let matches = regex.matches(
-            in: text,
-            range: NSRange(location: 0, length: nsText.length)
-        )
-        for match in matches {
-            guard let range = attributedRange(
-                start: match.range.location,
-                end: match.range.location + match.range.length,
-                in: text,
-                attributed: attributed
-            ) else { continue }
-            attributed[range].font = .system(.body, design: .monospaced)
-            attributed[range].foregroundColor = CounselTheme.textPrimary
-            attributed[range].backgroundColor = CounselTheme.inkAccent.opacity(0.14)
-        }
-        return attributed
-    }
-
-    /// Map a UTF-16 [start, end) offset pair onto a range inside the attributed
-    /// string. Returns nil when the offsets do not land on valid String indices,
-    /// for example when they split a surrogate pair.
-    private static func attributedRange(
-        start: Int,
-        end: Int,
-        in text: String,
-        attributed: AttributedString
-    ) -> Range<AttributedString.Index>? {
-        let utf16 = text.utf16
-
-        guard
-            let startUTF16 = utf16.index(
-                utf16.startIndex,
-                offsetBy: start,
-                limitedBy: utf16.endIndex
-            ),
-            let endUTF16 = utf16.index(
-                utf16.startIndex,
-                offsetBy: end,
-                limitedBy: utf16.endIndex
-            ),
-            let lower = startUTF16.samePosition(in: text),
-            let upper = endUTF16.samePosition(in: text)
-        else {
-            return nil
-        }
-
-        return Range<AttributedString.Index>(lower..<upper, in: attributed)
-    }
-
-    /// Apply the highlight or sealed-token styling for one entity over a range.
-    private static func apply(
-        entity: ReviewEntity,
-        to attributed: inout AttributedString,
-        range: Range<AttributedString.Index>
-    ) {
-        let hue = CounselTheme.color(for: entity.span.type)
-
-        if entity.accepted {
-            // Sealed token: stronger low-opacity fill in the entity hue and a
-            // monospaced face so it reads as a filled chip carrying its token.
-            // Token text uses primary ink (not the hue) so it clears WCAG AA;
-            // the hue stays in the fill.
-            attributed[range].backgroundColor = hue.opacity(Style.sealedFillOpacity)
-            attributed[range].foregroundColor = CounselTheme.textPrimary
-            attributed[range].font = .system(.body, design: .monospaced)
-            attributed[range].underlineStyle = nil
-        } else {
-            // Candidate highlight: faint tint background plus a colored underline
-            // in the entity hue.
-            attributed[range].backgroundColor = hue.opacity(Style.tintOpacity)
-            attributed[range].underlineStyle = .single
-            attributed[range].appKit.underlineColor = NSColor(hue)
-        }
-    }
-
-    // MARK: - Layout and style constants
-
-    private enum Layout {
-        /// The capped reading measure for the serif body column.
-        static let columnWidth: CGFloat = 680
-        /// Minimum horizontal gutter on each side of the column.
-        static let gutter: CGFloat = 48
-        /// Vertical inset above and below the column body.
-        static let columnVerticalInset: CGFloat = 56
-        /// Extra leading between wrapped lines of serif body text.
-        static let lineSpacing: CGFloat = 6
+    private enum NoticeTiming {
+        /// How long a notice stays before dismissing itself.
+        static let autoDismissSeconds: Double = 6
+        /// How often a hovered notice re-checks whether the pointer left.
+        static let hoverPollSeconds: Double = 1
         /// Vertical spacing inside the placeholder stack.
         static let placeholderSpacing: CGFloat = 12
     }
+}
 
-    private enum Style {
-        /// Background opacity for a faint candidate tint.
-        static let tintOpacity: Double = 0.10
-        /// Background opacity for a sealed (accepted) token chip fill.
-        static let sealedFillOpacity: Double = 0.20
-        /// Foreground opacity for sealed token text, keeping it legible.
-        static let sealedTextOpacity: Double = 0.95
+/// The measured width of the preview header's content row.
+private struct HeaderWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
-enum DocumentPreviewMode: String, CaseIterable {
+/// The two surfaces of the document pane. Public because the ReviewModel owns
+/// the current mode (the selection gate and the menus read it).
+public enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
 
     var localizedKey: LocalizedStringKey { LocalizedStringKey(rawValue) }
 
     var allowsTextSelection: Bool { self == .original }
-}
-
-private struct PreviewTextSelection: ViewModifier {
-    let enabled: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled {
-            content.textSelection(.enabled)
-        } else {
-            content.textSelection(.disabled)
-        }
-    }
 }
