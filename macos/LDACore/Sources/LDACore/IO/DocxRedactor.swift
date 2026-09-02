@@ -205,7 +205,36 @@ public enum DocxRedactor {
             let suffix = current.substring(from: edit.localEnd)
             current = (prefix + edit.insertText + suffix) as NSString
         }
-        layout.segments[segmentIndex] = .runText(current as String)
+        let rewritten = current as String
+        layout.segments[segmentIndex] = .runText(rewritten)
+
+        // A rewrite that leaves whitespace at either edge of the run (the tail
+        // of an email whose head sat in a bold run, a value restored ahead of
+        // a following space) must mark its element xml:space="preserve", or
+        // Word drops that space. Runs the rewrite did not touch keep their
+        // start tag byte for byte.
+        guard DocxRunText.needsSpacePreserve(rewritten) else { return }
+        try preserveSpace(onTextElementBefore: segmentIndex, in: &layout)
+    }
+
+    /// Rewrite the start tag of the text element whose content is segment
+    /// `segmentIndex` so it carries xml:space="preserve". The parser emits a
+    /// text element's start tag as the markup segment immediately before its
+    /// runText segment, so that is the segment rewritten. Any other shape means
+    /// the layout did not come from DocxDocumentXML.parse, an internal error
+    /// that is reported rather than papered over.
+    private static func preserveSpace(
+        onTextElementBefore segmentIndex: Int,
+        in layout: inout DocxLayout
+    ) throws {
+        guard segmentIndex > 0,
+              case .markup(let openTag) = layout.segments[segmentIndex - 1],
+              DocxRunText.isTextOpenTag(openTag) else {
+            throw DocumentIOError.corrupt(
+                "run text segment is not preceded by its text element start tag"
+            )
+        }
+        layout.segments[segmentIndex - 1] = .markup(DocxRunText.openTagPreservingSpace(openTag))
     }
 
     // MARK: - Restore
