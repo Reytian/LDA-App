@@ -74,6 +74,10 @@ struct MCPReviewArguments {
     static let excludeEntityIdsKey = "excludeEntityIds"
     static let detectionIdKey = "detectionId"
 
+    /// The most ids one call may exclude. Far above any real document's
+    /// entity count, and low enough that a flood never reaches detection.
+    static let maximumEntityIds = 10_000
+
     /// Parse the review arguments of a tool call.
     ///
     /// - Parameter allowsEntityIds: false for anonymize_session, where
@@ -95,6 +99,12 @@ struct MCPReviewArguments {
         }
 
         let ids = try stringArray(arguments, key: excludeEntityIdsKey)
+        // Shape and size are checked here, before the vault is opened and
+        // before any detection pass, so a malformed or flooded id list costs
+        // nothing and is refused without echoing what was sent.
+        guard ids.count <= maximumEntityIds, ids.allSatisfy(isWellFormedEntityId) else {
+            throw MCPVaultToolError.invalidEntityId
+        }
         let detectionId = (arguments[detectionIdKey] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if !ids.isEmpty {
             guard allowsEntityIds else {
@@ -109,6 +119,16 @@ struct MCPReviewArguments {
             excludedIds: Set(ids),
             detectionId: detectionId
         )
+    }
+
+    /// Exactly the shape detect_entities returns: entityIdLength lowercase
+    /// hex characters, nothing else.
+    static func isWellFormedEntityId(_ id: String) -> Bool {
+        id.utf8.count == MCPDetectionIdentity.entityIdLength
+            && id.utf8.allSatisfy { byte in
+                (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
+                    || (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "f"))
+            }
     }
 
     /// An optional array-of-strings argument. Absent means empty; present in

@@ -395,6 +395,67 @@ final class MCPReviewExclusionTests: XCTestCase {
         XCTAssertEqual(unchanged["detectionChanged"] as? Bool, false, "\(unchanged)")
     }
 
+    // MARK: - Id argument hygiene
+
+    /// Ids are validated at parse time, before the vault is opened: an id that
+    /// is not exactly 12 lowercase hex characters is an argument error that
+    /// never echoes the value, and a bad id on an unknown handle reports the
+    /// id problem rather than touching the vault.
+    func testMalformedEntityIdsAreRefusedBeforeTheVaultIsOpened() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+
+        for bad in ["ZZZZZZZZZZZZ", "ABCDEF012345", "abcdef01234", "abcdef0123456", "abcdef01234g", "../secret"] {
+            let refused = try call(tool: "anonymize", arguments: [
+                "handle": handle,
+                "passphrase": passphrase,
+                "excludeEntityIds": [bad],
+                "detectionId": detected.detectionId
+            ])
+            XCTAssertTrue(refused.isError, "\(bad) must be refused")
+            XCTAssertTrue(refused.text.hasPrefix("invalid_entity_id"), "\(bad): \(refused.text)")
+            XCTAssertFalse(refused.text.contains(bad), "the offending value is never echoed: \(refused.text)")
+        }
+
+        // The argument error wins over an unknown handle: parsing came first.
+        let unknownHandle = try call(tool: "anonymize", arguments: [
+            "handle": "doc_000000000000",
+            "excludeEntityIds": ["not-an-id!!"],
+            "detectionId": "0000000000000000"
+        ])
+        XCTAssertTrue(unknownHandle.isError)
+        XCTAssertTrue(unknownHandle.text.hasPrefix("invalid_entity_id"), unknownHandle.text)
+        XCTAssertEqual(try listedHandleCount(), 1)
+    }
+
+    func testMoreThanTenThousandEntityIdsAreRefused() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+        let flood = (0 ..< 10_001).map { String(format: "%012x", $0) }
+
+        let refused = try call(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": flood,
+            "detectionId": detected.detectionId
+        ])
+        XCTAssertTrue(refused.isError)
+        XCTAssertTrue(refused.text.hasPrefix("invalid_entity_id"), refused.text)
+        XCTAssertTrue(refused.text.contains("10000"), "the cap is named: \(refused.text)")
+
+        // Exactly the cap passes the argument check and fails later as
+        // unknown ids, which proves the parser let the shape through.
+        let atCap = try call(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": Array(flood.prefix(10_000)),
+            "detectionId": detected.detectionId
+        ])
+        XCTAssertTrue(atCap.isError)
+        XCTAssertTrue(atCap.text.hasPrefix("unknown_entity_id: count=10000"), atCap.text)
+        XCTAssertEqual(try listedHandleCount(), 1, "nothing was written on either refusal")
+    }
+
     // MARK: - Exclusion by type
 
     func testExcludedTypesVanishFromBodyAndHeaderPartsOfADocx() throws {

@@ -105,6 +105,10 @@ enum MCPVaultToolError: Error {
     case unknownEntityId(count: Int)
     /// anonymize_session received excludeEntityIds, which are single-document.
     case entityIdsNotSupportedForSessions
+    /// excludeEntityIds held a value that is not an id detect_entities could
+    /// have returned, or more ids than one call may exclude. The offending
+    /// value is never echoed.
+    case invalidEntityId
     /// restore's editedHandle named a restored artifact, which holds real
     /// values again and so cannot be an edit surface.
     case notAnEditSurface(String)
@@ -138,6 +142,11 @@ enum MCPVaultToolError: Error {
             return "entity_ids_not_supported: anonymize_session accepts excludeTypes only; "
                 + "per-entity ids are single-document, so call anonymize per document "
                 + "to exclude by id."
+        case .invalidEntityId:
+            return "invalid_entity_id: excludeEntityIds must hold at most "
+                + "\(MCPReviewArguments.maximumEntityIds) ids, each exactly "
+                + "\(MCPDetectionIdentity.entityIdLength) lowercase hex characters as returned "
+                + "by detect_entities"
         case .notAnEditSurface(let handle):
             return "not_an_edit_surface: \(handle) refers to a restored artifact, which holds "
                 + "real values again; pass the edited redacted document instead (a doc_... the "

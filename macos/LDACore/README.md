@@ -193,8 +193,9 @@ launch); exports land only in the vault's own `outbox/`.
 
 Error results are boundary-safe codes plus handles: `unknown_handle`,
 `not_an_original`, `not_redacted`, `not_exportable`, `missing_mapping`,
-`detection_id_required`, `unknown_entity_id`, `entity_ids_not_supported`,
-`not_an_edit_surface`, `unsupported_format`, `no_placeholders_found`,
+`detection_id_required`, `invalid_entity_id`, `unknown_entity_id`,
+`entity_ids_not_supported`, `not_an_edit_surface`, `unsupported_format`,
+`no_placeholders_found`,
 `mapping_mismatch`, plus argument errors for an
 unknown `excludeTypes` value, an unknown `style`, and `editedText` given
 together with `editedHandle`.
