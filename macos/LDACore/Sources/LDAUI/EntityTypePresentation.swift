@@ -41,6 +41,20 @@ enum EntityTypePresentation {
         L10n.string(key(for: type), language: language)
     }
 
+    /// The detection source as a short, lawyer-facing label. Deterministic
+    /// detections are regex matches; the rest carry their own names. Shared by
+    /// the sidebar caption and the document highlight tooltip.
+    static func sourceLabel(for source: DetectionSource) -> String {
+        switch source {
+        case .deterministic:
+            return L10n.string("regex")
+        case .llm:
+            return L10n.string("LLM")
+        case .manual:
+            return L10n.string("manual")
+        }
+    }
+
     static func bulkActionHelp(for type: EntityType) -> String {
         String(
             format: L10n.string("Redact or keep every %@ value at once"),

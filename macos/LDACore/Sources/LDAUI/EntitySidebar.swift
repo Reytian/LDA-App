@@ -582,7 +582,7 @@ private struct EntityGroupRow: View {
         Text(verbatim: String(
             format: L10n.string("%@  \u{00B7}  %@"),
             EntityTypePresentation.localizedName(for: group.type) as NSString,
-            Self.sourceLabel(for: group.source) as NSString
+            EntityTypePresentation.sourceLabel(for: group.source) as NSString
         ))
             .font(.caption2)
             .foregroundStyle(CounselTheme.textSecondary)
@@ -596,19 +596,6 @@ private struct EntityGroupRow: View {
             get: { group.anyAccepted },
             set: { onSetAccepted($0) }
         )
-    }
-
-    /// Render the detection source as a short, lawyer-facing label. Deterministic
-    /// detections are regex matches; the rest carry their own names.
-    private static func sourceLabel(for source: DetectionSource) -> String {
-        switch source {
-        case .deterministic:
-            return L10n.string("regex")
-        case .llm:
-            return L10n.string("LLM")
-        case .manual:
-            return L10n.string("manual")
-        }
     }
 }
 
