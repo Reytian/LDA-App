@@ -263,10 +263,11 @@ enum DocxDocumentXML {
 
             if name == "w:p" && !tagInfo.isClosing {
                 // Paragraph start. Insert a newline boundary before all but the
-                // first paragraph so consecutive paragraphs are separated.
+                // first paragraph so consecutive paragraphs are separated. The
+                // newline exists in the concatenated TEXT only; the markup is
+                // copied through unchanged, so a parse/serialize cycle leaves
+                // document.xml byte-identical outside the rewritten run text.
                 if sawParagraph {
-                    flushMarkup()
-                    segments.append(.markup("\n"))
                     concatenated.append("\n")
                     utf16Cursor += ("\n" as NSString).length
                 }

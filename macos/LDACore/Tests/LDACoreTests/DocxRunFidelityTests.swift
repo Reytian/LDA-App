@@ -209,4 +209,72 @@ final class DocxRunFidelityTests: XCTestCase {
         XCTAssertTrue(xml.contains(preservedTail), xml)
         XCTAssertFalse(xml.contains("xml:space=\"default\""), xml)
     }
+
+    // MARK: - D4: byte stability outside edited runs
+
+    /// The parse/serialize cycle must leave no fingerprints: document.xml is
+    /// byte-identical outside the rewritten run text after a redact, and
+    /// byte-identical to the original after a restore. Before this, a "\n"
+    /// was injected before every paragraph on each cycle (1, 27, 53 newlines
+    /// across the probe's three files).
+    func testRedactAndRestoreLeaveUntouchedMarkupByteIdentical() throws {
+        let original = try DocxTestPackage.write(
+            body: DocxTestPackage.paragraph(DocxTestPackage.run("First paragraph.", rPr: "<w:i/>"))
+                + DocxTestPackage.paragraph(
+                    DocxTestPackage.run("Client is ", preserve: true),
+                    DocxTestPackage.run("John Smith", rPr: "<w:b/>"),
+                    DocxTestPackage.run(" today.", preserve: true)
+                )
+                + DocxTestPackage.paragraph(DocxTestPackage.run("Third paragraph.")),
+            to: workDir.appendingPathComponent("original.docx")
+        )
+        let originalXML = try DocxTestPackage.readPart(docxMainPartPath, from: original)
+        let imported = try DocxImporter().importDocument(original)
+
+        let redacted = workDir.appendingPathComponent("redacted.docx")
+        try DocxRedactor.redact(
+            original: original,
+            replacements: [
+                Replacement(
+                    span: DocxTestPackage.span(in: imported.text, surface: "John Smith", type: .person),
+                    token: "{PERSON_1}"
+                )
+            ],
+            to: redacted
+        )
+        XCTAssertEqual(
+            try DocxTestPackage.readPart(docxMainPartPath, from: redacted),
+            originalXML.replacingOccurrences(of: "John Smith", with: "{PERSON_1}"),
+            "only the edited run text may differ after a redact"
+        )
+
+        let restored = workDir.appendingPathComponent("restored.docx")
+        try DocxRedactor.restore(
+            redactedDocx: redacted,
+            tokenToValue: ["{PERSON_1}": "John Smith"],
+            to: restored
+        )
+        XCTAssertEqual(
+            try DocxTestPackage.readPart(docxMainPartPath, from: restored),
+            originalXML,
+            "a restore must reproduce the original part byte for byte"
+        )
+    }
+
+    func testRedactWithNothingToReplaceIsByteIdentical() throws {
+        let original = try DocxTestPackage.write(
+            body: DocxTestPackage.paragraph(DocxTestPackage.run("One."))
+                + DocxTestPackage.paragraph(DocxTestPackage.run("Two."))
+                + DocxTestPackage.paragraph(DocxTestPackage.run("Three.")),
+            to: workDir.appendingPathComponent("original.docx")
+        )
+        let out = workDir.appendingPathComponent("out.docx")
+
+        try DocxRedactor.redact(original: original, replacements: [], to: out)
+
+        XCTAssertEqual(
+            try DocxTestPackage.readPart(docxMainPartPath, from: out),
+            try DocxTestPackage.readPart(docxMainPartPath, from: original)
+        )
+    }
 }
