@@ -98,18 +98,29 @@ enum DocxParts {
         var data: Data
     }
 
-    /// Loads and parses every additional text-bearing part. Parts that fail to
-    /// parse are skipped rather than aborting the whole redaction; a malformed
-    /// header should not block redacting the body and the other parts.
-    static func loadTextBearingParts(from url: URL) -> [LoadedPart] {
+    /// The outcome of loading every additional text-bearing part: the parts
+    /// that parsed, and the paths of those that did not. A part that cannot be
+    /// parsed cannot be redacted, and DocxZip.rewrite would otherwise copy it
+    /// into the output verbatim, PII included, so the caller must refuse to
+    /// write the package when failedParts is non-empty.
+    struct LoadedParts {
+        var parts: [LoadedPart]
+        var failedParts: [String]
+    }
+
+    /// Loads and parses every additional text-bearing part, reporting the
+    /// parts that failed instead of skipping them silently.
+    static func loadTextBearingParts(from url: URL) -> LoadedParts {
         var loaded: [LoadedPart] = []
+        var failed: [String] = []
         for path in textBearingPartPaths(in: url) {
-            guard let part = try? loadRequiredTextBearingPart(path, from: url) else {
-                continue
+            do {
+                loaded.append(try loadRequiredTextBearingPart(path, from: url))
+            } catch {
+                failed.append(path)
             }
-            loaded.append(part)
         }
-        return loaded
+        return LoadedParts(parts: loaded, failedParts: failed)
     }
 
     /// Strict counterpart used by restoration. Once a package has enumerated a
@@ -157,6 +168,10 @@ enum DocxParts {
         var replacements: [String: Data]
         /// New mapping entries minted for surfaces found only in non-body parts.
         var newEntries: [MappingEntry]
+        /// Paths of supplementary parts that could not be parsed or rewritten.
+        /// Their PII would ride into the output verbatim, so a non-empty list
+        /// means the redaction must not be written (DocxRedactor.redact throws).
+        var failedParts: [String]
     }
 
     /// Redact every non-body text part, scrub docProps metadata, and neutralize
@@ -187,7 +202,9 @@ enum DocxParts {
         }
         var counters = perTypeMaxIndices(in: mapping.entries.keys)
 
-        for part in loadTextBearingParts(from: url) {
+        let loaded = loadTextBearingParts(from: url)
+        var failedParts = loaded.failedParts
+        for part in loaded.parts {
             // Split spans crossing a synthetic break (paragraph newline, line
             // break, tab); a surface carrying one cannot restore into a single
             // run (see SpanSplitter).
@@ -212,7 +229,10 @@ enum DocxParts {
             // revision authors), even when detection found nothing in its text.
             // A part neither pass touched is not listed, so it copies through
             // byte for byte.
-            guard let rewritten = redactedPartXML(part, replacements: replacementsForPart) else { continue }
+            guard let rewritten = redactedPartXML(part, replacements: replacementsForPart) else {
+                failedParts.append(part.path)
+                continue
+            }
             let scrubbed = DocxMarkupScrub.scrubRedactedPart(rewritten)
             if !replacementsForPart.isEmpty || scrubbed != rewritten {
                 replacements[part.path] = Data(scrubbed.utf8)
@@ -251,7 +271,7 @@ enum DocxParts {
             }
         }
 
-        return Result(replacements: replacements, newEntries: newEntries)
+        return Result(replacements: replacements, newEntries: newEntries, failedParts: failedParts)
     }
 
     // MARK: - Restore of text-bearing parts

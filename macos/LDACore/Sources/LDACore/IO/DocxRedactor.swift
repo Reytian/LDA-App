@@ -91,6 +91,18 @@ public enum DocxRedactor {
                 mapping: nonBody.mapping,
                 detect: nonBody.detect
             )
+            // A supplementary part that could not be parsed or rewritten would
+            // copy into the output verbatim, PII included, while the caller
+            // reported success. Refuse before anything is written. The message
+            // carries the count, never a path: a part path can itself be PII.
+            guard result.failedParts.isEmpty else {
+                let count = result.failedParts.count
+                let noun = count == 1 ? "part" : "parts"
+                throw DocumentIOError.corrupt(
+                    "\(count) supplementary \(noun) (header, footer, notes, or comments) "
+                        + "could not be redacted, so the package was not written"
+                )
+            }
             // The body part is never produced by DocxParts, so this merge never
             // clobbers the body rewrite computed above.
             for (path, bytes) in result.replacements {

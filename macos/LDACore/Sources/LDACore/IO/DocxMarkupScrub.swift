@@ -53,82 +53,98 @@ enum DocxMarkupScrub {
     /// A complex-field instruction element with its content, in either the
     /// live (w:instrText) or the tracked-deletion (w:delInstrText) spelling.
     /// The close tag is a backreference so the two never pair up crosswise.
-    private static let instructionElementPattern =
-        #"(<w:(instrText|delInstrText)\b[^>]*>)(.*?)(</w:\2>)"#
+    /// Instruction content is character data, so it cannot contain "<" and
+    /// the content group is a linear character class.
+    private static let instructionElementRegex = try? NSRegularExpression(
+        pattern: #"(<w:(instrText|delInstrText)\b[^>]*>)([^<]*)(</w:\2>)"#
+    )
 
     /// A simple field start tag; its instruction lives in the w:instr attribute.
-    private static let simpleFieldPattern = #"<w:fldSimple\b[^>]*>"#
+    private static let simpleFieldRegex = try? NSRegularExpression(pattern: #"<w:fldSimple\b[^>]*>"#)
 
     /// The whole w:instr attribute in either quote style (see DocxParts for
     /// why the two styles are separate alternatives).
-    private static let instrAttributePattern = #"(?<=\s)w:instr=("[^"]*"|'[^']*')"#
+    private static let instrAttributeRegex = try? NSRegularExpression(
+        pattern: #"(?<=\s)w:instr=("[^"]*"|'[^']*')"#
+    )
 
     /// A sensitive address inside an instruction: the scheme and everything up
     /// to whitespace, a quote, an angle bracket, or an escaped quote entity,
     /// so the rewrite covers the address whether the instruction spells its
     /// quotes literally (element content) or as &quot; (attribute value).
-    private static let sensitiveTargetPattern: String = {
+    private static let sensitiveTargetRegex: NSRegularExpression? = {
         let schemes = DocxParts.sensitiveSchemes
             .map { NSRegularExpression.escapedPattern(for: String($0.dropLast())) }
             .joined(separator: "|")
-        return #"(?i)\b(?:"# + schemes + #"):(?:(?!&quot;|&apos;)[^\s"'<>])*"#
+        return try? NSRegularExpression(
+            pattern: #"(?i)\b(?:"# + schemes + #"):(?:(?!&quot;|&apos;)[^\s"'<>])*"#
+        )
     }()
 
     /// Rewrite every mailto:/tel: target in the part's field instructions to
     /// about:blank. Other instructions (PAGE, http links) are left untouched.
     static func neutralizeFieldTargets(_ xml: String) -> String {
-        let elementsDone = rewriteMatches(
-            of: instructionElementPattern,
-            options: [.dotMatchesLineSeparators],
-            in: xml
-        ) { match, ns in
+        let elementsDone = rewriteMatches(of: instructionElementRegex, in: xml) { match, ns in
             ns.substring(with: match.range(at: 1))
                 + neutralizeSensitiveTargets(in: ns.substring(with: match.range(at: 3)))
                 + ns.substring(with: match.range(at: 4))
         }
-        return rewriteMatches(of: simpleFieldPattern, options: [], in: elementsDone) { match, ns in
+        return rewriteMatches(of: simpleFieldRegex, in: elementsDone) { match, ns in
             let element = ns.substring(with: match.range)
-            return rewriteMatches(of: instrAttributePattern, options: [], in: element) { attribute, elementNS in
+            return rewriteMatches(of: instrAttributeRegex, in: element) { attribute, elementNS in
                 "w:instr=" + neutralizeSensitiveTargets(in: elementNS.substring(with: attribute.range(at: 1)))
             }
         }
     }
 
     private static func neutralizeSensitiveTargets(in instruction: String) -> String {
-        rewriteMatches(of: sensitiveTargetPattern, options: [], in: instruction) { _, _ in
+        rewriteMatches(of: sensitiveTargetRegex, in: instruction) { _, _ in
             DocxParts.neutralizedTarget
         }
     }
 
     // MARK: - Authorship attributes
 
-    /// Blank the value of every attribute named in `names`, in either quote
-    /// style. The attribute survives with an empty value, which the schema
-    /// accepts, so the revision or comment itself stays intact.
-    static func blankAttributes(_ names: [String], in xml: String) -> String {
+    private static let authorAttributesRegex = attributeRegex(for: authorAttributes)
+    private static let peopleAttributesRegex = attributeRegex(for: peopleAttributes)
+
+    /// Every attribute named in `names`, in either quote style, with the name
+    /// as group 1.
+    private static func attributeRegex(for names: [String]) -> NSRegularExpression? {
         let alternatives = names
             .map { NSRegularExpression.escapedPattern(for: $0) }
             .joined(separator: "|")
-        let pattern = "(?<=\\s)(\(alternatives))=(?:\"[^\"]*\"|'[^']*')"
-        return rewriteMatches(of: pattern, options: [], in: xml) { match, ns in
+        return try? NSRegularExpression(pattern: "(?<=\\s)(\(alternatives))=(?:\"[^\"]*\"|'[^']*')")
+    }
+
+    /// Blank the value of every attribute named in `names`, in either quote
+    /// style. The attribute survives with an empty value, which the schema
+    /// accepts, so the revision or comment itself stays intact. The two lists
+    /// the scrub uses are precompiled; this entry point compiles for any list.
+    static func blankAttributes(_ names: [String], in xml: String) -> String {
+        if names == authorAttributes { return blankAttributes(matching: authorAttributesRegex, in: xml) }
+        if names == peopleAttributes { return blankAttributes(matching: peopleAttributesRegex, in: xml) }
+        return blankAttributes(matching: attributeRegex(for: names), in: xml)
+    }
+
+    private static func blankAttributes(matching regex: NSRegularExpression?, in xml: String) -> String {
+        rewriteMatches(of: regex, in: xml) { match, ns in
             ns.substring(with: match.range(at: 1)) + "=\"\""
         }
     }
 
     // MARK: - Regex plumbing
 
-    /// Rebuild `text` with every match of `pattern` replaced by `rewrite`'s
-    /// result. Text between matches is copied verbatim. An unparsable pattern
-    /// (a programming error, never input-dependent) leaves the text as is.
+    /// Rebuild `text` with every match of `regex` replaced by `rewrite`'s
+    /// result. Text between matches is copied verbatim. A nil regex (a pattern
+    /// that failed to compile, a programming error that is never
+    /// input-dependent) leaves the text as is.
     private static func rewriteMatches(
-        of pattern: String,
-        options: NSRegularExpression.Options,
+        of regex: NSRegularExpression?,
         in text: String,
         rewrite: (NSTextCheckingResult, NSString) -> String
     ) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
-            return text
-        }
+        guard let regex else { return text }
         let ns = text as NSString
         let full = NSRange(location: 0, length: ns.length)
         var result = ""

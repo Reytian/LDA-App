@@ -45,7 +45,8 @@ public struct DocxImporter: DocumentImporter {
             text: layout.text,
             format: .docx,
             isScanned: false,
-            pageCount: 1
+            pageCount: 1,
+            trackedChangeCount: layout.trackedChangeCount
         )
         return (imported, layout)
     }

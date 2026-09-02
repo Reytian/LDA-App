@@ -67,6 +67,12 @@ public struct AnonymizeResult: Sendable {
     /// in the redacted output by the caller's choice. Always 0 when no
     /// exclusion was supplied.
     public var excludedEntityCount: Int
+    /// DOCX only: how many tracked-change containers the body carries (see
+    /// ImportedDocument.trackedChangeCount). A non-zero count should be
+    /// surfaced as a warning: "This document carries tracked changes; accept
+    /// all changes before redacting for an exact round trip." Always 0 for
+    /// non-DOCX input.
+    public var trackedChangeCount: Int
 
     public init(
         redactedFileURL: URL,
@@ -79,12 +85,14 @@ public struct AnonymizeResult: Sendable {
         unboxedTokenCount: Int = 0,
         sealCandidateCount: Int = 0,
         redactedImageURL: URL? = nil,
-        excludedEntityCount: Int = 0
+        excludedEntityCount: Int = 0,
+        trackedChangeCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
         self.mappingFileURL = mappingFileURL
         self.visualPdfURL = visualPdfURL
         self.redactedImageURL = redactedImageURL
+        self.trackedChangeCount = trackedChangeCount
         self.entityCount = entityCount
         self.entities = entities
         self.imageRedactionCount = imageRedactionCount
@@ -477,7 +485,8 @@ public enum LDAService {
             imageRedactionCount: imageRedactionCount,
             embeddedMediaCount: embeddedMediaCount,
             unboxedTokenCount: unboxedTokenCount,
-            excludedEntityCount: excludedEntityCount
+            excludedEntityCount: excludedEntityCount,
+            trackedChangeCount: imported.trackedChangeCount
         )
     }
 

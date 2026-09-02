@@ -22,6 +22,11 @@ enum DocxRunText {
     /// text of a tracked deletion; it reads and rewrites exactly like w:t.
     static let textElementNames: [String] = ["w:t", "w:delText"]
 
+    /// Tracked-change containers. Their text parses inline with no boundary
+    /// marker, so a span can straddle live and tracked runs; the parser counts
+    /// them so callers can warn the user to accept all changes first.
+    static let trackedChangeElementNames: Set<String> = ["w:ins", "w:del", "w:moveFrom", "w:moveTo"]
+
     /// The character a run-level break element contributes to the concatenated
     /// text, or nil for any other element. w:tab and w:ptab are tabs; w:br (of
     /// every type, page breaks included) and w:cr are line breaks. The element
@@ -49,7 +54,9 @@ enum DocxRunText {
 
     /// An existing xml:space attribute, in either quote style, including the
     /// whitespace that separates it from the previous token.
-    private static let spaceAttributePattern = #"\sxml:space\s*=\s*(?:"[^"]*"|'[^']*')"#
+    private static let spaceAttributeRegex = try? NSRegularExpression(
+        pattern: #"\sxml:space\s*=\s*(?:"[^"]*"|'[^']*')"#
+    )
 
     private static let preserveAttribute = " xml:space=\"preserve\""
 
@@ -58,7 +65,7 @@ enum DocxRunText {
     /// since xml:space="default" tells Word to strip the space; otherwise the
     /// attribute is inserted before the closing ">".
     static func openTagPreservingSpace(_ openTag: String) -> String {
-        if let regex = try? NSRegularExpression(pattern: spaceAttributePattern) {
+        if let regex = spaceAttributeRegex {
             let ns = openTag as NSString
             let full = NSRange(location: 0, length: ns.length)
             if let match = regex.firstMatch(in: openTag, range: full) {

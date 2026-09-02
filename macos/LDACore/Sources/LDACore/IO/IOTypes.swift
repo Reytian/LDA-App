@@ -72,19 +72,29 @@ public struct ImportedDocument: Sendable {
     /// pages plus scanned exhibit or signature pages) it is the subset that
     /// needs OCR. Empty for non-PDF formats and fully born-digital PDFs.
     public var scannedPageIndexes: [Int]
+    /// DOCX only: how many tracked-change containers (w:ins, w:del, moves) the
+    /// body carries. Deleted text is part of `text` with no boundary marker,
+    /// so a detected span can straddle live and tracked runs; such a span
+    /// redacts safely but restores whole into the first run, flattening the
+    /// tracked change. A non-zero count should be surfaced as a warning to
+    /// accept all changes before redacting for an exact round trip. 0 for
+    /// every other format.
+    public var trackedChangeCount: Int
 
     public init(
         text: String,
         format: DocumentFormat,
         isScanned: Bool,
         pageCount: Int,
-        scannedPageIndexes: [Int] = []
+        scannedPageIndexes: [Int] = [],
+        trackedChangeCount: Int = 0
     ) {
         self.text = text
         self.format = format
         self.isScanned = isScanned
         self.pageCount = pageCount
         self.scannedPageIndexes = scannedPageIndexes
+        self.trackedChangeCount = trackedChangeCount
     }
 }
 

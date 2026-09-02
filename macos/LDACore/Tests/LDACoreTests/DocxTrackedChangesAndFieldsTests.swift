@@ -253,4 +253,96 @@ final class DocxTrackedChangesAndFieldsTests: XCTestCase {
         XCTAssertTrue(report.orphanTokens.isEmpty)
         XCTAssertEqual(try importer.importDocument(restored).text, originalText)
     }
+
+    // MARK: - Spans straddling live and tracked runs (known limitation, pinned)
+
+    /// Deleted text is parsed inline with no boundary marker, so a span can
+    /// cover live text, a tracked deletion, and a tracked insertion at once
+    /// ("1381234" + deleted "5678" + inserted "9876" reads 138123456789876,
+    /// a bank-account-shaped run). Redaction is safe: every fragment is
+    /// covered. Restore, however, writes the whole value into the first live
+    /// run and leaves the deletion and insertion empty, flattening the
+    /// tracked change. This pins that behavior so a later change to it is
+    /// deliberate; callers are told about tracked changes via
+    /// trackedChangeCount and should ask the user to accept all changes first.
+    func testSpanStraddlingLiveAndTrackedRunsRestoresIntoTheFirstRun() throws {
+        let straddle = "<w:p><w:r><w:t>1381234</w:t></w:r>"
+            + "<w:del w:id=\"1\" w:author=\"a\" w:date=\"d\"><w:r><w:delText>5678</w:delText></w:r></w:del>"
+            + "<w:ins w:id=\"2\" w:author=\"a\" w:date=\"d\"><w:r><w:t>9876</w:t></w:r></w:ins></w:p>"
+        let original = try DocxTestPackage.write(body: straddle, to: workDir.appendingPathComponent("straddle.docx"))
+        let importer = DocxImporter()
+        let imported = try importer.importDocument(original)
+        XCTAssertEqual(imported.text, "138123456789876")
+
+        let redacted = workDir.appendingPathComponent("redacted.docx")
+        try DocxRedactor.redact(
+            original: original,
+            replacements: [
+                Replacement(
+                    span: DocxTestPackage.span(in: imported.text, surface: imported.text, type: .bankAccount),
+                    token: "{BANKACCOUNT_1}"
+                )
+            ],
+            to: redacted
+        )
+        let redactedXML = try DocxTestPackage.readPart(docxMainPartPath, from: redacted)
+        XCTAssertTrue(redactedXML.contains("<w:t>{BANKACCOUNT_1}</w:t>"), redactedXML)
+        XCTAssertTrue(redactedXML.contains("<w:delText></w:delText>"), "deleted fragment removed: \(redactedXML)")
+        XCTAssertFalse(redactedXML.contains("5678") || redactedXML.contains("9876"), "no fragment may leak: \(redactedXML)")
+
+        let restored = workDir.appendingPathComponent("restored.docx")
+        try DocxRedactor.restore(
+            redactedDocx: redacted,
+            tokenToValue: ["{BANKACCOUNT_1}": "138123456789876"],
+            to: restored
+        )
+        let restoredXML = try DocxTestPackage.readPart(docxMainPartPath, from: restored)
+        XCTAssertEqual(try importer.importDocument(restored).text, imported.text, "the text round-trips")
+        XCTAssertTrue(restoredXML.contains("<w:t>138123456789876</w:t>"), "whole value lands in the first run: \(restoredXML)")
+        XCTAssertTrue(restoredXML.contains("<w:delText></w:delText>"), "the tracked deletion is flattened: \(restoredXML)")
+    }
+
+    // MARK: - Tracked change count
+
+    /// The importer counts tracked-change containers so callers can warn the
+    /// user to accept all changes before redacting; a plain document reports 0
+    /// and the count rides out on the anonymize result.
+    func testTrackedChangeCountIsSurfacedByImportAndAnonymize() throws {
+        let plain = try DocxTestPackage.write(
+            body: DocxTestPackage.paragraph(DocxTestPackage.run("No revisions here.")),
+            to: workDir.appendingPathComponent("plain.docx")
+        )
+        let revised = try DocxTestPackage.write(
+            body: Self.revisionsBody,
+            to: workDir.appendingPathComponent("revised.docx")
+        )
+
+        XCTAssertEqual(try DocxImporter().importDocument(plain).trackedChangeCount, 0)
+        XCTAssertEqual(try DocxImporter().importDocument(revised).trackedChangeCount, 2, "one w:ins and one w:del")
+
+        XCTAssertEqual(try anonymize(revised).trackedChangeCount, 2)
+        let plainResult = try LDAService.anonymize(
+            input: plain,
+            outputDir: workDir.appendingPathComponent("plain-out", isDirectory: true),
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt,
+            llmModelPath: nil
+        )
+        XCTAssertEqual(plainResult.trackedChangeCount, 0)
+    }
+
+    /// The engine reads the straddle text as ONE bank-account-shaped span, so
+    /// no per-fragment detection would see a phone or an insertion apart.
+    func testStraddleTextIsDetectedAsOneChimera() throws {
+        let straddle = "<w:p><w:r><w:t>1381234</w:t></w:r>"
+            + "<w:del w:id=\"1\" w:author=\"a\" w:date=\"d\"><w:r><w:delText>5678</w:delText></w:r></w:del>"
+            + "<w:ins w:id=\"2\" w:author=\"a\" w:date=\"d\"><w:r><w:t>9876</w:t></w:r></w:ins></w:p>"
+        let original = try DocxTestPackage.write(body: straddle, to: workDir.appendingPathComponent("chimera.docx"))
+
+        let spans = try LDAService.detect(input: original)
+
+        XCTAssertEqual(spans.map(\.text), ["138123456789876"])
+        XCTAssertEqual(spans.map(\.type), [.bankAccount])
+        XCTAssertEqual(try DocxImporter().importDocument(original).trackedChangeCount, 2)
+    }
 }
