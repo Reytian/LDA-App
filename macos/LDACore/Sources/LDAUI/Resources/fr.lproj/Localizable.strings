@@ -52,7 +52,6 @@
 "Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived." = "L’archivage ferme les documents et le contexte de restauration inachevé dans cette fenêtre. Les fichiers enregistrés ne sont pas affectés et le dossier peut être restauré depuis Archivés.";
 "Back to Library" = "Retour à la bibliothèque";
 "Back to Profile" = "Retour au profil";
-"Bring the real values back. Both paths run entirely on this Mac." = "Rétablissez les valeurs réelles. Les deux méthodes s’exécutent entièrement sur ce Mac.";
 "Built in and verified. Part of the app, so it cannot be removed." = "Intégré et vérifié. Ce modèle fait partie de l’app et ne peut pas être supprimé.";
 "Bulk actions for %@" = "Actions groupées pour %@";
 "Cancel" = "Annuler";
@@ -245,7 +244,6 @@
 "Restore" = "Restaurer";
 "Restore AI Answer" = "Restaurer la réponse de l’IA";
 "Restore Clipboard" = "Restaurer le presse-papiers";
-"Restore Redacted File…" = "Restaurer un fichier masqué…";
 "Restore the real values in the AI output on the clipboard" = "Rétablir les valeurs réelles dans la réponse de l’IA présente dans le presse-papiers";
 "Restore this matter before starting another protected handoff." = "Restaurez ce dossier avant de commencer un autre transfert protégé.";
 "Restore to Active" = "Rétablir comme actif";
@@ -410,7 +408,6 @@
 "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac." = "Les documents traités dans ce dossier conservent les mêmes espaces réservés d’une session à l’autre. La table de correspondance reste chiffrée sur ce Mac.";
 "Export \"%@\" as an encrypted .ldaprofile file." = "Exporter « %@ » sous forme de fichier .ldaprofile chiffré.";
 "Export Here" = "Exporter ici";
-"If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain." = "Si vous avez protégé cette table de correspondance par une phrase secrète, saisissez-la. Laissez ce champ vide si elle utilise le Trousseau.";
 "Mapping passphrase" = "Phrase secrète de la table de correspondance";
 "Save Here" = "Enregistrer ici";
 "Save the current profile as an encrypted .ldaprofile file." = "Enregistrer le profil actuel sous forme de fichier .ldaprofile chiffré.";
@@ -428,10 +425,7 @@
 "Filled %lld blanks in %@." = "%lld champs remplis dans %@.";
 "Filled %lld blank in %@. %lld skipped." = "%lld champ rempli dans %@. Éléments ignorés : %lld.";
 "Filled %lld blanks in %@. %lld skipped." = "%lld champs remplis dans %@. Éléments ignorés : %lld.";
-"Restore a redacted file" = "Restaurer un fichier masqué";
-"You exported a redacted document earlier and it came back edited. Choose the file; its .ldamap mapping sidecar is picked up automatically from the same folder. If the mapping was protected with a passphrase, you will be asked for it." = "Vous avez précédemment exporté un document masqué, qui vous a été renvoyé après modification. Choisissez ce fichier ; LDA détectera automatiquement le fichier de correspondance .ldamap placé dans le même dossier. Si la table de correspondance est protégée par une phrase secrète, celle-ci vous sera demandée.";
 "Choose File & Restore…" = "Choisir le fichier et restaurer…";
-"Pick an edited redacted document and write the restored original (Cmd+R)" = "Choisir un document masqué modifié et enregistrer l’original restauré (Cmd+R)";
 "Company" = "Société";
 "Individual" = "Personne physique";
 "Corporate entity: company name, registration, directors, shareholders, capital structure." = "Personne morale : dénomination sociale, immatriculation, dirigeants, actionnaires et structure du capital.";
@@ -803,3 +797,17 @@
 "Offset %@" = "Plage de texte %@";
 "Edit" = "Modifier";
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "Enregistrez le fichier Markdown caviardé destiné à l’IA. Conservez sur ce Mac le fichier .ldamap enregistré à côté.";
+"Restore a file" = "Restaurer un fichier";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choisissez ou déposez le fichier qui vous est revenu : le Markdown exporté pour l’IA, ou un document Word caviardé que vous avez enregistré. La table de correspondance est retrouvée automatiquement dans cette session ou dans le fichier .ldamap enregistré à côté. La mise en forme est conservée lorsque le fichier est un document Word.";
+"Pick the file that came back and write the restored document (Cmd+R)" = "Choisir le fichier revenu et enregistrer le document restauré (Cmd+R)";
+"Bring the real values back. Restore runs on this Mac." = "Rétablissez les valeurs réelles. La restauration s’exécute sur ce Mac.";
+"No mapping was found for this file." = "Aucune table de correspondance n’a été trouvée pour ce fichier.";
+"Choose the .ldamap that was saved with it." = "Choisissez le fichier .ldamap enregistré avec lui.";
+"Choose Mapping…" = "Choisir la table de correspondance…";
+"This mapping was protected with a passphrase. Enter it to restore." = "Cette table de correspondance est protégée par une phrase secrète. Saisissez-la pour restaurer.";
+"Word output from Markdown carries plain formatting." = "Un document Word produit à partir de Markdown a une mise en forme simple.";
+"Restored with this session's mapping." = "Restauré avec la table de correspondance de cette session.";
+"Restored with the mapping saved next to the file." = "Restauré avec la table de correspondance enregistrée à côté du fichier.";
+"Restored with the mapping you chose." = "Restauré avec la table de correspondance que vous avez choisie.";
+"Restore opens .md, .txt, and .docx files. %@ is not one of them." = "Restaurer ouvre les fichiers .md, .txt et .docx. %@ n’en fait pas partie.";
+"Restore…" = "Restaurer…";

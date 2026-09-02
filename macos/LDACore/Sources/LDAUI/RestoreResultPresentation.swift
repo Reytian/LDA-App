@@ -17,6 +17,32 @@ public enum RestoreResultPresentation {
     /// How many examples a warning sentence lists before it stops.
     static let sampleLimit = 5
 
+    /// Which key opened the file. Named in the result so a stale .ldamap
+    /// moved next to a new file is visible, not silent.
+    public enum KeySource: Equatable {
+        /// The session mapping (in memory, resumed, or the matter's).
+        case session
+        /// The .ldamap saved next to the file.
+        case sidecar
+        /// A .ldamap the user picked by hand.
+        case chosenMapping
+    }
+
+    /// The sentence naming which key opened the file.
+    static func keySentence(
+        for source: KeySource,
+        language: AppLanguage? = nil
+    ) -> String {
+        switch source {
+        case .session:
+            return L10n.string("Restored with this session's mapping.", language: language)
+        case .sidecar:
+            return L10n.string("Restored with the mapping saved next to the file.", language: language)
+        case .chosenMapping:
+            return L10n.string("Restored with the mapping you chose.", language: language)
+        }
+    }
+
     /// The compact completion sentence used while the restored text is still
     /// in the paste sheet and has not been saved to a file yet.
     static func restoredSentence(
@@ -37,15 +63,17 @@ public enum RestoreResultPresentation {
     static func cleanResult(
         restoredCount: Int,
         outputFileName: String,
+        keyNote: String? = nil,
         language: AppLanguage? = nil
     ) -> String {
-        format(
+        let summary = format(
             restoredCount == 1
                 ? "Restored %lld value to %@."
                 : "Restored %lld values to %@.",
             language: language,
             arguments: [Int64(restoredCount), outputFileName as NSString]
         )
+        return ([summary] + (keyNote.map { [$0] } ?? [])).joined(separator: " ")
     }
 
     /// The sentence for placeholders that no longer match the mapping.
@@ -117,6 +145,7 @@ public enum RestoreResultPresentation {
         restoredCount: Int,
         problems: [String],
         outputFileName: String,
+        keyNote: String? = nil,
         language: AppLanguage? = nil
     ) -> String {
         let summary = format(
@@ -131,7 +160,7 @@ public enum RestoreResultPresentation {
             language: language,
             arguments: [outputFileName as NSString]
         )
-        return ([summary] + problems + [review]).joined(separator: " ")
+        return ([summary] + problems + [review] + (keyNote.map { [$0] } ?? [])).joined(separator: " ")
     }
 
     /// The failure sentence keeps the system-provided error description

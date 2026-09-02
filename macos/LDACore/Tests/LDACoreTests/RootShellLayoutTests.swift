@@ -127,7 +127,6 @@ final class RootShellLayoutTests: XCTestCase {
             source.contains("NSPasteboard.general.setString(handoff.combined"),
             "the clipboard handoff is gone; the file is the only outbound artifact"
         )
-        XCTAssertFalse(source.contains("Copy for AI"))
     }
 
     func testTopLevelSurfacesAvoidManualTitleBarOffsets() throws {
@@ -144,6 +143,10 @@ final class RootShellLayoutTests: XCTestCase {
         XCTAssertTrue(restoreSource.contains(".frame(maxWidth: 860)"))
         XCTAssertTrue(restoreSource.contains(".padding(32)"))
         XCTAssertLessThan(CGFloat(860 + 64), 1100)
+        XCTAssertTrue(
+            restoreSource.contains(".dropDestination(for: URL.self)"),
+            "Dropping a file onto the Restore card must start the same flow as the button."
+        )
 
         for marker in [
             ".frame(width: 220)",

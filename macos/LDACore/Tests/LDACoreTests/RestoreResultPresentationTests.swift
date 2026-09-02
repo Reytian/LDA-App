@@ -214,4 +214,45 @@ final class RestoreResultPresentationTests: XCTestCase {
 
         XCTAssertEqual(result, "還原失敗。\(description)")
     }
+
+    // MARK: - Which key opened the file
+
+    func testKeySentencesNameWhichMappingOpenedTheFile() {
+        XCTAssertEqual(
+            RestoreResultPresentation.keySentence(for: .session, language: .english),
+            "Restored with this session's mapping."
+        )
+        XCTAssertEqual(
+            RestoreResultPresentation.keySentence(for: .sidecar, language: .english),
+            "Restored with the mapping saved next to the file."
+        )
+        XCTAssertEqual(
+            RestoreResultPresentation.keySentence(for: .chosenMapping, language: .english),
+            "Restored with the mapping you chose."
+        )
+    }
+
+    func testCleanAndWarningResultsCarryTheKeyNote() {
+        let clean = RestoreResultPresentation.cleanResult(
+            restoredCount: 2,
+            outputFileName: "out.md",
+            keyNote: "Restored with this session's mapping.",
+            language: .english
+        )
+        XCTAssertEqual(clean, "Restored 2 values to out.md. Restored with this session's mapping.")
+
+        let warning = RestoreResultPresentation.warningResult(
+            restoredCount: 1,
+            problems: ["1 placeholder could not be matched: {EMAIL_2}."],
+            outputFileName: "out.md",
+            keyNote: "Restored with the mapping saved next to the file.",
+            language: .english
+        )
+        XCTAssertEqual(
+            warning,
+            "Restored 1 value with warnings. 1 placeholder could not be matched: {EMAIL_2}. "
+                + "Nothing was guessed; review these in out.md and fix them by hand. "
+                + "Restored with the mapping saved next to the file."
+        )
+    }
 }

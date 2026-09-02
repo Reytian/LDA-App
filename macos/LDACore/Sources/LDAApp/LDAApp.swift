@@ -237,8 +237,8 @@ struct LDAApp: App {
                 .keyboardShortcut("e", modifiers: .command)
                 .disabled(!sessionModel.activeModel.canExport)
 
-                Button(localized("Restore Redacted File…")) {
-                    // Land the user in the De-anonymize mode so the flow has
+                Button(localized("Restore…")) {
+                    // Land the user in the Restore mode so the flow has
                     // visible context, then start it.
                     modeStore.activeMode = .deanonymize
                     sessionModel.activeModel.requestRestore()

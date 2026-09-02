@@ -52,7 +52,6 @@
 "Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived." = "Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived.";
 "Back to Library" = "Back to Library";
 "Back to Profile" = "Back to Profile";
-"Bring the real values back. Both paths run entirely on this Mac." = "Bring the real values back. Both paths run entirely on this Mac.";
 "Built in and verified. Part of the app, so it cannot be removed." = "Built in and verified. Part of the app, so it cannot be removed.";
 "Bulk actions for %@" = "Bulk actions for %@";
 "Cancel" = "Cancel";
@@ -245,7 +244,6 @@
 "Restore" = "Restore";
 "Restore AI Answer" = "Restore AI Answer";
 "Restore Clipboard" = "Restore Clipboard";
-"Restore Redacted File…" = "Restore Redacted File…";
 "Restore the real values in the AI output on the clipboard" = "Restore the real values in the AI output on the clipboard";
 "Restore this matter before starting another protected handoff." = "Restore this matter before starting another protected handoff.";
 "Restore to Active" = "Restore to Active";
@@ -410,7 +408,6 @@
 "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac." = "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac.";
 "Export \"%@\" as an encrypted .ldaprofile file." = "Export \"%@\" as an encrypted .ldaprofile file.";
 "Export Here" = "Export Here";
-"If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain." = "If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain.";
 "Mapping passphrase" = "Mapping passphrase";
 "Save Here" = "Save Here";
 "Save the current profile as an encrypted .ldaprofile file." = "Save the current profile as an encrypted .ldaprofile file.";
@@ -428,10 +425,7 @@
 "Filled %lld blanks in %@." = "Filled %lld blanks in %@.";
 "Filled %lld blank in %@. %lld skipped." = "Filled %lld blank in %@. %lld skipped.";
 "Filled %lld blanks in %@. %lld skipped." = "Filled %lld blanks in %@. %lld skipped.";
-"Restore a redacted file" = "Restore a redacted file";
-"You exported a redacted document earlier and it came back edited. Choose the file; its .ldamap mapping sidecar is picked up automatically from the same folder. If the mapping was protected with a passphrase, you will be asked for it." = "You exported a redacted document earlier and it came back edited. Choose the file; its .ldamap mapping sidecar is picked up automatically from the same folder. If the mapping was protected with a passphrase, you will be asked for it.";
 "Choose File & Restore…" = "Choose File & Restore…";
-"Pick an edited redacted document and write the restored original (Cmd+R)" = "Pick an edited redacted document and write the restored original (Cmd+R)";
 "Company" = "Company";
 "Individual" = "Individual";
 "Corporate entity: company name, registration, directors, shareholders, capital structure." = "Corporate entity: company name, registration, directors, shareholders, capital structure.";
@@ -803,3 +797,17 @@
 "Offset %@" = "Offset %@";
 "Edit" = "Edit";
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac.";
+"Restore a file" = "Restore a file";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document.";
+"Pick the file that came back and write the restored document (Cmd+R)" = "Pick the file that came back and write the restored document (Cmd+R)";
+"Bring the real values back. Restore runs on this Mac." = "Bring the real values back. Restore runs on this Mac.";
+"No mapping was found for this file." = "No mapping was found for this file.";
+"Choose the .ldamap that was saved with it." = "Choose the .ldamap that was saved with it.";
+"Choose Mapping…" = "Choose Mapping…";
+"This mapping was protected with a passphrase. Enter it to restore." = "This mapping was protected with a passphrase. Enter it to restore.";
+"Word output from Markdown carries plain formatting." = "Word output from Markdown carries plain formatting.";
+"Restored with this session's mapping." = "Restored with this session's mapping.";
+"Restored with the mapping saved next to the file." = "Restored with the mapping saved next to the file.";
+"Restored with the mapping you chose." = "Restored with the mapping you chose.";
+"Restore opens .md, .txt, and .docx files. %@ is not one of them." = "Restore opens .md, .txt, and .docx files. %@ is not one of them.";
+"Restore…" = "Restore…";

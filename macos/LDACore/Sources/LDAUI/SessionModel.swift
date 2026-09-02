@@ -7,8 +7,8 @@
 //  session-level round-trip actions: build the shared redacted Markdown for
 //  the Export for AI handoff (one mapping across every document, optionally
 //  seeded from and saved back to a client profile, R10), and restore the AI's
-//  output (a file, or the companion's clipboard text) against that session
-//  mapping.
+//  output against that session mapping: a file through
+//  SessionModel+RestoreFile.swift, or the companion's clipboard text here.
 //
 //  House rules: user-facing copy is localized. No prohibited dash separators.
 //
@@ -147,8 +147,9 @@ public final class SessionModel: ObservableObject {
     /// Shown while the tray is empty so the shell always has a model to bind.
     public let emptyModel: ReviewModel
 
-    /// The client mapping store. Injectable for tests.
-    private let clientStore: () throws -> ClientMappingStore
+    /// The client mapping store. Injectable for tests. Internal so the
+    /// restore-file extension can consult the matter's stored mapping.
+    let clientStore: () throws -> ClientMappingStore
 
     /// Distinguishes a cold launch from an explicit No Client selection. A
     /// cold launch may resume the most recent parked round trip; an explicit
@@ -1088,22 +1089,7 @@ public final class SessionModel: ObservableObject {
         }
         guard let mapping else { return nil }
         let result = Restorer.restore(text: text, mapping: mapping)
-
-        // Append the restore to the session record (R18). Best effort.
-        if let recordID = currentRecordID, let store = try? recordStore() {
-            let event = SessionRestoreEvent(
-                atISO8601: ISO8601DateFormatter().string(from: Date()),
-                restoredCount: result.restoredCount,
-                orphanCount: result.orphanTokens.count,
-                suspectCount: result.suspectPlaceholders.count,
-                ambiguousCount: result.ambiguousReplacements.count
-            )
-            try? store.appendRestoreEvent(
-                to: recordID,
-                event: event,
-                protection: recordProtection()
-            )
-        }
+        recordRestoreEvent(result)
         return result
     }
 

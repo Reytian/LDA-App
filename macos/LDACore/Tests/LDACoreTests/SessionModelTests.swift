@@ -781,6 +781,49 @@ final class SessionModelTests: XCTestCase {
         XCTAssertNil(try session.restorePasted("Anything {EMAIL_1} here."))
     }
 
+    private func currentRecord(of session: SessionModel) throws -> SessionRecord {
+        let id = try XCTUnwrap(session.currentRecordID)
+        return try XCTUnwrap(
+            session.recordStore().load(id: id, protection: session.recordProtection())
+        )
+    }
+
+    func testRestorePastedAppendsARestoreEventToTheSessionRecord() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let handoff = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        _ = try XCTUnwrap(session.restorePasted(handoff.combined))
+
+        let record = try currentRecord(of: session)
+        XCTAssertEqual(record.restoreEvents.count, 1)
+        XCTAssertEqual(record.restoreEvents.first?.restoredCount, 1)
+    }
+
+    func testRestoreFileAppendsARestoreEventToTheSessionRecord() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let handoff = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+        let edited = try write("Redacted for AI.md", "Draft: " + handoff.combined)
+        let output = workDir.appendingPathComponent("Redacted for AI_restored.md")
+
+        let report = try session.restoreFile(
+            edited,
+            mapping: try XCTUnwrap(session.sessionMapping),
+            output: output
+        )
+
+        XCTAssertEqual(report.restoredCount, 1)
+        let record = try currentRecord(of: session)
+        XCTAssertEqual(record.restoreEvents.count, 1, "the Workspace restore count must stay truthful")
+        XCTAssertEqual(record.restoreEvents.first?.restoredCount, 1)
+        XCTAssertEqual(record.restoreEvents.first?.orphanCount, 0)
+    }
+
     // MARK: - Menu-bar companion (clipboard round-trip)
 
     func testRedactClipboardTextTokenizesAndExtendsSessionMapping() throws {

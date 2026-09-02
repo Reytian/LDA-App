@@ -52,7 +52,6 @@
 "Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived." = "归档会关闭此窗口中的文档和未完成的恢复上下文。已保存的文件不受影响，之后可从“已归档”中恢复该事项。";
 "Back to Library" = "返回资料库";
 "Back to Profile" = "返回档案";
-"Bring the real values back. Both paths run entirely on this Mac." = "恢复真实值。两种方式都完全在这台 Mac 上运行。";
 "Built in and verified. Part of the app, so it cannot be removed." = "已内置并验证。它是 App 的组成部分，无法移除。";
 "Bulk actions for %@" = "%@ 的批量操作";
 "Cancel" = "取消";
@@ -245,7 +244,6 @@
 "Restore" = "恢复";
 "Restore AI Answer" = "恢复 AI 回答";
 "Restore Clipboard" = "恢复剪贴板";
-"Restore Redacted File…" = "恢复脱敏文件…";
 "Restore the real values in the AI output on the clipboard" = "恢复剪贴板中 AI 输出里的真实值";
 "Restore this matter before starting another protected handoff." = "请先恢复此事项，再开始新的受保护交接。";
 "Restore to Active" = "恢复为活跃事项";
@@ -410,7 +408,6 @@
 "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac." = "在此事项下处理的文档会跨会话使用一致的占位符。映射始终在这台 Mac 上保持加密。";
 "Export \"%@\" as an encrypted .ldaprofile file." = "将“%@”导出为加密的 .ldaprofile 文件。";
 "Export Here" = "导出到此处";
-"If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain." = "如果此映射受密码短语保护，请输入密码短语。如果使用“钥匙串”，请留空。";
 "Mapping passphrase" = "映射密码短语";
 "Save Here" = "存储到此处";
 "Save the current profile as an encrypted .ldaprofile file." = "将当前档案存储为加密的 .ldaprofile 文件。";
@@ -428,10 +425,7 @@
 "Filled %lld blanks in %@." = "已填写 %lld 个空白项，文件为 %@。";
 "Filled %lld blank in %@. %lld skipped." = "已填写 %lld 个空白项，文件为 %@。跳过 %lld 个。";
 "Filled %lld blanks in %@. %lld skipped." = "已填写 %lld 个空白项，文件为 %@。跳过 %lld 个。";
-"Restore a redacted file" = "恢复脱敏文件";
-"You exported a redacted document earlier and it came back edited. Choose the file; its .ldamap mapping sidecar is picked up automatically from the same folder. If the mapping was protected with a passphrase, you will be asked for it." = "您之前导出了脱敏文档，现已收到编辑后的版本。请选择该文件；LDA 会自动使用同一文件夹中的 .ldamap 映射文件。如果映射受密码短语保护，系统会要求您输入密码短语。";
 "Choose File & Restore…" = "选择文件并恢复…";
-"Pick an edited redacted document and write the restored original (Cmd+R)" = "选择编辑后的脱敏文档，并生成恢复后的原始文档（Cmd+R）";
 "Company" = "公司";
 "Individual" = "个人";
 "Corporate entity: company name, registration, directors, shareholders, capital structure." = "公司实体：公司名称、注册信息、董事、股东及资本结构。";
@@ -803,3 +797,17 @@
 "Offset %@" = "文本范围 %@";
 "Edit" = "编辑";
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "保存要交给 AI 的脱敏 Markdown 文件。与之一同保存的 .ldamap 文件请留在这台 Mac 上。";
+"Restore a file" = "恢复文件";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "选择或拖入返回的文件：您导出给 AI 的 Markdown，或您保存的脱敏 Word 文档。映射会自动从本次会话或文件旁的 .ldamap 中找到。若文件是 Word 文档，格式将得到保留。";
+"Pick the file that came back and write the restored document (Cmd+R)" = "选择返回的文件并生成恢复后的文档（Cmd+R）";
+"Bring the real values back. Restore runs on this Mac." = "恢复真实值。恢复在这台 Mac 上运行。";
+"No mapping was found for this file." = "未找到此文件的映射。";
+"Choose the .ldamap that was saved with it." = "请选择与它一同保存的 .ldamap 文件。";
+"Choose Mapping…" = "选择映射…";
+"This mapping was protected with a passphrase. Enter it to restore." = "此映射受密码短语保护。请输入密码短语以恢复。";
+"Word output from Markdown carries plain formatting." = "由 Markdown 生成的 Word 文档只有简单的格式。";
+"Restored with this session's mapping." = "已使用本次会话的映射恢复。";
+"Restored with the mapping saved next to the file." = "已使用文件旁保存的映射恢复。";
+"Restored with the mapping you chose." = "已使用您选择的映射恢复。";
+"Restore opens .md, .txt, and .docx files. %@ is not one of them." = "“恢复”可打开 .md、.txt 和 .docx 文件。%@ 不属于这些类型。";
+"Restore…" = "恢复…";

@@ -52,7 +52,6 @@
 "Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived." = "封存會關閉此視窗中的文件及未完成的還原內容。已儲存的檔案不受影響，之後可從「已封存」還原案件。";
 "Back to Library" = "返回資料庫";
 "Back to Profile" = "返回客戶資料";
-"Bring the real values back. Both paths run entirely on this Mac." = "還原實際值。兩種方式都完全在此 Mac 上執行。";
 "Built in and verified. Part of the app, so it cannot be removed." = "已內建並驗證。這是 App 的一部分，無法移除。";
 "Bulk actions for %@" = "%@ 的批次動作";
 "Cancel" = "取消";
@@ -245,7 +244,6 @@
 "Restore" = "還原";
 "Restore AI Answer" = "還原 AI 回答";
 "Restore Clipboard" = "還原剪貼簿內容";
-"Restore Redacted File…" = "還原已遮蔽的檔案…";
 "Restore the real values in the AI output on the clipboard" = "還原剪貼簿中 AI 輸出內容的實際值";
 "Restore this matter before starting another protected handoff." = "請先還原此案件，再開始另一個受保護的交接。";
 "Restore to Active" = "還原為使用中";
@@ -410,7 +408,6 @@
 "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac." = "在此案件下處理的文件會在不同工作階段中使用一致的預留位置。對應表會在此 Mac 上維持加密。";
 "Export \"%@\" as an encrypted .ldaprofile file." = "將「%@」匯出為加密的 .ldaprofile 檔案。";
 "Export Here" = "匯出至此處";
-"If you protected this mapping with a passphrase, enter it. Leave it blank if it uses the Keychain." = "如果您使用密碼短語保護此對應表，請輸入密碼短語。如果使用「鑰匙圈」，請留白。";
 "Mapping passphrase" = "對應表密碼短語";
 "Save Here" = "儲存至此處";
 "Save the current profile as an encrypted .ldaprofile file." = "將目前客戶資料儲存為加密的 .ldaprofile 檔案。";
@@ -428,10 +425,7 @@
 "Filled %lld blanks in %@." = "已填寫 %lld 個空白欄位，檔案為 %@。";
 "Filled %lld blank in %@. %lld skipped." = "已填寫 %lld 個空白欄位，檔案為 %@。略過 %lld 個。";
 "Filled %lld blanks in %@. %lld skipped." = "已填寫 %lld 個空白欄位，檔案為 %@。略過 %lld 個。";
-"Restore a redacted file" = "還原遮蔽後的檔案";
-"You exported a redacted document earlier and it came back edited. Choose the file; its .ldamap mapping sidecar is picked up automatically from the same folder. If the mapping was protected with a passphrase, you will be asked for it." = "您先前匯出了遮蔽後的文件，現在收到編輯過的版本。請選擇該檔案；LDA 會自動使用同一資料夾中的 .ldamap 對應表檔案。如果對應表受密碼短語保護，系統會要求您輸入密碼短語。";
 "Choose File & Restore…" = "選擇檔案並還原…";
-"Pick an edited redacted document and write the restored original (Cmd+R)" = "選擇編輯過的遮蔽文件，並輸出還原後的原始文件（Cmd+R）";
 "Company" = "公司";
 "Individual" = "個人";
 "Corporate entity: company name, registration, directors, shareholders, capital structure." = "公司實體：公司名稱、登記資料、董事、股東和資本結構。";
@@ -803,3 +797,17 @@
 "Offset %@" = "文字範圍 %@";
 "Edit" = "編輯";
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "儲存要交給 AI 的遮蔽後 Markdown 檔案。與之一同儲存的 .ldamap 檔案請留在這台 Mac 上。";
+"Restore a file" = "還原檔案";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "選擇或拖入交回的檔案：您匯出供 AI 使用的 Markdown，或您儲存的遮蔽後 Word 文件。對應表會自動從此工作階段或檔案旁的 .ldamap 中找到。若檔案是 Word 文件，格式會保留。";
+"Pick the file that came back and write the restored document (Cmd+R)" = "選擇交回的檔案並輸出還原後的文件（Cmd+R）";
+"Bring the real values back. Restore runs on this Mac." = "還原實際值。還原在此 Mac 上執行。";
+"No mapping was found for this file." = "找不到此檔案的對應表。";
+"Choose the .ldamap that was saved with it." = "請選擇與它一同儲存的 .ldamap 檔案。";
+"Choose Mapping…" = "選擇對應表…";
+"This mapping was protected with a passphrase. Enter it to restore." = "此對應表受密碼短語保護。請輸入密碼短語以還原。";
+"Word output from Markdown carries plain formatting." = "由 Markdown 產生的 Word 文件僅有簡單的格式。";
+"Restored with this session's mapping." = "已使用此工作階段的對應表還原。";
+"Restored with the mapping saved next to the file." = "已使用檔案旁儲存的對應表還原。";
+"Restored with the mapping you chose." = "已使用您選擇的對應表還原。";
+"Restore opens .md, .txt, and .docx files. %@ is not one of them." = "「還原」可開啟 .md、.txt 和 .docx 檔案。%@ 不屬於這些類型。";
+"Restore…" = "還原…";
