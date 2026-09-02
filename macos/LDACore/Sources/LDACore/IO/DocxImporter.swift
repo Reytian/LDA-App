@@ -4,7 +4,8 @@
 //
 //  A DocumentImporter for .docx packages. It opens the zip, reads
 //  word/document.xml, extracts the visible text by concatenating every w:t run
-//  in document order (inserting "\n" at w:p paragraph boundaries), and keeps an
+//  in document order (inserting "\n" at w:p paragraph boundaries and at w:br
+//  and w:cr line breaks, and "\t" at w:tab elements), and keeps an
 //  internal offset map from each character position back to its source run so a
 //  later redact pass can target the correct runs.
 //
@@ -44,7 +45,8 @@ public struct DocxImporter: DocumentImporter {
             text: layout.text,
             format: .docx,
             isScanned: false,
-            pageCount: 1
+            pageCount: 1,
+            trackedChangeCount: layout.trackedChangeCount
         )
         return (imported, layout)
     }

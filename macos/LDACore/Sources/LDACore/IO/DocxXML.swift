@@ -26,7 +26,8 @@ let docxMainPartPath = "word/document.xml"
 
 // MARK: - Run model
 
-/// A single w:t run discovered in document.xml.
+/// A single text element (w:t, or w:delText inside a tracked deletion)
+/// discovered in document.xml.
 ///
 /// charStart and charLength are UTF-16 offsets into the concatenated visible
 /// text produced by DocxLayout. textSegmentIndex points at the segment in the
@@ -48,8 +49,9 @@ struct DocxRun: Sendable {
 ///
 /// - markup: raw XML that is copied through verbatim (tags, attributes,
 ///   whitespace, anything that is not editable run text).
-/// - runText: the decoded text content of a single w:t element. This is the only
-///   segment kind a redact pass rewrites. On serialization it is XML-escaped.
+/// - runText: the decoded text content of a single w:t or w:delText element.
+///   This is the only segment kind a redact pass rewrites. On serialization it
+///   is XML-escaped.
 enum DocxSegment: Sendable {
     case markup(String)
     case runText(String)
@@ -64,8 +66,17 @@ struct DocxLayout: Sendable {
     var segments: [DocxSegment]
     /// The runs in document order, with UTF-16 offsets into the concatenated text.
     var runs: [DocxRun]
-    /// The concatenated visible text (w:t contents in order, "\n" at w:p ends).
+    /// The concatenated visible text: w:t contents in order, "\n" between
+    /// paragraphs, "\n" for a w:br or w:cr, and "\t" for a w:tab. The break
+    /// characters belong to no run (see DocxRun), so a replacement may never
+    /// straddle one; SpanSplitter splits detected spans at them.
     var text: String
+    /// How many tracked-change containers (w:ins, w:del, w:moveFrom, w:moveTo)
+    /// the part carries. Deleted text parses inline with no boundary marker, so
+    /// a span may straddle live and tracked runs and restore flattened into the
+    /// first run; callers warn the user to accept all changes before redacting
+    /// when this is non-zero.
+    var trackedChangeCount: Int = 0
 }
 
 // MARK: - Zip helpers
@@ -201,11 +212,17 @@ enum DocxDocumentXML {
     /// Parse document.xml bytes into a DocxLayout.
     ///
     /// The parser walks the raw XML once. It recognizes:
-    /// - "<w:t ...>...</w:t>" elements: their decoded text becomes a runText
-    ///   segment and a DocxRun entry.
+    /// - "<w:t ...>...</w:t>" and "<w:delText ...>...</w:delText>" elements:
+    ///   their decoded text becomes a runText segment and a DocxRun entry. The
+    ///   text of a tracked deletion is still in the file, so it is detected and
+    ///   redacted exactly like visible text and restores into its own element.
     /// - "<w:p" paragraph starts: a "\n" is inserted into the concatenated text
     ///   BEFORE each paragraph except the first, so paragraph boundaries map to
     ///   newlines without trailing-newline noise.
+    /// - "<w:tab/>", "<w:br/>", "<w:cr/>" as run children: one "\t" or "\n" in
+    ///   the concatenated text, so text on either side is not glued together
+    ///   (two tab-separated phone numbers must stay two numbers). Tab STOPS in
+    ///   w:pPr/w:tabs are layout, not text, and contribute nothing.
     /// Everything else is preserved verbatim as markup segments.
     ///
     /// Throws DocumentIOError.corrupt on malformed input.
@@ -220,6 +237,11 @@ enum DocxDocumentXML {
         var concatenated = ""
         var utf16Cursor = 0
         var sawParagraph = false
+        // Open w:r elements, so break elements count as text only inside a run.
+        var runDepth = 0
+        // Inside w:pPr/w:tabs, whose w:tab children are tab stops, not text.
+        var insideTabStops = false
+        var trackedChangeCount = 0
 
         // Accumulator for verbatim markup between meaningful elements.
         var markupBuffer = ""
@@ -246,12 +268,17 @@ enum DocxDocumentXML {
             let tagInfo = try readTagName(scalars, from: i)
             let name = tagInfo.name
 
+            if !tagInfo.isClosing && DocxRunText.trackedChangeElementNames.contains(name) {
+                trackedChangeCount += 1
+            }
+
             if name == "w:p" && !tagInfo.isClosing {
                 // Paragraph start. Insert a newline boundary before all but the
-                // first paragraph so consecutive paragraphs are separated.
+                // first paragraph so consecutive paragraphs are separated. The
+                // newline exists in the concatenated TEXT only; the markup is
+                // copied through unchanged, so a parse/serialize cycle leaves
+                // document.xml byte-identical outside the rewritten run text.
                 if sawParagraph {
-                    flushMarkup()
-                    segments.append(.markup("\n"))
                     concatenated.append("\n")
                     utf16Cursor += ("\n" as NSString).length
                 }
@@ -262,12 +289,14 @@ enum DocxDocumentXML {
                 continue
             }
 
-            if name == "w:t" && !tagInfo.isClosing && !tagInfo.isSelfClosing {
-                // A text run. Capture the open tag, the raw inner text up to the
-                // matching close tag, and emit a runText segment plus a run entry.
+            if DocxRunText.textElementNames.contains(name) && !tagInfo.isClosing && !tagInfo.isSelfClosing {
+                // A text element. Capture the open tag, the raw inner text up to
+                // the matching close tag, and emit a runText segment plus a run
+                // entry.
                 let openTag = String(scalars[i ..< tagInfo.tagEnd])
-                guard let close = findClose(scalars, openTagEnd: tagInfo.tagEnd, closeTag: "</w:t>") else {
-                    throw DocumentIOError.corrupt("unterminated w:t element")
+                let closeTag = "</\(name)>"
+                guard let close = findClose(scalars, openTagEnd: tagInfo.tagEnd, closeTag: closeTag) else {
+                    throw DocumentIOError.corrupt("unterminated \(name) element")
                 }
                 let rawInner = String(scalars[tagInfo.tagEnd ..< close.contentEnd])
                 let decoded = xmlDecode(rawInner)
@@ -282,7 +311,7 @@ enum DocxDocumentXML {
                 concatenated.append(decoded)
                 utf16Cursor += runLength
 
-                segments.append(.markup("</w:t>"))
+                segments.append(.markup(closeTag))
 
                 runs.append(
                     DocxRun(
@@ -296,6 +325,23 @@ enum DocxDocumentXML {
                 continue
             }
 
+            if name == "w:r" {
+                if tagInfo.isClosing {
+                    runDepth = max(0, runDepth - 1)
+                } else if !tagInfo.isSelfClosing {
+                    runDepth += 1
+                }
+            } else if name == "w:tabs" {
+                insideTabStops = !tagInfo.isClosing && !tagInfo.isSelfClosing
+            } else if !tagInfo.isClosing, runDepth > 0, !insideTabStops,
+                      let breakText = DocxRunText.breakText(forElement: name) {
+                // A run-level tab or line break: one character of text that
+                // belongs to no run. The element itself is copied through
+                // verbatim below, so the layout re-serializes unchanged.
+                concatenated.append(breakText)
+                utf16Cursor += (breakText as NSString).length
+            }
+
             // Any other tag (including self-closing or closing tags, comments,
             // processing instructions, CDATA, DOCTYPE) is copied verbatim.
             markupBuffer.append(contentsOf: scalars[i ..< tagInfo.tagEnd])
@@ -304,12 +350,23 @@ enum DocxDocumentXML {
 
         flushMarkup()
 
-        return DocxLayout(segments: segments, runs: runs, text: concatenated)
+        return DocxLayout(
+            segments: segments,
+            runs: runs,
+            text: concatenated,
+            trackedChangeCount: trackedChangeCount
+        )
     }
 
     /// Serialize a layout back into document.xml bytes. Markup segments are
     /// emitted verbatim; runText segments are XML-escaped.
     static func serialize(_ layout: DocxLayout) -> Data {
+        Data(serializeXML(layout).utf8)
+    }
+
+    /// The serialized part as a string, for callers that post-process the
+    /// markup before writing it.
+    static func serializeXML(_ layout: DocxLayout) -> String {
         var out = ""
         for segment in layout.segments {
             switch segment {
@@ -319,7 +376,7 @@ enum DocxDocumentXML {
                 out += xmlEncode(text)
             }
         }
-        return Data(out.utf8)
+        return out
     }
 
     // MARK: - Tag scanning

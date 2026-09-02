@@ -23,7 +23,7 @@ final class CrossParagraphSpanTests: XCTestCase {
     func testSplitterPassesThroughNewlineFreeSpans() {
         let text = "Pay Alice now."
         let spans = EntityLocator.spans(forValue: "Alice", type: .person, in: text)
-        let split = SpanSplitter.splitAtLineBreaks(spans, in: text)
+        let split = SpanSplitter.splitAtBreaks(spans, in: text)
         XCTAssertEqual(split, spans)
     }
 
@@ -32,7 +32,7 @@ final class CrossParagraphSpanTests: XCTestCase {
         let spans = EntityLocator.spans(forValue: "John\nSmith", type: .person, in: text)
         XCTAssertEqual(spans.count, 1, "fixture: the cross-paragraph value must locate")
 
-        let split = SpanSplitter.splitAtLineBreaks(spans, in: text)
+        let split = SpanSplitter.splitAtBreaks(spans, in: text)
 
         XCTAssertEqual(split.count, 2)
         XCTAssertEqual(split.map { $0.text }, ["John", "Smith"])
@@ -51,7 +51,7 @@ final class CrossParagraphSpanTests: XCTestCase {
             start: 0, end: 5, type: .person, text: "A\n \nB",
             source: .llm, confidence: 0.9, priority: 30
         )
-        let split = SpanSplitter.splitAtLineBreaks([span], in: text)
+        let split = SpanSplitter.splitAtBreaks([span], in: text)
         XCTAssertEqual(split.map { $0.text }, ["A", "B"])
     }
 

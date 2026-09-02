@@ -14,6 +14,13 @@
 //  back through the run planner. This also handles a token Word split across
 //  runs after redaction.
 //
+//  Formatting of a cross-run entity (known limitation): the mapping records
+//  values, not run boundaries, so a restored value is written whole into the
+//  first run its token covers and takes that run's formatting. An email whose
+//  first letters were bold and whose remainder was not comes back entirely
+//  bold. Every other run keeps its own formatting. RestoreReport has no field
+//  for this yet, so it is documented here rather than surfaced per document.
+//
 //  restoreLiteral: the pseudonym and asterisk styles have no brace grammar, so
 //  a replacement is an ordinary string that Word may have split across runs and
 //  whose ambiguity can only be judged against its neighbours. That pass decides
@@ -42,11 +49,14 @@ public enum DocxRedactor {
     /// The body is always redacted. When `nonBody` is supplied (a detector plus
     /// the body mapping), every other text-bearing part (headers, footers,
     /// footnotes, endnotes, comments) is also redacted, the docProps author/title
-    /// metadata is scrubbed, and external mailto:/tel: hyperlink Targets are
-    /// neutralized, all in the same single rewrite. Any token minted for a surface
-    /// found only in a non-body part is returned so the caller can fold it into the
-    /// mapping sidecar (and therefore restore it). When `nonBody` is nil the
-    /// behavior is exactly the body-only legacy path.
+    /// metadata is scrubbed, external mailto:/tel: hyperlink Targets are
+    /// neutralized, and the markup-borne PII of every part is scrubbed
+    /// (mailto:/tel: field instruction targets, revision and comment authors,
+    /// word/people.xml; see DocxMarkupScrub), all in the same single rewrite.
+    /// Any token minted for a surface found only in a non-body part is returned
+    /// so the caller can fold it into the mapping sidecar (and therefore restore
+    /// it). When `nonBody` is nil the behavior is exactly the body-only legacy
+    /// path used to fill forms: run text is rewritten and nothing else changes.
     @discardableResult
     public static func redact(
         original: URL,
@@ -68,15 +78,31 @@ public enum DocxRedactor {
             try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
         }
 
-        var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
+        let bodyXML = DocxDocumentXML.serializeXML(layout)
+        var rewriteParts: [String: Data] = [docxMainPartPath: Data(bodyXML.utf8)]
         var newEntries: [MappingEntry] = []
 
         if let nonBody {
+            // The redacted copy also loses the PII the body keeps in markup:
+            // mailto:/tel: field targets and revision authors.
+            rewriteParts[docxMainPartPath] = Data(DocxMarkupScrub.scrubRedactedPart(bodyXML).utf8)
             let result = DocxParts.redactNonBodyParts(
                 url: original,
                 mapping: nonBody.mapping,
                 detect: nonBody.detect
             )
+            // A supplementary part that could not be parsed or rewritten would
+            // copy into the output verbatim, PII included, while the caller
+            // reported success. Refuse before anything is written. The message
+            // carries the count, never a path: a part path can itself be PII.
+            guard result.failedParts.isEmpty else {
+                let count = result.failedParts.count
+                let noun = count == 1 ? "part" : "parts"
+                throw DocumentIOError.corrupt(
+                    "\(count) supplementary \(noun) (header, footer, notes, or comments) "
+                        + "could not be redacted, so the package was not written"
+                )
+            }
             // The body part is never produced by DocxParts, so this merge never
             // clobbers the body rewrite computed above.
             for (path, bytes) in result.replacements {
@@ -205,7 +231,36 @@ public enum DocxRedactor {
             let suffix = current.substring(from: edit.localEnd)
             current = (prefix + edit.insertText + suffix) as NSString
         }
-        layout.segments[segmentIndex] = .runText(current as String)
+        let rewritten = current as String
+        layout.segments[segmentIndex] = .runText(rewritten)
+
+        // A rewrite that leaves whitespace at either edge of the run (the tail
+        // of an email whose head sat in a bold run, a value restored ahead of
+        // a following space) must mark its element xml:space="preserve", or
+        // Word drops that space. Runs the rewrite did not touch keep their
+        // start tag byte for byte.
+        guard DocxRunText.needsSpacePreserve(rewritten) else { return }
+        try preserveSpace(onTextElementBefore: segmentIndex, in: &layout)
+    }
+
+    /// Rewrite the start tag of the text element whose content is segment
+    /// `segmentIndex` so it carries xml:space="preserve". The parser emits a
+    /// text element's start tag as the markup segment immediately before its
+    /// runText segment, so that is the segment rewritten. Any other shape means
+    /// the layout did not come from DocxDocumentXML.parse, an internal error
+    /// that is reported rather than papered over.
+    private static func preserveSpace(
+        onTextElementBefore segmentIndex: Int,
+        in layout: inout DocxLayout
+    ) throws {
+        guard segmentIndex > 0,
+              case .markup(let openTag) = layout.segments[segmentIndex - 1],
+              DocxRunText.isTextOpenTag(openTag) else {
+            throw DocumentIOError.corrupt(
+                "run text segment is not preceded by its text element start tag"
+            )
+        }
+        layout.segments[segmentIndex - 1] = .markup(DocxRunText.openTagPreservingSpace(openTag))
     }
 
     // MARK: - Restore
@@ -402,11 +457,12 @@ public enum DocxRedactor {
     /// Whether run text covers `range` end to end with no gap.
     ///
     /// Every character of a part's concatenated text is either run text or a
-    /// synthetic paragraph newline that belongs to no run. A site straddling
-    /// such a newline cannot be written back faithfully: the value would land
-    /// in the first run while the newline stayed behind. Detected spans are
-    /// split at line breaks before tokenization (see SpanSplitter), so no
-    /// replacement the pipeline mints carries one and this guard never fires
+    /// synthetic break that belongs to no run: the paragraph newline, a w:br
+    /// or w:cr line break, or a w:tab. A site straddling such a character
+    /// cannot be written back faithfully: the value would land in the first
+    /// run while the break element stayed behind. Detected spans are split at
+    /// breaks before tokenization (see SpanSplitter), so no replacement the
+    /// pipeline mints carries one and this guard never fires
     /// in practice. When it does, leaving the bytes alone is the safe
     /// direction: the document keeps the redacted text rather than gaining a
     /// value in the wrong place.

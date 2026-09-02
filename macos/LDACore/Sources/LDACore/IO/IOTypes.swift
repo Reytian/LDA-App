@@ -23,9 +23,12 @@
 //     Restore happens on the edited companion, not the PDF.
 //
 //  Token model: tokens are unique opaque strings like {PERSON_1} matching the
-//  grammar TokenGrammar.placeholderPattern (\{[A-Z][A-Z0-9]*_\d+\}). During
-//  restore a token always lives within a single run, so per-run find/replace of
-//  token -> value is correct and safe.
+//  grammar TokenGrammar.placeholderPattern (\{[A-Z][A-Z0-9]*_\d+\}). Redaction
+//  writes a token into the first run its span covers, but later editing (Word
+//  re-splits runs by rsid, spell-check state, and formatting) can leave a token
+//  spread across several w:t runs. Restore therefore finds tokens in each
+//  part's whole concatenated text and writes values back through the run
+//  planner (DocxRedactor), never by per-run find/replace.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -69,19 +72,29 @@ public struct ImportedDocument: Sendable {
     /// pages plus scanned exhibit or signature pages) it is the subset that
     /// needs OCR. Empty for non-PDF formats and fully born-digital PDFs.
     public var scannedPageIndexes: [Int]
+    /// DOCX only: how many tracked-change containers (w:ins, w:del, moves) the
+    /// body carries. Deleted text is part of `text` with no boundary marker,
+    /// so a detected span can straddle live and tracked runs; such a span
+    /// redacts safely but restores whole into the first run, flattening the
+    /// tracked change. A non-zero count should be surfaced as a warning to
+    /// accept all changes before redacting for an exact round trip. 0 for
+    /// every other format.
+    public var trackedChangeCount: Int
 
     public init(
         text: String,
         format: DocumentFormat,
         isScanned: Bool,
         pageCount: Int,
-        scannedPageIndexes: [Int] = []
+        scannedPageIndexes: [Int] = [],
+        trackedChangeCount: Int = 0
     ) {
         self.text = text
         self.format = format
         self.isScanned = isScanned
         self.pageCount = pageCount
         self.scannedPageIndexes = scannedPageIndexes
+        self.trackedChangeCount = trackedChangeCount
     }
 }
 
