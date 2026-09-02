@@ -246,11 +246,12 @@ public enum LDAService {
         let detector = makeDetector(modelPath: llmModelPath)
         let detected = try detector.detectText(imported.text)
         // DOCX replacement happens run by run inside paragraphs, and the
-        // paragraph newline exists in no run, so a span crossing it cannot
-        // round-trip. Split such spans into per-paragraph parts (each gets its
-        // own token and restores within its own run structure).
+        // paragraph newline, line break, and tab characters exist in no run,
+        // so a span crossing one cannot round-trip. Split such spans into
+        // per-run parts (each gets its own token and restores within its own
+        // run structure).
         let spans = ext == "docx" && imageExtraction == nil
-            ? SpanSplitter.splitAtLineBreaks(detected, in: imported.text)
+            ? SpanSplitter.splitAtBreaks(detected, in: imported.text)
             : detected
         var tokenized = try Tokenizer.requireSafeForRelease(
             Tokenizer.tokenize(

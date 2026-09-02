@@ -64,7 +64,10 @@ struct DocxLayout: Sendable {
     var segments: [DocxSegment]
     /// The runs in document order, with UTF-16 offsets into the concatenated text.
     var runs: [DocxRun]
-    /// The concatenated visible text (w:t contents in order, "\n" at w:p ends).
+    /// The concatenated visible text: w:t contents in order, "\n" between
+    /// paragraphs, "\n" for a w:br or w:cr, and "\t" for a w:tab. The break
+    /// characters belong to no run (see DocxRun), so a replacement may never
+    /// straddle one; SpanSplitter splits detected spans at them.
     var text: String
 }
 
@@ -206,6 +209,10 @@ enum DocxDocumentXML {
     /// - "<w:p" paragraph starts: a "\n" is inserted into the concatenated text
     ///   BEFORE each paragraph except the first, so paragraph boundaries map to
     ///   newlines without trailing-newline noise.
+    /// - "<w:tab/>", "<w:br/>", "<w:cr/>" as run children: one "\t" or "\n" in
+    ///   the concatenated text, so text on either side is not glued together
+    ///   (two tab-separated phone numbers must stay two numbers). Tab STOPS in
+    ///   w:pPr/w:tabs are layout, not text, and contribute nothing.
     /// Everything else is preserved verbatim as markup segments.
     ///
     /// Throws DocumentIOError.corrupt on malformed input.
@@ -220,6 +227,10 @@ enum DocxDocumentXML {
         var concatenated = ""
         var utf16Cursor = 0
         var sawParagraph = false
+        // Open w:r elements, so break elements count as text only inside a run.
+        var runDepth = 0
+        // Inside w:pPr/w:tabs, whose w:tab children are tab stops, not text.
+        var insideTabStops = false
 
         // Accumulator for verbatim markup between meaningful elements.
         var markupBuffer = ""
@@ -294,6 +305,23 @@ enum DocxDocumentXML {
 
                 i = close.closeTagEnd
                 continue
+            }
+
+            if name == "w:r" {
+                if tagInfo.isClosing {
+                    runDepth = max(0, runDepth - 1)
+                } else if !tagInfo.isSelfClosing {
+                    runDepth += 1
+                }
+            } else if name == "w:tabs" {
+                insideTabStops = !tagInfo.isClosing && !tagInfo.isSelfClosing
+            } else if !tagInfo.isClosing, runDepth > 0, !insideTabStops,
+                      let breakText = DocxRunText.breakText(forElement: name) {
+                // A run-level tab or line break: one character of text that
+                // belongs to no run. The element itself is copied through
+                // verbatim below, so the layout re-serializes unchanged.
+                concatenated.append(breakText)
+                utf16Cursor += (breakText as NSString).length
             }
 
             // Any other tag (including self-closing or closing tags, comments,

@@ -431,11 +431,12 @@ public enum DocxRedactor {
     /// Whether run text covers `range` end to end with no gap.
     ///
     /// Every character of a part's concatenated text is either run text or a
-    /// synthetic paragraph newline that belongs to no run. A site straddling
-    /// such a newline cannot be written back faithfully: the value would land
-    /// in the first run while the newline stayed behind. Detected spans are
-    /// split at line breaks before tokenization (see SpanSplitter), so no
-    /// replacement the pipeline mints carries one and this guard never fires
+    /// synthetic break that belongs to no run: the paragraph newline, a w:br
+    /// or w:cr line break, or a w:tab. A site straddling such a character
+    /// cannot be written back faithfully: the value would land in the first
+    /// run while the break element stayed behind. Detected spans are split at
+    /// breaks before tokenization (see SpanSplitter), so no replacement the
+    /// pipeline mints carries one and this guard never fires
     /// in practice. When it does, leaving the bytes alone is the safe
     /// direction: the document keeps the redacted text rather than gaining a
     /// value in the wrong place.

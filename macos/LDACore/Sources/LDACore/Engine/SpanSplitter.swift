@@ -2,16 +2,16 @@
 //  SpanSplitter.swift
 //  LDACore
 //
-//  Splits detected spans whose surface text crosses a line break into
-//  per-line sub-spans.
+//  Splits detected spans whose surface text crosses a run break (a paragraph
+//  newline, a w:br or w:cr line break, or a w:tab) into per-run sub-spans.
 //
-//  Why: the DOCX paragraph newline is synthetic. It exists in the imported
-//  text but in no w:t run, so a replacement whose surface carries it cannot
-//  round-trip: the token would restore the full value (newline included)
-//  into a single run, pushing a literal newline into w:t content and
-//  diverging from the original document structure. Splitting at line breaks
-//  gives each paragraph-local part its own token, which redacts and restores
-//  exactly within its own run structure.
+//  Why: those characters are synthetic in the DOCX imported text. They exist
+//  in the text but in no w:t run, so a replacement whose surface carries one
+//  cannot round-trip: the token would restore the full value (break included)
+//  into a single run, pushing a literal newline or tab into w:t content while
+//  the break element stayed behind, diverging from the original document
+//  structure. Splitting at breaks gives each run-local part its own token,
+//  which redacts and restores exactly within its own run structure.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -19,22 +19,26 @@
 
 import Foundation
 
-/// Splits spans at line breaks so no replacement surface ever crosses a
-/// paragraph boundary.
+/// Splits spans at run breaks so no replacement surface ever crosses a
+/// paragraph boundary, a line break element, or a tab.
 public enum SpanSplitter {
 
-    /// Returns the spans with every line-break-crossing span replaced by its
-    /// per-line sub-spans. Whitespace-only parts are dropped. Spans without a
-    /// line break pass through unchanged. Offsets are UTF-16 code units into
-    /// text, matching Span's convention; each sub-span's text is the exact
-    /// source slice, so downstream tokenize/restore stays byte-identical.
-    public static func splitAtLineBreaks(_ spans: [Span], in text: String) -> [Span] {
+    /// The characters the DOCX parser synthesizes outside any run: line breaks
+    /// (paragraph ends, w:br, w:cr) and the tab (w:tab).
+    static let breakCharacters = CharacterSet.newlines.union(CharacterSet(charactersIn: "\t"))
+
+    /// Returns the spans with every break-crossing span replaced by its
+    /// per-run sub-spans. Whitespace-only parts are dropped. Spans without a
+    /// break pass through unchanged. Offsets are UTF-16 code units into text,
+    /// matching Span's convention; each sub-span's text is the exact source
+    /// slice, so downstream tokenize/restore stays byte-identical.
+    public static func splitAtBreaks(_ spans: [Span], in text: String) -> [Span] {
         var result: [Span] = []
         result.reserveCapacity(spans.count)
 
         for span in spans {
             let surface = span.text as NSString
-            if surface.rangeOfCharacter(from: .newlines).location == NSNotFound {
+            if surface.rangeOfCharacter(from: breakCharacters).location == NSNotFound {
                 result.append(span)
                 continue
             }
@@ -63,10 +67,10 @@ public enum SpanSplitter {
             }
 
             for offset in 0..<surface.length {
-                // Line-break characters are all BMP scalars, so unpaired
-                // surrogate halves (which fail Unicode.Scalar) never match.
+                // Break characters are all BMP scalars, so unpaired surrogate
+                // halves (which fail Unicode.Scalar) never match.
                 let unit = surface.character(at: offset)
-                if let scalar = Unicode.Scalar(unit), CharacterSet.newlines.contains(scalar) {
+                if let scalar = Unicode.Scalar(unit), breakCharacters.contains(scalar) {
                     flush(upTo: offset)
                 } else if partStart == nil {
                     partStart = offset

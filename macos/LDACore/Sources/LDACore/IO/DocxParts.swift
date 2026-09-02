@@ -182,9 +182,10 @@ enum DocxParts {
         var counters = perTypeMaxIndices(in: mapping.entries.keys)
 
         for part in loadTextBearingParts(from: url) {
-            // Split spans crossing the synthetic paragraph newline; a surface
-            // carrying it cannot restore into a single run (see SpanSplitter).
-            let spans = SpanSplitter.splitAtLineBreaks(
+            // Split spans crossing a synthetic break (paragraph newline, line
+            // break, tab); a surface carrying one cannot restore into a single
+            // run (see SpanSplitter).
+            let spans = SpanSplitter.splitAtBreaks(
                 detect(part.layout.text),
                 in: part.layout.text
             )

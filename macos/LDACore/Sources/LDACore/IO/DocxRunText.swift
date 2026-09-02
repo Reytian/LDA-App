@@ -22,6 +22,18 @@ enum DocxRunText {
     /// text of a tracked deletion; it reads and rewrites exactly like w:t.
     static let textElementNames: [String] = ["w:t", "w:delText"]
 
+    /// The character a run-level break element contributes to the concatenated
+    /// text, or nil for any other element. w:tab and w:ptab are tabs; w:br (of
+    /// every type, page breaks included) and w:cr are line breaks. The element
+    /// itself stays in the markup verbatim; only the text gains a character.
+    static func breakText(forElement name: String) -> String? {
+        switch name {
+        case "w:tab", "w:ptab": return "\t"
+        case "w:br", "w:cr": return "\n"
+        default: return nil
+        }
+    }
+
     /// XML whitespace (space, tab, carriage return, line feed): the characters
     /// a consumer may strip from the edges of element content.
     private static let xmlWhitespace: Set<Unicode.Scalar> = [" ", "\t", "\r", "\n"]
