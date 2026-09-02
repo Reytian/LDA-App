@@ -71,6 +71,12 @@ struct DocxLayout: Sendable {
     /// characters belong to no run (see DocxRun), so a replacement may never
     /// straddle one; SpanSplitter splits detected spans at them.
     var text: String
+    /// How many tracked-change containers (w:ins, w:del, w:moveFrom, w:moveTo)
+    /// the part carries. Deleted text parses inline with no boundary marker, so
+    /// a span may straddle live and tracked runs and restore flattened into the
+    /// first run; callers warn the user to accept all changes before redacting
+    /// when this is non-zero.
+    var trackedChangeCount: Int = 0
 }
 
 // MARK: - Zip helpers
@@ -235,6 +241,7 @@ enum DocxDocumentXML {
         var runDepth = 0
         // Inside w:pPr/w:tabs, whose w:tab children are tab stops, not text.
         var insideTabStops = false
+        var trackedChangeCount = 0
 
         // Accumulator for verbatim markup between meaningful elements.
         var markupBuffer = ""
@@ -260,6 +267,10 @@ enum DocxDocumentXML {
             // We are at a "<". Read the tag name to decide handling.
             let tagInfo = try readTagName(scalars, from: i)
             let name = tagInfo.name
+
+            if !tagInfo.isClosing && DocxRunText.trackedChangeElementNames.contains(name) {
+                trackedChangeCount += 1
+            }
 
             if name == "w:p" && !tagInfo.isClosing {
                 // Paragraph start. Insert a newline boundary before all but the
@@ -339,7 +350,12 @@ enum DocxDocumentXML {
 
         flushMarkup()
 
-        return DocxLayout(segments: segments, runs: runs, text: concatenated)
+        return DocxLayout(
+            segments: segments,
+            runs: runs,
+            text: concatenated,
+            trackedChangeCount: trackedChangeCount
+        )
     }
 
     /// Serialize a layout back into document.xml bytes. Markup segments are
