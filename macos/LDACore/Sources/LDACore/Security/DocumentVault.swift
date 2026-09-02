@@ -89,7 +89,8 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     public let handle: String
     /// What this entry holds.
     public let kind: VaultArtifactKind
-    /// Normalized format: "docx", "pdf", "md", or "txt".
+    /// Normalized format: "docx", "pdf", "md", "txt", "png", or "jpg" (see
+    /// normalizedFormat).
     public let format: String
     /// Size of the stored file in bytes.
     public let byteCount: Int
