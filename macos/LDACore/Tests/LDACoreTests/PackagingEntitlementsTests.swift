@@ -74,6 +74,41 @@ final class PackagingEntitlementsTests: XCTestCase {
         )
     }
 
+    func testInfoPlistDeclaresTheMappingSidecarAsARelatedItemType() throws {
+        // Export for AI writes <base>.ldamap next to the .md the user chose in
+        // a save panel, and Restore reads the .ldamap next to the file chosen
+        // in an open panel. Under App Sandbox the Powerbox grant covers the
+        // chosen file only; it extends to a sibling with a declared related
+        // item type, accessed through file coordination. Without this entry
+        // the sidecar write is denied in the packaged app.
+        let info = try plist("Info.plist")
+
+        let documentTypes = try XCTUnwrap(info["CFBundleDocumentTypes"] as? [[String: Any]])
+        let mapping = try XCTUnwrap(documentTypes.first {
+            ($0["LSItemContentTypes"] as? [String])?
+                .contains(MappingStore.uniformTypeIdentifier) == true
+        })
+        XCTAssertEqual(mapping["NSIsRelatedItemType"] as? Bool, true)
+        XCTAssertEqual(
+            mapping["CFBundleTypeExtensions"] as? [String],
+            [MappingStore.fileExtension],
+            "the related item is matched by extension, so the extension must be declared"
+        )
+        XCTAssertEqual(mapping["LSHandlerRank"] as? String, "Owner")
+
+        let exported = try XCTUnwrap(info["UTExportedTypeDeclarations"] as? [[String: Any]])
+        let declaration = try XCTUnwrap(exported.first {
+            $0["UTTypeIdentifier"] as? String == MappingStore.uniformTypeIdentifier
+        })
+        XCTAssertEqual(declaration["UTTypeConformsTo"] as? [String], ["public.data"])
+        let tags = try XCTUnwrap(declaration["UTTypeTagSpecification"] as? [String: Any])
+        XCTAssertEqual(
+            tags["public.filename-extension"] as? [String],
+            [MappingStore.fileExtension],
+            "the declared extension must match the one the app writes"
+        )
+    }
+
     func testSandboxEntitlementsAreExactlyWhatWeIntend() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let packageRoot = testFileURL

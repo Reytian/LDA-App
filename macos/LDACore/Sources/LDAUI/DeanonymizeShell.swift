@@ -245,24 +245,30 @@ public struct DeanonymizeShell: View {
         }
         switch source {
         case .sidecar(let sidecar):
-            return openSidecar(sidecar).map { ($0, .sidecar) }
+            // The sibling is reachable only as the chosen file's related item.
+            return openSidecar(sidecar, primary: file).map { ($0, .sidecar) }
         case .session(let mapping), .clientProfile(let mapping):
             return (mapping, .session)
         case .none:
             guard confirmChoosingAMapping(), let picked = pickMapping() else { return nil }
-            return openSidecar(picked).map { ($0, .chosenMapping) }
+            // Picked in an open panel, so granted on its own.
+            return openSidecar(picked, primary: nil).map { ($0, .chosenMapping) }
         }
     }
 
     /// Open a sidecar through its Keychain account, and ask for a passphrase
     /// only when that fails for a key reason.
-    private func openSidecar(_ sidecar: URL) -> Mapping? {
+    private func openSidecar(_ sidecar: URL, primary: URL?) -> Mapping? {
         do {
-            return try SessionModel.loadSidecarMapping(at: sidecar)
+            return try SessionModel.loadSidecarMapping(at: sidecar, primary: primary)
         } catch where SessionModel.sidecarLoadNeedsPassphrase(error) {
             guard let passphrase = askRestorePassphrase() else { return nil }
             do {
-                return try SessionModel.loadSidecarMapping(at: sidecar, passphrase: passphrase)
+                return try SessionModel.loadSidecarMapping(
+                    at: sidecar,
+                    primary: primary,
+                    passphrase: passphrase
+                )
             } catch {
                 showFailure(DocumentErrorPresentation.describeOrFallback(error))
                 return nil
@@ -288,7 +294,7 @@ public struct DeanonymizeShell: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        if let mappingType = UTType(filenameExtension: "ldamap") {
+        if let mappingType = UTType(filenameExtension: MappingStore.fileExtension) {
             panel.allowedContentTypes = [mappingType]
         }
         panel.message = L10n.string("Choose the .ldamap mapping that goes with this document.")

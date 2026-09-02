@@ -24,14 +24,23 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>Legal Document Anonymizer. Documents stay on this Mac.</string>
 
-  <!-- The two encrypted files LDA writes for handover. The portable workspace
-       (.ldawork) holds a matter's documents, review decisions, and
-       replacements; the compliance report (.ldareport) holds the processing
-       report a lawyer hands over. Both are declared as document types so a
-       double-click reaches the app, and exported as owned types so Finder
-       names them rather than calling them generic documents. Both conform to
-       public.data only: the contents are ciphertext, and nothing outside LDA
-       can read further into them. -->
+  <!-- The encrypted files LDA writes. The portable workspace (.ldawork)
+       holds a matter's documents, review decisions, and replacements; the
+       compliance report (.ldareport) holds the processing report a lawyer
+       hands over. Both are declared as document types so a double-click
+       reaches the app, and exported as owned types so Finder names them
+       rather than calling them generic documents. All conform to public.data
+       only: the contents are ciphertext, and nothing outside LDA can read
+       further into them.
+
+       The mapping sidecar (.ldamap) is declared as a RELATED ITEM type
+       (NSIsRelatedItemType). Export for AI writes <base>.ldamap next to the
+       .md the user chose in a save panel, and Restore reads the .ldamap next
+       to the file chosen in an open panel. Under App Sandbox the Powerbox
+       grant covers the chosen file only; with this declaration, and file
+       coordination through a presenter naming the chosen file as primary
+       (see RelatedSidecarAccess in LDAUI), the grant extends to the sidecar.
+       Without it the sidecar write is denied in the packaged app. -->
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
@@ -50,6 +59,20 @@
       <key>LSItemContentTypes</key>
       <array>
         <string>com.haotianyi.LDA.compliancereport</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>LDA Mapping</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>NSIsRelatedItemType</key><true/>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>ldamap</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>com.haotianyi.LDA.mapping</string>
       </array>
     </dict>
   </array>
@@ -83,6 +106,21 @@
         <key>public.filename-extension</key>
         <array>
           <string>ldareport</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.haotianyi.LDA.mapping</string>
+      <key>UTTypeDescription</key><string>LDA Mapping</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>ldamap</string>
         </array>
       </dict>
     </dict>
