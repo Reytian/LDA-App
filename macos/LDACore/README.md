@@ -182,14 +182,14 @@ launch); exports land only in the vault's own `outbox/`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle` |
+| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (values the review step left visible; 0 means fully redacted) |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
 | `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
 | `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
-| `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned, per-tool call counts |
+| `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned (plaintext, redacted, and the partially redacted subset), per-tool call counts |
 
 Error results are boundary-safe codes plus handles: `unknown_handle`,
 `not_an_original`, `not_redacted`, `not_exportable`, `missing_mapping`,

@@ -103,7 +103,9 @@ extension MCPServer {
                 stagedAtISO8601: context.stagedAt,
                 sourceHandle: context.redactedEntry.handle,
                 mappingFile: context.mappingURL,
-                mappingAccountBase: context.redactedEntry.mappingAccountBase ?? context.redactedEntry.handle
+                mappingAccountBase: context.redactedEntry.mappingAccountBase ?? context.redactedEntry.handle,
+                // The edited text still shows whatever its parent left visible.
+                excludedEntityCount: context.redactedEntry.excludedEntityCount
             )
         } catch {
             vault.abort(slot: editedSlot)

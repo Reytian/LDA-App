@@ -113,6 +113,12 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     /// Keychain account derives when no passphrase protects it. Opaque (it is
     /// a handle), deterministic, and shared by every member of one session.
     public let mappingAccountBase: String?
+    /// For redacted artifacts: how many detected values the caller's review
+    /// step left visible when the artifact was produced. Zero means fully
+    /// redacted; nil means the producer did not report (originals, and
+    /// entries written before this field existed). Surfaced by list_pending
+    /// so a partially redacted artifact is never mistaken for a clean one.
+    public let excludedEntityCount: Int?
 }
 
 // MARK: - Errors
@@ -301,7 +307,8 @@ public struct DocumentVault {
                 originalFilename: fileURL.lastPathComponent,
                 sourceHandle: nil,
                 mappingRelativePath: nil,
-                mappingAccountBase: nil
+                mappingAccountBase: nil,
+                excludedEntityCount: nil
             )
             registry.entries.append(entry)
             try saveRegistryLocked(registry)
@@ -351,6 +358,11 @@ public struct DocumentVault {
     /// is not registered, so nothing could ever read it back, and leaving it
     /// would keep producer plaintext (a review PDF, a companion) in the vault
     /// forever.
+    ///
+    /// excludedEntityCount records how many detected values the producer left
+    /// visible on purpose (the review step); it is kept on the entry and
+    /// noted on the security event so a partially redacted artifact is
+    /// visible as such wherever it is named.
     @discardableResult
     public func commit(
         slot: DerivedSlot,
@@ -358,7 +370,8 @@ public struct DocumentVault {
         stagedAtISO8601: String,
         sourceHandle: String?,
         mappingFile: URL?,
-        mappingAccountBase: String?
+        mappingAccountBase: String?,
+        excludedEntityCount: Int? = nil
     ) throws -> VaultEntry {
         let relativePath = try vaultRelativePath(of: primaryFile)
         let mappingRelativePath = try mappingFile.map { try vaultRelativePath(of: $0) }
@@ -385,7 +398,8 @@ public struct DocumentVault {
             originalFilename: nil,
             sourceHandle: sourceHandle,
             mappingRelativePath: mappingRelativePath,
-            mappingAccountBase: mappingAccountBase
+            mappingAccountBase: mappingAccountBase,
+            excludedEntityCount: excludedEntityCount
         )
 
         try DocumentVault.registryLock.withLock {
@@ -394,7 +408,14 @@ public struct DocumentVault {
             try saveRegistryLocked(registry)
         }
 
-        SecurityEventLog.shared.record(kind: .vaultArtifactStored, scope: DocumentVault.auditScope)
+        // A count, never a value: the audit trail records that this artifact
+        // left values visible without saying which.
+        let excludedDetail = excludedEntityCount.flatMap { $0 > 0 ? "excluded=\($0)" : nil }
+        SecurityEventLog.shared.record(
+            kind: .vaultArtifactStored,
+            scope: DocumentVault.auditScope,
+            detail: excludedDetail
+        )
         return entry
     }
 

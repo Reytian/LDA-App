@@ -88,7 +88,7 @@ extension MCPServer {
     static let vaultToolDescriptors: [[String: Any]] = [
         [
             "name": "list_pending",
-            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at). Never returns filenames or paths.",
+            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at, source handle, and for redacted artifacts excludedEntityCount: how many detected values the review step left visible; 0 means fully redacted). Never returns filenames or paths.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),
@@ -197,7 +197,7 @@ extension MCPServer {
         ],
         [
             "name": "attest",
-            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, how the vault master key is protected, the Keychain ACL mode, byte counters for what this session has returned, and per-tool call counts.",
+            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, how the vault master key is protected, the Keychain ACL mode, byte counters for what this session has returned (plaintext, always zero; redacted; and the subset of redacted bytes that came from partially redacted artifacts, which carry values the caller chose to leave visible), and per-tool call counts.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),

@@ -456,6 +456,72 @@ final class MCPReviewExclusionTests: XCTestCase {
         XCTAssertEqual(try listedHandleCount(), 1, "nothing was written on either refusal")
     }
 
+    // MARK: - Accounting for values left visible
+
+    /// A redacted artifact produced with exclusions is only partially
+    /// redacted, and that has to be visible wherever the artifact is named:
+    /// list_pending reports how many values each artifact left visible.
+    func testListPendingReportsHowManyValuesAnArtifactLeftVisible() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let partial = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeTypes": ["DATE"]
+        ])["redactedHandle"] as? String)
+        let full = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase
+        ])["redactedHandle"] as? String)
+
+        let documents = try XCTUnwrap(try summary(tool: "list_pending", arguments: [:])["documents"] as? [[String: Any]])
+        let byHandle = Dictionary(uniqueKeysWithValues: documents.map { ($0["handle"] as? String ?? "", $0) })
+        XCTAssertEqual(byHandle[partial]?["excludedEntityCount"] as? Int, 1, "\(documents)")
+        XCTAssertEqual(byHandle[full]?["excludedEntityCount"] as? Int, 0, "a fully redacted artifact says so")
+        XCTAssertNil(byHandle[handle]?["excludedEntityCount"], "originals carry no redaction count")
+    }
+
+    /// read_redacted bytes from a partially redacted artifact carry values the
+    /// caller chose to leave visible, so attest counts them separately (as a
+    /// subset of the redacted total), including the artifact restore writes
+    /// for edited text, which inherits its parent's exclusions.
+    func testAttestCountsBytesReadFromPartiallyRedactedArtifactsSeparately() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let full = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase
+        ])["redactedHandle"] as? String)
+        let partial = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeTypes": ["DATE"]
+        ])["redactedHandle"] as? String)
+
+        var attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, 0, "\(attest)")
+
+        let fullText = try readRedacted(full)
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, 0, "a fully redacted read moves only the redacted counter")
+        XCTAssertEqual(attest["redactedBytesReturnedThisSession"] as? Int, Data(fullText.utf8).count)
+
+        let partialText = try readRedacted(partial)
+        XCTAssertTrue(partialText.contains(Self.bodyDate), "fixture: the excluded date is visible")
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, Data(partialText.utf8).count, "\(attest)")
+        XCTAssertEqual(
+            attest["redactedBytesReturnedThisSession"] as? Int,
+            Data(fullText.utf8).count + Data(partialText.utf8).count,
+            "the partial counter is a subset of the redacted total"
+        )
+
+        // The edited-text artifact of a partially redacted parent is partial too.
+        let edited = try summary(tool: "restore", arguments: [
+            "redactedHandle": partial, "editedText": partialText + " Edited.", "passphrase": passphrase
+        ])
+        let editedHandle = try XCTUnwrap(edited["editedRedactedHandle"] as? String)
+        let editedText = try readRedacted(editedHandle)
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(
+            attest["partiallyRedactedBytesReturnedThisSession"] as? Int,
+            Data(partialText.utf8).count + Data(editedText.utf8).count,
+            "\(attest)"
+        )
+    }
+
     // MARK: - Exclusion by type
 
     func testExcludedTypesVanishFromBodyAndHeaderPartsOfADocx() throws {

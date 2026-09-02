@@ -47,6 +47,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
     private let lock = NSLock()
     private var plaintextBytesReturned = 0
     private var redactedBytesReturned = 0
+    private var partiallyRedactedBytesReturned = 0
     private var toolCallCounts: [String: Int] = [:]
 
     /// Record that ORIGINAL-document bytes were emitted in a response. No tool
@@ -62,6 +63,13 @@ final class MCPSessionMetrics: @unchecked Sendable {
         lock.withLock { redactedBytesReturned += count }
     }
 
+    /// Record the subset of redacted bytes that came from an artifact whose
+    /// producer left values visible on purpose (the review step). Those bytes
+    /// carry real values by the caller's choice, so attest names them.
+    func notePartiallyRedactedBytesReturned(_ count: Int) {
+        lock.withLock { partiallyRedactedBytesReturned += count }
+    }
+
     /// Count one dispatched tool call. Only known tool names are counted, so
     /// attest never echoes an arbitrary string a client sent as a name.
     func noteToolCall(_ name: String) {
@@ -71,6 +79,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
     struct Snapshot {
         let plaintextBytesReturned: Int
         let redactedBytesReturned: Int
+        let partiallyRedactedBytesReturned: Int
         let toolCallCounts: [String: Int]
     }
 
@@ -79,6 +88,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
             Snapshot(
                 plaintextBytesReturned: plaintextBytesReturned,
                 redactedBytesReturned: redactedBytesReturned,
+                partiallyRedactedBytesReturned: partiallyRedactedBytesReturned,
                 toolCallCounts: toolCallCounts
             )
         }
@@ -198,6 +208,12 @@ extension MCPServer {
             if let source = entry.sourceHandle {
                 item["sourceHandle"] = source
             }
+            // How many detected values this artifact left visible on
+            // purpose; 0 means fully redacted. Absent for originals and for
+            // entries whose producer did not report.
+            if let excluded = entry.excludedEntityCount {
+                item["excludedEntityCount"] = excluded
+            }
             return item
         }
         return ["documents": documents]
@@ -311,7 +327,8 @@ extension MCPServer {
                 stagedAtISO8601: createdAt,
                 sourceHandle: handle,
                 mappingFile: mappingURL,
-                mappingAccountBase: slot.handle
+                mappingAccountBase: slot.handle,
+                excludedEntityCount: stagedResult.excludedEntityCount
             )
             return [
                 "redactedHandle": committed.handle,
@@ -361,7 +378,14 @@ extension MCPServer {
             text = decoded
         }
 
-        metrics.noteRedactedBytesReturned(Data(text.utf8).count)
+        let byteCount = Data(text.utf8).count
+        metrics.noteRedactedBytesReturned(byteCount)
+        // Values the caller chose to leave visible ride inside this text, so
+        // attest also names the subset of redacted bytes that came from
+        // partially redacted artifacts.
+        if (entry.excludedEntityCount ?? 0) > 0 {
+            metrics.notePartiallyRedactedBytesReturned(byteCount)
+        }
         return ["handle": handle, "text": text]
     }
 
@@ -431,6 +455,7 @@ extension MCPServer {
             "keyACLMode": KeychainAccessPolicy.requireUserPresence ? "userPresence" : "silent",
             "plaintextBytesReturnedThisSession": snapshot.plaintextBytesReturned,
             "redactedBytesReturnedThisSession": snapshot.redactedBytesReturned,
+            "partiallyRedactedBytesReturnedThisSession": snapshot.partiallyRedactedBytesReturned,
             "toolCallCounts": snapshot.toolCallCounts
         ]
     }
