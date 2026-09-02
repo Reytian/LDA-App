@@ -103,6 +103,12 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// the review PDF still SHOWS those values, so it is a warning for the user
     /// even though the edit surface and mapping are correct.
     public let unboxedTokenCount: Int
+    /// DOCX only: tracked-change containers in the body (w:ins, w:del,
+    /// w:moveFrom, w:moveTo). Non-zero is a warning: accept all changes before
+    /// redacting for an exact round trip, because a value that spans a tracked
+    /// change restores into the live text and flattens the change. Absent in
+    /// older summaries, so it decodes as 0 when missing.
+    public let trackedChangeCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -113,6 +119,20 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.imageRedactionCount = result.imageRedactionCount
         self.embeddedMediaCount = result.embeddedMediaCount
         self.unboxedTokenCount = result.unboxedTokenCount
+        self.trackedChangeCount = result.trackedChangeCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        redactedFileURL = try container.decode(String.self, forKey: .redactedFileURL)
+        mappingFileURL = try container.decode(String.self, forKey: .mappingFileURL)
+        visualPdfURL = try container.decodeIfPresent(String.self, forKey: .visualPdfURL)
+        redactedImageURL = try container.decodeIfPresent(String.self, forKey: .redactedImageURL)
+        entityCount = try container.decode(Int.self, forKey: .entityCount)
+        imageRedactionCount = try container.decode(Int.self, forKey: .imageRedactionCount)
+        embeddedMediaCount = try container.decode(Int.self, forKey: .embeddedMediaCount)
+        unboxedTokenCount = try container.decode(Int.self, forKey: .unboxedTokenCount)
+        trackedChangeCount = try container.decodeIfPresent(Int.self, forKey: .trackedChangeCount) ?? 0
     }
 }
 
@@ -399,6 +419,11 @@ struct Anonymize: ParsableCommand {
                     style: style
                 )
                 print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
+                // The count is in the JSON either way; stderr is what a person
+                // reads, and this is the one thing they must do before editing.
+                if let notice = LDACLI.trackedChangeNotice(count: result.trackedChangeCount) {
+                    fputs(notice, stderr)
+                }
             } else {
                 let result = try LDACLI.runAnonymizeSession(
                     inputs: inputs,
@@ -526,5 +551,22 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
         default:
             return "\(error)"
         }
+    }
+}
+
+// MARK: - Tracked changes notice
+
+extension LDACLI {
+    /// One stderr line for a docx whose body carries tracked changes, or nil
+    /// for a plain document. Redaction of such a document is safe (PII inside
+    /// tracked deletions is scanned too), but the round trip is exact only
+    /// once the changes are accepted.
+    public static func trackedChangeNotice(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let subject = count == 1 ? "1 tracked change" : "\(count) tracked changes"
+        return "Warning: the document carries \(subject). Accept all changes before "
+            + "redacting for an exact round trip; a value that spans a tracked change is "
+            + "restored into the live text and the change is flattened. Tracked-change and "
+            + "comment authors are blanked in the redacted copy and are not restored.\n"
     }
 }

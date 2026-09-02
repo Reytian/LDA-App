@@ -8,6 +8,22 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         XCTAssertEqual(AppMode.deanonymize.rawValue, "Restore")
     }
 
+    // MARK: - Tracked changes advice
+
+    func testTrackedChangesAdviceIsSilentForAPlainDocument() {
+        XCTAssertNil(AnonymizeWorkflowPresentation.trackedChangesAdvice(count: 0, language: .english))
+    }
+
+    func testTrackedChangesAdviceNamesTheCountAndTheAuthorBlanking() {
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.trackedChangesAdvice(count: 2, language: .english),
+            "This document carries tracked changes (2). Accept all changes before redacting for an exact "
+                + "round trip; a value that spans a tracked change is restored into the live text and the "
+                + "change is flattened. Tracked-change and comment authors are blanked in the redacted copy "
+                + "and are not restored."
+        )
+    }
+
     // MARK: - Export for AI copy
 
     func testExportCompletionDetailNamesTheFileAndTheSkippedDocuments() {

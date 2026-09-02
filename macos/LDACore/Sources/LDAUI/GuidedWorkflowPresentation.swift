@@ -137,6 +137,28 @@ enum AnonymizeWorkflowPresentation {
         )
     }
 
+    /// DOCX with tracked changes: the count and what the redactor does with
+    /// them, or nil for a plain document. Both sentences live in one place so
+    /// the advice and the author-blanking fact are never shown apart.
+    static func trackedChangesAdvice(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard count > 0 else { return nil }
+        let warning = String(
+            format: L10n.string(
+                "This document carries tracked changes (%lld). Accept all changes before redacting for an exact round trip; a value that spans a tracked change is restored into the live text and the change is flattened.",
+                language: language
+            ),
+            Int64(count)
+        )
+        let authors = L10n.string(
+            "Tracked-change and comment authors are blanked in the redacted copy and are not restored.",
+            language: language
+        )
+        return warning + " " + authors
+    }
+
     static func embeddedMediaWarning(
         count: Int,
         language: AppLanguage? = nil

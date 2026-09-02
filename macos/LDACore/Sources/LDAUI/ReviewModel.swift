@@ -129,6 +129,14 @@ public final class ReviewModel: ObservableObject {
     /// The current edit surface text. The user may edit this before export.
     @Published public var documentText: String = ""
 
+    /// DOCX only: how many tracked-change containers (w:ins, w:del,
+    /// w:moveFrom, w:moveTo) the open document's body carries; 0 for every
+    /// other format. Shown as advice to accept all changes before redacting:
+    /// PII inside tracked deletions is scanned and redacted, but a value that
+    /// spans a tracked change restores into the live text and the change is
+    /// flattened.
+    @Published public private(set) var trackedChangeCount: Int = 0
+
     /// The reviewable detections over documentText.
     @Published public var entities: [ReviewEntity] = []
 
@@ -391,17 +399,19 @@ public final class ReviewModel: ObservableObject {
         progress = 0
         etaText = nil
         aiWarning = nil
+        trackedChangeCount = 0
         // The candidate choice is per document, so a model reused across
         // documents starts each one from the covering default.
         includeSealCandidates = true
 
         do {
-            let text = try await Task.detached(priority: .userInitiated) {
-                try Self.importText(from: url)
+            let imported = try await Task.detached(priority: .userInitiated) {
+                try Self.importDocument(from: url)
             }.value
 
             guard generation == sessionGeneration else { return }
-            documentText = text
+            documentText = imported.text
+            trackedChangeCount = imported.trackedChangeCount
             status = .imported
         } catch {
             guard generation == sessionGeneration else { return }
