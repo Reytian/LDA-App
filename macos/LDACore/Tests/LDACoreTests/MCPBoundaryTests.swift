@@ -616,4 +616,53 @@ final class MCPBoundaryTests: XCTestCase {
         XCTAssertTrue(restoredText.contains("no later than"))
         XCTAssertFalse(restoredText.contains("{"))
     }
+
+    /// Security audit F-001: an unrelated staged original passed as
+    /// editedHandle must be refused, and its text must never ride out as a
+    /// "suspect placeholder" (the forensics return verbatim substrings of the
+    /// scanned text, and "(Phone 13987654321)" is exactly the shape they
+    /// flag). Nothing may be written: no restored artifact, nothing in the
+    /// outbox, so export can never launder the original.
+    func testAnUnrelatedOriginalPassedAsEditedHandleLeaksNothingAndWritesNothing() throws {
+        let matter = try stage(named: "matter.txt", contents: "Mail jane@example.com now.")
+        let anonymized = try summary(of: try call(tool: "anonymize", arguments: [
+            "handle": matter.handle, "passphrase": passphrase
+        ]))
+        let redactedHandle = try XCTUnwrap(anonymized["redactedHandle"] as? String)
+
+        let plantedPhone = "13987654321"
+        let fileBase = "OtherParty-loan-agreement"
+        let unrelated = try stage(
+            named: "\(fileBase).txt",
+            contents: "Reference (Phone \(plantedPhone)) for the other matter."
+        )
+
+        let refused = try call(tool: "restore", arguments: [
+            "redactedHandle": redactedHandle,
+            "editedHandle": unrelated.handle,
+            "passphrase": passphrase
+        ])
+        XCTAssertTrue(refused.isError, refused.text)
+        XCTAssertTrue(refused.text.hasPrefix("no_placeholders_found"), refused.text)
+
+        let listed = try summary(of: try call(tool: "list_pending", arguments: [:]))
+        let kinds = try XCTUnwrap(listed["documents"] as? [[String: Any]]).compactMap { $0["kind"] as? String }
+        XCTAssertFalse(kinds.contains("restored"), "no restored artifact may exist: \(kinds)")
+        let outbox = vaultDir.appendingPathComponent(DocumentVault.outboxDirectoryName, isDirectory: true)
+        XCTAssertTrue(
+            ((try? FileManager.default.contentsOfDirectory(atPath: outbox.path)) ?? []).isEmpty,
+            "nothing may reach the outbox"
+        )
+
+        assertWireNeverContained([
+            plantedPhone,
+            "Phone",
+            fileBase,
+            unrelated.sourceURL.path,
+            vaultDir.path,
+            "/Users/",
+            "pt_"
+        ])
+        assertNoScratchPlaintextRemains()
+    }
 }

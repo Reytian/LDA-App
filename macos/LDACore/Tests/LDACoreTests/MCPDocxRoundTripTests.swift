@@ -237,7 +237,8 @@ final class MCPDocxRoundTripTests: XCTestCase {
         XCTAssertEqual(restored["format"] as? String, "docx", "\(restored)")
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(restored["restoredCount"] as? Int), 3, "\(restored)")
         XCTAssertEqual((restored["orphanTokens"] as? [String])?.isEmpty, true, "\(restored)")
-        XCTAssertEqual((restored["suspectPlaceholders"] as? [String])?.isEmpty, true)
+        XCTAssertEqual(restored["suspectPlaceholderCount"] as? Int, 0, "\(restored)")
+        XCTAssertNil(restored["suspectPlaceholders"], "a human-staged original reports suspects as a count only")
         let restoredHandle = try XCTUnwrap(restored["restoredHandle"] as? String)
         XCTAssertEqual(try vault.entry(handle: restoredHandle).sourceHandle, editedHandle)
 

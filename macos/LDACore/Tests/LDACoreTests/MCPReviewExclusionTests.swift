@@ -6,8 +6,9 @@
 //  an id per entity and a detectionId for the set, and anonymize accepts
 //  excludeEntityIds (with the detectionId they came with) and excludeTypes so
 //  an agent can say "redact everything except these" without ever seeing a
-//  name. Ids derive from type and offsets only, both of which the tool already
-//  discloses, so they add no information to the wire.
+//  name. Ids derive from the handle, the type, and the offsets, all of which
+//  the tool already discloses, so they add no information to the wire, and
+//  they cannot be carried from one document to another.
 //
 //  Every test drives the server over JSON-RPC, exactly as an agent host would,
 //  and recomputes the expected ids with CryptoKit so the wire contract is
@@ -176,8 +177,8 @@ final class MCPReviewExclusionTests: XCTestCase {
         digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func expectedEntityId(type: String, start: Int, end: Int) -> String {
-        String(hex(SHA256.hash(data: Data("\(type)|\(start)|\(end)".utf8))).prefix(12))
+    private func expectedEntityId(handle: String, type: String, start: Int, end: Int) -> String {
+        String(hex(SHA256.hash(data: Data("\(handle)|\(type)|\(start)|\(end)".utf8))).prefix(12))
     }
 
     private func expectedDetectionId(handle: String, modelPathPresent: Bool, ids: [String]) -> String {
@@ -213,7 +214,7 @@ final class MCPReviewExclusionTests: XCTestCase {
 
     // MARK: - detect_entities ids
 
-    func testDetectEntitiesReturnsStableIdsDerivedFromTypeAndOffsetsOnly() throws {
+    func testDetectEntitiesReturnsStableIdsBoundToTheHandleTypeAndOffsets() throws {
         let handle = try stageText(Self.twoEmailsText)
 
         let first = try detection(for: handle)
@@ -230,11 +231,12 @@ final class MCPReviewExclusionTests: XCTestCase {
             XCTAssertEqual(
                 id,
                 expectedEntityId(
+                    handle: handle,
                     type: try XCTUnwrap(entity["type"] as? String),
                     start: try XCTUnwrap(entity["start"] as? Int),
                     end: try XCTUnwrap(entity["end"] as? Int)
                 ),
-                "the id is SHA-256 over type|start|end, first 12 hex characters"
+                "the id is SHA-256 over handle|type|start|end, first 12 hex characters"
             )
             XCTAssertNil(entity["text"], "no surface text rides along with the id")
             ids.append(id)
@@ -250,6 +252,14 @@ final class MCPReviewExclusionTests: XCTestCase {
             ids,
             "ids are stable across calls"
         )
+
+        // Ids are bound to the handle: the same text staged under another
+        // handle yields different ids, so an id cannot be carried across
+        // documents to keep a different document's value visible.
+        let twin = try stageText(Self.twoEmailsText, named: "twin.txt")
+        let twinIds = try detection(for: twin).entities.compactMap { $0["id"] as? String }
+        XCTAssertEqual(twinIds.count, ids.count)
+        XCTAssertTrue(Set(twinIds).isDisjoint(with: Set(ids)), "ids must not be portable across handles")
     }
 
     // MARK: - Exclusion by id
@@ -331,39 +341,185 @@ final class MCPReviewExclusionTests: XCTestCase {
         XCTAssertEqual(try listedHandleCount(), 1)
     }
 
-    /// Over-redaction is the safe direction: a changed detection whose
-    /// excluded ids are all still present proceeds and says so.
-    func testAChangedDetectionWithEveryExcludedIdPresentProceedsAndSaysSo() throws {
+    /// An id from another document is never honored, even when that
+    /// document has an entity at the same offsets: ids are bound to the
+    /// handle, so a foreign id fails hard as unknown, and nothing is written.
+    func testAForeignEntityIdIsRefusedEvenWhenItsOffsetsMatch() throws {
         let shorter = "Reach \(Self.firstEmail) or \(Self.secondEmail)."
         let longer = shorter + " Signed \(Self.bodyDate)."
         let shorterHandle = try stageText(shorter, named: "one.txt")
         let longerHandle = try stageText(longer, named: "two.txt")
         let detected = try detection(for: shorterHandle)
-        let target = try entityId(covering: Self.firstEmail, in: shorter, from: detected.entities)
+        let foreign = try entityId(covering: Self.firstEmail, in: shorter, from: detected.entities)
 
-        // The longer document shares the email offsets, so the id is present
-        // there too, but its detection set (and handle) differ.
-        let changed = try summary(tool: "anonymize", arguments: [
+        let refused = try call(tool: "anonymize", arguments: [
             "handle": longerHandle,
             "passphrase": passphrase,
-            "excludeEntityIds": [target],
+            "excludeEntityIds": [foreign],
             "detectionId": detected.detectionId
+        ])
+
+        XCTAssertTrue(refused.isError, "a foreign id must not keep a value visible: \(refused.text)")
+        XCTAssertTrue(refused.text.hasPrefix("unknown_entity_id: count=1"), refused.text)
+        XCTAssertEqual(try listedHandleCount(), 2, "nothing was written")
+        XCTAssertEqual(try objectDirectoryNames(), [shorterHandle, longerHandle].sorted())
+    }
+
+    /// Over-redaction is the safe direction: when every excluded id is
+    /// present but the supplied detectionId does not match this run's
+    /// detection, anonymize proceeds and says so.
+    func testAStaleDetectionIdWithEveryExcludedIdPresentProceedsAndSaysSo() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+        let target = try entityId(covering: Self.firstEmail, in: Self.twoEmailsText, from: detected.entities)
+
+        let changed = try summary(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": [target],
+            "detectionId": "0000000000000000"
         ])
         XCTAssertEqual(changed["detectionChanged"] as? Bool, true, "\(changed)")
         XCTAssertEqual(changed["excludedCount"] as? Int, 1)
         let redacted = try readRedacted(try XCTUnwrap(changed["redactedHandle"] as? String))
         XCTAssertTrue(redacted.contains(Self.firstEmail), redacted)
         XCTAssertFalse(redacted.contains(Self.secondEmail), redacted)
-        XCTAssertTrue(redacted.contains("{DATE_1}"), redacted)
 
         // Control: the detection the ids came from is not "changed".
         let unchanged = try summary(tool: "anonymize", arguments: [
-            "handle": shorterHandle,
+            "handle": handle,
             "passphrase": passphrase,
             "excludeEntityIds": [target],
             "detectionId": detected.detectionId
         ])
         XCTAssertEqual(unchanged["detectionChanged"] as? Bool, false, "\(unchanged)")
+    }
+
+    // MARK: - Id argument hygiene
+
+    /// Ids are validated at parse time, before the vault is opened: an id that
+    /// is not exactly 12 lowercase hex characters is an argument error that
+    /// never echoes the value, and a bad id on an unknown handle reports the
+    /// id problem rather than touching the vault.
+    func testMalformedEntityIdsAreRefusedBeforeTheVaultIsOpened() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+
+        for bad in ["ZZZZZZZZZZZZ", "ABCDEF012345", "abcdef01234", "abcdef0123456", "abcdef01234g", "../secret"] {
+            let refused = try call(tool: "anonymize", arguments: [
+                "handle": handle,
+                "passphrase": passphrase,
+                "excludeEntityIds": [bad],
+                "detectionId": detected.detectionId
+            ])
+            XCTAssertTrue(refused.isError, "\(bad) must be refused")
+            XCTAssertTrue(refused.text.hasPrefix("invalid_entity_id"), "\(bad): \(refused.text)")
+            XCTAssertFalse(refused.text.contains(bad), "the offending value is never echoed: \(refused.text)")
+        }
+
+        // The argument error wins over an unknown handle: parsing came first.
+        let unknownHandle = try call(tool: "anonymize", arguments: [
+            "handle": "doc_000000000000",
+            "excludeEntityIds": ["not-an-id!!"],
+            "detectionId": "0000000000000000"
+        ])
+        XCTAssertTrue(unknownHandle.isError)
+        XCTAssertTrue(unknownHandle.text.hasPrefix("invalid_entity_id"), unknownHandle.text)
+        XCTAssertEqual(try listedHandleCount(), 1)
+    }
+
+    func testMoreThanTenThousandEntityIdsAreRefused() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let detected = try detection(for: handle)
+        let flood = (0 ..< 10_001).map { String(format: "%012x", $0) }
+
+        let refused = try call(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": flood,
+            "detectionId": detected.detectionId
+        ])
+        XCTAssertTrue(refused.isError)
+        XCTAssertTrue(refused.text.hasPrefix("invalid_entity_id"), refused.text)
+        XCTAssertTrue(refused.text.contains("10000"), "the cap is named: \(refused.text)")
+
+        // Exactly the cap passes the argument check and fails later as
+        // unknown ids, which proves the parser let the shape through.
+        let atCap = try call(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": Array(flood.prefix(10_000)),
+            "detectionId": detected.detectionId
+        ])
+        XCTAssertTrue(atCap.isError)
+        XCTAssertTrue(atCap.text.hasPrefix("unknown_entity_id: count=10000"), atCap.text)
+        XCTAssertEqual(try listedHandleCount(), 1, "nothing was written on either refusal")
+    }
+
+    // MARK: - Accounting for values left visible
+
+    /// A redacted artifact produced with exclusions is only partially
+    /// redacted, and that has to be visible wherever the artifact is named:
+    /// list_pending reports how many values each artifact left visible.
+    func testListPendingReportsHowManyValuesAnArtifactLeftVisible() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let partial = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeTypes": ["DATE"]
+        ])["redactedHandle"] as? String)
+        let full = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase
+        ])["redactedHandle"] as? String)
+
+        let documents = try XCTUnwrap(try summary(tool: "list_pending", arguments: [:])["documents"] as? [[String: Any]])
+        let byHandle = Dictionary(uniqueKeysWithValues: documents.map { ($0["handle"] as? String ?? "", $0) })
+        XCTAssertEqual(byHandle[partial]?["excludedEntityCount"] as? Int, 1, "\(documents)")
+        XCTAssertEqual(byHandle[full]?["excludedEntityCount"] as? Int, 0, "a fully redacted artifact says so")
+        XCTAssertNil(byHandle[handle]?["excludedEntityCount"], "originals carry no redaction count")
+    }
+
+    /// read_redacted bytes from a partially redacted artifact carry values the
+    /// caller chose to leave visible, so attest counts them separately (as a
+    /// subset of the redacted total), including the artifact restore writes
+    /// for edited text, which inherits its parent's exclusions.
+    func testAttestCountsBytesReadFromPartiallyRedactedArtifactsSeparately() throws {
+        let handle = try stageText(Self.twoEmailsText)
+        let full = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase
+        ])["redactedHandle"] as? String)
+        let partial = try XCTUnwrap(try summary(tool: "anonymize", arguments: [
+            "handle": handle, "passphrase": passphrase, "excludeTypes": ["DATE"]
+        ])["redactedHandle"] as? String)
+
+        var attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, 0, "\(attest)")
+
+        let fullText = try readRedacted(full)
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, 0, "a fully redacted read moves only the redacted counter")
+        XCTAssertEqual(attest["redactedBytesReturnedThisSession"] as? Int, Data(fullText.utf8).count)
+
+        let partialText = try readRedacted(partial)
+        XCTAssertTrue(partialText.contains(Self.bodyDate), "fixture: the excluded date is visible")
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(attest["partiallyRedactedBytesReturnedThisSession"] as? Int, Data(partialText.utf8).count, "\(attest)")
+        XCTAssertEqual(
+            attest["redactedBytesReturnedThisSession"] as? Int,
+            Data(fullText.utf8).count + Data(partialText.utf8).count,
+            "the partial counter is a subset of the redacted total"
+        )
+
+        // The edited-text artifact of a partially redacted parent is partial too.
+        let edited = try summary(tool: "restore", arguments: [
+            "redactedHandle": partial, "editedText": partialText + " Edited.", "passphrase": passphrase
+        ])
+        let editedHandle = try XCTUnwrap(edited["editedRedactedHandle"] as? String)
+        let editedText = try readRedacted(editedHandle)
+        attest = try summary(tool: "attest", arguments: [:])
+        XCTAssertEqual(
+            attest["partiallyRedactedBytesReturnedThisSession"] as? Int,
+            Data(partialText.utf8).count + Data(editedText.utf8).count,
+            "\(attest)"
+        )
     }
 
     // MARK: - Exclusion by type

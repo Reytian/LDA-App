@@ -23,8 +23,8 @@
 //  exact length and position (a weak side channel). The spec chose offsets so
 //  a local caller can slice the text itself; anything finer than type plus
 //  offsets stays on the machine. The per-entity ids and the detectionId it
-//  also returns derive from type and offsets only (MCPDetectionIdentity), so
-//  they add nothing to that disclosure.
+//  also returns derive from the handle, type, and offsets
+//  (MCPDetectionIdentity), so they add nothing to that disclosure.
 //
 //  Every error thrown here is rendered by describeBoundarySafe, which maps
 //  each failure to error-code-plus-handle wording and never interpolates a
@@ -47,6 +47,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
     private let lock = NSLock()
     private var plaintextBytesReturned = 0
     private var redactedBytesReturned = 0
+    private var partiallyRedactedBytesReturned = 0
     private var toolCallCounts: [String: Int] = [:]
 
     /// Record that ORIGINAL-document bytes were emitted in a response. No tool
@@ -62,6 +63,13 @@ final class MCPSessionMetrics: @unchecked Sendable {
         lock.withLock { redactedBytesReturned += count }
     }
 
+    /// Record the subset of redacted bytes that came from an artifact whose
+    /// producer left values visible on purpose (the review step). Those bytes
+    /// carry real values by the caller's choice, so attest names them.
+    func notePartiallyRedactedBytesReturned(_ count: Int) {
+        lock.withLock { partiallyRedactedBytesReturned += count }
+    }
+
     /// Count one dispatched tool call. Only known tool names are counted, so
     /// attest never echoes an arbitrary string a client sent as a name.
     func noteToolCall(_ name: String) {
@@ -71,6 +79,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
     struct Snapshot {
         let plaintextBytesReturned: Int
         let redactedBytesReturned: Int
+        let partiallyRedactedBytesReturned: Int
         let toolCallCounts: [String: Int]
     }
 
@@ -79,6 +88,7 @@ final class MCPSessionMetrics: @unchecked Sendable {
             Snapshot(
                 plaintextBytesReturned: plaintextBytesReturned,
                 redactedBytesReturned: redactedBytesReturned,
+                partiallyRedactedBytesReturned: partiallyRedactedBytesReturned,
                 toolCallCounts: toolCallCounts
             )
         }
@@ -105,6 +115,10 @@ enum MCPVaultToolError: Error {
     case unknownEntityId(count: Int)
     /// anonymize_session received excludeEntityIds, which are single-document.
     case entityIdsNotSupportedForSessions
+    /// excludeEntityIds held a value that is not an id detect_entities could
+    /// have returned, or more ids than one call may exclude. The offending
+    /// value is never echoed.
+    case invalidEntityId
     /// restore's editedHandle named a restored artifact, which holds real
     /// values again and so cannot be an edit surface.
     case notAnEditSurface(String)
@@ -112,6 +126,13 @@ enum MCPVaultToolError: Error {
     /// placeholders (an image or a PDF). The format string is the vault's own
     /// normalized vocabulary, never a filename.
     case unsupportedEditFormat(handle: String, format: String)
+    /// restore's editedHandle named an original holding no placeholder of the
+    /// mapping, so nothing could be restored and nothing was written. The
+    /// suspect count (never the strings) helps the human repair a mangled file.
+    case noPlaceholdersFound(editedHandle: String, redactedHandle: String, suspectPlaceholderCount: Int)
+    /// restore's editedHandle named a redacted artifact that carries a
+    /// different mapping.
+    case mappingMismatch(String)
 
     var message: String {
         switch self {
@@ -131,6 +152,11 @@ enum MCPVaultToolError: Error {
             return "entity_ids_not_supported: anonymize_session accepts excludeTypes only; "
                 + "per-entity ids are single-document, so call anonymize per document "
                 + "to exclude by id."
+        case .invalidEntityId:
+            return "invalid_entity_id: excludeEntityIds must hold at most "
+                + "\(MCPReviewArguments.maximumEntityIds) ids, each exactly "
+                + "\(MCPDetectionIdentity.entityIdLength) lowercase hex characters as returned "
+                + "by detect_entities"
         case .notAnEditSurface(let handle):
             return "not_an_edit_surface: \(handle) refers to a restored artifact, which holds "
                 + "real values again; pass the edited redacted document instead (a doc_... the "
@@ -138,6 +164,15 @@ enum MCPVaultToolError: Error {
         case .unsupportedEditFormat(let handle, let format):
             return "unsupported_format: \(handle) is a \(format) artifact and cannot be an edit "
                 + "surface; editedHandle accepts docx, txt, or md"
+        case .noPlaceholdersFound(let edited, let redacted, let suspects):
+            let repair = suspects > 0
+                ? "; suspectPlaceholderCount=\(suspects): repair the placeholders and stage the file again"
+                : ""
+            return "no_placeholders_found: \(edited) contains no placeholder of \(redacted)'s mapping; "
+                + "nothing was written" + repair
+        case .mappingMismatch(let handle):
+            return "mapping_mismatch: \(handle) was redacted with a different mapping; "
+                + "pass it as redactedHandle instead"
         }
     }
 }
@@ -172,6 +207,12 @@ extension MCPServer {
             }
             if let source = entry.sourceHandle {
                 item["sourceHandle"] = source
+            }
+            // How many detected values this artifact left visible on
+            // purpose; 0 means fully redacted. Absent for originals and for
+            // entries whose producer did not report.
+            if let excluded = entry.excludedEntityCount {
+                item["excludedEntityCount"] = excluded
             }
             return item
         }
@@ -234,7 +275,7 @@ extension MCPServer {
         // caller named, and afterwards tells whether the caller reviewed the
         // detection that actually ran. Excluded TYPES are the engine's job on
         // every channel, including headers, footers, notes, and image text.
-        let observer = MCPDetectionObserver(excludedIds: review.excludedIds)
+        let observer = MCPDetectionObserver(handle: handle, excludedIds: review.excludedIds)
         let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
             try LDAService.anonymize(
                 input: inputURL,
@@ -286,7 +327,8 @@ extension MCPServer {
                 stagedAtISO8601: createdAt,
                 sourceHandle: handle,
                 mappingFile: mappingURL,
-                mappingAccountBase: slot.handle
+                mappingAccountBase: slot.handle,
+                excludedEntityCount: stagedResult.excludedEntityCount
             )
             return [
                 "redactedHandle": committed.handle,
@@ -336,7 +378,14 @@ extension MCPServer {
             text = decoded
         }
 
-        metrics.noteRedactedBytesReturned(Data(text.utf8).count)
+        let byteCount = Data(text.utf8).count
+        metrics.noteRedactedBytesReturned(byteCount)
+        // Values the caller chose to leave visible ride inside this text, so
+        // attest also names the subset of redacted bytes that came from
+        // partially redacted artifacts.
+        if (entry.excludedEntityCount ?? 0) > 0 {
+            metrics.notePartiallyRedactedBytesReturned(byteCount)
+        }
         return ["handle": handle, "text": text]
     }
 
@@ -347,7 +396,8 @@ extension MCPServer {
     /// host launched this server, so returning the detected surface text
     /// would upload the exact bytes this product exists to keep local. The
     /// ids let a caller name entities to anonymize's excludeEntityIds; they
-    /// derive from type and offsets only, so they disclose nothing new.
+    /// derive from the handle, type, and offsets, so they disclose nothing
+    /// new and are never valid for another document.
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
@@ -355,7 +405,7 @@ extension MCPServer {
             try LDAService.detect(input: url, llmModelPath: modelPath)
         }
 
-        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0) }
+        let ids = spans.map { MCPDetectionIdentity.entityId(for: $0, handle: handle) }
         let entities: [[String: Any]] = zip(spans, ids).map { span, id in
             [
                 "id": id,
@@ -405,6 +455,7 @@ extension MCPServer {
             "keyACLMode": KeychainAccessPolicy.requireUserPresence ? "userPresence" : "silent",
             "plaintextBytesReturnedThisSession": snapshot.plaintextBytesReturned,
             "redactedBytesReturnedThisSession": snapshot.redactedBytesReturned,
+            "partiallyRedactedBytesReturnedThisSession": snapshot.partiallyRedactedBytesReturned,
             "toolCallCounts": snapshot.toolCallCounts
         ]
     }

@@ -88,7 +88,7 @@ extension MCPServer {
     static let vaultToolDescriptors: [[String: Any]] = [
         [
             "name": "list_pending",
-            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at). Never returns filenames or paths.",
+            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at, source handle, and for redacted artifacts excludedEntityCount: how many detected values the review step left visible; 0 means fully redacted). Never returns filenames or paths.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),
@@ -108,7 +108,7 @@ extension MCPServer {
                     "excludeEntityIds": [
                         "type": "array",
                         "items": ["type": "string"],
-                        "description": "Ids from detect_entities for THIS handle whose values must stay visible. Body text only: an occurrence of the same value in a header, footer, note, or comment is still redacted (use excludeTypes for that). Requires detectionId. An id the fresh detection does not know is refused (unknown_entity_id) and nothing is written."
+                        "description": "Ids from detect_entities for THIS handle whose values must stay visible. Body text only: an occurrence of the same value in a header, footer, note, or comment is still redacted (use excludeTypes for that). Requires detectionId. An id the fresh detection does not know, including any id from another document, is refused (unknown_entity_id) and nothing is written."
                     ],
                     "excludeTypes": [
                         "type": "array",
@@ -160,7 +160,7 @@ extension MCPServer {
         ],
         [
             "name": "detect_entities",
-            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from type and offsets only), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
+            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from the handle, type, and offsets, so it is never valid for another document), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -172,13 +172,13 @@ extension MCPServer {
         ],
         [
             "name": "restore",
-            "description": "Restore placeholders back to their original values using a redacted artifact's encrypted mapping. Three shapes: (1) omit editedText and editedHandle to restore the stored redacted artifact as-is (a .docx keeps its formatting); (2) pass editedText with the (possibly AI-edited) redacted TEXT to restore that: the result is TEXT (format txt) even when the redacted artifact was a .docx, so Word formatting is NOT kept on this path; (3) pass editedHandle, the handle of the EDITED redacted document that came back, to restore it with redactedHandle's mapping: a .docx keeps its formatting. To keep Word formatting end to end: export the redacted .docx, have the human edit that file itself (accept all tracked changes before staging), stage it with `lda vault stage <file>`, and pass its doc_... handle as editedHandle. Every response reports format (docx, txt, or md), restoredCount, orphanTokens, suspectPlaceholders, and ambiguousReplacements. The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
+            "description": "Restore placeholders back to their original values using a redacted artifact's encrypted mapping. Three shapes: (1) omit editedText and editedHandle to restore the stored redacted artifact as-is (a .docx keeps its formatting); (2) pass editedText with the (possibly AI-edited) redacted TEXT to restore that: the result is TEXT (format txt) even when the redacted artifact was a .docx, so Word formatting is NOT kept on this path; (3) pass editedHandle, the handle of the EDITED redacted document that came back, to restore it with redactedHandle's mapping: a .docx keeps its formatting. To keep Word formatting end to end: export the redacted .docx, have the human edit that file itself (accept all tracked changes before staging), stage it with `lda vault stage <file>`, and pass its doc_... handle as editedHandle. Every response reports format (docx, txt, or md), restoredCount, orphanTokens, suspectPlaceholderCount, ambiguousReplacements, and suspectPlaceholders (the strings only when the restored surface's text is already known to you: the stored artifact, editedText, or a redacted artifact of this mapping; a human-staged file reports the count only). The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
                     "redactedHandle": ["type": "string", "description": "Handle of the redacted artifact whose mapping to use (red_...)."],
                     "editedText": ["type": "string", "description": "Optional edited redacted TEXT to restore; it is written into the vault as its own artifact first. Restores to text (format txt): formatting is not kept on this path. Mutually exclusive with editedHandle."],
-                    "editedHandle": ["type": "string", "description": "Optional handle of the EDITED redacted document that came back (a doc_... the human staged with `lda vault stage <file>`, or a red_... artifact). Restored with redactedHandle's mapping; a .docx keeps its formatting, text and Markdown restore as text. Restored artifacts (res_...), images, and PDFs are refused. Mutually exclusive with editedText."],
+                    "editedHandle": ["type": "string", "description": "Optional handle of the EDITED redacted document that came back (a doc_... the human staged with `lda vault stage <file>`, or a red_... artifact). Restored with redactedHandle's mapping; a .docx keeps its formatting, text and Markdown restore as text. Restored artifacts (res_...), images, and PDFs are refused; so is an original that holds no placeholder of this mapping (no_placeholders_found, nothing is written) and a redacted artifact of another mapping (mapping_mismatch). Mutually exclusive with editedText."],
                     "passphrase": ["type": "string", "description": "Optional passphrase that protects the mapping sidecar."]
                 ],
                 "required": ["redactedHandle"]
@@ -197,7 +197,7 @@ extension MCPServer {
         ],
         [
             "name": "attest",
-            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, how the vault master key is protected, the Keychain ACL mode, byte counters for what this session has returned, and per-tool call counts.",
+            "description": "Report the server's current data-boundary posture: whether the vault encrypts at rest, how the vault master key is protected, the Keychain ACL mode, byte counters for what this session has returned (plaintext, always zero; redacted; and the subset of redacted bytes that came from partially redacted artifacts, which carry values the caller chose to leave visible), and per-tool call counts.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),

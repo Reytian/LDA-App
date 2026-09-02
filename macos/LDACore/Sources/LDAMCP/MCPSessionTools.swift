@@ -160,7 +160,8 @@ extension MCPServer {
                     stagedAtISO8601: createdAt,
                     sourceHandle: handles[index],
                     mappingFile: mappingURL,
-                    mappingAccountBase: firstSlot.handle
+                    mappingAccountBase: firstSlot.handle,
+                    excludedEntityCount: output.excludedEntityCount
                 )
                 committedHandles.insert(slot.handle)
                 documents.append([

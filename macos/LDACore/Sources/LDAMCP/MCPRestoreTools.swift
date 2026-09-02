@@ -103,7 +103,9 @@ extension MCPServer {
                 stagedAtISO8601: context.stagedAt,
                 sourceHandle: context.redactedEntry.handle,
                 mappingFile: context.mappingURL,
-                mappingAccountBase: context.redactedEntry.mappingAccountBase ?? context.redactedEntry.handle
+                mappingAccountBase: context.redactedEntry.mappingAccountBase ?? context.redactedEntry.handle,
+                // The edited text still shows whatever its parent left visible.
+                excludedEntityCount: context.redactedEntry.excludedEntityCount
             )
         } catch {
             vault.abort(slot: editedSlot)
@@ -144,22 +146,18 @@ extension MCPServer {
     }
 
     /// editedHandle: the edited document already sits in the vault (staged by
-    /// the human, or produced by an earlier tool call). It is decrypted to a
-    /// scratch file for exactly this call and restored with the redacted
-    /// handle's mapping; a .docx goes through the run-preserving restore, so
-    /// its formatting survives.
+    /// the human, or produced by an earlier tool call). Its lineage to the
+    /// redacted artifact is checked first (see EditSurfaceLineage), then it is
+    /// decrypted to a scratch file for exactly this call and restored with the
+    /// redacted handle's mapping; a .docx goes through the run-preserving
+    /// restore, so its formatting survives.
     private func restoreEditedArtifact(
         handle editedHandle: String,
         in context: RestoreContext
     ) throws -> [String: Any] {
         let vault = context.vault
         let edited = try vault.entry(handle: editedHandle)
-        guard edited.kind != .restored else {
-            throw MCPVaultToolError.notAnEditSurface(editedHandle)
-        }
-        guard MCPServer.editSurfaceFormats.contains(edited.format) else {
-            throw MCPVaultToolError.unsupportedEditFormat(handle: editedHandle, format: edited.format)
-        }
+        let lineage = try MCPServer.editSurfaceLineage(of: edited, for: context.redactedEntry)
 
         let restoredSlot = try vault.prepareDerived(kind: .restored)
         do {
@@ -170,6 +168,19 @@ extension MCPServer {
                     mapping: context.mappingURL,
                     protection: context.protection,
                     output: outputURL
+                )
+            }
+            // An original proves it belongs to this round trip by holding at
+            // least one placeholder of the mapping. Without that, "restoring"
+            // it would only copy an unrelated document into a restored
+            // artifact that export accepts, and its text could ride out as a
+            // suspect placeholder. Refuse before anything is committed; the
+            // catch below removes the slot.
+            if lineage == .stagedOriginal, report.restoredCount == 0 {
+                throw MCPVaultToolError.noPlaceholdersFound(
+                    editedHandle: editedHandle,
+                    redactedHandle: context.redactedEntry.handle,
+                    suspectPlaceholderCount: report.suspectPlaceholders.count
                 )
             }
             let committed = try vault.commit(
@@ -186,12 +197,61 @@ extension MCPServer {
                 restoredCount: report.restoredCount,
                 orphanTokens: report.orphanTokens,
                 suspectPlaceholders: report.suspectPlaceholders,
-                ambiguousReplacements: report.ambiguousReplacements
+                ambiguousReplacements: report.ambiguousReplacements,
+                disclosesSuspectStrings: lineage == .redactedSharingMapping
             )
         } catch {
             vault.abort(slot: restoredSlot)
             throw error
         }
+    }
+
+    // MARK: Lineage of an edit surface
+
+    /// How an editedHandle relates to the redacted artifact whose mapping
+    /// restores it. Only two relations are accepted; everything else is
+    /// refused before any vault state exists.
+    enum EditSurfaceLineage {
+        /// A redacted artifact that carries this very mapping: the artifact
+        /// itself, a session member sharing its sidecar, or the artifact
+        /// restore wrote for edited text. Its text is already known to the
+        /// caller through read_redacted or editedText, so suspect placeholder
+        /// strings may be disclosed, and zero restored placeholders is a
+        /// legitimate outcome (an AI may have mangled every one).
+        case redactedSharingMapping
+        /// An original the human staged (the edited .docx that came back). It
+        /// must prove it belongs to this round trip by restoring at least one
+        /// placeholder, and its edits are text the caller has never seen, so
+        /// suspect placeholders are reported as a count only.
+        case stagedOriginal
+    }
+
+    /// Classify an edit surface, refusing restored artifacts (they hold real
+    /// values again), formats that cannot carry placeholders, and redacted
+    /// artifacts of another mapping (they would restore silently with the
+    /// wrong values and export under the other document's name).
+    static func editSurfaceLineage(
+        of edited: VaultEntry,
+        for redacted: VaultEntry
+    ) throws -> EditSurfaceLineage {
+        guard edited.kind != .restored else {
+            throw MCPVaultToolError.notAnEditSurface(edited.handle)
+        }
+        guard editSurfaceFormats.contains(edited.format) else {
+            throw MCPVaultToolError.unsupportedEditFormat(handle: edited.handle, format: edited.format)
+        }
+        if edited.kind == .original {
+            return .stagedOriginal
+        }
+        // Session members share one sidecar and an edited-text artifact
+        // carries its parent's, so the sidecar path is the lineage; the
+        // source link covers a derived artifact whose sidecar moved.
+        let sharesSidecar = edited.mappingRelativePath != nil
+            && edited.mappingRelativePath == redacted.mappingRelativePath
+        guard sharesSidecar || edited.sourceHandle == redacted.handle else {
+            throw MCPVaultToolError.mappingMismatch(edited.handle)
+        }
+        return .redactedSharingMapping
     }
 
     /// No edit arguments: restore the stored redacted artifact directly.
@@ -245,25 +305,33 @@ extension MCPServer {
         }
     }
 
-    /// The response every restore shape shares. The replacement strings in
-    /// the three lists are boundary-safe: they are what the redacted text
-    /// already shows. The handle names an artifact that stays in the vault.
+    /// The response every restore shape shares. orphanTokens and
+    /// ambiguousReplacements are boundary-safe: placeholder shapes, or what
+    /// the redacted text already shows. Suspect placeholders are verbatim
+    /// substrings of the scanned text, so their strings are disclosed only
+    /// when that text is already known to the caller; the count always is.
+    /// The handle names an artifact that stays in the vault.
     static func restoreResponse(
         restoredHandle: String,
         format: String,
         restoredCount: Int,
         orphanTokens: [String],
         suspectPlaceholders: [String],
-        ambiguousReplacements: [String]
+        ambiguousReplacements: [String],
+        disclosesSuspectStrings: Bool = true
     ) -> [String: Any] {
-        [
+        var response: [String: Any] = [
             "restoredHandle": restoredHandle,
             "format": format,
             "restoredCount": restoredCount,
             "orphanTokens": orphanTokens,
-            "suspectPlaceholders": suspectPlaceholders,
+            "suspectPlaceholderCount": suspectPlaceholders.count,
             "ambiguousReplacements": ambiguousReplacements
         ]
+        if disclosesSuspectStrings {
+            response["suspectPlaceholders"] = suspectPlaceholders
+        }
+        return response
     }
 
     /// An optional string argument, with an empty string treated as absent.

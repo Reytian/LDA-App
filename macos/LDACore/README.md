@@ -182,26 +182,29 @@ launch); exports land only in the vault's own `outbox/`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle` |
+| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (values the review step left visible; 0 means fully redacted) |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
 | `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
-| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements`; plus `editedRedactedHandle` on the `editedText` path |
+| `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
 | `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
-| `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned, per-tool call counts |
+| `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned (plaintext, redacted, and the partially redacted subset), per-tool call counts |
 
 Error results are boundary-safe codes plus handles: `unknown_handle`,
 `not_an_original`, `not_redacted`, `not_exportable`, `missing_mapping`,
-`detection_id_required`, `unknown_entity_id`, `entity_ids_not_supported`,
-`not_an_edit_surface`, `unsupported_format`, plus argument errors for an
+`detection_id_required`, `invalid_entity_id`, `unknown_entity_id`,
+`entity_ids_not_supported`, `not_an_edit_surface`, `unsupported_format`,
+`no_placeholders_found`,
+`mapping_mismatch`, plus argument errors for an
 unknown `excludeTypes` value, an unknown `style`, and `editedText` given
 together with `editedHandle`.
 
 ### The review step: choose which PII to redact
 
 `detect_entities` names every detected entity with an `id` (the first 12 hex
-characters of SHA-256 over `TYPE|start|end`) and the whole set with a
+characters of SHA-256 over `handle|TYPE|start|end`, so an id belongs to one
+document and is never valid for another) and the whole set with a
 `detectionId` (16 hex characters over the handle, whether a model took part,
 and the sorted ids). Both derive from information the tool already returns,
 so an agent can review the list and say "redact everything except these"
@@ -213,8 +216,9 @@ without ever seeing a name:
 `excludeEntityIds` applies to body text only (a header occurrence of the same
 value is still redacted); `excludeTypes` applies everywhere, including
 headers, footers, notes, comments, and the image channel. `anonymize` detects
-again on its own: an excluded id it does not find is refused with
-`unknown_entity_id` and nothing is written; a detection that changed while
+again on its own: an excluded id it does not find (including any id minted
+for another document) is refused with `unknown_entity_id` and nothing is
+written; a detection that changed while
 every excluded id is still present proceeds (over-redaction is the safe
 direction) and reports `detectionChanged: true`. `anonymize_session` accepts
 `excludeTypes` only, because ids are single-document by construction.
@@ -237,6 +241,12 @@ human   lda vault stage Agreement-edited.docx                -> doc_c3
 agent   restore {redactedHandle: red_b2, editedHandle: doc_c3} -> res_d4, format docx
 agent   export {handle: res_d4}                              -> outbox/Agreement-edited_restored.docx
 ```
+
+`editedHandle` accepts only a document that belongs to this round trip: a
+human-staged file must still hold at least one placeholder of the mapping
+(otherwise `no_placeholders_found`, and nothing is written), its suspect
+placeholders come back as a count only, and a redacted artifact is accepted
+only when it carries this very mapping (otherwise `mapping_mismatch`).
 
 The restored `.docx` keeps every run property of the runs that held
 placeholders and copies every untouched package part (styles, numbering,
