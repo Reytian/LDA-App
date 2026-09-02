@@ -481,15 +481,81 @@ public enum LDAService {
         )
     }
 
-    /// Load the mapping, import the edited redacted file, restore tokens to
-    /// values (DocxRedactor.restore for .docx, Restorer for text), and write the
-    /// output.
+    /// Load the mapping sidecar, then restore. See
+    /// restore(editedRedacted:mapping:output:) for the work itself.
+    ///
+    /// The input guards run BEFORE the mapping is loaded, so a refused input
+    /// never costs a Keychain prompt or a passphrase attempt.
     public static func restore(
         editedRedacted: URL,
         mapping: URL,
         protection: MappingProtection,
         output: URL
     ) throws -> RestoreReport {
+        try validateRestoreInput(editedRedacted, output: output)
+        let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
+        return try restore(editedRedacted: editedRedacted, mapping: loadedMapping, output: output)
+    }
+
+    /// Import the edited redacted file, restore tokens to values against an
+    /// in-memory mapping (DocxRedactor.restore for .docx, Restorer for text),
+    /// and write the output.
+    ///
+    /// The GUI resolves its mapping itself (the session mapping, the parked
+    /// round trip, a client profile, or a sidecar it already opened) and hands
+    /// the value in here, so no caller has to write a mapping to disk just to
+    /// restore with it.
+    public static func restore(
+        editedRedacted: URL,
+        mapping loadedMapping: Mapping,
+        output: URL
+    ) throws -> RestoreReport {
+        try validateRestoreInput(editedRedacted, output: output)
+        let ext = editedRedacted.pathExtension.lowercased()
+
+        if ext == "docx" {
+            // Report against one PRE-restore view of every visible text part.
+            // A post-restore scan cannot count successful substitutions, and a
+            // body-only scan omits headers, footers, notes, and comments.
+            let preRestoreText = try DocxParts.restoreReportText(from: editedRedacted)
+            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
+
+            if loadedMapping.style == .token {
+                let tokenToValue = Dictionary(
+                    uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
+                )
+                try DocxRedactor.restore(
+                    redactedDocx: editedRedacted,
+                    tokenToValue: tokenToValue,
+                    to: output
+                )
+                return makeRestoreReport(output: output, from: report)
+            }
+
+            // The literal rewrite follows the same restore plan as the report,
+            // so an ambiguous asterisk mask is left verbatim exactly where the
+            // package-wide report flags it.
+            try DocxRedactor.restoreLiteral(
+                redactedDocx: editedRedacted,
+                plan: Restorer.literalRestorePlan(
+                    for: loadedMapping,
+                    refusingReplacements: Set(report.ambiguousReplacements)
+                ),
+                to: output
+            )
+            return makeRestoreReport(output: output, from: report)
+        }
+
+        // Text edit surface: restore the tokens and write the output as UTF-8.
+        let imported = try importDocument(editedRedacted, extension: ext)
+        let report = Restorer.restore(text: imported.text, mapping: loadedMapping)
+        try TextDocumentIO.exportText(report.text, to: output)
+        return makeRestoreReport(output: output, from: report)
+    }
+
+    /// The fail-fast checks both restore entry points share, run before any
+    /// mapping IO.
+    private static func validateRestoreInput(_ editedRedacted: URL, output: URL) throws {
         // Writing the output over the edited input would delete the input
         // before it is read (the writers clear the destination first), losing
         // the user's redacted file. Refuse up front, before any IO.
@@ -509,58 +575,12 @@ public enum LDAService {
                     + "was produced alongside it."
             )
         }
-        let loadedMapping = try MappingStore.load(from: mapping, protection: protection)
+    }
 
-        if ext == "docx" {
-            // Report against one PRE-restore view of every visible text part.
-            // A post-restore scan cannot count successful substitutions, and a
-            // body-only scan omits headers, footers, notes, and comments.
-            let preRestoreText = try DocxParts.restoreReportText(from: editedRedacted)
-            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
-
-            if loadedMapping.style == .token {
-                let tokenToValue = Dictionary(
-                    uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
-                )
-                try DocxRedactor.restore(
-                    redactedDocx: editedRedacted,
-                    tokenToValue: tokenToValue,
-                    to: output
-                )
-                return RestoreReport(
-                    outputURL: output,
-                    restoredCount: report.restoredCount,
-                    orphanTokens: report.orphanTokens,
-                    suspectPlaceholders: report.suspectPlaceholders,
-                    ambiguousReplacements: report.ambiguousReplacements
-                )
-            }
-
-            // The literal rewrite follows the same restore plan as the report,
-            // so an ambiguous asterisk mask is left verbatim exactly where the
-            // package-wide report flags it.
-            try DocxRedactor.restoreLiteral(
-                redactedDocx: editedRedacted,
-                plan: Restorer.literalRestorePlan(
-                    for: loadedMapping,
-                    refusingReplacements: Set(report.ambiguousReplacements)
-                ),
-                to: output
-            )
-            return RestoreReport(
-                outputURL: output,
-                restoredCount: report.restoredCount,
-                orphanTokens: report.orphanTokens,
-                suspectPlaceholders: report.suspectPlaceholders,
-                ambiguousReplacements: report.ambiguousReplacements
-            )
-        }
-
-        // Text edit surface: restore the tokens and write the output as UTF-8.
-        let imported = try importDocument(editedRedacted, extension: ext)
-        let report = Restorer.restore(text: imported.text, mapping: loadedMapping)
-        try TextDocumentIO.exportText(report.text, to: output)
-        return RestoreReport(
+    /// The report shape every restore path returns: the restorer's counts and
+    /// lists, stamped with where the output landed.
+    private static func makeRestoreReport(output: URL, from report: RestoreResult) -> RestoreReport {
+        RestoreReport(
             outputURL: output,
             restoredCount: report.restoredCount,
             orphanTokens: report.orphanTokens,

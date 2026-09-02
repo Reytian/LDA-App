@@ -45,19 +45,18 @@ final class MultilingualLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoreCardsWrapLocalizedCopyInsideMinimumWindowBudget() {
-        let cardPairWidth: CGFloat = 860
-        let cardSpacing: CGFloat = 20
-        let cardWidth = (cardPairWidth - cardSpacing) / 2
+    func testRestoreCardWrapsLocalizedCopyAtItsProductionWidth() throws {
+        let source = try String(contentsOf: Self.restoreSourceURL, encoding: .utf8)
+        XCTAssertTrue(
+            source.contains(".frame(maxWidth: 560)"),
+            "The single Restore card must keep the production width this test measures."
+        )
+        let cardWidth: CGFloat = 560
         let cardHorizontalPadding: CGFloat = 24
         let bodyWidth = cardWidth - (cardHorizontalPadding * 2)
 
         for language in Self.interfaceLanguages {
-            let cards = RestoreCardCopy.allCases.map {
-                $0.localized(in: language)
-            }
-
-            for card in cards {
+            for card in RestoreCardCopy.allCases.map({ $0.localized(in: language) }) {
                 assertTextWrapsWithoutClipping(
                     card.body,
                     width: bodyWidth,
@@ -79,25 +78,12 @@ final class MultilingualLayoutTests: XCTestCase {
                     240,
                     "The \(language.rawValue) Restore card must retain its production minimum height."
                 )
+                XCTAssertLessThan(
+                    renderedSize.height,
+                    420,
+                    "The \(language.rawValue) Restore card becomes impractically tall."
+                )
             }
-
-            let cardPair = NSHostingView(
-                rootView: HStack(alignment: .top, spacing: cardSpacing) {
-                    ForEach(Array(cards.enumerated()), id: \.offset) { _, copy in
-                        RestoreCardProbe(copy: copy)
-                    }
-                }
-                .frame(width: cardPairWidth)
-            )
-            let pairSize = cardPair.fittingSize
-
-            XCTAssertEqual(pairSize.width, cardPairWidth, accuracy: 0.5)
-            XCTAssertGreaterThanOrEqual(pairSize.height, 240)
-            XCTAssertLessThan(
-                pairSize.height,
-                420,
-                "The \(language.rawValue) Restore cards become impractically tall at minimum width."
-            )
         }
     }
 
@@ -221,6 +207,9 @@ final class MultilingualLayoutTests: XCTestCase {
 
     private static let fillLibrarySourceURL = packageRootURL
         .appendingPathComponent("Sources/LDAUI/FillLibraryViews.swift")
+
+    private static let restoreSourceURL = packageRootURL
+        .appendingPathComponent("Sources/LDAUI/DeanonymizeShell.swift")
 }
 
 private struct ModePickerProbe: View {
@@ -239,37 +228,23 @@ private struct ModePickerProbe: View {
 }
 
 private enum RestoreCardCopy: CaseIterable {
-    case paste
     case file
 
     func localized(in language: AppLanguage) -> LocalizedRestoreCardCopy {
         switch self {
-        case .paste:
-            return LocalizedRestoreCardCopy(
-                icon: "arrow.left.doc.on.clipboard",
-                title: L10n.string("Paste back an AI reply", language: language),
-                body: L10n.string(
-                    "You copied redacted text with Copy for AI and worked on it in an AI tool. "
-                        + "Paste the reply here: every placeholder is swapped back to the real value "
-                        + "using this session's mapping.",
-                    language: language
-                ),
-                buttonTitle: L10n.string("Paste from AI\u{2026}", language: language),
-                isProminent: true
-            )
         case .file:
             return LocalizedRestoreCardCopy(
                 icon: "doc.badge.arrow.up",
-                title: L10n.string("Restore a redacted file", language: language),
+                title: L10n.string("Restore a file", language: language),
                 body: L10n.string(
-                    "You exported a redacted document earlier and it came back edited. "
-                        + "Choose the file; its .ldamap mapping sidecar is picked up automatically "
-                        + "from the same folder. If the mapping was protected with a passphrase, "
-                        + "you will be asked for it.",
+                    "Choose or drop the file that came back: the Markdown you exported for the AI, "
+                        + "or a redacted Word document you saved. The mapping is found automatically "
+                        + "from this session or from the .ldamap saved next to the file. "
+                        + "Formatting is kept when the file is a Word document.",
                     language: language
                 ),
                 buttonTitle: L10n.string("Choose File & Restore\u{2026}", language: language),
-                isProminent: false
+                isProminent: true
             )
         }
     }

@@ -511,6 +511,9 @@ public final class ReviewModel: ObservableObject {
 
     /// Restore an edited redacted document back to its original values using its
     /// encrypted mapping sidecar. Standalone: does not touch the review session.
+    /// The Restore mode resolves its mapping through SessionModel instead; this
+    /// stays for callers that hold a sidecar URL, and shares the one
+    /// Keychain-account rule (the sidecar's base name) with it.
     public func restore(
         editedRedacted: URL,
         mapping: URL,
@@ -518,7 +521,7 @@ public final class ReviewModel: ObservableObject {
         output: URL
     ) throws -> RestoreReport {
         let protection: MappingProtection = passphrase.map { .passphrase($0) }
-            ?? .keychain(account: mapping.deletingPathExtension().lastPathComponent)
+            ?? .keychain(account: SessionModel.sidecarKeychainAccount(for: mapping))
         return try LDAService.restore(
             editedRedacted: editedRedacted,
             mapping: mapping,

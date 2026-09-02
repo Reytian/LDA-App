@@ -475,4 +475,98 @@ final class LDAServiceTests: XCTestCase {
         XCTAssertTrue(stillThere.contains("{EMAIL_1}"))
     }
 
+    // MARK: - restore with an in-memory mapping
+
+    /// The GUI resolves the mapping itself (session, parked, sidecar) and hands
+    /// the facade a Mapping value; the text path must behave exactly like the
+    /// sidecar-URL path.
+    func testRestoreWithAnInMemoryMappingRoundTripsText() throws {
+        let original = "Reach me at \(Self.email) or \(Self.cnMobile) today."
+        let inputURL = workDir.appendingPathComponent("memo.txt")
+        try Data(original.utf8).write(to: inputURL)
+        let outputDir = workDir.appendingPathComponent("memory-out", isDirectory: true)
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt
+        )
+        let mapping = try MappingStore.load(from: result.mappingFileURL, protection: .passphrase("pw"))
+
+        let restoredURL = workDir.appendingPathComponent("memo_restored.txt")
+        let report = try LDAService.restore(
+            editedRedacted: result.redactedFileURL,
+            mapping: mapping,
+            output: restoredURL
+        )
+
+        XCTAssertEqual(try String(contentsOf: restoredURL, encoding: .utf8), original)
+        XCTAssertEqual(report.restoredCount, 2)
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertTrue(report.suspectPlaceholders.isEmpty)
+        XCTAssertEqual(report.outputURL, restoredURL)
+    }
+
+    /// The docx path keeps DocxRedactor's run-preserving restore: the bold run
+    /// properties of the fixture survive, and every token comes back.
+    func testRestoreWithAnInMemoryMappingKeepsDocxRunFormatting() throws {
+        let inputURL = try writeFixtureDocx([
+            ["Contact ", "jane.doe@", "example.com", " for details."],
+            ["Phone ", Self.cnMobile, " is on file."]
+        ])
+        let importer = DocxImporter()
+        let originalText = try importer.importDocument(inputURL).text
+        let outputDir = workDir.appendingPathComponent("memory-docx-out", isDirectory: true)
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt
+        )
+        let mapping = try MappingStore.load(from: result.mappingFileURL, protection: .passphrase("pw"))
+
+        let restoredURL = workDir.appendingPathComponent("memo_restored.docx")
+        let report = try LDAService.restore(
+            editedRedacted: result.redactedFileURL,
+            mapping: mapping,
+            output: restoredURL
+        )
+
+        XCTAssertEqual(try importer.importDocument(restoredURL).text, originalText)
+        XCTAssertTrue(report.orphanTokens.isEmpty)
+        XCTAssertGreaterThanOrEqual(report.restoredCount, 2)
+        let restoredXML = try DocxZip.readEntry(docxMainPartPath, from: restoredURL)
+        let xmlString = String(data: restoredXML, encoding: .utf8) ?? ""
+        XCTAssertTrue(xmlString.contains("<w:b/>"), "run formatting must survive the restore")
+        XCTAssertFalse(xmlString.contains("{EMAIL_1}"))
+    }
+
+    /// The in-memory overload keeps the same fail-fast guard as the sidecar
+    /// overload: writing over the edited input would destroy it.
+    func testRestoreWithAnInMemoryMappingRefusesOutputEqualToInput() throws {
+        let original = "Reach me at \(Self.email) please."
+        let inputURL = workDir.appendingPathComponent("note-memory.txt")
+        try Data(original.utf8).write(to: inputURL)
+        let outputDir = workDir.appendingPathComponent("memory-refuse", isDirectory: true)
+        let result = try LDAService.anonymize(
+            input: inputURL,
+            outputDir: outputDir,
+            protection: .passphrase("pw"),
+            createdAtISO8601: Self.createdAt
+        )
+        let mapping = try MappingStore.load(from: result.mappingFileURL, protection: .passphrase("pw"))
+
+        XCTAssertThrowsError(
+            try LDAService.restore(
+                editedRedacted: result.redactedFileURL,
+                mapping: mapping,
+                output: result.redactedFileURL
+            )
+        ) { error in
+            XCTAssertEqual(error as? LDAServiceError, .outputEqualsInput)
+        }
+        let stillThere = try String(contentsOf: result.redactedFileURL, encoding: .utf8)
+        XCTAssertTrue(stillThere.contains("{EMAIL_1}"))
+    }
+
 }

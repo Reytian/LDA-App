@@ -99,7 +99,7 @@ extension SessionModel {
     ) throws -> ComplianceReportBundle {
         guard let recordID = currentRecordID else {
             throw DocumentIOError.unreadable(
-                "No session record exists yet. Use Copy for AI first."
+                "No session record exists yet. Use Export for AI first."
             )
         }
         guard let record = try recordStore().load(

@@ -105,10 +105,10 @@ final class SessionModelTests: XCTestCase {
         let matterRoot = workDir.appendingPathComponent("matters")
         session.matterStore = { try MatterMetadataStore(rootDirectory: matterRoot) }
         session.matterProtection = { .passphrase("pw") }
-        // Isolate the parked-session location: restorePasted and
-        // requestPasteRestore resume a parked session just in time, and the
-        // default location is the REAL Application Support directory, which
-        // may carry a parked mapping from the developer's own use of the app.
+        // Isolate the parked-session location: restorePasted and the file
+        // restore flow resume a parked session just in time, and the default
+        // location is the REAL Application Support directory, which may carry
+        // a parked mapping from the developer's own use of the app.
         let parkedURL = workDir.appendingPathComponent("parked-test.ldamap")
         session.parkedMappingURL = { parkedURL }
         session.parkedProtection = { .passphrase("parked-pw") }
@@ -618,6 +618,134 @@ final class SessionModelTests: XCTestCase {
         XCTAssertTrue(markdown.contains("{EMAIL_2}"), "the new address continues the counter")
     }
 
+    // MARK: - Export for AI
+
+    /// A destination standing in for the save panel's choice: a fresh folder,
+    /// and passphrase protection for the sidecar so the test never touches
+    /// the Keychain.
+    private func exportDestination(
+        _ session: SessionModel,
+        name: String = "Redacted for AI.md"
+    ) throws -> URL {
+        let folder = workDir.appendingPathComponent("export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        session.exportSidecarProtection = { _ in .passphrase("sidecar-pw") }
+        return folder.appendingPathComponent(name)
+    }
+
+    private func filesWritten(nextTo destination: URL) throws -> [String] {
+        try FileManager.default
+            .contentsOfDirectory(atPath: destination.deletingLastPathComponent().path)
+            .sorted()
+    }
+
+    func testExportForAIWritesOneMarkdownAndOneSidecarAndInheritsTheHandoffSideEffects() async throws {
+        let session = makeSession()
+        let doc1 = try write("a.txt", "Mail john@acme.com please.")
+        let doc2 = try write("b.txt", "Also mary@beta.io.")
+        let doc3 = try write("c.txt", "Not scanned yet.")
+        await session.addDocuments([doc1, doc2, doc3])
+        await session.entries[0].model.anonymize()
+        await session.entries[1].model.anonymize()
+        let destination = try exportDestination(session)
+
+        let result = try XCTUnwrap(
+            session.exportForAI(to: destination, createdAtISO8601: Self.createdAt)
+        )
+
+        // Exactly one .md and one .ldamap land in the chosen folder.
+        XCTAssertEqual(try filesWritten(nextTo: destination), ["Redacted for AI.ldamap", "Redacted for AI.md"])
+        XCTAssertEqual(result.markdownURL, destination)
+        XCTAssertEqual(
+            result.mappingURL,
+            destination.deletingPathExtension().appendingPathExtension("ldamap")
+        )
+
+        // The body is the token-style preamble followed by the combined handoff.
+        let markdown = try String(contentsOf: destination, encoding: .utf8)
+        XCTAssertTrue(
+            markdown.hasPrefix(MarkdownHandoffWriter.tokenStylePreamble + "\n\n# Document 1\n\n"),
+            markdown
+        )
+        XCTAssertTrue(markdown.contains("{EMAIL_1}"))
+        XCTAssertTrue(markdown.contains("# Document 2"))
+        XCTAssertFalse(markdown.contains("john@acme.com"))
+        XCTAssertFalse(markdown.contains("a.txt"))
+
+        // The sidecar is the session mapping, under the injected protection.
+        let sidecar = try MappingStore.load(from: result.mappingURL, protection: .passphrase("sidecar-pw"))
+        XCTAssertEqual(sidecar, try XCTUnwrap(session.sessionMapping))
+
+        // Every side effect of buildHandToAI is inherited, none re-implemented.
+        XCTAssertNotNil(session.currentRecordID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try session.parkedMappingURL().path))
+        XCTAssertEqual(session.entries[0].model.entities.first?.token, "{EMAIL_1}")
+        XCTAssertEqual(result.documentCount, 2)
+        XCTAssertEqual(result.skippedCount, 1)
+        XCTAssertEqual(
+            result.includedDocumentIDs,
+            Set([session.entries[0].id, session.entries[1].id])
+        )
+    }
+
+    func testExportForAIWritesNothingAndChangesNothingWhenNoDocumentIsReady() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Untouched.")
+        await session.addDocuments([doc])
+        let destination = try exportDestination(session)
+
+        XCTAssertNil(try session.exportForAI(to: destination, createdAtISO8601: Self.createdAt))
+
+        XCTAssertEqual(try filesWritten(nextTo: destination), [])
+        XCTAssertNil(session.sessionMapping)
+        XCTAssertNil(session.currentRecordID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try session.parkedMappingURL().path))
+    }
+
+    func testExportForAIKeysTheSidecarByTheChosenBaseName() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let destination = try exportDestination(session, name: "Matter 12 for AI.md")
+        var accounts: [String] = []
+        session.exportSidecarProtection = { account in
+            accounts.append(account)
+            return .passphrase("sidecar-pw")
+        }
+
+        _ = try session.exportForAI(to: destination, createdAtISO8601: Self.createdAt)
+
+        // Restore derives the same account from the sidecar's base name, so
+        // the two sides agree without any record of the choice.
+        XCTAssertEqual(accounts, ["Matter 12 for AI"])
+        XCTAssertEqual(try filesWritten(nextTo: destination), ["Matter 12 for AI.ldamap", "Matter 12 for AI.md"])
+    }
+
+    func testExportForAIWritesNoPreambleInPseudonymStyle() async throws {
+        let session = makeSession()
+        session.outputStyleProvider = { .pseudonym }
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let destination = try exportDestination(session)
+
+        _ = try XCTUnwrap(session.exportForAI(to: destination, createdAtISO8601: Self.createdAt))
+
+        let markdown = try String(contentsOf: destination, encoding: .utf8)
+        XCTAssertFalse(markdown.contains("Protected values appear as placeholders"), markdown)
+        XCTAssertFalse(markdown.contains("john@acme.com"))
+        XCTAssertEqual(try MappingStore.load(from: SessionModel.sidecarURL(for: destination), protection: .passphrase("sidecar-pw")).style, .pseudonym)
+    }
+
+    func testRequestExportForAIBumpsTheToken() {
+        let session = makeSession()
+
+        session.requestExportForAI()
+
+        XCTAssertEqual(session.exportForAIRequestToken, 1)
+    }
+
     // MARK: - Bring back and restore
 
     func testRestorePastedRoundTripsEditedMarkdown() async throws {
@@ -651,6 +779,49 @@ final class SessionModelTests: XCTestCase {
     func testRestorePastedWithoutMappingReturnsNil() throws {
         let session = makeSession()
         XCTAssertNil(try session.restorePasted("Anything {EMAIL_1} here."))
+    }
+
+    private func currentRecord(of session: SessionModel) throws -> SessionRecord {
+        let id = try XCTUnwrap(session.currentRecordID)
+        return try XCTUnwrap(
+            session.recordStore().load(id: id, protection: session.recordProtection())
+        )
+    }
+
+    func testRestorePastedAppendsARestoreEventToTheSessionRecord() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let handoff = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+
+        _ = try XCTUnwrap(session.restorePasted(handoff.combined))
+
+        let record = try currentRecord(of: session)
+        XCTAssertEqual(record.restoreEvents.count, 1)
+        XCTAssertEqual(record.restoreEvents.first?.restoredCount, 1)
+    }
+
+    func testRestoreFileAppendsARestoreEventToTheSessionRecord() async throws {
+        let session = makeSession()
+        let doc = try write("a.txt", "Mail john@acme.com please.")
+        await session.addDocuments([doc])
+        await session.anonymizeAll()
+        let handoff = try XCTUnwrap(session.buildHandToAI(createdAtISO8601: Self.createdAt))
+        let edited = try write("Redacted for AI.md", "Draft: " + handoff.combined)
+        let output = workDir.appendingPathComponent("Redacted for AI_restored.md")
+
+        let report = try session.restoreFile(
+            edited,
+            mapping: try XCTUnwrap(session.sessionMapping),
+            output: output
+        )
+
+        XCTAssertEqual(report.restoredCount, 1)
+        let record = try currentRecord(of: session)
+        XCTAssertEqual(record.restoreEvents.count, 1, "the Workspace restore count must stay truthful")
+        XCTAssertEqual(record.restoreEvents.first?.restoredCount, 1)
+        XCTAssertEqual(record.restoreEvents.first?.orphanCount, 0)
     }
 
     // MARK: - Menu-bar companion (clipboard round-trip)

@@ -4,7 +4,7 @@
 //
 //  Tests for the GUI side of the output styles: the persisted AISettings
 //  value, the export path (performExport), the Safe Preview, the session
-//  Copy for AI + paste-restore round trip in pseudonym style, including the
+//  Export for AI + restore round trip in pseudonym style, including the
 //  simulated AI rewrite that breaks brace tokens, and the asterisk mask that
 //  fits two people and is therefore refused before session publication.
 //
@@ -129,7 +129,7 @@ final class ReviewModelStyleTests: XCTestCase {
     }
 }
 
-// MARK: - Session Copy for AI in pseudonym style
+// MARK: - Session Export for AI in pseudonym style
 
 @MainActor
 final class SessionModelStyleTests: XCTestCase {
