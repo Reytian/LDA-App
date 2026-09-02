@@ -472,7 +472,9 @@ public struct DocumentPane: View {
     }
 }
 
-enum DocumentPreviewMode: String, CaseIterable {
+/// The two surfaces of the document pane. Public because the ReviewModel owns
+/// the current mode (the selection gate and the menus read it).
+public enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
 
