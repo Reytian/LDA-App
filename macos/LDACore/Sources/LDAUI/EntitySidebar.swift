@@ -435,7 +435,7 @@ private struct SectionHeader: View {
                 .foregroundStyle(CounselTheme.textSecondary)
 
             Menu {
-                bulkActions
+                EntityTypeBulkActions(type: type, onSetAllAccepted: onSetAllAccepted)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.caption)
@@ -451,19 +451,9 @@ private struct SectionHeader: View {
             )))
         }
         .textCase(nil)
-        .contextMenu { bulkActions }
-    }
-
-    @ViewBuilder
-    private var bulkActions: some View {
-        Button(String(
-            format: L10n.string("Redact All %@"),
-            EntityTypePresentation.localizedName(for: type) as NSString
-        )) { onSetAllAccepted(true) }
-        Button(String(
-            format: L10n.string("Keep All %@ Visible"),
-            EntityTypePresentation.localizedName(for: type) as NSString
-        )) { onSetAllAccepted(false) }
+        .contextMenu {
+            EntityTypeBulkActions(type: type, onSetAllAccepted: onSetAllAccepted)
+        }
     }
 }
 

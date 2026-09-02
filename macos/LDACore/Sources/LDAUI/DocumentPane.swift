@@ -62,6 +62,13 @@ public struct DocumentPane: View {
     /// True while the Change Kind chooser is presented from the notice row.
     @State private var isChangingKind = false
 
+    /// True when the hosting window is narrow (WindowLayoutPolicy); the
+    /// legend then collapses to its menu button like the rest of the chrome.
+    @State private var isWindowNarrow = false
+
+    /// The measured width of the header's content row, for the legend tier.
+    @State private var headerWidth: CGFloat = 0
+
     public init(session: SessionModel, model: ReviewModel) {
         self.session = session
         self.model = model
@@ -259,7 +266,7 @@ public struct DocumentPane: View {
     }
 
     private var previewHeader: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: HeaderLayout.spacing) {
             Picker("Document preview", selection: $model.previewMode) {
                 ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
                     Text(mode.localizedKey).tag(mode)
@@ -267,7 +274,7 @@ public struct DocumentPane: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 250)
+            .frame(width: HeaderLayout.pickerWidth)
 
             if model.previewMode == .safePreview {
                 if model.visibleCount > 0 {
@@ -281,20 +288,40 @@ public struct DocumentPane: View {
                     Label("Accepted findings replaced", systemImage: "checkmark.shield")
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
-            } else {
+            } else if model.entities.isEmpty {
+                // The legend replaces this caption as soon as findings exist.
                 Text("Original text with review highlights")
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
             Spacer(minLength: 0)
+
+            DocumentLegend(
+                model: model,
+                isNarrow: isWindowNarrow,
+                availableWidth: legendAvailableWidth
+            )
         }
         .font(.callout)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: HeaderWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(HeaderWidthKey.self) { headerWidth = $0 }
+        .background(WindowNarrownessReader(isNarrow: $isWindowNarrow).frame(width: 0, height: 0))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(CounselTheme.raised)
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    /// The room left for the legend after the picker and the status label.
+    private var legendAvailableWidth: CGFloat {
+        let statusWidth = model.previewMode == .safePreview ? HeaderLayout.safePreviewLabelEstimate : 0
+        return max(0, headerWidth - HeaderLayout.pickerWidth - statusWidth - 2 * HeaderLayout.spacing)
     }
 
     // MARK: - Protect Selection wiring
@@ -459,6 +486,15 @@ public struct DocumentPane: View {
 
     // MARK: - Constants
 
+    private enum HeaderLayout {
+        /// The segmented Original / Safe Preview picker.
+        static let pickerWidth: CGFloat = 250
+        /// Spacing between the header's elements.
+        static let spacing: CGFloat = 14
+        /// Room reserved for the Safe Preview status label beside the legend.
+        static let safePreviewLabelEstimate: CGFloat = 220
+    }
+
     private enum NoticeTiming {
         /// How long a notice stays before dismissing itself.
         static let autoDismissSeconds: Double = 6
@@ -466,6 +502,14 @@ public struct DocumentPane: View {
         static let hoverPollSeconds: Double = 1
         /// Vertical spacing inside the placeholder stack.
         static let placeholderSpacing: CGFloat = 12
+    }
+}
+
+/// The measured width of the preview header's content row.
+private struct HeaderWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
