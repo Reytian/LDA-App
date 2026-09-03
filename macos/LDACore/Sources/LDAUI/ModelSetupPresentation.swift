@@ -75,10 +75,15 @@ enum ModelSetupPresentation {
     }
 
     /// The ask page's title key.
+    ///
+    /// `.download` and `.importOnly` share "Choose a detection model": the
+    /// old "First, add a detection model" framed the ask as a chore to clear
+    /// before the app was usable, when what the page actually offers is a
+    /// choice among four routes (three rungs, an import, or defer).
     static func askTitleKey(route: AskRoute) -> String {
         switch route {
         case .download, .importOnly:
-            return "First, add a detection model"
+            return "Choose a detection model"
         case .unavailable:
             return "This Mac cannot run a detection model"
         }
@@ -86,23 +91,36 @@ enum ModelSetupPresentation {
 
     /// The ask page's body paragraphs, in render order.
     ///
-    /// The third paragraph is the measured evidence and carries the one number
-    /// in this flow. It is prose plus a measurement rather than a Found / Not
-    /// found grid: a grid is the most authoritative format this app has, and a
-    /// Found cell would untrain the distrust the same screen just taught.
+    /// `.download` and `.importOnly` collapse to ONE sentence (#10 in the
+    /// wizard spec): what a scan without a model does not look for, and what
+    /// that means for a copy about to reach an AI tool. The Chinese-street-form
+    /// caveat and the twelve-item pattern enumeration that used to sit here
+    /// moved to the pre-scan gate (`scanConfirmation`), which fires before any
+    /// actual scan and already carries both; repeating them here was reading
+    /// the same disclosure twice before anything had happened yet. The
+    /// measured "32 of 36" evidence moved to `deferConsequenceLine`, on the
+    /// wizard's defer ("Not Now") row, where the decision it informs actually
+    /// is.
     static func askBody(route: AskRoute, language: AppLanguage? = nil) -> [String] {
         switch route {
         case .download, .importOnly:
             return [
-                L10n.string("A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals.", language: language),
-                L10n.string("Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number.", language: language),
-                L10n.string("In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part.", language: language)
+                L10n.string("Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client.", language: language)
             ]
         case .unavailable:
             return [
                 L10n.string("This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that.", language: language)
             ]
         }
+    }
+
+    /// The measured evidence, shown only on the wizard's defer ("Not Now")
+    /// row: what a patterns-only scan still finds, what it measurably misses,
+    /// and that LDA asks again before every document. `PatternOnlyRecallClaimTests`
+    /// pins the three numbers against `bench/fulldocs`, so this sentence
+    /// cannot drift from the corpus in either direction.
+    static func deferConsequenceLine(language: AppLanguage? = nil) -> String {
+        L10n.string("No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document.", language: language)
     }
 
     /// The primary button on the ask page and in the scan dialog.
@@ -117,6 +135,115 @@ enum ModelSetupPresentation {
         String(
             format: L10n.string("Download the Model (%@)", language: language),
             sizeDescription as NSString
+        )
+    }
+
+    // MARK: - The wizard's model step (page 2)
+
+    /// The model step's title.
+    static func modelStepTitle(language: AppLanguage? = nil) -> String {
+        L10n.string("Choose a detection model", language: language)
+    }
+
+    /// The model step's one sentence, always visible: what a scan without a
+    /// model does not look for, and what an exported copy still reveals.
+    /// Identical to `askBody(route:)`'s single paragraph for `.download` and
+    /// `.importOnly`, kept as its own accessor so the wizard reads as calling
+    /// the model step's own copy rather than reaching into the ask's.
+    static func modelStepExplanation(language: AppLanguage? = nil) -> String {
+        askBody(route: .download, language: language).first ?? ""
+    }
+
+    /// The "Recommended" badge on the pre-selected rung.
+    static func recommendedBadge(language: AppLanguage? = nil) -> String {
+        L10n.string("Recommended", language: language)
+    }
+
+    /// Why a rung is recommended: fits with room to spare (the ordinary
+    /// case), or offline mode leaves the import as the only route.
+    static func recommendedReason(route: AskRoute, language: AppLanguage? = nil) -> String {
+        switch route {
+        case .importOnly:
+            return L10n.string("Recommended because offline mode is on.", language: language)
+        case .download, .unavailable:
+            return L10n.string("Recommended: it fits this Mac with room to spare and leaves the least to dismiss.", language: language)
+        }
+    }
+
+    /// "Download and Use": the primary action both installs the tier AND
+    /// selects it (`AISettings.setDetectionLevel`), so the button never reads
+    /// as an offer the app itself declines to act on.
+    static func downloadAndUseButtonTitle(language: AppLanguage? = nil) -> String {
+        L10n.string("Download and Use", language: language)
+    }
+
+    /// The collapsed sentence naming every rung `MemoryGate` blocks on this
+    /// Mac, in ladder order, joined with `ListFormatter` at `language`'s
+    /// locale so zh-Hans reads "标准和深度" and fr reads "Équilibré et Le plus
+    /// complet" without a separator key of its own.
+    static func blockedRungsLine(
+        blockedLevels: [DetectionLevel],
+        installedGB: Int,
+        language: AppLanguage? = nil
+    ) -> String {
+        let selectedLanguage = language ?? AppLanguage.selected()
+        let names = blockedLevels.map { L10n.string($0.displayName, language: language) }
+        let formatter = ListFormatter()
+        formatter.locale = selectedLanguage.locale
+        let joined = formatter.string(from: names) ?? names.joined(separator: ", ")
+        return String(
+            format: L10n.string(
+                "This Mac has %lld GB of memory, so %@ cannot run here.",
+                language: language
+            ),
+            locale: selectedLanguage.locale,
+            Int64(installedGB),
+            joined as NSString
+        )
+    }
+
+    /// Names the download host and the offline alternative in one sentence,
+    /// on `.download`; states that offline mode is on and names the same
+    /// alternative, on `.importOnly`. Stays on screen through `.downloading`,
+    /// `.verifying`, `.failed` and `.installed` (`ModelSetupGateTests
+    /// .testTheOfflineRemedySurvivesAFailedDownload`), so a mainland download
+    /// failure never hides the one route that still works.
+    static func provenanceLine(
+        route: AskRoute,
+        hostDescription: String,
+        language: AppLanguage? = nil
+    ) -> String {
+        switch route {
+        case .download:
+            return String(
+                format: L10n.string(
+                    "Downloading connects to %@. If that is unreachable, add a file you got on another Mac.",
+                    language: language
+                ),
+                hostDescription as NSString
+            )
+        case .importOnly:
+            return L10n.string(
+                "Offline mode is on, so downloads are off. You can still add a file you got on another Mac.",
+                language: language
+            )
+        case .unavailable:
+            return ""
+        }
+    }
+
+    /// The in-progress and installed lines on the model step, replacing the
+    /// old "You can read the next steps while it arrives" / "A scan will look
+    /// for names, companies, and addresses" pair, which described a sheet
+    /// that no longer has a next page waiting behind the download.
+    static func modelDownloadingLine(language: AppLanguage? = nil) -> String {
+        L10n.string("Downloading the detection model.", language: language)
+    }
+
+    static func modelInstalledLine(language: AppLanguage? = nil) -> String {
+        L10n.string(
+            "Installed and in use. Scans will now find the names of people and organisations.",
+            language: language
         )
     }
 

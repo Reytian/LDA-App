@@ -22,20 +22,27 @@ final class ModelSetupPresentationTests: XCTestCase {
     // MARK: - The disclosure names categories, never accuracy
 
     func testAskBodyNamesPersonCompanyAndAddressRatherThanAccuracy() {
+        // The wizard's own sentence (askBody) states the consequence for an
+        // AI handoff; the Chinese-street-form caveat and the twelve-item
+        // pattern enumeration moved to the pre-scan gate (scanConfirmation),
+        // which fires before any actual scan and already carries both, per
+        // wizard spec decision 13. Together the two surfaces must still state
+        // every clause below at least once.
         let body = ModelSetupPresentation
             .askBody(route: .download, language: .english)
             .joined(separator: " ")
+            + " " + ModelSetupPresentation.scanConfirmation(language: .english).message
 
         for clause in [
-            "people's names and company names",
-            "not detected",
+            "names of people and organisations",
             "not in the review list",
             "still identifies your client",
+            "people's names or company names",
             "Chinese street form"
         ] {
             XCTAssertTrue(
                 body.contains(clause),
-                "the ask must state: \(clause)"
+                "the ask flow must state: \(clause)"
             )
         }
 
@@ -100,7 +107,7 @@ final class ModelSetupPresentationTests: XCTestCase {
         )
         XCTAssertEqual(
             ModelSetupPresentation.askTitleKey(route: .download),
-            "First, add a detection model"
+            "Choose a detection model"
         )
     }
 
@@ -171,15 +178,19 @@ final class ModelSetupPresentationTests: XCTestCase {
 
     func testEveryNewSetupStringIsTranslatedInAllFourCatalogs() {
         let keys = [
-            // K1 to K3, the ask body.
-            "A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals.",
-            "Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number.",
-            "In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part.",
-            // K4 to K7, the two routes and the download progress line.
+            // K1 and K2, the wizard's one-sentence ask body and its defer
+            // row's evidence. Replaces the old three-paragraph ask body: the
+            // Chinese-street-form caveat and the pattern enumeration moved to
+            // the pre-scan gate (K10/K11 below), and the measured evidence
+            // moved from the ask's last paragraph to the defer ("Not Now")
+            // row, where the decision it informs actually is.
+            "Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client.",
+            "No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document.",
+            // K3 to K6, the two routes and the download progress line.
             "Download the Model (%@)",
             "I Already Have the File\u{2026}",
-            "Downloading the detection model. You can read the next steps while it arrives.",
-            "The detection model is installed. A scan will look for names, companies, and addresses.",
+            "Downloading the detection model.",
+            "Installed and in use. Scans will now find the names of people and organisations.",
             // K8 and K9, the Mac that cannot run one.
             "This Mac cannot run a detection model",
             "This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that.",
@@ -207,9 +218,10 @@ final class ModelSetupPresentationTests: XCTestCase {
             "No detection model is installed for the selected detection level, so people's names and company names were not looked for, and an address was matched only in the Chinese street form. Choose a different level in Settings, or add the model file."
         ]
         XCTAssertEqual(
-            keys.count, 25,
+            keys.count, 24,
             "23 from the specification, plus the two that separate a partial AI "
-                + "pass from one that never ran"
+                + "pass from one that never ran, less one: the old three-paragraph "
+                + "ask body collapsed to one sentence plus the defer row's evidence"
         )
 
         for language in [AppLanguage.english, .french, .simplifiedChinese, .traditionalChinese] {

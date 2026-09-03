@@ -140,17 +140,23 @@ final class PatternOnlyRecallClaimTests: XCTestCase {
         // to the detectors that improves the number fails here until the
         // sentence is rewritten, and a rewritten sentence fails until the
         // measurement agrees.
-        let sentence = ModelSetupPresentation
-            .askBody(route: .download, language: .english)
-            .last ?? ""
+        //
+        // The measured evidence moved from the ask's last paragraph to the
+        // wizard's defer ("Not Now") row (wizard spec section 4B, #28), where
+        // the decision it informs actually is; the new sentence states the
+        // 32-of-36 miss and drops the "4 in part" detail that used to follow
+        // it, which is why only two numbers are expected here. The
+        // four-partial-match figure is still verified above, against the
+        // corpus directly.
+        let sentence = ModelSetupPresentation.deferConsequenceLine(language: .english)
         let numbers = sentence
             .components(separatedBy: CharacterSet.decimalDigits.inverted)
             .filter { !$0.isEmpty }
             .compactMap(Int.init)
         XCTAssertEqual(
-            numbers, [32, 36, 4],
-            "the evidence sentence must quote the measured 32 of 36, and 4 in "
-                + "part, in that order: \(sentence)"
+            numbers, [32, 36],
+            "the defer row's evidence sentence must quote the measured 32 of "
+                + "36: \(sentence)"
         )
     }
 }

@@ -2,21 +2,33 @@
 //  OnboardingView.swift
 //  LDAUI
 //
-//  The first-run sheet (R13). Two pages now: the model ask, then what the app
-//  does (the round-trip in three steps), the honest privacy promise and the
-//  cautions. Dismissing the sheet leaves the user at the drop zone.
+//  The first-run sheet (R13/R17). Three pages: language, the model ask, then
+//  what the app does (the round-trip in three steps), the honest privacy
+//  promise and the cautions. Dismissing the sheet leaves the user at the drop
+//  zone.
 //
-//  Page 1 exists because the app cannot find people's names or company names
-//  without a detection model, and no model ships inside the app. It is an ASK,
-//  not a consent ritual: there is no acknowledgement checkbox, because a tick
-//  box before a lawyer's first document buys a defensible log entry rather
-//  than an informed reader, and it is unresolvable on an 8 GB Mac. What page 1
-//  does have is no exit that is not an answer: Download, I Already Have the
-//  File, or Not Now.
+//  Language is page 1 because a lawyer who reads Chinese must be able to read
+//  every page that follows it, including the ask. The model page exists
+//  because the app cannot find people's names or company names without a
+//  detection model, and no model ships inside the app. It is a CHOICE among
+//  four routes (three rungs, an import, or defer), not a consent ritual:
+//  there is no acknowledgement checkbox, because a tick box before a lawyer's
+//  first document buys a defensible log entry rather than an informed
+//  reader, and it is unresolvable on an 8 GB Mac.
 //
-//  The primary button owns .keyboardShortcut(.defaultAction) on page 1, so
-//  Return starts the download rather than carrying the user through to a
-//  names-blind scan in one keypress.
+//  Escape is blocked on every page except the last (.steps), and nowhere on
+//  the .unavailable route: AppShell.swift's onboardingDismissed() writes
+//  .declined for an unanswered ask, and .declined is honoured forever, so a
+//  page in front of that ask with Escape enabled would let a user
+//  permanently silence a question they never saw. On an 8/12 GB Mac the
+//  recorded answer (.unavailable) is correct however the sheet closes, and
+//  the page is already a statement with no remedy, so Escape stays enabled
+//  there.
+//
+//  Return-key ownership, one per page: language -> Continue; model -> the
+//  primary install action (or the import action on .importOnly, or Continue
+//  on .unavailable); steps -> its own final action. Only one page is on screen, so no
+//  collision.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -28,19 +40,15 @@ public struct OnboardingView: View {
 
     /// Why this sheet is on screen.
     ///
-    /// `.firstRun` is the two-page sheet. `.modelAskOnly` is the return visit
-    /// for an unresolved ask (pressed Download and cancelled, or the drive is
-    /// still at the office): only page 1 exists and answering dismisses,
-    /// because the three steps were already read.
+    /// `.firstRun` is the three-page sheet (two when a model is already
+    /// present). `.modelAskOnly` is the return visit for an unresolved ask
+    /// (pressed Download and cancelled, or the drive is still at the
+    /// office): only the model page exists and answering dismisses, because
+    /// the language question is already settled and the three steps were
+    /// already read.
     public enum Mode: Equatable {
         case firstRun
         case modelAskOnly
-    }
-
-    /// Which page is on screen.
-    enum Page: Equatable {
-        case model
-        case steps
     }
 
     @Binding var isPresented: Bool
@@ -59,13 +67,14 @@ public struct OnboardingView: View {
     /// presses Continue and the ask costs no waiting.
     @ObservedObject var installer: ModelInstaller
 
-    /// The tier manifest, passed in rather than reloaded: the size in the
-    /// primary button comes from it, so the number has one source of truth.
+    /// The tier manifest, passed in rather than reloaded: every size and
+    /// timing figure on the model page comes from it, so those numbers have
+    /// one source of truth.
     let catalog: ModelCatalog
 
     /// Whether ANY tier could run on this Mac. False on 8 GB and 12 GB, where
-    /// the ask becomes a statement with one Continue, because a dialog with no
-    /// available remedy is a ritual.
+    /// the model page becomes a statement with one Continue, because a page
+    /// with no available remedy is a ritual.
     let canRunAModel: Bool
 
     let mode: Mode
@@ -84,7 +93,13 @@ public struct OnboardingView: View {
     /// view have silently never presented in this window before.
     let onOpenModelManagement: () -> Void
 
-    @State private var page: Page
+    @State private var page: OnboardingPresentation.Page
+
+    /// The rung the primary action would install. Defaults to the wizard's
+    /// recommendation, but the user can tap a different selectable row: the
+    /// recommendation is carried by this default plus the Recommended badge,
+    /// never by reordering the ladder.
+    @State private var selectedLevel: DetectionLevel?
 
     public init(
         isPresented: Binding<Bool>,
@@ -102,35 +117,27 @@ public struct OnboardingView: View {
         self.canRunAModel = canRunAModel
         self.mode = mode
         self.onOpenModelManagement = onOpenModelManagement
-        // A Mac that already has a model is never asked; it starts on the
-        // steps, which is exactly the sheet that shipped before this change.
-        self._page = State(initialValue: hasModel ? .steps : .model)
+        self._page = State(initialValue: OnboardingPresentation.firstPage(mode: mode))
+        self._selectedLevel = State(initialValue: OnboardingPresentation.recommendedLevel(catalog: catalog))
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 12) {
-                    Text("Language")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(CounselTheme.textPrimary)
-                    Spacer()
-                    // A lawyer who reads Chinese must be able to read the ask,
-                    // so the picker stays above it on page 1.
-                    Picker("Language", selection: languageBinding) {
-                        ForEach(AppLanguage.allCases) { language in
-                            Text(language.nativeName()).tag(language)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 210)
+                if let chip = OnboardingPresentation.stepChip(
+                    position: OnboardingPresentation.position(of: page, mode: mode, hasModel: hasModel),
+                    count: OnboardingPresentation.pageCount(mode: mode, hasModel: hasModel),
+                    language: currentLanguage
+                ) {
+                    Text(verbatim: chip)
+                        .font(CounselTheme.Typography.supporting)
+                        .foregroundStyle(CounselTheme.textSecondary)
                 }
 
-                if page == .model {
-                    modelAskPage
-                } else {
-                    stepsPage
+                switch page {
+                case .language: languagePage
+                case .model: modelAskPage
+                case .steps: stepsPage
                 }
             }
             .padding(28)
@@ -145,12 +152,66 @@ public struct OnboardingView: View {
         )
         .background(CounselTheme.raised)
         // No exit that is not an answer, except on the Mac that has nothing to
-        // answer: there the page is a statement, so Escape is the same as its
-        // single Continue.
-        .interactiveDismissDisabled(page == .model && route != .unavailable)
+        // answer: there every page is (or leads only to) a statement, so
+        // Escape is the same as working through to its single Continue.
+        .interactiveDismissDisabled(page != .steps && route != .unavailable)
     }
 
-    // MARK: - Page 1: the ask
+    private var currentLanguage: AppLanguage { AppLanguage.from(rawValue: languageRaw) }
+
+    // MARK: - Page 1: language
+
+    /// A lawyer who reads Chinese must be able to read every page that
+    /// follows this one, including the model ask, so the language choice
+    /// comes first and answering it is the only way off the page.
+    private var languagePage: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text(verbatim: OnboardingPresentation.languageStepTitle(language: currentLanguage))
+                .font(.system(.title2, design: .serif).weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            Text(verbatim: OnboardingPresentation.languageStepExplanation(language: currentLanguage))
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(AppLanguage.allCases) { language in
+                    languageRow(language)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    advance()
+                } label: {
+                    Text(verbatim: L10n.string("Continue", language: currentLanguage))
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+            }
+        }
+    }
+
+    private func languageRow(_ language: AppLanguage) -> some View {
+        let isSelected = languageRaw == language.rawValue
+        return Button {
+            languageRaw = language.rawValue
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                Text(verbatim: language.nativeName(language: currentLanguage))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Page 2: the model ask
 
     /// Which ask this Mac gets.
     private var route: ModelSetupPresentation.AskRoute {
@@ -160,40 +221,77 @@ public struct OnboardingView: View {
         )
     }
 
-    /// The tier the ask offers. Quick is the one rung that runs on the 16 GB
-    /// minimum spec.
+    /// The tier the ask offers when memory rules out everything. Quick is the
+    /// one rung that runs on the 16 GB minimum spec.
     private var quickTier: ModelTier? { catalog.tier(for: .quick) }
 
-    /// The download's phase, or `.waiting` when there is no tier to download.
-    private var phase: ModelInstallPhase {
-        quickTier.map { installer.phase(for: $0) } ?? .waiting
+    private var installedGB: Double { MemoryGate.installedGB() }
+
+    private func isSelectable(_ level: DetectionLevel) -> Bool {
+        guard let tier = catalog.tier(for: level) else { return false }
+        return MemoryGate.availability(for: tier, installedGB: installedGB).isSelectable
     }
 
-    /// The model ask: what a scan cannot find without a model, the measured
-    /// evidence, and the two routes to fixing it.
+    /// The rungs this Mac can run, in ladder order.
+    private var selectableLevels: [DetectionLevel] {
+        DetectionLevel.modelLevels.filter(isSelectable)
+    }
+
+    /// The rungs `MemoryGate` blocks on this Mac, collapsed into one sentence
+    /// (`ModelSetupPresentation.blockedRungsLine`) rather than given rows:
+    /// hiding them entirely would leave "how do I choose" unanswered on the
+    /// machine where the answer is "your Mac decided", and a full row each
+    /// would spend about 50 characters restating the same fact twice.
+    private var blockedLevels: [DetectionLevel] {
+        DetectionLevel.modelLevels.filter { !isSelectable($0) }
+    }
+
+    /// The rung the wizard pre-selects, never Most thorough.
+    private var recommendedLevel: DetectionLevel? {
+        OnboardingPresentation.recommendedLevel(catalog: catalog, installedGB: installedGB)
+    }
+
+    private var selectedTier: ModelTier? {
+        selectedLevel.flatMap { catalog.tier(for: $0) }
+    }
+
+    /// The selected rung's download phase, or `.waiting` when nothing is
+    /// selected or selectable.
+    private var phase: ModelInstallPhase {
+        selectedTier.map { installer.phase(for: $0) } ?? .waiting
+    }
+
+    private var isBusy: Bool {
+        switch phase {
+        case .waiting, .cancelled: return false
+        default: return true
+        }
+    }
+
+    /// The model ask: a choice among three rungs, the verified import, and
+    /// deferring, or (on an 8/12 GB Mac) a statement with one Continue.
     ///
     /// Tinted with the accent rather than danger red: at first run this is a
     /// setup task, not an error. Danger red is reserved for the pre-scan
     /// advisory in AppShell, where the user is about to act on a reduced scan.
     private var modelAskPage: some View {
         Label {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(LocalizedStringKey(ModelSetupPresentation.askTitleKey(route: route)))
-                    .font(.callout.weight(.semibold))
+            VStack(alignment: .leading, spacing: 10) {
+                Text(verbatim: L10n.string(ModelSetupPresentation.askTitleKey(route: route), language: currentLanguage))
+                    .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                askBodyParagraphs
+                Text(verbatim: ModelSetupPresentation.askBody(route: route, language: currentLanguage).first ?? "")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if route == .unavailable {
                     unavailableActions
                 } else {
-                    switch phase {
-                    case .waiting, .cancelled:
-                        askActions
-                        footnotes
-                    default:
-                        progressLine
-                    }
+                    optionsList
+                    askActions
+                    footnotes
                 }
             }
         } icon: {
@@ -204,52 +302,154 @@ public struct OnboardingView: View {
         }
     }
 
-    /// The ask's prose. The last paragraph of the download and import routes
-    /// is the measured evidence, set in supporting type so it reads as a
-    /// citation rather than as another warning.
-    private var askBodyParagraphs: some View {
-        let paragraphs = ModelSetupPresentation.askBody(route: route)
-        return ForEach(Array(paragraphs.enumerated()), id: \.offset) { item in
-            let isEvidence = paragraphs.count > 1 && item.offset == paragraphs.count - 1
-            Text(verbatim: item.element)
-                .font(isEvidence ? CounselTheme.Typography.supporting : .callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// The three rungs (only the selectable ones get rows), the collapsed
+    /// blocked-rungs sentence, and the verified-import row. Rows disable
+    /// while a download is in flight rather than disappearing, so the choice
+    /// stays legible.
+    @ViewBuilder
+    private var optionsList: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(selectableLevels, id: \.rawValue) { level in
+                rungRow(level)
+            }
+            if !blockedLevels.isEmpty {
+                Text(verbatim: ModelSetupPresentation.blockedRungsLine(
+                    blockedLevels: blockedLevels,
+                    installedGB: Int(installedGB.rounded()),
+                    language: currentLanguage
+                ))
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if route == .download {
+                importRow
+            }
         }
     }
 
-    /// The three answers. The fix is first and owns the default action, so
-    /// Return spends bandwidth rather than confidentiality.
+    private func rungRow(_ level: DetectionLevel) -> some View {
+        let tier = catalog.tier(for: level)
+        let isSelected = selectedLevel == level
+        let isRecommended = level == recommendedLevel
+        return Button {
+            selectedLevel = level
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isSelected ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        L10n.text(level.displayName)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(CounselTheme.textPrimary)
+                        if isRecommended {
+                            Text(verbatim: ModelSetupPresentation.recommendedBadge(language: currentLanguage))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(CounselTheme.inkAccent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(CounselTheme.inkAccent.opacity(0.4), lineWidth: 1)
+                                )
+                        }
+                    }
+                    if let tier {
+                        Text(verbatim: ModelAnnotation.localizedFacts(
+                            for: tier, bundled: false, language: currentLanguage
+                        ))
+                            .font(CounselTheme.Typography.supporting)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    // The deciding-factor line renders only when there is a
+                    // decision to make: on the 16 GB Mac most PRC lawyers own,
+                    // one rung is selectable and the honest answer is the
+                    // blocked-rungs sentence above, not a guidance line
+                    // restating that there is no choice.
+                    if selectableLevels.count > 1 {
+                        Text(verbatim: OnboardingPresentation.chooseLine(for: level, language: currentLanguage))
+                            .font(CounselTheme.Typography.supporting)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    /// "I Already Have the File...", as a row on `.download` (secondary to
+    /// the rungs above) and promoted to the page's one primary action on
+    /// `.importOnly` (see `askActions`), never both: showing it twice would
+    /// read as two different offers.
+    private var importRow: some View {
+        Button {
+            chooseExistingFile()
+        } label: {
+            HStack {
+                L10n.text("I Already Have the File\u{2026}")
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+    }
+
+    /// The primary action, then the defer link with its one consequence line.
+    /// The fix is first and owns the default action, so Return spends
+    /// bandwidth rather than confidentiality.
     @ViewBuilder
     private var askActions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if route == .download, let tier = quickTier {
-                Button(
-                    ModelSetupPresentation.downloadButtonTitle(
-                        sizeDescription: tier.downloadSizeDescription
-                    )
-                ) {
-                    AISettings.recordModelSetupAnswer(.accepted)
-                    installer.install(tier)
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-
-                Button("I Already Have the File\u{2026}") { chooseExistingFile() }
-            } else {
-                // Offline mode refuses the download and may be MDM-forced, so
-                // the verified import becomes the primary route. Nothing here
-                // offers to turn offline mode off: the app must not change a
-                // security setting for the user.
-                Button("I Already Have the File\u{2026}") { chooseExistingFile() }
+        VStack(alignment: .leading, spacing: 10) {
+            switch phase {
+            case .waiting, .cancelled:
+                if route == .download {
+                    Button {
+                        guard let level = selectedLevel, let tier = selectedTier else { return }
+                        AISettings.recordModelSetupAnswer(.accepted)
+                        AISettings.setDetectionLevel(level)
+                        installer.install(tier)
+                    } label: {
+                        Text(verbatim: ModelSetupPresentation.downloadAndUseButtonTitle(language: currentLanguage))
+                    }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
+                    .disabled(selectedTier == nil)
+                } else {
+                    // Offline mode refuses the download and may be MDM-forced,
+                    // so the verified import becomes the primary route.
+                    // Nothing here offers to turn offline mode off: the app
+                    // must not change a security setting for the user.
+                    Button {
+                        chooseExistingFile()
+                    } label: {
+                        L10n.text("I Already Have the File\u{2026}")
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
+                }
+            default:
+                progressLine
             }
 
-            Button("Not Now") { decline() }
-                .buttonStyle(.link)
+            HStack(spacing: 8) {
+                L10n.button("Not Now") { decline() }
+                    .buttonStyle(.link)
+                Text(verbatim: ModelSetupPresentation.deferConsequenceLine(language: currentLanguage))
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -260,14 +460,16 @@ public struct OnboardingView: View {
     private var unavailableActions: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let tier = quickTier {
-                Text(verbatim: MemoryGate.localizedRequirementText(for: tier))
+                Text(verbatim: MemoryGate.localizedRequirementText(for: tier, language: currentLanguage))
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Button("Continue") {
+            Button {
                 AISettings.recordModelSetupAnswer(.unavailable)
                 advance()
+            } label: {
+                Text(verbatim: L10n.string("Continue", language: currentLanguage))
             }
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
@@ -275,35 +477,40 @@ public struct OnboardingView: View {
         }
     }
 
-    /// Both routes are named so the offline one is discoverable at first run.
+    /// The provenance line: names the download host and the offline
+    /// alternative in one sentence, or (offline mode) states that downloads
+    /// are off and names the same alternative. Stays on screen through
+    /// `.downloading`, `.verifying`, `.failed` and `.installed`, because
+    /// today it renders only in `.waiting`/`.cancelled` and the "get it on
+    /// another Mac" sentence vanishes at the exact moment a mainland download
+    /// fails.
     private var footnotes: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it.")
-            if route == .importOnly {
-                Text("This works with offline mode on. Adding a file makes no network request.")
-            }
-        }
-        .font(CounselTheme.Typography.supporting)
-        .foregroundStyle(CounselTheme.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+        Text(verbatim: ModelSetupPresentation.provenanceLine(
+            route: route,
+            hostDescription: quickTier?.sourceURL ?? "",
+            language: currentLanguage
+        ))
+            .font(CounselTheme.Typography.supporting)
+            .foregroundStyle(CounselTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The transfer, in place of the buttons. The user can read the next steps
-    /// while it arrives: it is owned by the app, not by this sheet, so pressing
-    /// Continue costs no waiting.
+    /// The transfer, in place of the primary button. The user can read the
+    /// next steps while it arrives: it is owned by the app, not by this
+    /// sheet, so pressing Continue costs no waiting.
     @ViewBuilder
     private var progressLine: some View {
         VStack(alignment: .leading, spacing: 6) {
             switch phase {
             case let .downloading(fraction, received, expected):
-                Text("Downloading the detection model. You can read the next steps while it arrives.")
+                Text(verbatim: ModelSetupPresentation.modelDownloadingLine(language: currentLanguage))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ProgressView(value: fraction)
                 HStack {
                     Text(verbatim: String(
-                        format: L10n.string("%@ of %@"),
+                        format: L10n.string("%@ of %@", language: currentLanguage),
                         ByteCountFormatter.string(
                             fromByteCount: received, countStyle: .file
                         ) as NSString,
@@ -314,13 +521,13 @@ public struct OnboardingView: View {
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
-                    Button("Cancel") { cancelDownload() }
+                    L10n.button("Cancel") { cancelDownload() }
                 }
                 continueButton
             case .verifying:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text("Checking the file is exactly what it should be")
+                    L10n.text("Checking the file is exactly what it should be")
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
@@ -332,13 +539,13 @@ public struct OnboardingView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
                     if error.isRetryable {
-                        Button("Try Again") { retryDownload() }
+                        L10n.button("Try Again") { retryDownload() }
                     }
-                    Button("Manage Models\u{2026}") { openModelManagement() }
+                    L10n.button("Manage Models\u{2026}") { openModelManagement() }
                 }
                 continueButton
             case .installed:
-                Text("The detection model is installed. A scan will look for names, companies, and addresses.")
+                Text(verbatim: ModelSetupPresentation.modelInstalledLine(language: currentLanguage))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -351,21 +558,25 @@ public struct OnboardingView: View {
 
     /// Leaves the ask without abandoning the transfer.
     private var continueButton: some View {
-        Button("Continue") { advance() }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccentFill)
+        Button {
+            advance()
+        } label: {
+            Text(verbatim: L10n.string("Continue", language: currentLanguage))
+        }
+        .keyboardShortcut(.defaultAction)
+        .buttonStyle(.borderedProminent)
+        .tint(CounselTheme.inkAccentFill)
     }
 
-    // MARK: - Page 2: what the app does
+    // MARK: - Page 3: what the app does
 
     private var stepsPage: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Use AI on confidential documents, safely")
+                Text(verbatim: OnboardingPresentation.stepsTitle(language: currentLanguage))
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("LDA protects client information before it reaches an AI tool, and puts it back afterwards. Three steps:")
+                Text(verbatim: OnboardingPresentation.stepsLede(language: currentLanguage))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -374,26 +585,24 @@ public struct OnboardingView: View {
                 step(
                     number: "1",
                     icon: "tray.and.arrow.down",
-                    title: "Bring documents in",
+                    title: OnboardingPresentation.step1Title(language: currentLanguage),
                     // Without a model the shipped sentence promises names
                     // three lines below the block that says they are not
                     // found. Which kinds of value a scan can find is exactly
-                    // what the ask above decides.
-                    text: hasModel
-                        ? "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect."
-                        : "Drop Word, PDF, or text files (or a .zip). The app scans each one and you review what it will protect. Which kinds of value it can find depends on the detection model above."
+                    // what the model page above decides.
+                    text: OnboardingPresentation.step1Text(hasModel: hasModel, language: currentLanguage)
                 )
                 step(
                     number: "2",
                     icon: "doc.richtext",
-                    title: "Hand the safe copy to any AI",
-                    text: "Export for AI saves a redacted Markdown file. Upload it to ChatGPT, Claude, or any tool, with your instructions."
+                    title: OnboardingPresentation.step2Title(language: currentLanguage),
+                    text: OnboardingPresentation.step2Text(language: currentLanguage)
                 )
                 step(
                     number: "3",
                     icon: "doc.badge.arrow.up",
-                    title: "Bring the answer back",
-                    text: "Restore takes the file the AI gave back and puts the real values in, flagging anything it cannot match with certainty. Save the final document in its original format."
+                    title: OnboardingPresentation.step3Title(language: currentLanguage),
+                    text: OnboardingPresentation.step3Text(language: currentLanguage)
                 )
             }
 
@@ -402,7 +611,7 @@ public struct OnboardingView: View {
             // The privacy summary distinguishes LDA's own processing from the
             // external services a user may choose for an exported document.
             Label {
-                Text("LDA processes document contents and stores the encrypted mapping on this Mac. If you ask it to download a detection model, it connects to the model host. Copying or exporting a document lets you send it to a service you choose, so review that service's privacy settings first.")
+                Text(verbatim: OnboardingPresentation.privacyParagraph(language: currentLanguage))
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -424,8 +633,11 @@ public struct OnboardingView: View {
             // inside the window defeats the timer.
             Label {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Anything you choose to keep visible stays visible in the exported document.")
-                    Text("Restore Clipboard, in the menu-bar icon, is the one action that puts real values on your clipboard; it tries to clear them again about \(Int(SensitiveClipboard.autoClearAfter)) seconds later, so paste promptly and do not rely on the clearing.")
+                    Text(verbatim: OnboardingPresentation.visibilityCaution(language: currentLanguage))
+                    Text(verbatim: OnboardingPresentation.clipboardCaution(
+                        autoClearSeconds: Int(SensitiveClipboard.autoClearAfter),
+                        language: currentLanguage
+                    ))
                 }
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
@@ -439,12 +651,14 @@ public struct OnboardingView: View {
                 // A one-click route back for someone who pressed Not Now, so
                 // the decision is reversible without hunting through chrome.
                 if !hasModel, canRunAModel {
-                    Button("Set Up a Model\u{2026}") { openModelManagement() }
+                    L10n.button("Set Up a Model\u{2026}") { openModelManagement() }
                         .controlSize(.small)
                 }
                 Spacer()
-                Button("Get Started") {
+                Button {
                     isPresented = false
+                } label: {
+                    Text(verbatim: L10n.string("Get Started", language: currentLanguage))
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
@@ -484,36 +698,30 @@ public struct OnboardingView: View {
     }
 
     private func cancelDownload() {
-        guard let tier = quickTier else { return }
+        guard let tier = selectedTier else { return }
         installer.cancel(tier)
     }
 
     private func retryDownload() {
-        guard let tier = quickTier else { return }
+        guard let tier = selectedTier else { return }
         installer.install(tier)
     }
 
-    /// Leave page 1: on to the steps at first run, or out of the sheet on a
-    /// return visit, where the steps were already read.
+    /// Leave the current page: on to the next one at first run, or out of the
+    /// sheet on a return visit or at the end of the sequence.
     private func advance() {
-        switch mode {
-        case .firstRun: page = .steps
-        case .modelAskOnly: isPresented = false
+        guard let next = OnboardingPresentation.nextPage(after: page, mode: mode, hasModel: hasModel) else {
+            isPresented = false
+            return
         }
-    }
-
-    private var languageBinding: Binding<AppLanguage> {
-        Binding(
-            get: { AppLanguage.from(rawValue: languageRaw) },
-            set: { languageRaw = $0.rawValue }
-        )
+        page = next
     }
 
     private func step(
         number: String,
         icon: String,
-        title: LocalizedStringKey,
-        text: LocalizedStringKey
+        title: String,
+        text: String
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
@@ -521,10 +729,10 @@ public struct OnboardingView: View {
                 .foregroundStyle(CounselTheme.inkAccent)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
-                (Text(verbatim: "\(number). ") + Text(title))
+                (Text(verbatim: number) + Text(verbatim: ". ") + Text(verbatim: title))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text(text)
+                Text(verbatim: text)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

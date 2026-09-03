@@ -145,9 +145,12 @@ final class ModelTiersTests: XCTestCase {
     }
 
     func testRequirementTextNamesAnInstallableSize() {
+        // 32 GB, not 24: at 24 GB Most thorough's 13.83 GB peak clears the
+        // 14.0 GB budget by only 0.17 GB, which is `.tight`, not `.available`.
+        // Naming 24 GB here would understate the rung's real requirement.
         let catalog = ModelCatalog.load()
         let text = MemoryGate.requirementText(for: catalog.tier(for: .mostThorough)!)
-        XCTAssertTrue(text.contains("24 GB"), "expected a concrete RAM figure, got: \(text)")
+        XCTAssertTrue(text.contains("32 GB"), "expected a concrete RAM figure, got: \(text)")
     }
 
     // MARK: - Migration from DetectionMode
@@ -433,7 +436,7 @@ final class ModelTiersTests: XCTestCase {
         let text = MemoryGate.requirementText(
             for: catalog.tier(for: .mostThorough)!, installedGB: 16
         )
-        XCTAssertTrue(text.contains("24 GB"), text)
+        XCTAssertTrue(text.contains("32 GB"), text)
         XCTAssertTrue(text.contains("This Mac has 16 GB"), text)
     }
 

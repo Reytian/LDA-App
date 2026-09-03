@@ -57,30 +57,6 @@ public enum DetectionLevel: String, CaseIterable, Sendable {
         }
     }
 
-    public var localizedDisplayName: LocalizedStringKey {
-        LocalizedStringKey(displayName)
-    }
-
-    /// One line under the name in the picker.
-    public var summary: String {
-        switch self {
-        case .patternsOnly:
-            return "Instant. Finds emails, phones, dates, amounts, and ID numbers "
-                + "only. Names, companies, and addresses are not detected."
-        case .quick:
-            return "Smallest download. Finds nearly every name, company, and "
-                + "address, and is the fastest option that does."
-        case .balanced:
-            return "Catches the most overall, at about twice the wait."
-        case .mostThorough:
-            return "Missed nothing in testing. Slowest by a wide margin."
-        }
-    }
-
-    public var localizedSummary: LocalizedStringKey {
-        LocalizedStringKey(summary)
-    }
-
     /// Whether this rung runs the on-device model. The derived replacement for
     /// the old `DetectionMode` distinction.
     public var usesLLM: Bool { self != .patternsOnly }
@@ -468,10 +444,15 @@ public enum MemoryGate {
         for tier: ModelTier,
         installedGB: Double = MemoryGate.installedGB()
     ) -> String {
-        // Smallest installed size whose budget clears this tier.
+        // Smallest installed size at which this tier is actually usable, not
+        // merely under budget: `peakRSSGB <= budgetGB(candidate)` alone was
+        // true for Balanced AND Most thorough at the same 24 GB candidate,
+        // reporting one identical, understating figure for both. Requiring
+        // `.available` (never `.tight`) picks the size at which the rung
+        // genuinely fits.
         let have = " This Mac has \(Int(installedGB.rounded())) GB."
         for candidate in [16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0]
-        where tier.peakRSSGB <= budgetGB(installedGB: candidate) {
+        where availability(for: tier, installedGB: candidate) == .available {
             return "Needs \(Int(candidate)) GB of memory." + have
         }
         return "Needs more memory than this Mac has." + have
@@ -485,7 +466,7 @@ public enum MemoryGate {
         let installed = Int(installedGB.rounded())
         let selectedLanguage = language ?? AppLanguage.selected()
         for candidate in [16.0, 24.0, 32.0, 48.0, 64.0, 96.0, 128.0]
-        where tier.peakRSSGB <= budgetGB(installedGB: candidate) {
+        where availability(for: tier, installedGB: candidate) == .available {
             return String(
                 format: L10n.string(
                     "Needs %lld GB of memory. This Mac has %lld GB.",

@@ -88,6 +88,61 @@ final class MultilingualLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testModelStepCopyFitsTheSheet() {
+        // The wizard sheet's minWidth is 520 pt, with 28 pt of padding on
+        // each side (OnboardingView.swift's outer VStack.padding(28)).
+        let sheetWidth: CGFloat = 520
+        let horizontalPadding: CGFloat = 28
+        let bodyWidth = sheetWidth - (horizontalPadding * 2)
+
+        for language in Self.interfaceLanguages {
+            let explanation = ModelSetupPresentation.askBody(
+                route: .download, language: language
+            ).first ?? ""
+            assertTextWrapsWithoutClipping(
+                explanation,
+                width: bodyWidth,
+                font: .callout,
+                language: language,
+                context: "#10 model step explanation"
+            )
+
+            let blockedLine = ModelSetupPresentation.blockedRungsLine(
+                blockedLevels: [.balanced, .mostThorough],
+                installedGB: 16,
+                language: language
+            )
+            assertTextWrapsWithoutClipping(
+                blockedLine,
+                width: bodyWidth,
+                font: CounselTheme.Typography.supporting,
+                language: language,
+                context: "#22 blocked rungs line"
+            )
+
+            let provenance = ModelSetupPresentation.provenanceLine(
+                route: .download, hostDescription: "huggingface.co", language: language
+            )
+            assertTextWrapsWithoutClipping(
+                provenance,
+                width: bodyWidth,
+                font: CounselTheme.Typography.supporting,
+                language: language,
+                context: "#26 provenance line"
+            )
+
+            let deferLine = ModelSetupPresentation.deferConsequenceLine(language: language)
+            assertTextWrapsWithoutClipping(
+                deferLine,
+                width: bodyWidth,
+                font: CounselTheme.Typography.supporting,
+                language: language,
+                context: "#28 defer consequence line"
+            )
+        }
+    }
+
+    @MainActor
     func testNewPortfolioCopyFitsTheProductionMinimumSheetWidth() throws {
         let sheetWidth: CGFloat = 400
         let sheetHorizontalPadding: CGFloat = 24

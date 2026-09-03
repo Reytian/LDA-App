@@ -150,7 +150,9 @@ final class ModelInstallerTests: XCTestCase {
               case .insufficientMemory = err else {
             return XCTFail("expected insufficientMemory, got \(installer.phase(for: thorough))")
         }
-        XCTAssertTrue(err.message.contains("24 GB"), err.message)
+        // 32 GB, not 24: at 24 GB Most thorough's 13.83 GB peak clears the
+        // 14.0 GB budget by only 0.17 GB, which is `.tight`, not `.available`.
+        XCTAssertTrue(err.message.contains("32 GB"), err.message)
     }
 
     func testTheSameModelIsDownloadableOnAMacThatCanRunIt() {
