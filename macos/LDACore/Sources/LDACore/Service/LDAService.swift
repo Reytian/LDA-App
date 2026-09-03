@@ -278,14 +278,13 @@ public enum LDAService {
         let detectSupplementary: (String) -> [Span] = { text in
             exclusion.filterSupplementary(detector.detectForImages(text))
         }
-        // DOCX replacement happens run by run inside paragraphs, and the
-        // paragraph newline, line break, and tab characters exist in no run,
-        // so a span crossing one cannot round-trip. Split such spans into
-        // per-run parts (each gets its own token and restores within its own
-        // run structure).
-        let spans = ext == "docx" && imageExtraction == nil
-            ? SpanSplitter.splitAtBreaks(detected, in: imported.text)
-            : detected
+        // No replacement may swallow a newline or a tab, on any format. In a
+        // DOCX those characters exist in no w:t run, so a crossing surface
+        // cannot round-trip; in plain text, Markdown, and the PDF and image
+        // companions, a replacement that eats a newline deletes a line from
+        // the edit surface. Split such spans into parts, each with its own
+        // token, restoring exactly in place (see SpanSplitter).
+        let spans = SpanSplitter.splitAtBreaks(detected, in: imported.text)
         var tokenized = try Tokenizer.requireSafeForRelease(
             Tokenizer.tokenize(
                 text: imported.text,

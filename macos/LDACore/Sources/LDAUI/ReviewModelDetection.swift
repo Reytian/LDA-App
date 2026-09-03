@@ -280,15 +280,13 @@ extension ReviewModel {
         let sourceFile = source?.lastPathComponent ?? "document.txt"
         let sourceExt = source?.pathExtension.lowercased() ?? "txt"
 
-        // DOCX replacement happens run by run inside paragraphs, and the
-        // paragraph newline, line break, and tab characters exist in no run,
-        // so a span crossing one cannot round-trip. Split such spans into
-        // per-run parts before tokenizing, mirroring LDAService.anonymize.
+        // No replacement may swallow a newline or a tab, on any format: in a
+        // DOCX those characters exist in no w:t run, and in a .txt or .md edit
+        // surface a replacement that eats a newline deletes a line. Split such
+        // spans into parts before tokenizing, mirroring LDAService.anonymize.
         // Alias pairs below keep the unsplit spans because a break never
         // divides a name surface.
-        let exportSpans = sourceExt == "docx" && source != nil
-            ? SpanSplitter.splitAtBreaks(acceptedSpans, in: text)
-            : acceptedSpans
+        let exportSpans = SpanSplitter.splitAtBreaks(acceptedSpans, in: text)
 
         // Declared var so non-body redaction can fold in new mapping entries below.
         var tokenized = try Tokenizer.requireSafeForRelease(
@@ -516,6 +514,23 @@ extension ReviewModel {
             }
         }
         return result
+    }
+
+    /// The token to show on an entity's sealed chip.
+    ///
+    /// A value whose surface crossed a newline or a tab was redacted as SEVERAL
+    /// tokens, one per part (see SpanSplitter), so the crossing surface itself
+    /// is in no mapping entry and the direct lookup misses. The chip then falls
+    /// back to the first part's token. Reporting nil instead would tell the
+    /// user the value is unprotected, which is both false and the more
+    /// dangerous of the two wrong answers in a redaction tool.
+    nonisolated static func chipToken(
+        for surface: String,
+        in tokenBySurface: [String: String]
+    ) -> String? {
+        if let direct = tokenBySurface[surface] { return direct }
+        guard let firstPart = SpanSplitter.firstPart(of: surface) else { return nil }
+        return tokenBySurface[firstPart]
     }
 
     // MARK: - Error rendering

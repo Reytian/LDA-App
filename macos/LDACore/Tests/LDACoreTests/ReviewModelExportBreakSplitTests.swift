@@ -9,6 +9,10 @@
 //  (a model detection bridging a soft line break, or a hand-protected value)
 //  is written into the wrong run and the restored text moves across the break.
 //
+//  The split is NOT docx-only: a .txt or .md edit surface loses a whole line
+//  when a replacement swallows the newline, so every format splits, and each
+//  part is typed from its own text rather than inheriting the parent's.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -73,12 +77,13 @@ final class ReviewModelExportBreakSplitTests: XCTestCase {
             "the first part is tokenized inside its own run: \(redactedXML)"
         )
         XCTAssertTrue(
-            redactedXML.contains("{PHONE_2} effective</w:t>"),
-            "the second part is tokenized inside the run after the break: \(redactedXML)"
+            redactedXML.contains("{DATE_1} effective</w:t>"),
+            "the second part is tokenized inside the run after the break, "
+                + "under its OWN type: \(redactedXML)"
         )
         XCTAssertEqual(
             try importer.importDocument(outcome.export.redactedURL).text,
-            "Mobile {PHONE_1}\n{PHONE_2} effective"
+            "Mobile {PHONE_1}\n{DATE_1} effective"
         )
 
         let restored = workDir.appendingPathComponent("restored.docx")
@@ -92,9 +97,10 @@ final class ReviewModelExportBreakSplitTests: XCTestCase {
         XCTAssertEqual(try importer.importDocument(restored).text, text)
     }
 
-    /// Text sources have no runs, so their spans are never split: the same
-    /// bridging span stays one token in a .txt export.
-    func testTextExportLeavesABreakCrossingSpanWhole() throws {
+    /// A text source has no runs, but it does have lines: the same bridging
+    /// span is split so the newline survives the replacement, and each half
+    /// carries its own type.
+    func testTextExportSplitsABreakCrossingSpan() throws {
         let text = "Mobile 13700001111\n2026-04-01 effective"
         let bridging = DocxTestPackage.span(in: text, surface: "13700001111\n2026-04-01", type: .phone)
         let outputDir = workDir.appendingPathComponent("out-text", isDirectory: true)
@@ -112,7 +118,14 @@ final class ReviewModelExportBreakSplitTests: XCTestCase {
         )
 
         let redacted = try String(contentsOf: outcome.export.redactedURL, encoding: .utf8)
-        XCTAssertEqual(redacted, "Mobile {PHONE_1} effective")
-        XCTAssertEqual(outcome.tokenBySurface.count, 1)
+        XCTAssertEqual(redacted, "Mobile {PHONE_1}\n{DATE_1} effective")
+        XCTAssertEqual(outcome.tokenBySurface.count, 2)
+
+        // The chip lookup for the value the user reviewed (the crossing
+        // surface) resolves to the first part's token, not to nothing.
+        XCTAssertEqual(
+            ReviewModel.chipToken(for: bridging.text, in: outcome.tokenBySurface),
+            "{PHONE_1}"
+        )
     }
 }
