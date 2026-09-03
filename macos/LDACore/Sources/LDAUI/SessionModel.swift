@@ -98,6 +98,14 @@ public final class SessionModel: ObservableObject {
     /// Bumped when the Export for AI menu command fires.
     @Published public var exportForAIRequestToken = 0
 
+    /// Bumped when the user asks to scan the whole tray.
+    ///
+    /// The shell owns the answer, because the no-model confirmation has to sit
+    /// on every scan entry point rather than on one button. Scan All used to
+    /// call anonymizeAll() straight from the banner, which is exactly the kind
+    /// of second, ungated entry point this codebase has been bitten by before.
+    @Published public var scanAllRequestToken = 0
+
     /// Bumped when the File > Open menu command fires.
     @Published public var openRequestToken = 0
 
@@ -301,6 +309,11 @@ public final class SessionModel: ObservableObject {
     public var activeModel: ReviewModel {
         activeEntry?.model ?? emptyModel
     }
+
+    /// The tray id backing `activeModel`, or nil when the idle empty model is
+    /// active. The scan gate acknowledges a DOCUMENT, so it needs the id
+    /// rather than the model.
+    public var activeEntryID: UUID? { activeEntry?.id }
 
     /// The selected entry, or the first one.
     public var activeEntry: DocumentEntry? {
@@ -1569,6 +1582,12 @@ public final class SessionModel: ObservableObject {
 
     /// Ask the shell to run the Export for AI flow (menu command hook).
     public func requestExportForAI() { exportForAIRequestToken += 1 }
+
+    /// Ask the shell to run a Scan All over the tray.
+    ///
+    /// A request rather than the run itself: the shell confirms first when this
+    /// Mac has no detection model.
+    public func requestScanAll() { scanAllRequestToken += 1 }
 
     /// Ask the shell to present the document open panel (menu command hook).
     ///

@@ -48,6 +48,19 @@ public struct AppShell: View {
     /// pattern as ModelManagementView.
     private let catalog = ModelCatalog.load()
 
+    /// Whether THIS MAC has any detection model, read through the cached
+    /// catalog. Decides the banner sentence, the scan tooltip and onboarding.
+    private var hasDetectionModel: Bool {
+        AISettings.hasAnyModelAvailable(catalog: catalog)
+    }
+
+    /// Whether any tier could run here at all. False on 8 GB and 12 GB, where
+    /// the advisory carries no button and there is no scan gate, because a
+    /// dialog with no available remedy is a ritual.
+    private var canRunAModel: Bool {
+        AISettings.canRunAnyModel(catalog: catalog)
+    }
+
     /// True while ANY open document is scanning. Gates model removal in the
     /// Manage Models sheet reached from here: llama.cpp still has the file
     /// mmapped, so the disk would not actually come back.
@@ -109,6 +122,20 @@ public struct AppShell: View {
     /// in the one sheet that already carries every download gate.
     @State private var isModelSheetPresented = false
 
+    /// Manage Models was asked for from INSIDE onboarding, so it opens from
+    /// that sheet's onDismiss rather than in the same tick. This window has a
+    /// documented case of two presentation modifiers silently never
+    /// presenting, and a sheet swapped inside a sheet is that shape.
+    @State private var pendingModelSheet = false
+
+    /// Which onboarding this launch presents: the two-page first run, or the
+    /// return visit for an unresolved model ask.
+    @State private var onboardingMode: OnboardingView.Mode = .firstRun
+
+    /// The parked scan or export request waiting on a model confirmation. The
+    /// two dialogs live in ModelSetupFlow.
+    @StateObject private var modelSetupFlow = ModelSetupFlowModel()
+
     /// Which step of the Save Redacted flow is on screen. The directory
     /// picker and the passphrase sheet live in ExportFlow.
     @StateObject private var exportFlow = ExportFlowModel()
@@ -156,7 +183,11 @@ public struct AppShell: View {
                         hasSharedOutput: hasSharedOutput
                     )
                 }
-                AppShellStatusBanner(session: session, exportMessage: exportMessage)
+                AppShellStatusBanner(
+                    session: session,
+                    exportMessage: exportMessage,
+                    hasDetectionModel: hasDetectionModel
+                )
                 // Above the tracked-changes row on purpose: a scan that is not
                 // looking for names changes what the review list can possibly
                 // contain, which outranks advice about how a value round trips.
@@ -168,9 +199,13 @@ public struct AppShell: View {
                 // arrives, because `importer` and `installer` are observed.
                 if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
                     isModelMissing: AISettings.isModelMissing(catalog: catalog),
-                    hasAnyModel: AISettings.hasAnyModelAvailable(catalog: catalog)
+                    hasAnyModel: hasDetectionModel,
+                    rungUsesLLM: AISettings.detectionLevel(catalog: catalog).usesLLM,
+                    canRunAModel: canRunAModel
                 ) {
-                    missingModelAdvisory(advice)
+                    // No trailing button on a Mac that cannot run a model: the
+                    // sentence states the limit and there is nothing to press.
+                    missingModelAdvisory(advice, offersSetUp: canRunAModel)
                 }
                 if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
                     count: model.trackedChangeCount
@@ -207,7 +242,7 @@ public struct AppShell: View {
                 clientFlow: clientFlow,
                 onOpenMatters: onOpenMatters,
                 onOpen: { presentOpenPanel() },
-                onExportForAI: { runExportForAI() },
+                onExportForAI: { requestExportForAI() },
                 report: { exportMessage = $0 }
             )
         }
@@ -226,16 +261,20 @@ public struct AppShell: View {
         .complianceReportFlow(session: session, flow: reportFlow) { message in
             exportMessage = message
         }
-        .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
+        .sheet(isPresented: $isOnboardingPresented, onDismiss: onboardingDismissed) {
             // hasAnyModelAvailable, not the selected rung: the old check was
             // model.modelPath, which is nil for a deliberate patterns-only user
             // too, so onboarding told them they had to add a model.
             OnboardingView(
                 isPresented: $isOnboardingPresented,
-                hasModel: AISettings.hasAnyModelAvailable(catalog: catalog),
-                onSetUpModel: {
+                hasModel: hasDetectionModel,
+                installer: installer,
+                catalog: catalog,
+                canRunAModel: canRunAModel,
+                mode: onboardingMode,
+                onOpenModelManagement: {
+                    pendingModelSheet = true
                     isOnboardingPresented = false
-                    isModelSheetPresented = true
                 }
             )
         }
@@ -249,17 +288,36 @@ public struct AppShell: View {
         .clientMatterFlow(session: session, flow: clientFlow) { message in
             exportMessage = message
         }
+        .modelSetupFlow(
+            flow: modelSetupFlow,
+            canDownload: catalog.tier(for: .quick).map { AISettings.canDownload($0) } ?? false,
+            sizeDescription: catalog.tier(for: .quick)?.downloadSizeDescription ?? "",
+            onScan: { request in
+                acknowledgeScanTargets(request)
+                runScan(request)
+            },
+            onExport: { runExportForAI() },
+            onOpenModelManagement: { isModelSheetPresented = true }
+        )
         .onAppear {
             if !hasCompletedFirstRun {
+                onboardingMode = .firstRun
+                isOnboardingPresented = true
+            } else if AISettings.shouldPresentModelAsk(catalog: catalog) {
+                // An unresolved ask: accepted, and still no file. Only the ask
+                // returns, never the three steps.
+                onboardingMode = .modelAskOnly
                 isOnboardingPresented = true
             }
         }
         .onChange(of: model.anonymizeRequestToken) { _, _ in
-            guard model.canAnonymize else { return }
-            Task { await model.anonymize() }
+            handleScanRequest(.active)
+        }
+        .onChange(of: session.scanAllRequestToken) { _, _ in
+            handleScanRequest(.all)
         }
         .onChange(of: session.exportForAIRequestToken) { _, _ in
-            runExportForAI()
+            requestExportForAI()
         }
         .onChange(of: session.openRequestToken) { _, _ in
             presentOpenPanel()
@@ -343,6 +401,104 @@ public struct AppShell: View {
         }
     }
 
+    // MARK: - Scan (stage 2)
+
+    /// Every scan entry point lands here: the banner's Scan for PII, Re-scan,
+    /// Scan All, and Cmd+Shift+S through the File menu. One gate covers all
+    /// four, which is the only arrangement that cannot be bypassed by an entry
+    /// point nobody rerouted.
+    ///
+    /// The gate fires once per tray document per session (and once for a Scan
+    /// All), not on every press: a dialog whose text never changes trains Scan
+    /// then Return as one gesture, and that reflex then fires through the
+    /// genuinely different unresolved-seam advisory, which renders in the same
+    /// region.
+    private func handleScanRequest(_ request: PendingScan) {
+        guard AISettings.scanNeedsModelConfirmation(catalog: catalog) else {
+            return runScan(request)
+        }
+        let ids = scanTargets(for: request)
+        guard !ids.isEmpty else { return }
+        guard !ids.allSatisfy(modelSetupFlow.confirmedIDs.contains) else {
+            return runScan(request)
+        }
+        modelSetupFlow.pendingScan = request
+    }
+
+    /// The documents one request would scan.
+    private func scanTargets(for request: PendingScan) -> [UUID] {
+        switch request {
+        case .active:
+            return session.activeEntryID.map { [$0] } ?? []
+        case .all:
+            return session.entries
+                .filter { $0.model.status == .imported }
+                .map(\.id)
+        }
+    }
+
+    /// Remember that the user chose to scan these documents without a model.
+    private func acknowledgeScanTargets(_ request: PendingScan) {
+        modelSetupFlow.confirmedIDs.formUnion(scanTargets(for: request))
+    }
+
+    /// The one place a scan is dispatched, and the D1 fix.
+    ///
+    /// ReviewModel captures modelPath at model creation, and a completed
+    /// install changes neither customModelPath nor detectionLevelRaw, so the
+    /// two reapply triggers in LDAApp do not fire: a document opened before the
+    /// download landed would keep scanning with no model while the advisory
+    /// above had already cleared. Re-resolving HERE is correct after any
+    /// change, including one made outside the app, and cannot be defeated by a
+    /// publish nobody observes. Observing installer.phases instead would be
+    /// wrong twice over: it republishes on every progress tick, and it says
+    /// nothing about a file that arrived by another route.
+    private func runScan(_ request: PendingScan) {
+        session.reapplyConfiguration()
+        switch request {
+        case .active:
+            guard model.canAnonymize else { return }
+            Task { await model.anonymize() }
+        case .all:
+            guard session.canScanAll else { return }
+            Task { await session.anonymizeAll() }
+        }
+    }
+
+    /// Export for AI, gated on whether any exportable document was scanned
+    /// without the AI pass it asked for.
+    ///
+    /// The second confirmation sits here rather than on Scan alone because
+    /// this is the step that actually discloses: a gate on Scan intercepts the
+    /// earlier decision and can create false comfort at the later one.
+    private func requestExportForAI() {
+        guard ModelSetupPresentation.exportNeedsConfirmation(
+            documents: session.entries.map {
+                ($0.model.canExport, $0.model.aiActive, $0.model.aiWarning)
+            }
+        ) else { return runExportForAI() }
+        modelSetupFlow.pendingExport = true
+    }
+
+    // MARK: - Onboarding
+
+    /// Closing onboarding, however it closed.
+    ///
+    /// The unanswered fallback is belt and braces: page 1 cannot be Escaped
+    /// today, but if a future edit drops .interactiveDismissDisabled an escape
+    /// is recorded as a decline rather than forgotten. hasCompletedFirstRun
+    /// keeps its own meaning, which is only that the sheet was shown.
+    private func onboardingDismissed() {
+        hasCompletedFirstRun = true
+        if AISettings.modelSetupAnswer() == nil {
+            AISettings.recordModelSetupAnswer(canRunAModel ? .declined : .unavailable)
+        }
+        if pendingModelSheet {
+            pendingModelSheet = false
+            isModelSheetPresented = true
+        }
+    }
+
     // MARK: - Tracked changes advisory
 
     /// A Word document with tracked changes round-trips exactly only after
@@ -361,10 +517,18 @@ public struct AppShell: View {
     /// looks complete because every deterministic type is still in it. A modal
     /// would nag a legitimate patterns-only workflow. A persistent row directly
     /// above the Scan button is read before the click without blocking anyone.
-    private func missingModelAdvisory(_ advice: String) -> some View {
-        AdvisoryRow(advice: advice) {
-            Button("Set Up a Model\u{2026}") { isModelSheetPresented = true }
-                .controlSize(.small)
+    @ViewBuilder
+    private func missingModelAdvisory(_ advice: String, offersSetUp: Bool) -> some View {
+        if offersSetUp {
+            AdvisoryRow(advice: advice) {
+                Button("Set Up a Model\u{2026}") { isModelSheetPresented = true }
+                    .controlSize(.small)
+            }
+        } else {
+            // 8 GB and 12 GB: the sentence states the limit, and there is no
+            // button because there is nothing this user can press that would
+            // change it. Apple silicon memory is soldered.
+            AdvisoryRow(advice: advice)
         }
     }
 

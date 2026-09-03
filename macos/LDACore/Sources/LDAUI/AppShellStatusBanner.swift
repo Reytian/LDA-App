@@ -31,6 +31,15 @@ struct AppShellStatusBanner: View {
     /// Owned by the shell, which shares it with the workspace and report flows.
     let exportMessage: String?
 
+    /// Whether THIS MAC has any detection model. Passed in from the shell,
+    /// which already holds the once-loaded catalog: a second
+    /// ModelCatalog.load() here would put a disk read and a JSON parse on the
+    /// main thread for every progress publish during a multi gigabyte copy.
+    ///
+    /// It decides which of two banner sentences and which of two tooltips
+    /// render, because the shipped ones promise that a scan finds names.
+    let hasDetectionModel: Bool
+
     /// Whether Touch ID protection actually took effect. Shown next to the
     /// On-device badge when it did not, so the trust claim in the UI matches
     /// what the Keychain is really doing.
@@ -99,7 +108,7 @@ struct AppShellStatusBanner: View {
     /// and leaves the rest of the queue imported.
     private var scanAllButton: some View {
         Button {
-            Task { await session.anonymizeAll() }
+            session.requestScanAll()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "text.magnifyingglass")
@@ -122,7 +131,7 @@ struct AppShellStatusBanner: View {
         Group {
             if prominent {
                 Button {
-                    Task { await model.anonymize() }
+                    model.requestAnonymize()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "text.magnifyingglass")
@@ -135,7 +144,7 @@ struct AppShellStatusBanner: View {
                 .tint(CounselTheme.inkAccentFill)
             } else {
                 Button {
-                    Task { await model.anonymize() }
+                    model.requestAnonymize()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")
@@ -148,7 +157,9 @@ struct AppShellStatusBanner: View {
             }
         }
         .disabled(!model.canAnonymize)
-        .help("Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)")
+        .help(L10n.string(hasDetectionModel
+              ? "Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)"
+              : "Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model."))
         .accessibilityIdentifier("scanForPII")
     }
 
@@ -316,6 +327,12 @@ struct AppShellStatusBanner: View {
         case .importing:
             return L10n.string("Importing document")
         case .imported:
+            // The shipped sentence promises names. With no model on this Mac
+            // that is a promise the scan cannot keep, and it is made in the
+            // same strip as the button that starts the scan.
+            guard hasDetectionModel else {
+                return L10n.string("Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model.")
+            }
             return L10n.string("Document ready. Click Scan for PII to spot names, companies, and other personal data.")
         case .detecting:
             return L10n.string("Spotting PII")

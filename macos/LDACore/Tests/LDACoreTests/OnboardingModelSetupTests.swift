@@ -38,32 +38,100 @@ final class OnboardingModelSetupTests: XCTestCase {
         return text
     }
 
-    // MARK: - The setup step
+    // MARK: - The ask page
 
-    func testOnboardingCarriesTheSetupBlockAndItsButton() throws {
-        let text = try source("OnboardingView.swift")
-        XCTAssertTrue(text.contains("First, add a detection model"))
-        XCTAssertTrue(text.contains("Set Up a Model"))
+    func testOnboardingCarriesTheAskAndItsThreeAnswers() throws {
+        let view = try source("OnboardingView.swift")
+        let copy = try source("ModelSetupPresentation.swift")
+        XCTAssertTrue(copy.contains("First, add a detection model"))
+        // The three answers, and no fourth exit. The download button's title
+        // is formatted in the presentation type, because its size comes from
+        // Models.json and must not be typed twice.
+        XCTAssertTrue(copy.contains("Download the Model (%@)"))
         XCTAssertTrue(
-            text.contains("onSetUpModel"),
-            "the button must route to Manage Models rather than describing where it is"
+            view.contains("downloadButtonTitle(") && view.contains("downloadSizeDescription"),
+            "the size in the button must come from the tier, not from a literal"
+        )
+        XCTAssertTrue(view.contains("I Already Have the File"))
+        XCTAssertTrue(view.contains("Not Now"))
+        XCTAssertTrue(
+            view.contains("interactiveDismissDisabled"),
+            "the ask must have no exit that is not an answer"
+        )
+        XCTAssertTrue(
+            view.contains("recordModelSetupAnswer"),
+            "the answer is recorded on the button, not inferred from a dismissal"
+        )
+        XCTAssertTrue(
+            view.contains("onOpenModelManagement"),
+            "the import route must reach Manage Models rather than describing "
+                + "where it is"
+        )
+        XCTAssertFalse(
+            view.contains("onSetUpModel"),
+            "the old single-purpose closure is gone: the shell now defers the "
+                + "sheet to onDismiss instead of swapping sheets in one tick"
         )
     }
 
-    func testTheSetupBlockOnlyRendersWhenThereIsNoModel() throws {
+    func testTheAskOnlyRendersWhenThereIsNoModel() throws {
         let text = try source("OnboardingView.swift")
         XCTAssertTrue(
             text.contains("if !hasModel"),
             "someone with a model must not be told to add one"
         )
+        XCTAssertTrue(
+            text.contains("hasModel ? .steps : .model"),
+            "a Mac that already has a model opens on the steps"
+        )
     }
 
     func testOnboardingNamesBothPathsSoTheOfflineOneIsDiscoverable() throws {
-        // One button, two labelled sentences. Two buttons would both land in
-        // the same sheet, so one of them would not do what it said.
+        // The online route is a button now, so the sentence that described it
+        // is retired. The offline route still needs its sentence, because a
+        // firm with offline mode forced on has no other way to learn it.
         let text = try source("OnboardingView.swift")
-        XCTAssertTrue(text.contains("Online, and quickest"))
+        XCTAssertTrue(text.contains("I Already Have the File"))
         XCTAssertTrue(text.contains("No connection:"))
+        XCTAssertFalse(
+            text.contains("Online, and quickest"),
+            "the button IS the online route; a sentence describing it is stale"
+        )
+    }
+
+    func testReturnStartsTheModelRatherThanDismissingTheAsk() throws {
+        // The keyboard's failure direction must point at the model. Before
+        // this change the footer's Get Started owned the default action on
+        // both pages, so one Return reached a names-blind scan.
+        //
+        // Asserted on askActions rather than on modelAskPage's own body: the
+        // actions are extracted into their own property (page 1 has three
+        // buttons plus a phase-driven progress line), which is where the
+        // shortcut lives.
+        let text = try source("OnboardingView.swift")
+        let actions = try XCTUnwrap(
+            text.range(of: "private var askActions"),
+            "askActions is missing"
+        )
+        let steps = try XCTUnwrap(
+            text.range(of: "private var stepsPage"),
+            "stepsPage is missing"
+        )
+        let askBody = text[actions.lowerBound..<steps.lowerBound]
+        XCTAssertTrue(
+            askBody.contains(".keyboardShortcut(.defaultAction)"),
+            "the ask's primary answer must own the default action"
+        )
+        XCTAssertFalse(
+            askBody.contains("Get Started"),
+            "Get Started belongs to the steps page"
+        )
+        let stepsBody = text[steps.lowerBound...]
+        XCTAssertTrue(stepsBody.contains("Get Started"))
+        XCTAssertEqual(
+            text.components(separatedBy: "Get Started").count - 1, 1,
+            "Get Started must exist once, on the steps page"
+        )
     }
 
     func testOnboardingNoLongerSendsTheUserHuntingThroughSettings() throws {
@@ -84,15 +152,22 @@ final class OnboardingModelSetupTests: XCTestCase {
     // MARK: - Setup copy is enumerated, never totalising
 
     func testSetupCopyEnumeratesWhatPatternsFindAndWhatTheyDoNot() throws {
-        let text = try source("OnboardingView.swift")
+        // The copy moved into a pure presentation type so it can be asserted
+        // as strings rather than as source; the ban loop still runs over both
+        // files, because either one is where a totalising claim would land.
+        let copy = try source("ModelSetupPresentation.swift")
         XCTAssertTrue(
-            text.contains(
-                "Names, companies, and addresses are not detected and stay in the document."
-            ),
+            copy.contains("they are not in the review list"),
             "the consequence must be stated plainly, not implied"
         )
-        for claim in ["all sensitive information", "guaranteed", "100%"] {
-            XCTAssertFalse(text.contains(claim))
+        XCTAssertTrue(
+            copy.contains("still identifies your client"),
+            "the reader has to know what the redacted copy still gives away"
+        )
+        for text in [copy, try source("OnboardingView.swift")] {
+            for claim in ["all sensitive information", "guaranteed", "100%"] {
+                XCTAssertFalse(text.contains(claim))
+            }
         }
     }
 
