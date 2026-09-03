@@ -34,12 +34,13 @@ swift test
 open "$HOME/Developer/lda-dist/LDA.app"
 ```
 
-The packaging script includes the local GGUF model when it is available at
-`$HOME/Developer/lda-models/lda-v2-Q4_K_M.gguf`. Without that file, the app
-still runs its deterministic detectors. The submitted notarized test build
-includes the model and needs no API key or network connection. That is still
-true of the shipping app for its bundled detection level; only downloading an
-additional model uses the network.
+The packaging script builds a model-less app by default, which is the shipping
+configuration: LDA asks for a detection model on first run and either downloads
+it or accepts a file you add. Set `BUNDLE_MODEL=1` with `MODEL_PATH` pointing at
+the Quick GGUF to build a single-file distributable instead; the script verifies
+that file's SHA-256 against the app's own catalog and refuses to bundle anything
+else. Document processing needs no network in any configuration; downloading a
+model does. See `macos/LDACore/README.md` for the two model-installation paths.
 
 ## Legacy Python proof of concept
 

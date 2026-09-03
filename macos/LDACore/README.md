@@ -21,15 +21,109 @@ What each detection level needs, measured on an Apple M4:
 | Level | Model | Download | Peak memory | Mac needed | Per agreement |
 |---|---|---|---|---|---|
 | Patterns only | none | none | none | any | instant |
-| Quick | Qwen3.5-4B | built in | 3.1 GB | **16 GB** | about 55 s |
+| Quick | Qwen3.5-4B | 2.74 GB | 3.1 GB | **16 GB** | about 55 s |
 | Balanced | gemma-4-12b | 7.1 GB | 8.5 GB | 24 GB | about 2 min |
 | Most thorough | Qwen3.8-27B | 13.2 GB | 12.2 GB | 24 GB | about 4.5 min |
 
-Quick ships inside the app, so a 16 GB Mac works out of the box with no
-download. Balanced and Most thorough are downloaded from Model Management in
-Settings. LDA will not offer you a level your Mac cannot run.
+No model ships inside the app. On first run LDA asks you to add one, either by
+downloading it or by adding a file you already have. Patterns only needs no
+model and finds emails, phones, dates, amounts, ID numbers and case numbers;
+names, companies and addresses need a model. LDA will not offer you a level
+your Mac cannot run, and it says so before a scan when no model is installed.
 
 Also required: macOS 14 or later, and Apple silicon.
+
+## Installing a detection model
+
+### Which path
+
+| Path | Choose it when | What you do |
+|---|---|---|
+| Online | The Mac running LDA can reach the internet | Manage Models, press Download |
+| Offline | The Mac is air-gapped, behind a proxy that blocks large downloads, or on a link too slow for 2.74 GB | Download on another Mac, carry the file over, press Add Model File |
+
+Online is the shorter path and the one to try first. The offline path exists so
+a machine that never touches the network can still run the full detection
+ladder.
+
+### Online, recommended
+
+1. Open LDA, then Settings, then AI, then Manage Models.
+2. Press Download next to the level you want. Quick is 2.74 GB and runs on a
+   16 GB Mac.
+3. LDA checks the byte count and the SHA-256 of what it received against the
+   checksum published with this version, and refuses to install a file that
+   does not match.
+
+Downloads resume if they are interrupted. If offline mode is on in Manage
+Models, or your firm has set it centrally, downloading is refused and you need
+the offline path below.
+
+### Offline, for an air-gapped or throttled machine
+
+The Quick model is published as two parts plus a checksum file, because a
+single GitHub release asset cannot exceed 2 GiB.
+
+On a Mac that has a connection:
+
+```
+# 1. Download all three assets from the release page:
+#      Qwen3.5-4B-Q4_K_M.gguf.part-aa
+#      Qwen3.5-4B-Q4_K_M.gguf.part-ab
+#      MODEL-SHA256SUMS.txt
+#    https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b
+
+# 2. Join the parts. The glob puts them in the right order, so do not list them
+#    by hand.
+cat Qwen3.5-4B-Q4_K_M.gguf.part-* > Qwen3.5-4B-Q4_K_M.gguf
+
+# 3. Check the joined file before you carry it anywhere.
+shasum -a 256 -c MODEL-SHA256SUMS.txt
+
+# Expected digest of the joined file:
+#   00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4
+# Expected size: 2740937888 bytes
+
+# 4. Delete the parts. Only the joined .gguf is needed.
+rm Qwen3.5-4B-Q4_K_M.gguf.part-*
+```
+
+Copy the joined `Qwen3.5-4B-Q4_K_M.gguf` to the other Mac. A FAT-formatted
+flash drive cannot hold both parts and the joined file at once, which is the
+other reason to join before you copy.
+
+On the Mac running LDA:
+
+1. Open Settings, then AI, then Manage Models.
+2. Under "Already have the model file?", press Add Model File and choose the
+   joined `.gguf`.
+3. LDA verifies the SHA-256 against its own catalog and copies the file into
+   its own folder. The result is identical to a download: the level shows as
+   installed, the file survives relaunch, and you can remove it later from the
+   same sheet.
+
+This works with offline mode on. Adding a file makes no network request.
+
+### What LDA checks
+
+- The byte count, first, because it rejects a truncated or partial file
+  instantly.
+- The SHA-256, against the checksum published in the app's own catalog rather
+  than against the `MODEL-SHA256SUMS.txt` file you downloaded. A checksum file
+  that travelled with the model proves nothing about the model.
+- The digest also decides which level the file belongs to, so a file renamed to
+  look like a different level is still installed as what it actually is.
+
+A file that fails either check is not installed and is not modified. The most
+common cause is a join that did not complete; download both parts again and
+repeat the steps.
+
+### Using your own model
+
+Manage Models also has "Use your own model, unchecked", which points LDA at any
+local GGUF file. That file is not checked, is not copied, and is used as it is.
+It exists for a firm running its own fine tune. It is not a way around a failed
+checksum: a file that failed verification failed for a reason.
 
 ## What lives here
 
