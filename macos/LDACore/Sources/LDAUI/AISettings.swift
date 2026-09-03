@@ -81,6 +81,27 @@ public enum AISettings {
     /// Stored as the SubstitutionStyle raw value; absent means token.
     public static let outputStyleKey = "com.haotianyi.LDA.outputStyle"
 
+    /// The answer to the first-run model ask. Absent means "not asked yet".
+    ///
+    /// A string rather than a Bool: a Bool collapses "declined" into "never
+    /// asked" the moment a later version wants to re-ask, and it cannot express
+    /// the 8 GB Mac's "there was nothing to ask".
+    ///
+    /// Separate from hasCompletedFirstRun on purpose: that flag records that
+    /// the SHEET was shown, and conflating the two is why pressing Set Up a
+    /// Model and then closing Manage Models counted as an answer.
+    public enum ModelSetupAnswer: String, Sendable {
+        /// Started a download, or said the file is already on hand.
+        case accepted
+        /// Not Now, or a dismissal that reached the shell's fallback.
+        case declined
+        /// No tier can run on this Mac, so there was nothing to ask.
+        case unavailable
+    }
+
+    /// UserDefaults key for the answer to the first-run model ask.
+    public static let modelSetupAnswerKey = "com.haotianyi.LDA.modelSetupAnswer"
+
     /// Offline mode. When on, the app makes no network request at all, so model
     /// downloads are refused rather than attempted.
     ///
@@ -477,6 +498,87 @@ public enum AISettings {
         return catalog.tiers.contains {
             ModelCatalog.isInstalled($0, fileManager: fileManager)
                 || ModelCatalog.isBundled($0)
+        }
+    }
+
+    // MARK: First-run model ask
+
+    /// The recorded answer to the first-run model ask, or nil when the user
+    /// has not been asked yet.
+    public static func modelSetupAnswer(
+        defaults: UserDefaults = .standard
+    ) -> ModelSetupAnswer? {
+        guard let raw = defaults.string(forKey: modelSetupAnswerKey) else { return nil }
+        return ModelSetupAnswer(rawValue: raw)
+    }
+
+    /// Record the answer, on the click rather than on a dismissal.
+    ///
+    /// Writes ONLY this key. Recording a decline as
+    /// `detectionLevel = .patternsOnly` would be the obvious shortcut and it is
+    /// wrong: `isModelMissing()` short-circuits on `usesLLM`, so it would
+    /// silence the red advisory for the one user who most needs it, and
+    /// `attempted == false` is reserved for "the user did not ask".
+    public static func recordModelSetupAnswer(
+        _ answer: ModelSetupAnswer,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(answer.rawValue, forKey: modelSetupAnswerKey)
+    }
+
+    /// Whether ANY tier could run on this Mac, ignoring what is installed.
+    ///
+    /// Memory only: offline mode blocks the download but NOT the verified
+    /// import, so it must not make this false. Apple silicon memory is
+    /// soldered, so a false here is permanent for this machine.
+    public static func canRunAnyModel(
+        catalog: ModelCatalog = .load(),
+        installedGB: Double = MemoryGate.installedGB()
+    ) -> Bool {
+        catalog.tiers.contains {
+            MemoryGate.availability(for: $0, installedGB: installedGB).isSelectable
+        }
+    }
+
+    /// Whether a scan must ask first: this Mac has no model at all, and it
+    /// could have one.
+    ///
+    /// Reads the MACHINE, not the rung, on purpose: `isModelMissing()` is false
+    /// for a deliberate patterns-only user, and that user is exactly the one
+    /// who otherwise never learns that names are not looked for. Reading the
+    /// machine also means a decline can never decay into permanent silence,
+    /// and that removing the last model re-arms the gate with no bookkeeping.
+    public static func scanNeedsModelConfirmation(
+        catalog: ModelCatalog = .load(),
+        installedGB: Double = MemoryGate.installedGB(),
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard !hasAnyModelAvailable(
+            catalog: catalog, fileManager: fileManager, defaults: defaults
+        ) else { return false }
+        return canRunAnyModel(catalog: catalog, installedGB: installedGB)
+    }
+
+    /// Whether the ask should be presented at launch.
+    ///
+    /// "accepted" is deliberately NOT terminal: a user who pressed Download
+    /// and cancelled, or who left the drive at the office, has an unresolved
+    /// ask and is asked once more. Only "declined" is honoured forever, and
+    /// "unavailable" is already covered by canRunAnyModel.
+    public static func shouldPresentModelAsk(
+        catalog: ModelCatalog = .load(),
+        installedGB: Double = MemoryGate.installedGB(),
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard scanNeedsModelConfirmation(
+            catalog: catalog, installedGB: installedGB,
+            fileManager: fileManager, defaults: defaults
+        ) else { return false }
+        switch modelSetupAnswer(defaults: defaults) {
+        case .declined, .unavailable: return false
+        case .accepted, nil: return true
         }
     }
 
