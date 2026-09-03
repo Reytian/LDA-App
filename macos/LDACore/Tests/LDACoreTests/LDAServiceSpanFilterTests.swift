@@ -210,6 +210,43 @@ final class LDAServiceSpanFilterTests: XCTestCase {
         XCTAssertTrue(mapping.entries.values.contains { $0.value == Self.otherPhone })
     }
 
+    /// The same value can appear with different casing (detection stamps each
+    /// hit with the surface it actually matched, and the tokenizer keys on
+    /// that surface, so the variants would otherwise get their own tokens).
+    /// Excluding one of them must leave the other visible too: a value beside
+    /// a placeholder for its own case variant leaks that placeholder just as
+    /// plainly as a byte-identical repeat would.
+    func testExcludingAValueAlsoCoversItsCaseAndSpacingVariants() throws {
+        let upper = "Alpha.Party@EXAMPLE.com"
+        let text = "Reach \(Self.firstEmail) or \(upper), and \(Self.secondEmail), by \(Self.bodyDate)."
+        let input = try writeText(text, named: "variants.txt")
+        let excluded = (text as NSString).range(of: Self.firstEmail)
+
+        let result = try LDAService.anonymize(
+            input: input,
+            outputDir: outputDir("out"),
+            protection: protection,
+            createdAtISO8601: Self.createdAt,
+            spanFilter: { span in
+                !(span.start == excluded.location && span.end == excluded.location + excluded.length)
+            }
+        )
+
+        let redacted = try String(contentsOf: result.redactedFileURL, encoding: .utf8)
+        XCTAssertTrue(redacted.contains(Self.firstEmail), "the excluded value stays visible: \(redacted)")
+        XCTAssertTrue(redacted.contains(upper), "so does the same value in another casing: \(redacted)")
+        XCTAssertFalse(redacted.contains(Self.secondEmail), "a different value is still redacted: \(redacted)")
+        XCTAssertTrue(redacted.contains("{EMAIL_1}"), redacted)
+        XCTAssertFalse(redacted.contains("{EMAIL_2}"), "only the other value minted a token: \(redacted)")
+
+        // Two occurrences of ONE value, however it was spelled.
+        XCTAssertEqual(result.excludedEntityCount, 2)
+        XCTAssertEqual(result.excludedValueCount, 1)
+
+        let mapping = try loadMapping(result)
+        XCTAssertFalse(mapping.entries.values.contains { $0.value.lowercased() == Self.firstEmail })
+    }
+
     // MARK: - Type exclusions reach every channel
 
     func testExcludedTypesVanishFromBodyAndHeaderParts() throws {

@@ -13,6 +13,15 @@
 //  such a value is then left visible on every channel: the body, the docx
 //  non-body parts (headers, footers, notes, comments), and the image-PII pass.
 //
+//  Values are compared through TextMatching.normalize (case folded, whitespace
+//  runs collapsed), the same relation the docx non-body channel already uses
+//  to decide that two surfaces are the same value and may share a token.
+//  Detection stamps each hit with the surface it actually matched, so the same
+//  value can arrive in two casings; without folding, one of them would be
+//  tokenized right beside the other in clear. A value written with different
+//  punctuation or internal spacing is a different surface and is still
+//  redacted: the caller can name that one too.
+//
 //  Leaving one occurrence in clear while tokenizing the others would be worse
 //  than useless: the value and its own placeholder would sit in the same
 //  document, so any reader could equate the two and de-anonymize every other
@@ -55,7 +64,7 @@ struct SpanExclusion {
         var excludedValues = Set<String>()
         if let bodyFilter {
             for span in bodySpans where !bodyFilter(span) {
-                excludedValues.insert(span.text)
+                excludedValues.insert(TextMatching.normalize(span.text))
             }
         }
         return ResolvedExclusion(
@@ -121,12 +130,18 @@ final class ResolvedExclusion {
 
     /// True to redact this span. A dropped span is tallied as one more
     /// occurrence left visible.
+    ///
+    /// The value test ignores the span's TYPE on purpose: identical text
+    /// classified differently at two sites is still the same text, so
+    /// tokenizing one of them while the other is in clear would leak that
+    /// token exactly as a same-type occurrence would.
     private func keepAndTally(_ span: Span) -> Bool {
-        guard excludedTypes.contains(span.type) || excludedValues.contains(span.text) else {
+        let value = TextMatching.normalize(span.text)
+        guard excludedTypes.contains(span.type) || excludedValues.contains(value) else {
             return true
         }
         occurrenceCount += 1
-        visibleValues.insert(span.text)
+        visibleValues.insert(value)
         return false
     }
 }
