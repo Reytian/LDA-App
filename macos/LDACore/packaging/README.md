@@ -34,22 +34,34 @@ You need an Apple Developer account.
 
 - `Contents/MacOS/LDAApp` : the app (statically links llama.cpp with Metal embedded).
 - `LDACore_LDAUI.bundle` and `ZIPFoundation_ZIPFoundation.bundle` : SwiftPM resource
-  bundles, at the bundle ROOT rather than in `Contents/Resources`, because that is
-  where the generated resource accessor looks. `LDACore_LDAUI.bundle/Models.json`
-  is the detection tier manifest. Without it the app degrades to an empty
-  catalog: the ladder collapses to Patterns only and Manage Models is empty.
-  `package-app.sh` exits non-zero rather than shipping such a build.
+  bundles, in `Contents/Resources` rather than at the bundle ROOT, because
+  codesign rejects loose files at the root with "unsealed contents present in
+  the bundle root". `ModelCatalog.load` searches `Bundle.main.resourceURL` for
+  exactly that reason instead of using the generated `Bundle.module` accessor.
+  `LDACore_LDAUI.bundle/Models.json` is the detection tier manifest. Without it
+  the app degrades to an empty catalog: the ladder collapses to Patterns only
+  and Manage Models is empty. `package-app.sh` exits non-zero rather than
+  shipping such a build.
 - `Contents/Info.plist` : bundle id `com.haotianyi.LDA` (change as needed).
 
-**Only the Quick model is bundled** (`Contents/Resources/Qwen3.5-4B-Q4_K_M.gguf`,
-about 2.7 GB, so the .app is roughly 3.2 GB). Quick peaks at 3.1 GB, which fits
-the 16 GB minimum spec, so an offline user always has a model that actually runs
-on their machine. Balanced needs 24 GB, so bundling that instead would hand a
-16 GB user a model the memory gate blocks.
+**No detection model is bundled by default**, so the shipping .app is a few MB
+and a fresh install asks for a model on first run: Manage Models downloads one,
+or the user adds a file they carried over. Both paths verify the file against
+the checksum in `Models.json` and copy it into
+`Application Support/LDA/Models/`.
 
-Balanced and Most thorough are downloaded through Model Management into
-`Application Support/LDA/Models/`. `package-app.sh` exits non-zero if the Quick
-model is missing rather than shipping a build with no working model.
+Set `BUNDLE_MODEL=1` to build a single-file deploy instead, with `MODEL_PATH`
+pointing at the Quick GGUF. Only Quick is a candidate: it peaks at 3.1 GB and
+fits the 16 GB minimum spec, where Balanced needs 24 GB and the memory gate
+would block it. The script verifies the file's byte count and SHA-256 against
+the packaged `Models.json` before copying it and exits non-zero on any
+mismatch, because a bundled model is resolved straight through `Bundle.main`
+and packaging is the only point at which it is ever checked. Bundling adds
+about 2.7 GB, so the .app becomes roughly 3.2 GB.
+
+Bundling is deliberately not inferred from a file being present at
+`MODEL_PATH`: two builds of the same commit must produce the same app whatever
+happens to be on the build machine.
 
 ## The privacy guarantee
 
