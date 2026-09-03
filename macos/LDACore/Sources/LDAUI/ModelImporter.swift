@@ -245,51 +245,42 @@ public final class ModelImporter: ObservableObject {
         let scoped = url.startAccessingSecurityScopedResource()
         phase = .preparing
 
-        guard let size = fileSize(of: url) else {
-            settle(.failed(.unreadable(url.lastPathComponent)), url: url, scoped: scoped)
+        // ONE release site for every refusal, rather than one per guard. The
+        // scope balance is the defect class that only the sandboxed build
+        // reveals, so it is worth being auditable in a single glance.
+        let plan: ImportPlan
+        switch prepare(url) {
+        case let .refused(error):
+            settle(.failed(error), url: url, scoped: scoped)
             return nil
+        case let .ready(ready):
+            plan = ready
         }
-        // The prefilter. A file that is not the size of any published model is
-        // refused before a single byte is hashed, and the message can say why.
-        guard !catalog.tiersMatching(size: size).isEmpty else {
-            settle(.failed(.sizeUnmatched(actualBytes: size)), url: url, scoped: scoped)
-            return nil
-        }
-        // Same rule as the download path, from the same helper, so the two
-        // never disagree about how much room an install needs.
-        let needed = size + 1_000_000_000
-        if let free = freeSpaceProvider(), free < needed {
-            settle(
-                .failed(.insufficientDisk(neededBytes: needed, freeBytes: free)),
-                url: url,
-                scoped: scoped
-            )
-            return nil
-        }
-        guard let root = ModelCatalog.modelsRoot(fileManager: fileManager) else {
-            settle(.failed(.storage("no model folder")), url: url, scoped: scoped)
-            return nil
-        }
-        do {
-            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        } catch {
-            settle(
-                .failed(.storage(error.localizedDescription)), url: url, scoped: scoped
-            )
-            return nil
-        }
-
-        let temp = root.appendingPathComponent(
-            "\(Self.tempPrefix)\(UUID().uuidString)\(Self.tempSuffix)"
-        )
         cancelFlag.reset()
+        let task = dispatchCopy(from: url, plan: plan, scoped: scoped)
+        running = task
+        return task
+    }
+
+    /// Run the copy off the main actor and settle when it finishes.
+    ///
+    /// `scoped` travels with the work rather than being released here: the
+    /// security scope must outlive every byte of the read, and settling is the
+    /// one place that gives it back.
+    private func dispatchCopy(
+        from url: URL,
+        plan: ImportPlan,
+        scoped: Bool
+    ) -> Task<Void, Never> {
+        let size = plan.sizeBytes
+        let temp = plan.temp
         let currentGeneration = generation
         let catalog = self.catalog
         let manager = FileManagerBox(self.fileManager)
         let chunk = self.chunkBytes
         let flag = self.cancelFlag
 
-        let task = Task { [weak self] in
+        return Task { [weak self] in
             let outcome = await Task.detached(priority: .userInitiated) {
                 Self.performImport(
                     from: url,
@@ -325,8 +316,52 @@ public final class ModelImporter: ObservableObject {
                 importer.settle(outcome, url: url, scoped: scoped)
             }
         }
-        running = task
-        return task
+    }
+
+    /// What the prechecks agreed to, when they agree.
+    private struct ImportPlan {
+        let sizeBytes: Int64
+        let temp: URL
+    }
+
+    private enum ImportPrecheck {
+        case ready(ImportPlan)
+        case refused(ModelImportError)
+    }
+
+    /// Everything decided before a byte is read: the size, the prefilter, the
+    /// free-space rule and the temp file's home.
+    ///
+    /// Split out of `importFile` so that function stays readable and so every
+    /// refusal returns through one path. Opens nothing: the caller has the
+    /// security scope and is the only place that releases it.
+    private func prepare(_ url: URL) -> ImportPrecheck {
+        guard let size = fileSize(of: url) else {
+            return .refused(.unreadable(url.lastPathComponent))
+        }
+        // The prefilter. A file that is not the size of any published model is
+        // refused before a single byte is hashed, and the message can say why.
+        guard !catalog.tiersMatching(size: size).isEmpty else {
+            return .refused(.sizeUnmatched(actualBytes: size))
+        }
+        // Same rule as the download path, from the same helper, so the two
+        // never disagree about how much room an install needs.
+        let needed = size + 1_000_000_000
+        if let free = freeSpaceProvider(), free < needed {
+            return .refused(.insufficientDisk(neededBytes: needed, freeBytes: free))
+        }
+        guard let root = ModelCatalog.modelsRoot(fileManager: fileManager) else {
+            return .refused(.storage("no model folder"))
+        }
+        do {
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            return .refused(.storage(error.localizedDescription))
+        }
+        let temp = root.appendingPathComponent(
+            "\(Self.tempPrefix)\(UUID().uuidString)\(Self.tempSuffix)"
+        )
+        return .ready(ImportPlan(sizeBytes: size, temp: temp))
     }
 
     /// Stop an in-flight copy. The temp file is removed by the worker.
@@ -372,6 +407,13 @@ public final class ModelImporter: ObservableObject {
     /// One sweep at construction: without it a process killed mid-copy leaves a
     /// multi-gigabyte `.part` in the container with nothing to notice it. Only
     /// this importer's own prefix is touched.
+    ///
+    /// This assumes ONE importer per process, which LDAApp guarantees: it owns
+    /// a single `@StateObject` inside a `Window` scene and threads it by
+    /// reference to Settings, RootShell and the sheets. A second instance would
+    /// sweep a live sibling's in-flight `.part` out from under it. If a second
+    /// one ever becomes necessary, give the temp name a per-instance component
+    /// and sweep only that, rather than dropping the sweep.
     private func sweepAbandonedTempFiles() {
         guard let root = ModelCatalog.modelsRoot(fileManager: fileManager),
               let names = try? fileManager.contentsOfDirectory(atPath: root.path) else {
@@ -419,34 +461,46 @@ public final class ModelImporter: ObservableObject {
             return .failed(error)
         case let .digest(hex):
             onVerifying()
-            // The catalog inside the signed app is the only reference trusted
-            // here. Nothing that travelled with the file is consulted.
-            guard let tier = catalog.tier(matchingSha256: hex) else {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.digestUnmatched)
-            }
-            guard let destination = ModelCatalog.installedURL(
-                for: tier, fileManager: fileManager
-            ) else {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.storage("no install location for \(tier.id)"))
-            }
-            do {
-                try fileManager.createDirectory(
-                    at: destination.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if fileManager.fileExists(atPath: destination.path) {
-                    try fileManager.removeItem(at: destination)
-                }
-                // Same volume as the temp file, so this is a rename.
-                try fileManager.moveItem(at: temp, to: destination)
-            } catch {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.storage(error.localizedDescription))
-            }
-            return .installed(tierID: tier.id)
+            return install(temp: temp, digest: hex, catalog: catalog, fileManager: fileManager)
         }
+    }
+
+    /// Attribute the streamed file to a tier by its digest and move it in.
+    ///
+    /// The catalog inside the signed app is the only reference trusted here.
+    /// Nothing that travelled with the file is consulted, which is the whole
+    /// reason a checksum file carried alongside the model is never read.
+    nonisolated private static func install(
+        temp: URL,
+        digest: String,
+        catalog: ModelCatalog,
+        fileManager: FileManager
+    ) -> ModelImportPhase {
+        guard let tier = catalog.tier(matchingSha256: digest) else {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.digestUnmatched)
+        }
+        guard let destination = ModelCatalog.installedURL(
+            for: tier, fileManager: fileManager
+        ) else {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.storage("no install location for \(tier.id)"))
+        }
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
+            }
+            // Same volume as the temp file, so this is a rename.
+            try fileManager.moveItem(at: temp, to: destination)
+        } catch {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.storage(error.localizedDescription))
+        }
+        return .installed(tierID: tier.id)
     }
 
     /// What one streaming pass produced.
@@ -478,6 +532,12 @@ public final class ModelImporter: ObservableObject {
 
         var hasher = SHA256()
         var written: Int64 = 0
+        // Report on whole-percent changes rather than once per chunk. A 2.6 GB
+        // file is 654 chunks, and every report is a main-actor hop that
+        // re-renders the shell; a progress bar cannot show more than 100 steps
+        // anyway. The first and last updates always go through, so a caller
+        // watching the phase stream still sees the copy begin and finish.
+        var lastReportedPercent = -1
         while true {
             if cancel.isCancelled { return .cancelled }
             let chunk: Data?
@@ -494,11 +554,28 @@ public final class ModelImporter: ObservableObject {
                 return .failure(.storage(error.localizedDescription))
             }
             written += Int64(chunk.count)
-            onProgress(written)
+            let percent = expectedBytes > 0
+                ? Int(Double(written) / Double(expectedBytes) * 100) : 100
+            if percent != lastReportedPercent || written == expectedBytes {
+                lastReportedPercent = percent
+                onProgress(written)
+            }
 #if DEBUG
             afterChunkSeam.value?(written)
 #endif
         }
+        // Once more after the loop. The top-of-iteration check already catches
+        // a cancel raised any time up to the last read, including during the
+        // final chunk. What is left is the narrow window between that last
+        // read of the flag and the file being moved into place: a click
+        // arriving there would otherwise be absorbed and the import would
+        // report .installed while the user had asked for the opposite.
+        //
+        // That window is microseconds wide and no test can hit it
+        // deterministically, since the only seam fires after a chunk write. It
+        // is cheap hardening, and the alternative is a Cancel press that
+        // silently installs, so it stays.
+        if cancel.isCancelled { return .cancelled }
         // A file that shrank under us is not the model it claimed to be, and
         // the digest would be a digest of something nobody published.
         guard written == expectedBytes else {

@@ -152,6 +152,9 @@ public struct ModelManagementView: View {
     @State private var lastReclaimed: String?
     /// Swaps the Copy Link label for a confirmation, briefly.
     @State private var didCopyReleasePage = false
+    /// Which press owns the confirmation. Without it, two presses inside the
+    /// window race and the first press's timer cuts the second one short.
+    @State private var copyConfirmationToken = 0
 
     /// How long "Copied" stands in for the button label.
     private static let copyConfirmationSeconds: UInt64 = 2
@@ -580,11 +583,14 @@ public struct ModelManagementView: View {
     private func copyReleasePageURL(_ page: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(page, forType: .string)
+        copyConfirmationToken += 1
+        let token = copyConfirmationToken
         didCopyReleasePage = true
         Task {
             try? await Task.sleep(
                 nanoseconds: Self.copyConfirmationSeconds * 1_000_000_000
             )
+            guard token == copyConfirmationToken else { return }
             didCopyReleasePage = false
         }
     }

@@ -123,15 +123,24 @@ final class OnboardingModelSetupTests: XCTestCase {
 
     func testAppShellAsksAboutTheMachineForOnboardingAndTheRungForTheAdvisory() throws {
         let text = try source("AppShell.swift")
+        // Matched without the closing paren: both calls now pass the
+        // once-loaded catalog rather than re-reading Models.json on every body
+        // pass, so the argument list is not empty.
         XCTAssertTrue(
-            text.contains("AISettings.hasAnyModelAvailable()"),
+            text.contains("AISettings.hasAnyModelAvailable("),
             "onboarding asks whether this Mac has ANY model, so a deliberate "
                 + "patterns-only user with a model is not told to add one"
         )
         XCTAssertTrue(
-            text.contains("AISettings.isModelMissing()"),
+            text.contains("AISettings.isModelMissing("),
             "the pre-scan advisory asks about the SELECTED rung, so a "
                 + "deliberate patterns-only run is not nagged"
+        )
+        XCTAssertFalse(
+            text.contains("AISettings.isModelMissing()"),
+            "the body must not fall back to the reloading default catalog: "
+                + "the importer publishes while a copy runs, so that would put "
+                + "a disk read and a JSON parse on every progress update"
         )
         XCTAssertFalse(
             text.contains("modelAvailable: model.modelPath.map"),
