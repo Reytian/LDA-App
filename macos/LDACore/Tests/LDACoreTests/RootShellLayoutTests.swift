@@ -353,7 +353,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         try assertFontRole(
             in: Self.modelManagementSourceURL,
-            after: "Quick is built in and works on every Mac LDA supports.",
+            after: "Quick is the smallest download and works on every Mac LDA supports.",
             role: "CounselTheme.Typography.readingBody"
         )
         try assertFontRole(

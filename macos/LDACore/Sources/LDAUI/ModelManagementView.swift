@@ -13,6 +13,7 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -61,6 +62,10 @@ enum ModelAnnotation {
     }
 
     /// "2.74 GB download   ~8.5 GB of memory   ~2 min 15 sec a contract"
+    ///
+    /// The `bundled` variant only renders in a BUNDLE_MODEL=1 single-file
+    /// build, where `ModelCatalog.isBundled` is true. Kept for that build; it
+    /// never renders in the shipping configuration.
     static func facts(for tier: ModelTier, bundled: Bool) -> String {
         let size = bundled
             ? "\(tier.downloadSizeDescription), inside the app"
@@ -134,6 +139,9 @@ public struct ModelManagementView: View {
     // to completion invisibly) and reopening showed Download again, starting a
     // second copy of the same multi-gigabyte file.
     @ObservedObject var installer: ModelInstaller
+    /// Injected for the same reason as the installer: a 2.6 GB copy must
+    /// survive the user closing this sheet.
+    @ObservedObject var importer: ModelImporter
     @AppStorage(AISettings.detectionLevelKey) private var levelRaw = DetectionLevel.quick.rawValue
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
 
@@ -142,12 +150,22 @@ public struct ModelManagementView: View {
 
     @State private var pendingRemoval: ModelTier?
     @State private var lastReclaimed: String?
+    /// Swaps the Copy Link label for a confirmation, briefly.
+    @State private var didCopyReleasePage = false
+
+    /// How long "Copied" stands in for the button label.
+    private static let copyConfirmationSeconds: UInt64 = 2
 
     private let catalog = ModelCatalog.load()
     private let installedGB = MemoryGate.installedGB()
 
-    public init(installer: ModelInstaller, isBusyElsewhere: Bool) {
+    public init(
+        installer: ModelInstaller,
+        importer: ModelImporter,
+        isBusyElsewhere: Bool
+    ) {
         self.installer = installer
+        self.importer = importer
         self.isBusyElsewhere = isBusyElsewhere
     }
 
@@ -165,6 +183,8 @@ public struct ModelManagementView: View {
                             Divider().padding(.vertical, 4)
                         }
                     }
+                    verifiedImportSection
+                    Divider().padding(.vertical, 4)
                     customModelSection
                 }
                 .padding(20)
@@ -174,6 +194,9 @@ public struct ModelManagementView: View {
         }
         .frame(minWidth: 620, idealWidth: 680, minHeight: 520, idealHeight: 640)
         .background(CounselTheme.paper)
+        // A success or failure from an earlier visit is not news. An import in
+        // flight is left alone: reset() refuses while one is running.
+        .onAppear { importer.reset() }
         .confirmationDialog(
             removalTitle,
             isPresented: Binding(
@@ -231,7 +254,7 @@ public struct ModelManagementView: View {
             Text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
+            Text("Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -418,13 +441,170 @@ public struct ModelManagementView: View {
         }
     }
 
-    private var customModelSection: some View {
+    // MARK: The verified offline import
+
+    /// Install a model file the user already has, checked against the catalog.
+    ///
+    /// Above the unchecked section on purpose: this is the path to reach for
+    /// first, and the two are told apart by their titles, their buttons and an
+    /// explicit statement of what each one does with the file.
+    ///
+    /// Deliberately NOT gated on `isBusyElsewhere`. Adding a file writes a new
+    /// path and mutates nothing llama.cpp has mmapped, and the imported tier
+    /// cannot become the active model mid-scan because ReviewModel captures
+    /// modelPath when the scan starts. Wiring this into the removal gate would
+    /// block the only remedy a managed offline install has.
+    private var verifiedImportSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Use another model")
+            Text("Already have the model file?")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
-                Text("Any local GGUF file. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
+                Text("If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download.")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Button("Add Model File\u{2026}") { beginImport() }
+                    .disabled(importer.isImporting)
+            }
+            // Said only when it is the answer to a question the user is
+            // already asking, which is why it is conditional.
+            if AISettings.isOfflineMode() {
+                Text("This works with offline mode on. Adding a file makes no network request.")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            importStatusLine
+            if let page = catalog.tier(for: .quick)?.offlineSourceURL {
+                offlineSourceRow(page)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private var importStatusLine: some View {
+        switch importer.phase {
+        case .preparing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking there is room for the file")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+        case let .copying(fraction, received, expected):
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: fraction)
+                HStack {
+                    Text(verbatim: String(
+                        format: L10n.string("%@ of %@"),
+                        ByteCountFormatter.string(
+                            fromByteCount: received, countStyle: .file
+                        ) as NSString,
+                        ByteCountFormatter.string(
+                            fromByteCount: expected, countStyle: .file
+                        ) as NSString
+                    ))
+                        .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                    Spacer()
+                    Button("Cancel") { importer.cancel() }
+                }
+            }
+        case .verifying:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking the file is exactly what it should be")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+        case .installed:
+            Text("Added and verified.")
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+        case let .failed(error):
+            Text(verbatim: error.localizedMessage())
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+        case .cancelled:
+            Text("Adding the file was cancelled. Nothing was installed.")
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    /// The page carrying an offline copy, as selectable text plus a copy
+    /// button. Never an opened link: see NetworkChokepointTests.
+    private func offlineSourceRow(_ page: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Offline copy of the Quick model:")
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+            HStack(spacing: 8) {
+                Text(verbatim: page)
+                    .font(.caption2)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(didCopyReleasePage ? "Copied" : "Copy Link") {
+                    copyReleasePageURL(page)
+                }
+                .controlSize(.small)
+            }
+            // The commands live on the release page rather than in shipped,
+            // localized copy: baking part filenames into the app would couple
+            // an app release to release-asset naming, and the user reading this
+            // is about to be on that page anyway.
+            Text("The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here.")
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+    }
+
+    private func beginImport() {
+        guard let url = ModelImporter.presentPanel() else { return }
+        importer.importFile(at: url)
+    }
+
+    /// Put the page URL on the clipboard.
+    ///
+    /// Plain NSPasteboard.general, NOT SensitiveClipboard: a public release URL
+    /// is not client data, and a 90 second self-clear would take it away before
+    /// the user had finished typing it into a browser on another machine.
+    private func copyReleasePageURL(_ page: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(page, forType: .string)
+        didCopyReleasePage = true
+        Task {
+            try? await Task.sleep(
+                nanoseconds: Self.copyConfirmationSeconds * 1_000_000_000
+            )
+            didCopyReleasePage = false
+        }
+    }
+
+    // MARK: The unchecked escape hatch
+
+    /// Point LDA at any local GGUF file, as it is and where it is.
+    ///
+    /// Kept, and relabelled. It serves a real documented need (a firm running
+    /// its own fine tune, resolveModelPath step 2), and folding it into the
+    /// verified import would leave that import unable to refuse anything, which
+    /// is the whole of its purpose. So the two stay separate and the difference
+    /// is stated rather than implied.
+    private var customModelSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Use your own model, unchecked")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(CounselTheme.textPrimary)
+            HStack(alignment: .top) {
+                Text("Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -521,7 +701,7 @@ public struct ModelManagementView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         if let gguf = UTType(filenameExtension: "gguf") { panel.allowedContentTypes = [gguf] }
-        panel.message = L10n.string("Choose a local GGUF model for on-device detection.")
+        panel.message = L10n.string("Choose a local GGUF model. LDA will not check it.")
         panel.prompt = L10n.string("Use Model")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         AISettings.setCustomModel(url: url)

@@ -24,6 +24,93 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Missing model advice
+
+    func testMissingModelAdviceIsSilentWhenTheSelectedRungHasItsModel() {
+        XCTAssertNil(
+            AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: false, hasAnyModel: false, language: .english
+            )
+        )
+    }
+
+    func testMissingModelAdviceNamesWhatWillAndWillNotBeFound() {
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: true, hasAnyModel: false, language: .english
+            ),
+            "No detection model is installed, so a scan will not look for names, "
+                + "companies, or addresses. It still finds emails, phones, dates, "
+                + "amounts, ID numbers, and case numbers. Add a model to find names."
+        )
+    }
+
+    func testMissingModelAdviceDistinguishesNoModelFromTheWrongOneInstalled() {
+        // Reachable on any Mac with 24 GB or more: a fresh install sits on
+        // Quick, the user downloads or imports Balanced from Manage Models and
+        // does not switch level. The selected rung still cannot run, so the
+        // advisory must still fire, but "No detection model is installed" would
+        // then be a false sentence in a redaction tool.
+        let none = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: true, hasAnyModel: false, language: .english
+        )
+        let wrongOne = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: true, hasAnyModel: true, language: .english
+        )
+        XCTAssertNotNil(none)
+        XCTAssertNotNil(wrongOne)
+        XCTAssertNotEqual(none, wrongOne)
+        XCTAssertTrue(none!.contains("No detection model is installed"))
+        XCTAssertFalse(
+            wrongOne!.contains("No detection model is installed"),
+            "a user who HAS a model must not be told there is none"
+        )
+        // Both must still say what a scan will not look for. That is the whole
+        // point of the row.
+        for advice in [none!, wrongOne!] {
+            XCTAssertTrue(advice.contains("names, companies, or addresses"))
+        }
+    }
+
+    func testMissingModelAdviceIsSilentForTheSelectedRungRegardlessOfOtherModels() {
+        for hasAnyModel in [true, false] {
+            XCTAssertNil(
+                AnonymizeWorkflowPresentation.missingModelAdvice(
+                    isModelMissing: false, hasAnyModel: hasAnyModel, language: .english
+                ),
+                "a rung with its model needs no advisory"
+            )
+        }
+    }
+
+    func testMissingModelAdviceIsTranslatedRatherThanEnglishEverywhere() {
+        for language in [AppLanguage.french, .simplifiedChinese, .traditionalChinese] {
+            let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: true, hasAnyModel: false, language: language
+            )
+            XCTAssertNotNil(advice)
+            XCTAssertNotEqual(
+                advice,
+                AnonymizeWorkflowPresentation.missingModelAdvice(
+                    isModelMissing: true, hasAnyModel: false, language: .english
+                ),
+                "\(language) must carry a real translation, not the English string"
+            )
+        }
+    }
+
+    func testMissingModelAdviceMakesNoTotalisingClaimAboutWhatIsFound() {
+        // The advisory is the one place a lawyer learns the scan is reduced. It
+        // must not reassure them that "everything else" is caught, which is
+        // both false and close to a claim UIClaimsDisciplineTests bans.
+        let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: true, hasAnyModel: false, language: .english
+        )!.lowercased()
+        for claim in ["everything", "all sensitive", "guaranteed", "100%"] {
+            XCTAssertFalse(advice.contains(claim), "advisory must not claim \(claim)")
+        }
+    }
+
     // MARK: - Export for AI copy
 
     func testExportCompletionDetailNamesTheFileAndTheSkippedDocuments() {

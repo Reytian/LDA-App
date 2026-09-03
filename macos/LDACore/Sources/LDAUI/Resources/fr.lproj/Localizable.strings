@@ -311,7 +311,6 @@
 "Use Automatic" = "Utiliser Automatique";
 "Use This Text" = "Utiliser ce texte";
 "Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "Utilisez un nom de client ou de dossier que vous reconnaîtrez. L’app démarrera une session d’anonymisation avec des espaces réservés protégés et cohérents.";
-"Use another model" = "Utiliser un autre modèle";
 "Use this profile for the current fill without adding it to the library" = "Utiliser ce profil pour le remplissage actuel sans l’ajouter à la bibliothèque";
 "Value" = "Valeur";
 "Verified" = "Vérifié";
@@ -352,7 +351,6 @@
 "LDA processes document contents and stores the encrypted mapping on this Mac. If you ask it to download a detection model, it connects to the model host. Copying or exporting a document lets you send it to a service you choose, so review that service's privacy settings first." = "LDA traite le contenu des documents et stocke la table de correspondance chiffrée sur ce Mac. Si vous lui demandez de télécharger un modèle de détection, il se connecte à l’hébergeur du modèle. Copier ou exporter un document vous permet de l’envoyer au service de votre choix. Vérifiez d’abord les réglages de confidentialité de ce service.";
 "Anything you choose to keep visible stays visible in the exported document." = "Tout élément que vous choisissez de laisser visible restera visible dans le document exporté.";
 "Restore Clipboard, in the menu-bar icon, is the one action that puts real values on your clipboard; it tries to clear them again about %lld seconds later, so paste promptly and do not rely on the clearing." = "Restaurer le presse-papiers, dans l’icône de la barre des menus, est la seule action qui place les valeurs réelles dans le presse-papiers. LDA tente de les effacer environ %lld secondes plus tard. Collez-les rapidement et ne comptez pas uniquement sur cet effacement.";
-"No AI model is installed yet, so detection is pattern-only for now: emails, phones, dates, amounts, and ID numbers. Names, companies, and addresses are NOT detected until you add one. Open Settings, then AI, to choose and install a model." = "Aucun modèle d’IA n’est encore installé. Pour l’instant, la détection repose uniquement sur des motifs : adresses e-mail, numéros de téléphone, dates, montants et identifiants. Les noms, sociétés et adresses ne sont PAS détectés tant que vous n’ajoutez pas de modèle. Ouvrez Réglages, puis IA, pour choisir et installer un modèle.";
 "Add" = "Ajouter";
 "Scan" = "Analyser";
 "Share" = "Partager";
@@ -396,7 +394,6 @@
 "Choose a folder for the processing report." = "Choisissez un dossier pour le rapport de traitement.";
 "Choose a folder for the readable copies of this report." = "Choisissez un dossier pour les copies lisibles de ce rapport.";
 "Choose a folder for the redacted document and encrypted mapping." = "Choisissez un dossier pour le document anonymisé et la table de correspondance chiffrée.";
-"Choose a local GGUF model for on-device detection." = "Choisissez un modèle GGUF local pour la détection sur l’appareil.";
 "Choose a shared LDA vocabulary file to merge." = "Choisissez un fichier de vocabulaire LDA partagé à fusionner.";
 "Choose source documents to extract profile fields from." = "Choisissez les documents sources dont extraire les champs du profil.";
 "Choose the .ldamap mapping that goes with this document." = "Choisissez la table de correspondance .ldamap associée à ce document.";
@@ -553,10 +550,9 @@
 "If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain." = "Si ce profil a été enregistré avec une phrase secrète, saisissez-la. Laissez le champ vide s’il utilise le trousseau.";
 "Detection models process document text on this Mac. When you press Download, LDA connects to the configured model host to fetch the selected model file. Offline mode below tells LDA to refuse network requests, but it is an app setting rather than a firewall." = "Les modèles de détection traitent le texte des documents sur ce Mac. Lorsque vous cliquez sur Télécharger, LDA se connecte à l’hôte configuré pour récupérer le fichier du modèle choisi. Le mode hors ligne ci-dessous demande à LDA de refuser les requêtes réseau, mais il s’agit d’un réglage de l’app, pas d’un pare-feu.";
 "Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall." = "Refuse toutes les requêtes réseau, y compris les téléchargements de modèles. Il s’agit d’un réglage de LDA, pas d’un pare-feu.";
-"Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing." = "Rapide est intégré et fonctionne sur tous les Mac pris en charge par LDA. Avec au moins 24 Go de mémoire, Équilibré trouve autant d’éléments et en laisse beaucoup moins à écarter. Le plus complet est le seul réglage qui n’a rien manqué lors de nos tests.";
+"Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing." = "Rapide est le plus petit téléchargement et fonctionne sur tous les Mac pris en charge par LDA. Avec au moins 24 Go de mémoire, Équilibré trouve autant d’éléments et en laisse beaucoup moins à écarter. Le plus complet est le seul réglage qui n’a rien manqué lors de nos tests.";
 "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app." = "Une copie téléchargée de %@ se trouve également sur ce Mac. Elle est inutile, car %@ est intégré à l’app.";
 "%@ of %@" = "%@ sur %@";
-"Any local GGUF file. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "N’importe quel fichier GGUF local. LDA ne peut pas prévoir son efficacité, sa durée d’exécution ni la mémoire nécessaire.";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "Chaque aller-retour enregistre ce qui a été protégé et restauré. Les enregistrements ne contiennent jamais les valeurs sensibles elles-mêmes et restent chiffrés sur ce Mac.";
 "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "Les réglages plus élevés trouvent davantage de noms, de sociétés et d’adresses, mais prennent plus de temps. La détection utilise le modèle choisi sur ce Mac.";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed." = "Il restitue certains noms et certaines adresses sous une forme légèrement différente de celle du document. Ils ne sont donc jamais caviardés et n’apparaissent jamais dans la liste de vérification. Le modèle intégré n’a pas ce problème et fonctionne à la même vitesse.";
@@ -858,3 +854,37 @@
 /* Coverage reporting: replacements outside the DOCX body (2026-09-03). */
 "Includes %lld value in headers, footers, or notes, always protected and not listed above." = "Inclut %lld valeur dans les en-tetes, pieds de page ou notes, toujours protegee et non listee ci-dessus.";
 "Includes %lld values in headers, footers, or notes, always protected and not listed above." = "Inclut %lld valeurs dans les en-tetes, pieds de page ou notes, toujours protegees et non listees ci-dessus.";
+
+/* Verified offline model import (2026-09-03). */
+"That file is %@, which is not the size of any model LDA publishes. If you downloaded it in two parts, join both parts first and add the joined file." = "Ce fichier fait %@, ce qui ne correspond à la taille d'aucun modèle publié par LDA. Si vous l'avez téléchargé en deux parties, réunissez d'abord les deux parties, puis ajoutez le fichier assemblé.";
+"That file is not one of LDA's published models, so it was not installed. Its checksum does not match any model in this version's catalog. If you downloaded it in parts, check that both parts finished downloading and that they were joined in the right order." = "Ce fichier n'est pas un des modèles publiés par LDA, il n'a donc pas été installé. Sa somme de contrôle ne correspond à aucun modèle du catalogue de cette version. Si vous l'avez téléchargé en parties, vérifiez que les deux parties sont complètes et qu'elles ont été réunies dans le bon ordre.";
+"Could not read that file (%@). It was not installed." = "Impossible de lire ce fichier (%@). Il n'a pas été installé.";
+"Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "Choisissez le fichier de modèle assemblé (.gguf). Si vous l'avez téléchargé en deux parties, réunissez-les d'abord.";
+"Add Model" = "Ajouter le modèle";
+
+/* Model setup at first run plus the pre-scan advisory (2026-09-03). */
+"First, add a detection model" = "D'abord, ajoutez un modèle de détection";
+"LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document." = "LDA a besoin d'un modèle de détection sur ce Mac pour trouver les noms, les sociétés et les adresses. Tant que vous n'en avez pas ajouté un, une analyse ne trouve que ce que les motifs peuvent reconnaître : adresses e-mail, téléphones, dates, montants, numéros d'identité et numéros de dossier. Les noms, les sociétés et les adresses ne sont pas détectés et restent dans le document.";
+"Online, and quickest: download the model from Manage Models. About 2.74 GB." = "En ligne, et le plus rapide : téléchargez le modèle depuis Gérer les modèles. Environ 2,74 Go.";
+"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "Sans connexion : téléchargez le modèle sur un autre Mac, apportez-le sur un disque, puis ajoutez le fichier depuis Gérer les modèles. LDA le vérifie avant de l'installer.";
+"Set Up a Model…" = "Configurer un modèle…";
+"No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "Aucun modèle de détection n'est installé, donc une analyse ne cherchera pas les noms, les sociétés ni les adresses. Elle trouve toujours les adresses e-mail, les téléphones, les dates, les montants, les numéros d'identité et les numéros de dossier. Ajoutez un modèle pour trouver les noms.";
+
+/* Manage Models: the verified offline import (2026-09-03). */
+"Already have the model file?" = "Vous avez déjà le fichier du modèle ?";
+"If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download." = "Si vous avez téléchargé le modèle sur un autre Mac, ajoutez le fichier ici. LDA le compare à la somme de contrôle publiée avec cette version et le copie dans son propre dossier, de sorte qu'il fonctionne exactement comme un téléchargement.";
+"Add Model File…" = "Ajouter un fichier de modèle…";
+"This works with offline mode on. Adding a file makes no network request." = "Cela fonctionne avec le mode hors ligne activé. Ajouter un fichier n'effectue aucune requête réseau.";
+"Offline copy of the Quick model:" = "Copie hors ligne du modèle Rapide :";
+"Copy Link" = "Copier le lien";
+"Copied" = "Copié";
+"The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here." = "La page de publication indique deux parties, un fichier de sommes de contrôle et les commandes pour les réunir et les vérifier. Ajoutez ici le fichier assemblé.";
+"Checking there is room for the file" = "Vérification de l'espace disponible pour le fichier";
+"Added and verified." = "Ajouté et vérifié.";
+"Adding the file was cancelled. Nothing was installed." = "L'ajout du fichier a été annulé. Rien n'a été installé.";
+"Use your own model, unchecked" = "Utiliser votre propre modèle, non vérifié";
+"Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "N'importe quel fichier GGUF local. LDA ne vérifie pas ce fichier et ne le copie pas : il reste où il est et est utilisé tel quel. LDA ne peut pas vous dire s'il fonctionnera bien, combien de temps il prendra ni quelle mémoire il exigera.";
+"Choose a local GGUF model. LDA will not check it." = "Choisissez un modèle GGUF local. LDA ne le vérifiera pas.";
+
+/* Pre-scan advisory: the selected level has no model (2026-09-03). */
+"The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "Le modèle du niveau de détection que vous avez choisi n'est pas installé, donc une analyse ne cherchera pas les noms, les sociétés ni les adresses. Elle trouve toujours les adresses e-mail, les téléphones, les dates, les montants, les numéros d'identité et les numéros de dossier. Ajoutez ce modèle, ou choisissez un niveau installé dans les Réglages.";

@@ -159,6 +159,41 @@ enum AnonymizeWorkflowPresentation {
         return warning + " " + authors
     }
 
+    /// No model for the selected rung: what a scan will and will not look for,
+    /// or nil when the rung has its model.
+    ///
+    /// Pure so it is unit-testable without a view, and phrased as an
+    /// enumeration rather than a totalising claim: it lists what patterns match
+    /// and states plainly that names, companies and addresses are not looked
+    /// for. Do NOT add a reassuring clause such as "everything else is found"
+    /// while polishing this; it is false, and it is close to a claim
+    /// UIClaimsDisciplineTests bans outright.
+    ///
+    /// Two sentences because there are two situations and telling them apart
+    /// matters. `hasAnyModel` false is a fresh install with nothing at all.
+    /// `hasAnyModel` true is the reachable case on a Mac with 24 GB or more:
+    /// the user installed Balanced from Manage Models and left the level on
+    /// Quick, so the selected rung still cannot run. Saying "no detection model
+    /// is installed" to that user would be a false sentence, which is the exact
+    /// defect class this advisory exists to prevent.
+    static func missingModelAdvice(
+        isModelMissing: Bool,
+        hasAnyModel: Bool,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard isModelMissing else { return nil }
+        guard hasAnyModel else {
+            return L10n.string(
+                "No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names.",
+                language: language
+            )
+        }
+        return L10n.string(
+            "The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings.",
+            language: language
+        )
+    }
+
     static func embeddedMediaWarning(
         count: Int,
         language: AppLanguage? = nil

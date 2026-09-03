@@ -16,14 +16,33 @@ public struct OnboardingView: View {
     @Binding var isPresented: Bool
     @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
 
-    /// Whether an on-device AI model is available. Quick ships inside the app,
-    /// so this is normally true; it is false only when the bundled model is
-    /// absent, which package-app.sh refuses to produce.
-    let modelAvailable: Bool
+    /// Whether THIS MAC has any detection model: a tier installed in the app
+    /// container, one inside the app bundle, or a custom model that resolves.
+    ///
+    /// No model ships inside the app, so false is the ordinary state of a fresh
+    /// install rather than a packaging accident. It asks about the machine, not
+    /// about the selected rung: someone who deliberately chose Patterns only
+    /// and has a model installed must not be told to add one.
+    let hasModel: Bool
 
-    public init(isPresented: Binding<Bool>, modelAvailable: Bool) {
+    /// Dismisses onboarding and opens Manage Models.
+    ///
+    /// One button into the existing sheet rather than a second download entry
+    /// point here. That sheet and the app-owned installer already carry
+    /// progress, cancel, resume, the memory gate, the offline-mode gate and
+    /// every error string, and `AISettings.canDownload` exists because this
+    /// codebase has a history of multi-entry actions where one path was gated
+    /// and another was not.
+    let onSetUpModel: () -> Void
+
+    public init(
+        isPresented: Binding<Bool>,
+        hasModel: Bool,
+        onSetUpModel: @escaping () -> Void
+    ) {
         self._isPresented = isPresented
-        self.modelAvailable = modelAvailable
+        self.hasModel = hasModel
+        self.onSetUpModel = onSetUpModel
     }
 
     public var body: some View {
@@ -52,6 +71,10 @@ public struct OnboardingView: View {
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
+
+            if !hasModel {
+                modelSetupBlock
+            }
 
             VStack(alignment: .leading, spacing: 14) {
                 step(
@@ -112,18 +135,6 @@ public struct OnboardingView: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
-            if !modelAvailable {
-                Label {
-                    Text("No AI model is installed yet, so detection is pattern-only for now: emails, phones, dates, amounts, and ID numbers. Names, companies, and addresses are NOT detected until you add one. Open Settings, then AI, to choose and install a model.")
-                        .font(.callout)
-                        .foregroundStyle(CounselTheme.danger)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(CounselTheme.danger)
-                }
-            }
-
                 HStack {
                     Spacer()
                     Button("Get Started") {
@@ -145,6 +156,43 @@ public struct OnboardingView: View {
             idealHeight: 620
         )
         .background(CounselTheme.raised)
+    }
+
+    /// The first-run model step, shown only when this Mac has no model.
+    ///
+    /// Placed before the three round-trip steps because it is a prerequisite,
+    /// and tinted with the accent rather than danger red: at first run this is
+    /// a setup task, not an error. Danger red is reserved for the pre-scan
+    /// advisory in AppShell, where the user is about to act on a reduced scan.
+    private var modelSetupBlock: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("First, add a detection model")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Text("LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document.")
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Set Up a Model\u{2026}") { onSetUpModel() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
+                // Both routes are named so the offline one is discoverable at
+                // first run. Online is stated first and marked as quicker,
+                // which is how "preferred" is expressed here rather than by
+                // hiding the alternative.
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Online, and quickest: download the model from Manage Models. About 2.74 GB.")
+                    Text("No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it.")
+                }
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "arrow.down.circle")
+                .foregroundStyle(CounselTheme.inkAccent)
+        }
     }
 
     private var languageBinding: Binding<AppLanguage> {

@@ -52,6 +52,23 @@ final class NetworkChokepointTests: XCTestCase {
         // Opening a URL hands the request to another app, which still reaches
         // the network on the user's behalf.
         "NSWorkspace.shared.open", "WKWebView",
+        // SwiftUI's own two ways of doing the same thing. Listed because the
+        // model catalog now carries an offline release page URL, and the
+        // decision was that it stays COPYABLE TEXT: a Link or an openURL call
+        // would hand a request to a browser, which is the act the entitlement
+        // rationale describes. Adding one is a product decision, not a tidy-up.
+        //
+        // Spelled with the parenthesis, and with the trailing paren on the
+        // environment key, so the local helper `openURLs(_:)` in
+        // DocumentPane.swift (which opens documents the user dropped) is not a
+        // false positive.
+        //
+        // "Link(" also matches any identifier ENDING in Link, such as a
+        // `copyOfflineLink(...)` helper or `createSymbolicLink(...)`. When that
+        // happens the fix is to rename the identifier, not to loosen this list:
+        // a substring check that a reviewer can read in one line is worth more
+        // than a precise one nobody trusts.
+        "Link(", ".openURL)", "openURL(",
         // These take a URL and will happily perform a synchronous GET if that
         // URL is remote, which no amount of URLSession auditing would reveal.
         "Data(contentsOf:", "String(contentsOf:"

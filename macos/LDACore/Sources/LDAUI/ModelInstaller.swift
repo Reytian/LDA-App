@@ -266,7 +266,8 @@ public final class ModelInstaller: NSObject, ObservableObject {
         // Precheck space before starting a multi-gigabyte transfer. Require the
         // file plus headroom, because the download lands in a temporary file
         // and is then moved into place.
-        if let free = freeSpaceBytes(), free < tier.sizeBytes + 1_000_000_000 {
+        if let free = ModelCatalog.freeSpaceBytes(),
+           free < tier.sizeBytes + 1_000_000_000 {
             phases[tier.id] = .failed(
                 .insufficientDisk(neededBytes: tier.sizeBytes + 1_000_000_000, freeBytes: free)
             )
@@ -314,8 +315,10 @@ public final class ModelInstaller: NSObject, ObservableObject {
 
     /// Delete a downloaded model and report the space reclaimed.
     ///
-    /// Returns nil when there was nothing to remove. A BUNDLED tier can never be
-    /// removed: its file lives inside the app, so the caller must not offer it.
+    /// Returns nil when there was nothing to remove. In a BUNDLE_MODEL=1 build
+    /// a bundled tier can never be removed: its file lives inside the signed
+    /// app, so the caller must not offer it. No model is bundled by default, so
+    /// this guard is inert in the shipping configuration.
     @discardableResult
     public func remove(_ tier: ModelTier) -> Int64? {
         guard !ModelCatalog.isBundled(tier),
@@ -336,11 +339,16 @@ public final class ModelInstaller: NSObject, ObservableObject {
         }
     }
 
-    /// Delete a downloaded copy of a tier that also ships inside the app.
+    /// Delete a downloaded copy of a tier that a BUNDLE_MODEL=1 build also
+    /// carries inside the app.
     ///
     /// Distinct from `remove`, which refuses bundled tiers outright. Here the
     /// bundled copy is exactly why deleting is safe: resolution falls back to
     /// it, so the selected level does not change and nothing is reprocessed.
+    /// Unreachable in the default build, where nothing is bundled, which is the
+    /// safe direction: `redundantContainerCopy` returns nil, so a user with a
+    /// downloaded copy is never offered a removal that would leave them with
+    /// no model at all.
     @discardableResult
     public func removeRedundantCopy(_ tier: ModelTier) -> Int64? {
         guard let url = ModelCatalog.redundantContainerCopy(for: tier) else { return nil }
@@ -356,13 +364,6 @@ public final class ModelInstaller: NSObject, ObservableObject {
     }
 
     // MARK: Helpers
-
-    private func freeSpaceBytes() -> Int64? {
-        guard let root = ModelCatalog.modelsRoot() else { return nil }
-        let probe = root.deletingLastPathComponent()
-        let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage
-    }
 
     /// Move a completed download into place, verifying size and digest.
     ///

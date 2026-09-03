@@ -36,13 +36,16 @@ final class ModelTiersTests: XCTestCase {
         level: String,
         peak: Double,
         size: Int64 = 1_000,
-        file: String = "m.gguf"
+        file: String = "m.gguf",
+        sha256: String = "",
+        offlineSourceURL: String? = nil
     ) -> ModelTier {
         ModelTier(
             id: id, level: level, displayName: id, fileName: file,
-            sizeBytes: size, sha256: "", peakRSSGB: peak, secondsPerDocument: 10,
+            sizeBytes: size, sha256: sha256, peakRSSGB: peak, secondsPerDocument: 10,
             architecture: "qwen35", blockCount: 32, embeddingLength: 2560,
-            sourceURL: "https://example.invalid/m.gguf"
+            sourceURL: "https://example.invalid/m.gguf",
+            offlineSourceURL: offlineSourceURL
         )
     }
 
@@ -452,6 +455,204 @@ final class ModelTiersTests: XCTestCase {
         for level in DetectionLevel.modelLevels {
             XCTAssertNil(empty.tier(for: level))
         }
+    }
+
+    // MARK: - Identifying a file the user supplies
+
+    func testTierLookupByChecksumIgnoresCaseAndNeedsAnExactDigest() {
+        let catalog = ModelCatalog(tiers: [
+            tier(id: "quick", level: "quick", peak: 3.6, size: 10, file: "q.gguf",
+                 sha256: "AABB"),
+            tier(id: "balanced", level: "balanced", peak: 9.2, size: 20, file: "b.gguf",
+                 sha256: "ccdd")
+        ])
+        XCTAssertEqual(catalog.tier(matchingSha256: "aabb")?.id, "quick")
+        XCTAssertEqual(catalog.tier(matchingSha256: "CCDD")?.id, "balanced")
+        XCTAssertNil(catalog.tier(matchingSha256: "aab"),
+                     "a prefix must not be accepted as a match")
+    }
+
+    func testTierLookupByChecksumRefusesATierWithNoPublishedDigest() {
+        // An entry with an empty sha256 must not be reachable by matching: it
+        // would install an unverified file under a named tier.
+        let catalog = ModelCatalog(tiers: [
+            tier(id: "quick", level: "quick", peak: 3.6, size: 10, file: "q.gguf", sha256: "")
+        ])
+        XCTAssertNil(catalog.tier(matchingSha256: ""))
+    }
+
+    func testTierLookupBySizeReturnsEveryTierWithThatByteCount() {
+        let catalog = ModelCatalog(tiers: [
+            tier(id: "a", level: "quick", peak: 3.6, size: 100, file: "a.gguf", sha256: "11"),
+            tier(id: "b", level: "balanced", peak: 9.2, size: 100, file: "b.gguf", sha256: "22"),
+            tier(id: "c", level: "mostThorough", peak: 13.8, size: 200, file: "c.gguf",
+                 sha256: "33")
+        ])
+        XCTAssertEqual(catalog.tiersMatching(size: 100).map(\.id), ["a", "b"])
+        XCTAssertEqual(catalog.tiersMatching(size: 200).map(\.id), ["c"])
+        XCTAssertTrue(catalog.tiersMatching(size: 150).isEmpty)
+    }
+
+    func testShippedQuickTierPublishesAnOfflineSourceURL() {
+        let catalog = ModelCatalog.load()
+        XCTAssertEqual(
+            catalog.tier(for: .quick)!.offlineSourceURL,
+            "https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b"
+        )
+        // Only Quick is mirrored for the offline path: the larger models would
+        // need too many parts, and their users have a connection.
+        XCTAssertNil(catalog.tier(for: .balanced)!.offlineSourceURL)
+        XCTAssertNil(catalog.tier(for: .mostThorough)!.offlineSourceURL)
+    }
+
+    func testCatalogDecodesAManifestWithoutOfflineSourceURL() throws {
+        // Backwards compatibility: an older manifest has no such key at all and
+        // must still decode rather than leaving the app with no catalog.
+        let json = """
+        [{"id":"quick","level":"quick","displayName":"Quick",
+          "fileName":"q.gguf","sizeBytes":10,"sha256":"ab","peakRSSGB":3.6,
+          "secondsPerDocument":53,"architecture":"qwen35","blockCount":32,
+          "embeddingLength":2560,"sourceURL":"https://example.invalid/q.gguf"}]
+        """
+        let tiers = try JSONDecoder().decode([ModelTier].self, from: Data(json.utf8))
+        XCTAssertEqual(tiers.count, 1)
+        XCTAssertNil(tiers[0].offlineSourceURL)
+    }
+
+    func testFreeSpaceIsReportedFromOneSharedHelper() {
+        // Hoisted onto the catalog so the download and the import agree about
+        // how much room they need. A real volume always reports something.
+        XCTAssertNotNil(ModelCatalog.freeSpaceBytes())
+    }
+
+    // MARK: - hasAnyModelAvailable versus isModelMissing
+
+    /// A catalog whose files are small enough to write in a test.
+    private func smallCatalog() -> ModelCatalog {
+        ModelCatalog(tiers: [
+            tier(id: "quick", level: "quick", peak: 3.6, size: 16, file: "q.gguf",
+                 sha256: "aa"),
+            tier(id: "balanced", level: "balanced", peak: 9.2, size: 32, file: "b.gguf",
+                 sha256: "bb"),
+            tier(id: "most-thorough", level: "mostThorough", peak: 13.8, size: 48,
+                 file: "t.gguf", sha256: "cc")
+        ])
+    }
+
+    func testNoModelIsAvailableOnACleanContainer() throws {
+        let (stub, root) = try container("clean")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+
+        XCTAssertFalse(
+            AISettings.hasAnyModelAvailable(
+                catalog: smallCatalog(), fileManager: stub, defaults: d
+            ),
+            "a model-less install must report that it has no model at all"
+        )
+    }
+
+    func testAnInstalledTierFileMakesAModelAvailable() throws {
+        let (stub, root) = try container("installed")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+        let catalog = smallCatalog()
+        try place(catalog.tier(id: "quick")!, using: stub)
+
+        XCTAssertTrue(
+            AISettings.hasAnyModelAvailable(
+                catalog: catalog, fileManager: stub, defaults: d
+            )
+        )
+    }
+
+    func testACustomModelMakesAModelAvailable() throws {
+        let (stub, root) = try container("custom")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+        let file = root.appendingPathComponent("firm-fine-tune.gguf")
+        try Data("gguf".utf8).write(to: file)
+        AISettings.setCustomModel(url: file, defaults: d)
+        defer { AISettings.setCustomModel(url: nil, defaults: d) }
+
+        XCTAssertTrue(
+            AISettings.hasAnyModelAvailable(
+                catalog: smallCatalog(), fileManager: stub, defaults: d
+            )
+        )
+    }
+
+    func testPatternsOnlyWithNoFileStillReportsNoModelAvailable() throws {
+        // This is the case that separates the two questions. A deliberate
+        // patterns-only user is NOT missing a model (isModelMissing is false),
+        // but they also do not have one, so onboarding must still offer setup
+        // and must not be told they are fine.
+        let (stub, root) = try container("patterns")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+        let catalog = smallCatalog()
+        AISettings.setDetectionLevel(.patternsOnly, defaults: d)
+
+        XCTAssertFalse(
+            AISettings.isModelMissing(defaults: d, catalog: catalog, fileManager: stub),
+            "a deliberate choice is not a missing model"
+        )
+        XCTAssertFalse(
+            AISettings.hasAnyModelAvailable(
+                catalog: catalog, fileManager: stub, defaults: d
+            ),
+            "no file exists, so there is no model to run"
+        )
+    }
+
+    func testPatternsOnlyWithAnInstalledFileReportsAModelAvailable() throws {
+        // The mirror case: someone who chose patterns only but has a model
+        // installed must not be nagged to add one.
+        let (stub, root) = try container("patterns-installed")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+        let catalog = smallCatalog()
+        AISettings.setDetectionLevel(.patternsOnly, defaults: d)
+        try place(catalog.tier(id: "quick")!, using: stub)
+
+        XCTAssertTrue(
+            AISettings.hasAnyModelAvailable(
+                catalog: catalog, fileManager: stub, defaults: d
+            )
+        )
+    }
+
+    func testAFreshModellessInstallStillReportsTheSelectedRungAsMissing() throws {
+        // Regression lock on the ruling that the default level stays at .quick
+        // with no model present, so the failure is reported by the detection
+        // pass rather than silently demoted to a patterns-only run.
+        let (stub, root) = try container("fresh")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let d = makeDefaults()
+
+        XCTAssertEqual(AISettings.detectionLevel(defaults: d), .quick)
+        XCTAssertTrue(
+            AISettings.isModelMissing(
+                defaults: d, catalog: smallCatalog(), fileManager: stub
+            )
+        )
+    }
+
+    // MARK: - Container helpers
+
+    private func container(_ label: String) throws -> (ModelContainerStub, URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lda-tiers-\(label)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return (ModelContainerStub(supportRoot: root), root)
+    }
+
+    private func place(_ tier: ModelTier, using stub: ModelContainerStub) throws {
+        let url = try XCTUnwrap(ModelCatalog.installedURL(for: tier, fileManager: stub))
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data(count: Int(tier.sizeBytes)).write(to: url)
     }
 
 }

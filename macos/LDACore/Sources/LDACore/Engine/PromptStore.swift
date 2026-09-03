@@ -24,8 +24,8 @@
 //    code fences. Both default bodies state this explicitly. The host is
 //    expected to keep enforcing JSON parsing regardless of edits, and validate()
 //    warns when an edited body drops the instruction.
-//  - The thinking-off directive: the bundled Qwen3.5 v2 model is a reasoning
-//    model that defaults to thinking. The host (LLMEngine) disables it when it
+//  - The thinking-off directive: the Qwen3.5 v2 model is a reasoning model
+//    that defaults to thinking. The host (LLMEngine) disables it when it
 //    renders the ChatML generation prompt, by ending that prompt with a
 //    pre-closed "<think>\n\n</think>\n\n" block so the unsloth chat template
 //    skips reasoning (see LLMEngine.buildChatMLPrompt). That switch lives at the
@@ -155,8 +155,8 @@ public final class PromptStore {
     """
 
     /// Default system prompt for the v2 single-shot extraction format. The
-    /// first two sentences are the exact instruction the bundled v2 model was
-    /// trained on (see the original infer.py) and must stay verbatim. The
+    /// first two sentences are the exact instruction the v2 model was trained
+    /// on (see the original infer.py) and must stay verbatim. The
     /// exclusion sentences after them rein in boilerplate over-extraction on
     /// real contracts (defined terms, role nouns, titles, statutes, tribunals,
     /// governing-law geography), which both shreds review quality and bloats
