@@ -508,7 +508,11 @@ public enum LDAService {
         input: URL,
         llmModelPath: String? = nil
     ) throws -> [Span] {
-        try detectSummary(input: input, llmModelPath: llmModelPath).bodySpans
+        // Not detectSummary().bodySpans: that would also scan the DOCX
+        // supplementary parts and throw the result away, so a caller who only
+        // wants positions would pay for coverage it never reads.
+        let imported = try importDocument(input, extension: input.pathExtension.lowercased())
+        return try makeDetector(modelPath: llmModelPath).detectText(imported.text)
     }
 
     /// Detect entities AND report how much a run would redact outside the body.
