@@ -65,7 +65,7 @@ payloads.
 |---|---|---|
 | `list_pending` | none | handles plus neutral metadata (`kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`) |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId` and `entities[]` of `{id, type, start, end}`; the detected text never leaves the machine |
-| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, counts per type, `excludedCount`, `detectionChanged` |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, counts per type, `excludedCount`, `excludedValueCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, counts, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | the redacted `text`; the only tool that returns body text |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format`, `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements` |
@@ -76,6 +76,15 @@ Review before redacting: call `detect_entities` once, then pass the ids to
 keep visible as `excludeEntityIds` together with the `detectionId` they came
 with, and whole types as `excludeTypes`. An id the fresh detection does not
 know is refused (`unknown_entity_id`) and nothing is written.
+
+Exclusion is by VALUE. An id names one occurrence, but excluding it leaves
+every occurrence of that value visible in the whole document, headers,
+footers, notes, and comments included, because a value sitting beside its own
+placeholder would tell any reader what that placeholder stands for everywhere
+else. A value you leave visible is therefore not protected anywhere in that
+document. The response reports `excludedCount`, the occurrences now in clear
+(expect more than the ids you passed), and `excludedValueCount`, how many
+distinct values they are.
 
 ## Word round trip (.docx in, restored .docx out)
 
