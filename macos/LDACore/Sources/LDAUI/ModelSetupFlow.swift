@@ -68,8 +68,13 @@ final class ModelSetupFlowModel: ObservableObject {
     /// A scan request waiting on the confirmation.
     @Published var pendingScan: PendingScan?
 
-    /// An Export for AI request waiting on the confirmation.
-    @Published var pendingExport = false
+    /// An Export for AI request waiting on the confirmation, and which
+    /// disclosure it is about. nil when no export is parked.
+    ///
+    /// The reason travels with the request rather than being recomputed when
+    /// the dialog renders, for the same reason a scan request carries its
+    /// targets: the state it was read from can move while a dialog is up.
+    @Published var pendingExport: ModelSetupPresentation.ExportGateReason?
 
     /// The tray documents the user has already acknowledged scanning without
     /// a model.
@@ -145,22 +150,25 @@ struct ModelSetupFlow: ViewModifier {
             }
             .confirmationDialog(
                 Text(verbatim: export.title),
-                isPresented: $flow.pendingExport,
+                isPresented: Binding(
+                    get: { flow.pendingExport != nil },
+                    set: { if !$0 { flow.pendingExport = nil } }
+                ),
                 titleVisibility: .visible
             ) {
                 if canRunAModel {
                     Button(exportFixTitle) {
-                        flow.pendingExport = false
+                        flow.pendingExport = nil
                         AISettings.recordModelSetupAnswer(.accepted)
                         onOpenModelManagement()
                     }
                     .keyboardShortcut(.defaultAction)
                 }
                 Button(export.proceed) {
-                    flow.pendingExport = false
+                    flow.pendingExport = nil
                     onExport()
                 }
-                Button("Cancel", role: .cancel) { flow.pendingExport = false }
+                Button("Cancel", role: .cancel) { flow.pendingExport = nil }
                     .keyboardShortcut(
                         exportDefault == .cancel ? .defaultAction : .cancelAction
                     )
@@ -200,8 +208,10 @@ struct ModelSetupFlow: ViewModifier {
         ModelSetupPresentation.scanConfirmation()
     }
 
+    /// The parked reason, or the never-ran copy for the frame in which the
+    /// dialog is dismissing and the reason has already been cleared.
     private var export: (title: String, message: String, proceed: String) {
-        ModelSetupPresentation.exportConfirmation()
+        ModelSetupPresentation.exportConfirmation(reason: flow.pendingExport ?? .didNotRun)
     }
 }
 

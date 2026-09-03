@@ -494,12 +494,17 @@ public struct AppShell: View {
     /// this is the step that actually discloses: a gate on Scan intercepts the
     /// earlier decision and can create false comfort at the later one.
     private func requestExportForAI() {
-        guard ModelSetupPresentation.exportNeedsConfirmation(
+        guard let reason = ModelSetupPresentation.exportGateReason(
             documents: session.entries.map {
-                ($0.model.canExport, $0.model.aiActive, $0.model.aiWarning)
+                (
+                    $0.model.canExport,
+                    $0.model.aiActive,
+                    $0.model.aiWarning,
+                    $0.model.aiRanPartially
+                )
             }
         ) else { return runExportForAI() }
-        modelSetupFlow.pendingExport = true
+        modelSetupFlow.pendingExport = reason
     }
 
     // MARK: - Onboarding

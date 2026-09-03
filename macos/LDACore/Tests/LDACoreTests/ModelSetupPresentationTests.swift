@@ -58,7 +58,14 @@ final class ModelSetupPresentationTests: XCTestCase {
         var copy = ModelSetupPresentation.askBody(route: .download, language: .english)
         copy += ModelSetupPresentation.askBody(route: .unavailable, language: .english)
         copy.append(ModelSetupPresentation.scanConfirmation(language: .english).message)
-        copy.append(ModelSetupPresentation.exportConfirmation(language: .english).message)
+        copy.append(
+            ModelSetupPresentation
+                .exportConfirmation(reason: .didNotRun, language: .english).message
+        )
+        copy.append(
+            ModelSetupPresentation
+                .exportConfirmation(reason: .ranPartially, language: .english).message
+        )
 
         for sentence in copy {
             let lowered = sentence.lowercased()
@@ -119,7 +126,9 @@ final class ModelSetupPresentationTests: XCTestCase {
     // MARK: - The export gate fires on a per-document scan-time fact
 
     func testExportConfirmationFiresOnlyForADocumentWhoseAIPassDidNotRun() {
-        typealias Document = (canExport: Bool, aiRan: Bool, aiFailure: String?)
+        typealias Document = (
+            canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
+        )
 
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(documents: []),
@@ -127,33 +136,33 @@ final class ModelSetupPresentationTests: XCTestCase {
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: false, aiRan: false, aiFailure: "no model")]
+                documents: [(canExport: false, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
             ),
             "a document that cannot be exported carries nothing into the handoff"
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: true, aiFailure: nil)]
+                documents: [(canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false)]
             ),
             "the pass ran"
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: false, aiFailure: nil)]
+                documents: [(canExport: true, aiRan: false, aiFailure: nil, aiRanPartially: false)]
             ),
             "a deliberate patterns-only run is a choice, not a failure"
         )
         XCTAssertTrue(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: false, aiFailure: "no model")]
+                documents: [(canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
             ),
             "asked for and did not run: this is the disclosure case"
         )
         // One bad document in a tray of good ones still asks.
         let mixed: [Document] = [
-            (canExport: true, aiRan: true, aiFailure: nil),
-            (canExport: true, aiRan: false, aiFailure: "no model"),
-            (canExport: true, aiRan: true, aiFailure: nil)
+            (canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false),
+            (canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false),
+            (canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false)
         ]
         XCTAssertTrue(ModelSetupPresentation.exportNeedsConfirmation(documents: mixed))
     }
@@ -191,10 +200,17 @@ final class ModelSetupPresentationTests: XCTestCase {
             "Export a copy where the AI pass did not run?",
             "The AI pass did not run on at least one of these documents, so people's names and company names were not looked for there and are still in the copy you are about to write. Read that copy before you hand it to an AI tool, or add a detection model and scan those documents again.",
             "Export Anyway",
+            // K24 and K25, the export gate's partial-coverage body.
+            "Export a copy where the AI pass did not finish?",
+            "The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again.",
             // K23, the post-scan failure sentence.
             "No detection model is installed for the selected detection level, so people's names and company names were not looked for, and an address was matched only in the Chinese street form. Choose a different level in Settings, or add the model file."
         ]
-        XCTAssertEqual(keys.count, 23, "the specification lists 23 keys")
+        XCTAssertEqual(
+            keys.count, 25,
+            "23 from the specification, plus the two that separate a partial AI "
+                + "pass from one that never ran"
+        )
 
         for language in [AppLanguage.english, .french, .simplifiedChinese, .traditionalChinese] {
             for key in keys {
@@ -207,6 +223,130 @@ final class ModelSetupPresentationTests: XCTestCase {
                     )
                 }
             }
+        }
+    }
+
+    // MARK: - A partial AI pass is not a pass that never ran
+
+    func testTheExportGateTellsAPartialPassApartFromOneThatNeverRan() {
+        typealias Document = (
+            canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
+        )
+
+        let neverRan: [Document] = [
+            (canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)
+        ]
+        let partial: [Document] = [
+            (
+                canExport: true, aiRan: false,
+                aiFailure: "AI could not fully scan 2 segments", aiRanPartially: true
+            )
+        ]
+
+        XCTAssertNil(ModelSetupPresentation.exportGateReason(documents: []))
+        XCTAssertEqual(
+            ModelSetupPresentation.exportGateReason(documents: neverRan), .didNotRun
+        )
+        XCTAssertEqual(
+            ModelSetupPresentation.exportGateReason(documents: partial), .ranPartially
+        )
+
+        // A mixed tray takes the partial body. A populated review list that is
+        // short of the text reads as a finished job, which is the more
+        // dangerous of the two to describe loosely.
+        XCTAssertEqual(
+            ModelSetupPresentation.exportGateReason(documents: neverRan + partial),
+            .ranPartially
+        )
+
+        // The partial term is not a way past the other two conditions.
+        XCTAssertNil(
+            ModelSetupPresentation.exportGateReason(documents: [
+                (
+                    canExport: false, aiRan: false,
+                    aiFailure: "AI could not fully scan 2 segments", aiRanPartially: true
+                )
+            ]),
+            "a document that cannot be exported carries nothing into the handoff"
+        )
+        XCTAssertNil(
+            ModelSetupPresentation.exportGateReason(documents: [
+                (canExport: true, aiRan: false, aiFailure: nil, aiRanPartially: true)
+            ]),
+            "no failure means the pass was never asked for"
+        )
+
+        let didNotRun = ModelSetupPresentation
+            .exportConfirmation(reason: .didNotRun, language: .english)
+        let ranPartially = ModelSetupPresentation
+            .exportConfirmation(reason: .ranPartially, language: .english)
+
+        XCTAssertNotEqual(
+            didNotRun.title, ranPartially.title,
+            "a pass that covered part of the document is not one that never ran"
+        )
+        XCTAssertNotEqual(
+            didNotRun.message, ranPartially.message,
+            "saying the pass did not run when it ran and stopped short "
+                + "understates it: the review list looks populated and is "
+                + "incomplete"
+        )
+        XCTAssertEqual(
+            didNotRun.proceed, ranPartially.proceed,
+            "the action is the same either way"
+        )
+        XCTAssertTrue(
+            ranPartially.message.contains("some people's names and company names were found there and others were not"),
+            "the partial body must say what partial coverage means"
+        )
+        XCTAssertFalse(
+            ranPartially.message.contains("did not run"),
+            "the pass did run; that is the whole distinction"
+        )
+    }
+
+    func testNeitherExportBodySoftensIntoAClaimThatEverythingWasFound() {
+        for reason in [
+            ModelSetupPresentation.ExportGateReason.didNotRun, .ranPartially
+        ] {
+            for language in [
+                AppLanguage.english, .french, .simplifiedChinese, .traditionalChinese
+            ] {
+                let copy = ModelSetupPresentation
+                    .exportConfirmation(reason: reason, language: language)
+                for text in [copy.title, copy.message, copy.proceed] {
+                    XCTAssertFalse(
+                        text.isEmpty, "\(language) has empty export copy for \(reason)"
+                    )
+                    XCTAssertFalse(
+                        text.contains("\u{2014}") || text.contains("\u{2013}"),
+                        "\(language) uses a prohibited dash in the export copy"
+                    )
+                }
+                let lowered = copy.message.lowercased()
+                for claim in [
+                    "guaranteed", "100%", "all sensitive", "everything",
+                    "accuracy decreases", "accuracy"
+                ] {
+                    XCTAssertFalse(
+                        lowered.contains(claim),
+                        "\(language) export copy for \(reason) must not claim \(claim)"
+                    )
+                }
+            }
+
+            // The house framing: enumerate what was and was not looked for,
+            // and never suggest the review list is the whole of it.
+            let english = ModelSetupPresentation
+                .exportConfirmation(reason: reason, language: .english).message
+            XCTAssertTrue(
+                english.contains("people's names and company names"),
+                "\(reason) must name what is at stake"
+            )
+            XCTAssertTrue(
+                english.contains("before you hand it to an AI tool"),
+                "\(reason) must state the one thing the reader can still do"
+            )
         }
     }
 }

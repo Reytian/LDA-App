@@ -131,33 +131,72 @@ enum ModelSetupPresentation {
         )
     }
 
-    /// The Export for AI gate's title, message and proceed button.
+    /// Why the Export for AI gate is on screen.
     ///
-    /// A second confirmation sits here rather than on Scan alone because this
-    /// is the step that actually discloses. It fires on every Export for AI
-    /// while the condition holds: low frequency, and the handoff is the moment
-    /// the copy leaves the Mac.
-    static func exportConfirmation(
-        language: AppLanguage? = nil
-    ) -> (title: String, message: String, proceed: String) {
-        (
-            title: L10n.string("Export a copy where the AI pass did not run?", language: language),
-            message: L10n.string("The AI pass did not run on at least one of these documents, so people's names and company names were not looked for there and are still in the copy you are about to write. Read that copy before you hand it to an AI tool, or add a detection model and scan those documents again.", language: language),
-            proceed: L10n.string("Export Anyway", language: language)
-        )
+    /// Two different disclosures, and the copy has to keep them apart. A pass
+    /// that never ran looked for no names at all. A pass that ran and stopped
+    /// short found some names and not others, so its review list reads as a
+    /// finished job while the text still holds what the pass never reached,
+    /// which is arguably the more dangerous of the two to describe loosely.
+    enum ExportGateReason: Equatable {
+        case didNotRun
+        case ranPartially
     }
 
-    /// True when at least one exportable document had an AI pass that was
-    /// asked for and did not run.
+    /// Why the export gate must fire, or nil when it must not.
     ///
     /// Pure: the shell maps `session.entries` into it. The `aiFailure` term is
     /// what separates a REQUESTED pass that could not run from a deliberate
     /// patterns-only run, which produces the same entity output and must not
     /// raise a dialog. A document that cannot be exported carries nothing into
     /// the handoff, so it cannot be the reason for one.
+    ///
+    /// A mixed tray answers `.ranPartially`, because that body describes a
+    /// review list the reader will otherwise trust, and its remedy (read the
+    /// copy, scan again) covers the never-ran document in the same tray.
+    static func exportGateReason(
+        documents: [(canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
+    ) -> ExportGateReason? {
+        let triggering = documents.filter { !$0.aiRan && $0.aiFailure != nil && $0.canExport }
+        guard !triggering.isEmpty else { return nil }
+        return triggering.contains(where: \.aiRanPartially) ? .ranPartially : .didNotRun
+    }
+
+    /// True when the Export for AI gate must fire at all.
     static func exportNeedsConfirmation(
-        documents: [(canExport: Bool, aiRan: Bool, aiFailure: String?)]
+        documents: [(canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
     ) -> Bool {
-        documents.contains { !$0.aiRan && $0.aiFailure != nil && $0.canExport }
+        exportGateReason(documents: documents) != nil
+    }
+
+    /// The Export for AI gate's title, message and proceed button.
+    ///
+    /// A second confirmation sits here rather than on Scan alone because this
+    /// is the step that actually discloses. It fires on every Export for AI
+    /// while the condition holds: low frequency, and the handoff is the moment
+    /// the copy leaves the Mac.
+    ///
+    /// The partial body does not say the pass "did not run", because it did.
+    /// It names what partial coverage means for the list in front of the
+    /// reader, and it drops the "add a detection model" remedy, which is
+    /// usually already satisfied when a pass got far enough to stop short.
+    static func exportConfirmation(
+        reason: ExportGateReason,
+        language: AppLanguage? = nil
+    ) -> (title: String, message: String, proceed: String) {
+        switch reason {
+        case .didNotRun:
+            return (
+                title: L10n.string("Export a copy where the AI pass did not run?", language: language),
+                message: L10n.string("The AI pass did not run on at least one of these documents, so people's names and company names were not looked for there and are still in the copy you are about to write. Read that copy before you hand it to an AI tool, or add a detection model and scan those documents again.", language: language),
+                proceed: L10n.string("Export Anyway", language: language)
+            )
+        case .ranPartially:
+            return (
+                title: L10n.string("Export a copy where the AI pass did not finish?", language: language),
+                message: L10n.string("The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again.", language: language),
+                proceed: L10n.string("Export Anyway", language: language)
+            )
+        }
     }
 }

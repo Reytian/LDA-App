@@ -224,6 +224,17 @@ public final class ReviewModel: ObservableObject {
     /// could not fully scan the document. nil when AI ran cleanly or was off.
     @Published public var aiWarning: String?
 
+    /// Whether the AI pass examined THIS document and stopped short of
+    /// finishing it, as opposed to never examining any of it.
+    ///
+    /// `aiActive` is false for both, and the two warnings differ only by
+    /// localized prose, so without this the two could not be told apart by
+    /// anything downstream. They are different disclosures: a pass that never
+    /// ran looked for no names at all, while a pass that covered part of the
+    /// document found some names and not others, and its review list therefore
+    /// reads as a finished job when it is not.
+    @Published public var aiRanPartially: Bool = false
+
     /// The selected group rows in the sidebar. A Set gives the macOS List its
     /// native Command-click and Shift-click range selection, so a noisy first
     /// scan can be triaged in batches without weakening detection. Keyboard
@@ -459,6 +470,7 @@ public final class ReviewModel: ObservableObject {
         progress = 0
         etaText = nil
         aiWarning = nil
+        aiRanPartially = false
         trackedChangeCount = 0
         // A supplementary count belongs to the document that produced it; a
         // stale one would mis-state the next document's coverage.
@@ -519,6 +531,7 @@ public final class ReviewModel: ObservableObject {
         etaText = expectsLLM ? L10n.string("Loading model") : nil
         learningNote = nil
         aiWarning = nil
+        aiRanPartially = false
         anonymizeStart = Date()
 
         let report: @Sendable (Int, Int) -> Void = { [weak self] done, total in
@@ -582,6 +595,7 @@ public final class ReviewModel: ObservableObject {
         // AI pass.
         aiActive = outcome.aiRan
         aiWarning = outcome.aiFailure
+        aiRanPartially = outcome.aiRanPartially
         progress = 1
         etaText = nil
         status = .ready

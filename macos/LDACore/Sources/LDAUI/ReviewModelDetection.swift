@@ -73,6 +73,9 @@ extension ReviewModel {
         /// User-facing explanation when AI was expected but failed or could
         /// not fully scan; nil when AI ran cleanly or was not attempted.
         let aiFailure: String?
+        /// True when the AI pass examined this document and stopped short,
+        /// rather than never examining it. See LLMPassOutcome.partial.
+        let aiRanPartially: Bool
         /// True when the user stopped the pass. The caller discards the
         /// outcome instead of presenting it as a completed detection.
         let cancelled: Bool
@@ -108,7 +111,7 @@ extension ReviewModel {
         if llm.cancelled {
             return DetectionOutcome(
                 spans: [], learnedApplied: 0, suppressed: 0,
-                aiRan: false, aiFailure: nil, cancelled: true
+                aiRan: false, aiFailure: nil, aiRanPartially: false, cancelled: true
             )
         }
         // The full-document literal rescan sweeps in repeat mentions of every
@@ -150,6 +153,7 @@ extension ReviewModel {
             suppressed: suppressed,
             aiRan: llm.attempted && llm.failure == nil,
             aiFailure: llm.failure,
+            aiRanPartially: llm.partial,
             cancelled: false
         )
     }
@@ -163,6 +167,16 @@ extension ReviewModel {
         let attempted: Bool
         /// User-facing failure text, nil when the pass ran to full coverage.
         let failure: String?
+        /// True when the extractor examined this document and stopped short of
+        /// finishing it, as opposed to never examining any of it.
+        ///
+        /// Both report `attempted == true` and a failure, and both leave
+        /// `aiRan` false, so nothing downstream could tell them apart. They are
+        /// not the same disclosure: a pass that never ran looked for no names
+        /// at all, while a pass that covered part of the document found some
+        /// and not others, and its review list therefore looks finished when
+        /// it is not.
+        let partial: Bool
         /// True when the user stopped the pass mid-run.
         let cancelled: Bool
     }
@@ -184,13 +198,16 @@ extension ReviewModel {
         // deliberately pattern-only redaction from one where the model silently
         // failed to load and names were never looked for.
         guard useLLM else {
-            return LLMPassOutcome(spans: [], attempted: false, failure: nil, cancelled: false)
+            return LLMPassOutcome(
+                spans: [], attempted: false, failure: nil,
+                partial: false, cancelled: false
+            )
         }
         guard let modelPath else {
             return LLMPassOutcome(
                 spans: [], attempted: true,
                 failure: L10n.string("No detection model is installed for the selected detection level, so people's names and company names were not looked for, and an address was matched only in the Chinese street form. Choose a different level in Settings, or add the model file."),
-                cancelled: false
+                partial: false, cancelled: false
             )
         }
         guard FileManager.default.fileExists(atPath: modelPath) else {
@@ -200,7 +217,7 @@ extension ReviewModel {
                     format: L10n.string("The AI model file could not be opened (%@), so names, companies, and addresses were not detected."),
                     (modelPath as NSString).lastPathComponent as NSString
                 ),
-                cancelled: false
+                partial: false, cancelled: false
             )
         }
         do {
@@ -224,6 +241,8 @@ extension ReviewModel {
                         ),
                         Int64(result.incompleteSegmentCount)
                     ),
+                    // The extractor read this document and did not finish it.
+                    partial: true,
                     cancelled: false
                 )
             }
@@ -244,18 +263,29 @@ extension ReviewModel {
                         ),
                         Int64(n)
                     ),
+                    // Read in full, but a reported value anchors nowhere, so
+                    // some names were found and one was not removed.
+                    partial: true,
                     cancelled: false
                 )
             }
-            return LLMPassOutcome(spans: result.spans, attempted: true, failure: nil, cancelled: false)
+            return LLMPassOutcome(
+                spans: result.spans, attempted: true, failure: nil,
+                partial: false, cancelled: false
+            )
         } catch is ExtractionCancelled {
-            return LLMPassOutcome(spans: [], attempted: true, failure: nil, cancelled: true)
+            return LLMPassOutcome(
+                spans: [], attempted: true, failure: nil,
+                partial: false, cancelled: true
+            )
         } catch {
             return LLMPassOutcome(
                 spans: [],
                 attempted: true,
                 failure: L10n.string("AI detection failed to run; this pass was pattern matching only."),
-                cancelled: false
+                // The engine never produced a span list, so nothing was
+                // examined: this is not partial coverage.
+                partial: false, cancelled: false
             )
         }
     }

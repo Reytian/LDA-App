@@ -454,4 +454,36 @@ final class ModelSetupGateTests: XCTestCase {
             "recording an answer must never write a detection level"
         )
     }
+
+    // MARK: - The export gate routes on state, not on prose
+
+    func testTheExportGateReadsAStateFlagRatherThanTheWarningText() throws {
+        // The two cases are not separable from what ReviewModel used to
+        // expose: aiActive is false for a pass that never ran AND for one that
+        // stopped short, and the two warnings differ only by localized prose.
+        // So the truth is carried out of the pass as state. Recovering it by
+        // matching another string's words would work in English and nowhere
+        // else.
+        let detection = try uiSource("ReviewModelDetection.swift")
+        XCTAssertTrue(
+            detection.contains("aiRanPartially: llm.partial"),
+            "the detection pass must report partial coverage as a fact"
+        )
+        let review = try uiSource("ReviewModel.swift")
+        XCTAssertTrue(
+            review.contains("aiRanPartially = outcome.aiRanPartially"),
+            "the window must publish it"
+        )
+        let shell = try uiSource("AppShell.swift")
+        XCTAssertTrue(
+            shell.contains("$0.model.aiRanPartially"),
+            "the shell must pass it into the gate"
+        )
+        let flow = try uiSource("ModelSetupFlow.swift")
+        XCTAssertFalse(
+            flow.contains("aiWarning"),
+            "the dialog must not read the other string's words to choose which "
+                + "sentence to show"
+        )
+    }
 }
