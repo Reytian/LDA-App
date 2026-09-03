@@ -22,7 +22,7 @@
 | Verdict | Go for the wave itself: green, reviewed, and verified live. GUI interaction still needs a human on an unlocked screen, and one pre-existing leak is worth fixing before release |
 | Blockers | None in code |
 | Severity found and fixed | 2 silent PII leaks (docx), 1 high MCP disclosure, 2 medium MCP integrity, 1 sandbox write denial |
-| Open follow-ups | 11, all listed below, none blocking |
+| Open follow-ups | 10, all listed below, none blocking |
 
 ### Independent QA pass
 
@@ -119,7 +119,7 @@ The features this wave added hold up live. Two documents exported together share
 
 ### Two defects found, both pre-existing
 
-**A spaced Chinese date is never detected and ships in clear.** The pattern requires `2026年3月15日` with no spaces, so `2026 年 3 月 15 日` passes straight through into the redacted file. It leaked in all three channels at once: the Word file, the text file, and the machine-facing read. This is asymmetric within the same function, since every English date form a few lines below tolerates whitespace and phone numbers match with spaces, so it reads as an oversight rather than a deliberate precision trade. It matters because converting a PDF to text routinely inserts spaces around Chinese numerals, and this project has already lost entities once to exactly this kind of spacing. The fix is one regex plus a test.
+**A spaced Chinese date was never detected and shipped in clear. Now fixed.** The pattern required `2026年3月15日` with no spaces, so `2026 年 3 月 15 日` passed straight through into the redacted file, leaking in all three channels at once: the Word file, the text file, and the machine-facing read. It was asymmetric within the same function, since every English date form a few lines below tolerates whitespace and phone numbers match with spaces. It matters because converting a PDF to text routinely inserts spaces around Chinese numerals, and this project has already lost entities once to exactly this kind of spacing. Fixed at `a7fcec4`: the gap between the date parts is now the Unicode space separators plus the tab, so it also covers the ideographic space a Chinese editor inserts. Each run is bounded, because an unbounded whitespace quantifier beside another quantifier is the backtracking shape this engine has stalled on before, and newlines are excluded so a date can never span a line break. Four tests pin it, including a backtracking guard, and all three forms verified end to end through the command line tool.
 
 **Coverage is under-reported.** The detect command and the anonymize summary count body text only, while redaction also covers headers, footers and notes. A fixture reported 19 entities and made 22 replacements. It errs in the safe direction, but anyone auditing coverage with detect would wrongly conclude the header names leak.
 
@@ -131,7 +131,6 @@ The features this wave added hold up live. Two documents exported together share
 ## 5. Open follow-ups, none blocking
 
 - Type exclusion is applied before a value is split, so asking to keep dates visible can still lose a date that arrived inside a phone-shaped span. The type is now correct everywhere the user sees it, but the deny-list decision was already made by then. Moving it is a design call because the app path has no exclusion layer at all today.
-- The Chinese date pattern rejects spaced forms, so a spaced date ships in clear. One regex plus a test.
 - The detect command and the anonymize summary count body text only, while redaction covers the whole package.
 - Dual-view detection so a value spanning a tracked change stops producing a chimera.
 - Tracked changes inside headers and footers are not counted, only the body.
