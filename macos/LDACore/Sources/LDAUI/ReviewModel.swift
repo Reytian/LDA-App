@@ -862,10 +862,11 @@ public final class ReviewModel: ObservableObject {
         }.value
 
         // Record the assigned tokens back onto the matching entities so the UI
-        // can render sealed chips after export.
+        // can render sealed chips after export. A value that crossed a newline
+        // or a tab was sealed as several tokens; chipToken shows the first.
         for index in entities.indices {
             entities[index].token = entities[index].accepted
-                ? result.tokenBySurface[entities[index].span.text]
+                ? Self.chipToken(for: entities[index].span.text, in: result.tokenBySurface)
                 : nil
         }
 
