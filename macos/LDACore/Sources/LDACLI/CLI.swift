@@ -85,6 +85,39 @@ public struct DetectedEntityJSON: Codable, Equatable {
     }
 }
 
+/// The JSON object printed by the detect subcommand.
+///
+/// `entities` is the BODY detection: values with offsets into the body text,
+/// which is what a caller that highlights or excludes an entity needs. It
+/// cannot describe a value found in a DOCX header, footer, note, or comment,
+/// because such a value has no body offset. Those are reported as counts, so
+/// `entityCount` is deliberately larger than `entities.count` for a DOCX whose
+/// supplementary parts carry PII. Reporting only the body count is what once
+/// made a reader believe the header names were leaking.
+public struct DetectSummaryJSON: Codable, Equatable {
+    /// Everything a run would replace: body entities plus supplementary sites.
+    public let entityCount: Int
+    /// How many of entityCount sit outside the body. 0 for non-DOCX input.
+    public let supplementaryEntityCount: Int
+    /// Those supplementary sites by entity type. Sums to
+    /// supplementaryEntityCount. Type names and counts only: no surface text,
+    /// no offsets, no part names.
+    public let supplementaryCountsByType: [String: Int]
+    /// The body entities, with their offsets.
+    public let entities: [DetectedEntityJSON]
+
+    public init(summary: DetectionSummary) {
+        self.entityCount = summary.entityCount
+        self.supplementaryEntityCount = summary.supplementaryEntityCount
+        self.supplementaryCountsByType = Dictionary(
+            uniqueKeysWithValues: summary.supplementaryCountsByType.map {
+                ($0.key.rawValue, $0.value)
+            }
+        )
+        self.entities = summary.bodySpans.map(DetectedEntityJSON.init)
+    }
+}
+
 /// The JSON summary printed by the anonymize subcommand.
 public struct AnonymizeSummaryJSON: Codable, Equatable {
     public let redactedFileURL: String
@@ -94,6 +127,9 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// (png / jpg / jpeg). Destructive by design and never restorable; the
     /// redactedFileURL text companion is the restore surface.
     public let redactedImageURL: String?
+    /// Everything replaced: the body spans plus every replacement made in a
+    /// DOCX header, footer, note, or comment. This is the number a clean
+    /// restore of the redacted file puts back.
     public let entityCount: Int
     public let imageRedactionCount: Int
     /// Embedded media files copied into the redacted DOCX without PII scanning
@@ -109,6 +145,11 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// change restores into the live text and flattens the change. Absent in
     /// older summaries, so it decodes as 0 when missing.
     public let trackedChangeCount: Int
+    /// How many of entityCount were replaced OUTSIDE the body, in the DOCX
+    /// text-bearing parts (headers, footers, footnotes, endnotes, comments).
+    /// Always 0 for non-DOCX input. Subtract it from entityCount for the body
+    /// half. Absent in older summaries, so it decodes as 0 when missing.
+    public let supplementaryEntityCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -120,6 +161,7 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.embeddedMediaCount = result.embeddedMediaCount
         self.unboxedTokenCount = result.unboxedTokenCount
         self.trackedChangeCount = result.trackedChangeCount
+        self.supplementaryEntityCount = result.supplementaryEntityCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -133,6 +175,10 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         embeddedMediaCount = try container.decode(Int.self, forKey: .embeddedMediaCount)
         unboxedTokenCount = try container.decode(Int.self, forKey: .unboxedTokenCount)
         trackedChangeCount = try container.decodeIfPresent(Int.self, forKey: .trackedChangeCount) ?? 0
+        supplementaryEntityCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .supplementaryEntityCount
+        ) ?? 0
     }
 }
 
@@ -290,9 +336,21 @@ public enum LDACLI {
     private static let redactedSuffix = "_redacted"
 
     /// Detect core: validate the input exists and run LDAService.detect.
+    /// Body spans only; runDetectSummary is what the subcommand prints,
+    /// because a body span list cannot describe header and footer coverage.
     public static func runDetect(input: URL, llmModelPath: String? = nil) throws -> [Span] {
         try requireExists(input)
         return try LDAService.detect(input: input, llmModelPath: llmModelPath)
+    }
+
+    /// Detect core with coverage: the body spans plus what a run would redact
+    /// in the DOCX parts outside the body.
+    public static func runDetectSummary(
+        input: URL,
+        llmModelPath: String? = nil
+    ) throws -> DetectionSummary {
+        try requireExists(input)
+        return try LDAService.detectSummary(input: input, llmModelPath: llmModelPath)
     }
 
     // MARK: Helper internals
@@ -484,7 +542,11 @@ struct Restore: ParsableCommand {
 /// detect subcommand.
 struct Detect: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Detect entities in a document without writing anything."
+        abstract: "Detect entities in a document without writing anything.",
+        discussion: "Prints entityCount (everything a run would redact), "
+            + "supplementaryEntityCount (the part of it in DOCX headers, footers, "
+            + "notes, and comments, which have no body offsets), and the body "
+            + "entities with their offsets."
     )
 
     @Option(name: .long, help: "Path to the source document.")
@@ -495,9 +557,11 @@ struct Detect: ParsableCommand {
 
     func run() throws {
         do {
-            let spans = try LDACLI.runDetect(input: URL(fileURLWithPath: input), llmModelPath: model)
-            let entities = spans.map(DetectedEntityJSON.init)
-            print(try CLIJSON.encode(entities))
+            let summary = try LDACLI.runDetectSummary(
+                input: URL(fileURLWithPath: input),
+                llmModelPath: model
+            )
+            print(try CLIJSON.encode(DetectSummaryJSON(summary: summary)))
         } catch {
             throw CLIRuntimeError(error)
         }

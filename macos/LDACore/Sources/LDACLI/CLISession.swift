@@ -27,6 +27,13 @@ public struct SessionSummaryJSON: Codable, Equatable {
 
     public let documents: [DocumentJSON]
     public let mappingFile: String
+    /// Every value tokenized across the session.
+    ///
+    /// No supplementary half here, unlike the single-document anonymize
+    /// summary: session mode writes a redacted MARKDOWN intermediate of each
+    /// document's body, so a DOCX header, footer, note, or comment is never
+    /// carried into the output and never redacted. These counts already
+    /// describe the whole artifact.
     public let totalEntityCount: Int
     /// Sites that would restore to the WRONG entity, one readable line each.
     ///
