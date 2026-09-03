@@ -5,9 +5,11 @@
 //  Guesses the entity kind of a text selection so the Protect chooser can
 //  preselect it. Evaluation order, first hit wins:
 //
-//  1. The deterministic engine, with the same rules the scan uses. A span
-//     counts only when it covers at least 90 percent of the trimmed selection,
-//     so an ID buried in a longer drag does not name the whole selection.
+//  1. The deterministic engine, with the same rules the scan uses, through
+//     DominantEntityType: a detection counts only when it covers at least 90
+//     percent of the trimmed selection, so an ID buried in a longer drag does
+//     not name the whole selection. SpanSplitter names the parts of a split
+//     span with the same rule.
 //  2. Cheap word-shape fallbacks: an at sign says EMAIL; a scheme, "www." or a
 //     TLD-like suffix says URL; a corporate marker (Chinese or a Latin suffix
 //     such as Ltd or GmbH) says COMPANY; two or more address markers (Chinese
@@ -27,32 +29,16 @@ import LDACore
 
 enum ManualTypeGuess {
 
-    /// The share of the selection a deterministic span must cover to name it.
-    static let coverageFloor: Double = 0.9
-
     /// The kind to preselect for a selection. Never fails: PERSON is the floor.
     static func guess(for selection: String) -> EntityType {
         let value = selection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return .person }
-        if let structured = structuredType(of: value) { return structured }
+        if let structured = DominantEntityType.of(value) { return structured }
         if value.contains("@") { return .email }
         if looksLikeURL(value) { return .url }
         if looksLikeCompany(value) { return .company }
         if looksLikeAddress(value) { return .address }
         return .person
-    }
-
-    // MARK: - Deterministic engine
-
-    private static func structuredType(of value: String) -> EntityType? {
-        let spans = DeterministicEngine().detect(value)
-        guard let widest = spans.max(by: { ($0.end - $0.start) < ($1.end - $1.start) }) else {
-            return nil
-        }
-        let total = (value as NSString).length
-        guard total > 0 else { return nil }
-        let coverage = Double(widest.end - widest.start) / Double(total)
-        return coverage >= coverageFloor ? widest.type : nil
     }
 
     // MARK: - Shape fallbacks
