@@ -858,3 +858,10 @@
 /* Coverage reporting: replacements outside the DOCX body (2026-09-03). */
 "Includes %lld value in headers, footers, or notes, always protected and not listed above." = "Includes %lld value in headers, footers, or notes, always protected and not listed above.";
 "Includes %lld values in headers, footers, or notes, always protected and not listed above." = "Includes %lld values in headers, footers, or notes, always protected and not listed above.";
+
+/* Verified offline model import (2026-09-03). */
+"That file is %@, which is not the size of any model LDA publishes. If you downloaded it in two parts, join both parts first and add the joined file." = "That file is %@, which is not the size of any model LDA publishes. If you downloaded it in two parts, join both parts first and add the joined file.";
+"That file is not one of LDA's published models, so it was not installed. Its checksum does not match any model in this version's catalog. If you downloaded it in parts, check that both parts finished downloading and that they were joined in the right order." = "That file is not one of LDA's published models, so it was not installed. Its checksum does not match any model in this version's catalog. If you downloaded it in parts, check that both parts finished downloading and that they were joined in the right order.";
+"Could not read that file (%@). It was not installed." = "Could not read that file (%@). It was not installed.";
+"Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "Choose the joined model file (.gguf). If you downloaded it in two parts, join them first.";
+"Add Model" = "Add Model";

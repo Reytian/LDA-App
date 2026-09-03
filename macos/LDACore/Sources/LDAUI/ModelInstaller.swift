@@ -266,7 +266,8 @@ public final class ModelInstaller: NSObject, ObservableObject {
         // Precheck space before starting a multi-gigabyte transfer. Require the
         // file plus headroom, because the download lands in a temporary file
         // and is then moved into place.
-        if let free = freeSpaceBytes(), free < tier.sizeBytes + 1_000_000_000 {
+        if let free = ModelCatalog.freeSpaceBytes(),
+           free < tier.sizeBytes + 1_000_000_000 {
             phases[tier.id] = .failed(
                 .insufficientDisk(neededBytes: tier.sizeBytes + 1_000_000_000, freeBytes: free)
             )
@@ -356,13 +357,6 @@ public final class ModelInstaller: NSObject, ObservableObject {
     }
 
     // MARK: Helpers
-
-    private func freeSpaceBytes() -> Int64? {
-        guard let root = ModelCatalog.modelsRoot() else { return nil }
-        let probe = root.deletingLastPathComponent()
-        let values = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage
-    }
 
     /// Move a completed download into place, verifying size and digest.
     ///

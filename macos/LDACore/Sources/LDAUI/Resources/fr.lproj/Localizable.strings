@@ -858,3 +858,10 @@
 /* Coverage reporting: replacements outside the DOCX body (2026-09-03). */
 "Includes %lld value in headers, footers, or notes, always protected and not listed above." = "Inclut %lld valeur dans les en-tetes, pieds de page ou notes, toujours protegee et non listee ci-dessus.";
 "Includes %lld values in headers, footers, or notes, always protected and not listed above." = "Inclut %lld valeurs dans les en-tetes, pieds de page ou notes, toujours protegees et non listees ci-dessus.";
+
+/* Verified offline model import (2026-09-03). */
+"That file is %@, which is not the size of any model LDA publishes. If you downloaded it in two parts, join both parts first and add the joined file." = "Ce fichier fait %@, ce qui ne correspond à la taille d'aucun modèle publié par LDA. Si vous l'avez téléchargé en deux parties, réunissez d'abord les deux parties, puis ajoutez le fichier assemblé.";
+"That file is not one of LDA's published models, so it was not installed. Its checksum does not match any model in this version's catalog. If you downloaded it in parts, check that both parts finished downloading and that they were joined in the right order." = "Ce fichier n'est pas un des modèles publiés par LDA, il n'a donc pas été installé. Sa somme de contrôle ne correspond à aucun modèle du catalogue de cette version. Si vous l'avez téléchargé en parties, vérifiez que les deux parties sont complètes et qu'elles ont été réunies dans le bon ordre.";
+"Could not read that file (%@). It was not installed." = "Impossible de lire ce fichier (%@). Il n'a pas été installé.";
+"Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "Choisissez le fichier de modèle assemblé (.gguf). Si vous l'avez téléchargé en deux parties, réunissez-les d'abord.";
+"Add Model" = "Ajouter le modèle";

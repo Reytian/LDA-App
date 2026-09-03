@@ -12,9 +12,12 @@
 //  UserDefaults key is left in place unread for one release so a downgrade does
 //  not lose the user's choice.
 //
-//  Only the Quick model ships inside the app. Balanced and Most thorough are
-//  downloaded into the app container through Manage Models. A tier with no
-//  file resolves to nil and that state is reported, never silently degraded.
+//  No model ships inside the app. Every tier is either downloaded into the app
+//  container through Manage Models or added there by the verified offline
+//  import. A build made with BUNDLE_MODEL=1 carries Quick as a deliberate
+//  single-file deploy, which is why the bundled lookup survives as a last
+//  resort. A tier with no file resolves to nil and that state is reported,
+//  never silently degraded.
 //
 //  Sandbox note: a custom model chosen through an open panel is reachable for
 //  that launch only. Persisting the plain path is not enough, because the
@@ -213,6 +216,15 @@ public enum AISettings {
     // MARK: Level
 
     /// The selected rung, after migrating a legacy `detectionMode` when needed.
+    ///
+    /// The default is `.quick` even on an install that has no model file, and
+    /// that is deliberate. Defaulting to `.patternsOnly` instead would set
+    /// `usesLLM == false`, which makes `ReviewModel.llmSpans` report
+    /// `attempted: false` with no failure, and that state is reserved for "the
+    /// user did not ask for an AI pass". Auto-demoting would convert a reported
+    /// failure into a silent one, which in a redaction tool is the worst
+    /// outcome available. So the default is a rung that cannot run until a
+    /// model is added, and `isModelMissing()` stays true so the app says so.
     public static func detectionLevel(
         defaults: UserDefaults = .standard,
         catalog: ModelCatalog = .load()
@@ -300,8 +312,8 @@ public enum AISettings {
     /// Whether to show the one-time offer to stop using the retired lda-v2
     /// fine tune.
     ///
-    /// Only fires for a user who EXPLICITLY chose an lda-v2 file. Someone on
-    /// the bundled default simply receives the new model on update, with no
+    /// Only fires for a user who EXPLICITLY chose an lda-v2 file. Someone on a
+    /// catalog tier simply receives the new model when they install it, with no
     /// decision to make. An explicit choice is never silently overridden.
     public static func shouldOfferLdaV2Switch(defaults: UserDefaults = .standard) -> Bool {
         guard !defaults.bool(forKey: ldaV2NoticeDismissedKey) else { return false }
@@ -394,8 +406,8 @@ public enum AISettings {
 
     /// The model path detection should use for the selected rung.
     ///
-    /// Quick ships inside the app; Balanced and Most thorough are downloaded
-    /// into the app container. A tier with neither resolves to nil, and the
+    /// Every tier is downloaded into the app container or added there by the
+    /// verified offline import. A tier with no file resolves to nil, and the
     /// caller reports that rather than substituting a different model.
     ///
     /// Resolution order:
@@ -403,8 +415,9 @@ public enum AISettings {
     ///   2. A custom model, when one is set and readable, wins over every tier.
     ///      That is the escape hatch for a firm's own fine tune.
     ///   3. The tier's file in the app container, when downloaded.
-    ///   4. The tier's file inside the app bundle. Only Quick ships this way,
-    ///      so an offline user always has one working model.
+    ///   4. The tier's file inside the app bundle. Only a BUNDLE_MODEL=1 build
+    ///      ships one that way, so this is a last resort and not a guarantee
+    ///      that any model is present.
     ///   5. Otherwise nil, which the caller MUST report as a requested-but-
     ///      unavailable AI pass rather than silently running patterns only.
     ///
@@ -444,6 +457,27 @@ public enum AISettings {
         return resolveModelPath(
             defaults: defaults, catalog: catalog, fileManager: fileManager
         ) == nil
+    }
+
+    /// Whether ANY model is present on this Mac: a tier installed in the app
+    /// container, a tier inside the app bundle, or a resolvable custom model.
+    ///
+    /// A different question from `isModelMissing()`, and the two must not be
+    /// conflated. `isModelMissing()` is about the SELECTED rung and is false for
+    /// a deliberate patterns-only user, who has made a legitimate choice and
+    /// must not be nagged mid-workflow. This is about the MACHINE, and it stays
+    /// false for that same patterns-only user when they have no file at all,
+    /// which is exactly who first-run setup needs to reach.
+    public static func hasAnyModelAvailable(
+        catalog: ModelCatalog = .load(),
+        fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if customModelPath(defaults: defaults) != nil { return true }
+        return catalog.tiers.contains {
+            ModelCatalog.isInstalled($0, fileManager: fileManager)
+                || ModelCatalog.isBundled($0)
+        }
     }
 
     /// Apply the current settings to the Fill window's model.

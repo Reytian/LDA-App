@@ -78,12 +78,33 @@ public struct RootShell: View {
 
     @ObservedObject private var modeStore: AppModeStore
 
+    // MARK: - Model plumbing
+
+    /// The model downloader and the verified offline importer, both owned by
+    /// LDAApp so a multi-gigabyte transfer outlives any sheet that started it.
+    ///
+    /// Threaded explicitly rather than through @EnvironmentObject, and with NO
+    /// default value, because an environment object is a runtime crash waiting
+    /// for a call site that forgets to inject it, and a default would let a
+    /// call site silently pick up a second installer that shares no state with
+    /// the running download.
+    @ObservedObject private var installer: ModelInstaller
+    @ObservedObject private var importer: ModelImporter
+
     // MARK: - Init
 
-    public init(session: SessionModel, fillModel: FillModel, modeStore: AppModeStore) {
+    public init(
+        session: SessionModel,
+        fillModel: FillModel,
+        modeStore: AppModeStore,
+        installer: ModelInstaller,
+        importer: ModelImporter
+    ) {
         self.session = session
         self.fillModel = fillModel
         self.modeStore = modeStore
+        self.installer = installer
+        self.importer = importer
     }
 
     // MARK: - Body
@@ -108,6 +129,8 @@ public struct RootShell: View {
             // leave text fields able to receive keyboard events.
             AppShell(
                 session: session,
+                installer: installer,
+                importer: importer,
                 isActive: modeStore.activeMode == .anonymize,
                 onOpenRestore: { modeStore.activeMode = .deanonymize },
                 onOpenMatters: { modeStore.activeMode = .matters }

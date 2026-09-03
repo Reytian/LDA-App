@@ -11,7 +11,8 @@
     "architecture": "qwen35",
     "blockCount": 32,
     "embeddingLength": 2560,
-    "sourceURL": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+    "sourceURL": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf",
+    "offlineSourceURL": "https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b"
   },
   {
     "id": "balanced",
@@ -25,7 +26,8 @@
     "architecture": "gemma4",
     "blockCount": 48,
     "embeddingLength": 3840,
-    "sourceURL": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf"
+    "sourceURL": "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf",
+    "offlineSourceURL": null
   },
   {
     "id": "most-thorough",
@@ -39,6 +41,7 @@
     "architecture": "qwen35",
     "blockCount": 65,
     "embeddingLength": 5120,
-    "sourceURL": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q3_K_XL.gguf"
+    "sourceURL": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q3_K_XL.gguf",
+    "offlineSourceURL": null
   }
 ]

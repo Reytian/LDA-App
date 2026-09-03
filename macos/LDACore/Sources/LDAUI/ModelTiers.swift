@@ -39,7 +39,7 @@ import SwiftUI
 public enum DetectionLevel: String, CaseIterable, Sendable {
     /// Patterns only. No model runs at all.
     case patternsOnly
-    /// Qwen3.5-4B. Bundled with the app.
+    /// Qwen3.5-4B. The smallest download.
     case quick
     /// gemma-4-12b-it. User installed.
     case balanced
@@ -129,6 +129,47 @@ public struct ModelTier: Codable, Equatable, Sendable {
     /// text so a user who prefers to fetch it themselves can. This is the ONLY
     /// host the app ever contacts.
     public let sourceURL: String
+    /// A page carrying the same file for the OFFLINE path, where the user
+    /// fetches it on another machine and adds the file by hand.
+    ///
+    /// Optional so an older manifest with no such key still decodes. It is
+    /// shown as copyable text and is NEVER handed to ModelInstaller: the
+    /// download host allowlist does not know about it and must not have to.
+    /// nil means this tier has no offline mirror.
+    public let offlineSourceURL: String?
+
+    /// Spelled out rather than left to the synthesized memberwise init so
+    /// `offlineSourceURL` can default to nil and existing call sites are
+    /// unchanged.
+    public init(
+        id: String,
+        level: String,
+        displayName: String,
+        fileName: String,
+        sizeBytes: Int64,
+        sha256: String,
+        peakRSSGB: Double,
+        secondsPerDocument: Int,
+        architecture: String,
+        blockCount: Int,
+        embeddingLength: Int,
+        sourceURL: String,
+        offlineSourceURL: String? = nil
+    ) {
+        self.id = id
+        self.level = level
+        self.displayName = displayName
+        self.fileName = fileName
+        self.sizeBytes = sizeBytes
+        self.sha256 = sha256
+        self.peakRSSGB = peakRSSGB
+        self.secondsPerDocument = secondsPerDocument
+        self.architecture = architecture
+        self.blockCount = blockCount
+        self.embeddingLength = embeddingLength
+        self.sourceURL = sourceURL
+        self.offlineSourceURL = offlineSourceURL
+    }
 
     public var detectionLevel: DetectionLevel? { DetectionLevel(rawValue: level) }
 
@@ -217,6 +258,40 @@ public struct ModelCatalog: Sendable {
         tiers.first { $0.id == id }
     }
 
+    // MARK: Identifying a file the user supplied
+
+    /// The tier whose published digest is exactly `digest`, or nil.
+    ///
+    /// This is what decides which tier an imported file becomes. The bytes
+    /// decide, not the file name: a file legitimately called
+    /// `Qwen3.5-4B-Q4_K_M.gguf` from a different quantisation run is a
+    /// different model, and installing it as Quick would attach that tier's
+    /// measured memory ceiling and timing to something they do not describe.
+    ///
+    /// Case insensitive because hex digests are written both ways. A tier with
+    /// an EMPTY sha256 can never be matched: an unpublished digest means the
+    /// file cannot be verified, and matching it would install an unverified
+    /// file under a named tier.
+    public func tier(matchingSha256 digest: String) -> ModelTier? {
+        guard !digest.isEmpty else { return nil }
+        return tiers.first {
+            !$0.sha256.isEmpty && $0.sha256.caseInsensitiveCompare(digest) == .orderedSame
+        }
+    }
+
+    /// Every tier published at exactly `bytes`.
+    ///
+    /// The cheap prefilter in front of the digest: a file that is not the size
+    /// of any model is refused in microseconds rather than after hashing
+    /// gigabytes, and the refusal can name the likely cause.
+    ///
+    /// Named `tiersMatching(size:)` rather than `tiers(matchingSize:)` because
+    /// `tiers` is already a stored property on this type and Swift cannot carry
+    /// both under one name.
+    public func tiersMatching(size bytes: Int64) -> [ModelTier] {
+        tiers.filter { $0.sizeBytes == bytes }
+    }
+
     // MARK: Installed model locations
 
     /// Root of the app-owned model store:
@@ -249,10 +324,14 @@ public struct ModelCatalog: Sendable {
 
     /// The tier's file inside the app bundle, when it ships there.
     ///
-    /// Only Quick is bundled: it is the one tier that runs on the 16 GB minimum
-    /// spec, so bundling it means an offline user always has a model that works
-    /// on their machine. A bundled file cannot be deleted by the user, which
-    /// Model Management must reflect.
+    /// No model ships inside the app by default. A build made with
+    /// `BUNDLE_MODEL=1` carries Quick, which is the one tier that runs on the
+    /// 16 GB minimum spec, and that build is a deliberate single-file deploy
+    /// rather than the shipping configuration. So this is an optional last
+    /// resort, not a guarantee that some model is always present: a model-less
+    /// install has to download one or add one through the verified import.
+    /// A bundled file cannot be deleted by the user, which Model Management
+    /// must reflect when it is there.
     public static func bundledPath(for tier: ModelTier) -> String? {
         let stem = (tier.fileName as NSString).deletingPathExtension
         return Bundle.main.path(forResource: stem, ofType: "gguf")
@@ -279,6 +358,23 @@ public struct ModelCatalog: Sendable {
             return nil
         }
         return url
+    }
+
+    /// Free space on the volume holding the model store, in bytes.
+    ///
+    /// Hoisted here from ModelInstaller so the download and the offline import
+    /// ask the same question and agree about how much room they need. Both
+    /// require the file plus 1 GB of headroom, because both land in a temporary
+    /// file before being moved into place.
+    public static func freeSpaceBytes(
+        fileManager: FileManager = .default
+    ) -> Int64? {
+        guard let root = modelsRoot(fileManager: fileManager) else { return nil }
+        let probe = root.deletingLastPathComponent()
+        let values = try? probe.resourceValues(
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+        )
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     /// Whether the tier's file is present and the expected size. Size is the

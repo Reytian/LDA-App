@@ -22,6 +22,8 @@ public struct SettingsView: View {
     @ObservedObject private var learning: LearningStore
     /// Owned by the app so a model download outlives this window.
     @ObservedObject private var installer: ModelInstaller
+    /// Owned by the app so a model import outlives this window.
+    @ObservedObject private var importer: ModelImporter
     /// True while a scan is running, which gates model removal.
     private let isScanning: Bool
 
@@ -29,11 +31,13 @@ public struct SettingsView: View {
         patterns: CustomPatternStore,
         learning: LearningStore,
         installer: ModelInstaller,
+        importer: ModelImporter,
         isScanning: Bool
     ) {
         self.patterns = patterns
         self.learning = learning
         self.installer = installer
+        self.importer = importer
         self.isScanning = isScanning
     }
 
@@ -41,7 +45,7 @@ public struct SettingsView: View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
-            AITab(installer: installer, isScanning: isScanning)
+            AITab(installer: installer, importer: importer, isScanning: isScanning)
                 .tabItem { Label("AI", systemImage: "cpu") }
             VocabularyTab(store: patterns)
                 .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
@@ -186,6 +190,8 @@ private struct HistoryTab: View {
 private struct AITab: View {
     /// App-owned, so a download survives closing this window.
     @ObservedObject var installer: ModelInstaller
+    /// App-owned, so an import survives closing this window.
+    @ObservedObject var importer: ModelImporter
     /// True while a scan is running. Removing a model mid-scan would report
     /// disk reclaimed that llama.cpp still has mmapped.
     let isScanning: Bool
@@ -289,7 +295,9 @@ private struct AITab: View {
         .sheet(isPresented: $showManageModels) {
             // Both arguments are required by design: a default would let a call
             // site silently reintroduce the dead-parameter bug this replaced.
-            ModelManagementView(installer: installer, isBusyElsewhere: isScanning)
+            ModelManagementView(
+                installer: installer, importer: importer, isBusyElsewhere: isScanning
+            )
         }
     }
 
@@ -300,9 +308,10 @@ private struct AITab: View {
         let tier = catalog.tier(for: rung)
         let availability = tier.map { MemoryGate.availability(for: $0, installedGB: installedGB) }
         // A tier is available when its file is in the container OR inside the
-        // app bundle. Quick ships bundled, so checking the container alone marks
-        // it "Not installed" on a packaged build and refuses to select it, which
-        // would leave a fresh install unable to use the one model it has.
+        // app bundle. No model ships inside the app by default, so the container
+        // is the usual answer; the bundled check stays because a BUNDLE_MODEL=1
+        // single-file build resolves only that way, and marking its one model
+        // "Not installed" would leave that build unable to use it.
         let installed = tier.map {
             ModelCatalog.isInstalled($0) || ModelCatalog.isBundled($0)
         } ?? false
@@ -389,7 +398,7 @@ private struct AITab: View {
             Text("Your chosen model leaves some names in the document")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed.")
+            Text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

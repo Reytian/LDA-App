@@ -30,6 +30,11 @@ public struct AppShell: View {
     /// The active document's review model (the session forwards its changes).
     private var model: ReviewModel { session.activeModel }
 
+    /// The model downloader and the verified offline importer, both owned by
+    /// LDAApp. Required parameters with no default: see RootShell.
+    @ObservedObject private var installer: ModelInstaller
+    @ObservedObject private var importer: ModelImporter
+
     /// Whether this shell is the frontmost mode. Gates the toolbar: RootShell
     /// keeps every mode's view alive in a ZStack, and SwiftUI merges toolbar
     /// items from all live layers, so an inactive shell must contribute none.
@@ -98,11 +103,15 @@ public struct AppShell: View {
 
     public init(
         session: SessionModel,
+        installer: ModelInstaller,
+        importer: ModelImporter,
         isActive: Bool = true,
         onOpenRestore: @escaping () -> Void = {},
         onOpenMatters: @escaping () -> Void = {}
     ) {
         self.session = session
+        self.installer = installer
+        self.importer = importer
         self.isActive = isActive
         self.onOpenRestore = onOpenRestore
         self.onOpenMatters = onOpenMatters

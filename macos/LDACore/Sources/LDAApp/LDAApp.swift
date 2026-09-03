@@ -60,6 +60,10 @@ struct LDAApp: App {
     /// App-level so an in-flight model download survives closing Settings.
     @StateObject private var modelInstaller = ModelInstaller()
 
+    /// The verified offline import. App-owned for the same reason as the
+    /// installer: a multi-gigabyte copy must survive closing the sheet.
+    @StateObject private var modelImporter = ModelImporter()
+
     @StateObject private var modeStore = AppModeStore()
 
     /// The persisted custom vocabulary, shared by the window and Settings.
@@ -120,7 +124,13 @@ struct LDAApp: App {
 
     var body: some Scene {
         Window("LDA", id: LDAWindowID.main) {
-            RootShell(session: sessionModel, fillModel: fillModel, modeStore: modeStore)
+            RootShell(
+                session: sessionModel,
+                fillModel: fillModel,
+                modeStore: modeStore,
+                installer: modelInstaller,
+                importer: modelImporter
+            )
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
@@ -317,6 +327,7 @@ struct LDAApp: App {
                 patterns: patternStore,
                 learning: learningStore,
                 installer: modelInstaller,
+                importer: modelImporter,
                 // Any open document mid-scan gates model removal: llama.cpp
                 // still has the file mmapped, so the disk would not
                 // actually come back and the app would report otherwise.
@@ -336,7 +347,9 @@ struct LDAApp: App {
     }
 
     // The initial model path is whatever the current detection level resolves
-    // to: the container copy, then the bundled Quick model, then nil. See
+    // to: a custom model, then the container copy, then a bundled model when
+    // one was packaged in, then nil. A fresh install has none of those until
+    // the user downloads or imports one. See
     // docs/design/model-tiers-prd.md section 6 and model-management-prd.md.
 
     /// Choose a .ldawork file and hand it to the review shell, which owns the

@@ -858,3 +858,10 @@
 /* Coverage reporting: replacements outside the DOCX body (2026-09-03). */
 "Includes %lld value in headers, footers, or notes, always protected and not listed above." = "其中 %lld 项位于页眉、页脚或注释中，始终受保护，未列在上方。";
 "Includes %lld values in headers, footers, or notes, always protected and not listed above." = "其中 %lld 项位于页眉、页脚或注释中，始终受保护，未列在上方。";
+
+/* Verified offline model import (2026-09-03). */
+"That file is %@, which is not the size of any model LDA publishes. If you downloaded it in two parts, join both parts first and add the joined file." = "该文件大小为 %@，与 LDA 发布的任何模型都不一致。如果你分两部分下载，请先合并两个部分，再添加合并后的文件。";
+"That file is not one of LDA's published models, so it was not installed. Its checksum does not match any model in this version's catalog. If you downloaded it in parts, check that both parts finished downloading and that they were joined in the right order." = "该文件不是 LDA 发布的模型，因此没有安装。它的校验和与本版本目录中的任何模型都不匹配。如果你分部分下载，请检查两个部分是否都已下载完成，以及合并顺序是否正确。";
+"Could not read that file (%@). It was not installed." = "无法读取该文件（%@）。未安装。";
+"Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "请选择合并后的模型文件（.gguf）。如果你分两部分下载，请先合并。";
+"Add Model" = "添加模型";

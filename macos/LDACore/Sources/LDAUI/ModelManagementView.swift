@@ -134,6 +134,9 @@ public struct ModelManagementView: View {
     // to completion invisibly) and reopening showed Download again, starting a
     // second copy of the same multi-gigabyte file.
     @ObservedObject var installer: ModelInstaller
+    /// Injected for the same reason as the installer: a 2.6 GB copy must
+    /// survive the user closing this sheet.
+    @ObservedObject var importer: ModelImporter
     @AppStorage(AISettings.detectionLevelKey) private var levelRaw = DetectionLevel.quick.rawValue
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
 
@@ -146,8 +149,13 @@ public struct ModelManagementView: View {
     private let catalog = ModelCatalog.load()
     private let installedGB = MemoryGate.installedGB()
 
-    public init(installer: ModelInstaller, isBusyElsewhere: Bool) {
+    public init(
+        installer: ModelInstaller,
+        importer: ModelImporter,
+        isBusyElsewhere: Bool
+    ) {
         self.installer = installer
+        self.importer = importer
         self.isBusyElsewhere = isBusyElsewhere
     }
 
