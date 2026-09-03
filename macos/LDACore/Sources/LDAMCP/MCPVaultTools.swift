@@ -333,11 +333,8 @@ extension MCPServer {
                 mappingAccountBase: slot.handle,
                 excludedEntityCount: stagedResult.excludedEntityCount
             )
-            return [
+            var response: [String: Any] = [
                 "redactedHandle": committed.handle,
-                "entityCount": stagedResult.entityCount,
-                "entityTypes": entityTypeStrings(stagedResult.entities),
-                "perTypeCounts": MCPServer.perTypeCounts(stagedResult.entities),
                 "imageRedactionCount": stagedResult.imageRedactionCount,
                 "embeddedMediaCount": stagedResult.embeddedMediaCount,
                 "unboxedTokenCount": stagedResult.unboxedTokenCount,
@@ -353,6 +350,18 @@ extension MCPServer {
                 "excludedValueCount": stagedResult.excludedValueCount,
                 "detectionChanged": verdict.detectionChanged
             ]
+            // entityCount, entityTypes, perTypeCounts, and the supplementary
+            // split: a DOCX is redacted in its headers, footers, notes, and
+            // comments too, and reporting the body alone once made a reader
+            // believe those values had leaked.
+            response.merge(
+                MCPServer.coverageFields(
+                    bodySpans: stagedResult.entities,
+                    supplementaryCountsByType: stagedResult.supplementaryCountsByType
+                ),
+                uniquingKeysWith: { current, _ in current }
+            )
+            return response
         } catch {
             vault.abort(slot: slot)
             throw error
@@ -401,6 +410,9 @@ extension MCPServer {
     // MARK: detect_entities
 
     /// detect_entities: types, counts, offsets, and ids only, never span text.
+    /// The entity LIST is the body; the supplementary counts cover the DOCX
+    /// parts that have no body offsets, so entityCount exceeds entities.count
+    /// whenever a header, footer, note, or comment carries PII.
     /// Everything a tool returns enters the model context of whatever agent
     /// host launched this server, so returning the detected surface text
     /// would upload the exact bytes this product exists to keep local. The
@@ -410,10 +422,15 @@ extension MCPServer {
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
         let modelPath = try allowedModelPath(arguments, key: "modelPath")
-        let spans = try openVault().withPlaintextFileURL(handle: handle) { url in
-            try LDAService.detect(input: url, llmModelPath: modelPath)
+        let summary = try openVault().withPlaintextFileURL(handle: handle) { url in
+            try LDAService.detectSummary(input: url, llmModelPath: modelPath)
         }
+        let spans = summary.bodySpans
 
+        // Ids and offsets are BODY only. A value found in a header has no
+        // offset into the body text, and its own part offset would collide
+        // with a body offset, so the supplementary half is reported as counts
+        // and stays non-excludable, exactly as excludeEntityIds describes.
         let ids = spans.map { MCPDetectionIdentity.entityId(for: $0, handle: handle) }
         let entities: [[String: Any]] = zip(spans, ids).map { span, id in
             [
@@ -423,16 +440,22 @@ extension MCPServer {
                 "end": span.end
             ]
         }
-        return [
+        var response: [String: Any] = [
             "detectionId": MCPDetectionIdentity.detectionId(
                 handle: handle,
                 modelPathPresent: modelPath != nil,
                 ids: ids
             ),
-            "entityCount": spans.count,
-            "entityTypes": entityTypeStrings(spans),
             "entities": entities
         ]
+        response.merge(
+            MCPServer.coverageFields(
+                bodySpans: spans,
+                supplementaryCountsByType: summary.supplementaryCountsByType
+            ),
+            uniquingKeysWith: { current, _ in current }
+        )
+        return response
     }
 
     // MARK: export
@@ -491,6 +514,47 @@ extension MCPServer {
             counts[span.type.rawValue, default: 0] += 1
         }
         return counts
+    }
+
+    /// The coverage fields every anonymize and detect response carries, built
+    /// once so the tools cannot drift apart.
+    ///
+    /// entityCount, entityTypes, and perTypeCounts describe EVERYTHING that
+    /// was or would be replaced, body and supplementary parts alike, so a
+    /// caller reading any one of them reads the same population. The two
+    /// supplementary fields isolate the half that has no offsets: values found
+    /// in DOCX headers, footers, footnotes, endnotes, or comments.
+    ///
+    /// Boundary: supplementary information leaves as TYPE NAMES AND INTEGER
+    /// COUNTS ONLY. No surface text, no offsets, no part names, no filenames,
+    /// no paths, and no ids, because a supplementary entity is not excludable
+    /// (excludeEntityIds is body-only by construction) and an id that cannot
+    /// be used would be disclosure without a purpose.
+    static func coverageFields(
+        bodySpans: [Span],
+        supplementaryCountsByType: [EntityType: Int]
+    ) -> [String: Any] {
+        let supplementary = Dictionary(
+            uniqueKeysWithValues: supplementaryCountsByType.map { ($0.key.rawValue, $0.value) }
+        )
+        let supplementaryCount = supplementary.values.reduce(0, +)
+        var perType = perTypeCounts(bodySpans)
+        for (type, count) in supplementary {
+            perType[type, default: 0] += count
+        }
+        var types: [String] = []
+        var seen = Set<String>()
+        for raw in bodySpans.map({ $0.type.rawValue }) + supplementary.keys.sorted()
+        where seen.insert(raw).inserted {
+            types.append(raw)
+        }
+        return [
+            "entityCount": bodySpans.count + supplementaryCount,
+            "entityTypes": types,
+            "perTypeCounts": perType,
+            "supplementaryEntityCount": supplementaryCount,
+            "supplementaryPerTypeCounts": supplementary
+        ]
     }
 
     // MARK: Boundary-safe error rendering

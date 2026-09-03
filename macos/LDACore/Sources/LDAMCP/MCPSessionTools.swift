@@ -177,6 +177,13 @@ extension MCPServer {
                 "totalEntityCount": allSpans.count,
                 "entityTypes": entityTypeStrings(allSpans),
                 "perTypeCounts": MCPServer.perTypeCounts(allSpans),
+                // Always 0, and stated rather than omitted so an agent
+                // comparing this tool with anonymize is not left guessing:
+                // session mode hands over redacted MARKDOWN of each body, so
+                // a DOCX header, footer, note, or comment never reaches the
+                // output and is never redacted here. The counts above already
+                // describe the whole artifact.
+                "supplementaryEntityCount": 0,
                 // How many detected OCCURRENCES excludeTypes left visible
                 // across the whole session. An excluded type is visible in
                 // every document and every part, so this is the blast radius.
