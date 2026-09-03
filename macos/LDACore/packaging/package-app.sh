@@ -7,7 +7,10 @@
 #
 # Always builds:
 #   - Release LDAApp binary via SwiftPM
-#   - LDA.app bundle (Info.plist + the static-linked binary + bundled GGUF model)
+#   - LDA.app bundle (Info.plist + the static-linked binary + resource bundles)
+#
+# No detection model is bundled unless BUNDLE_MODEL=1 is set. The shipping
+# build is model-less and asks for a model on first run.
 #
 # Optional (set to enable):
 #   CODESIGN_IDENTITY  optional Developer ID identity for distribution, e.g.
@@ -16,7 +19,13 @@
 #                        xcrun notarytool store-credentials NOTARY_PROFILE \
 #                          --apple-id you@example.com --team-id TEAMID \
 #                          --password APP_SPECIFIC_PASSWORD
-#   MODEL_PATH         Quick model GGUF to bundle (default ~/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf)
+#   BUNDLE_MODEL       set to 1 to copy the Quick model into the bundle, for a
+#                      single-file deploy. The file is verified against the
+#                      packaged Models.json first and the script refuses to
+#                      bundle anything that does not match. Unset means no
+#                      model ships, which is the normal distributable.
+#   MODEL_PATH         Quick model GGUF to bundle, read ONLY when BUNDLE_MODEL=1
+#                      (default ~/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf)
 #   SCRATCH_PATH       SwiftPM scratch directory. Set it OUTSIDE iCloud when the
 #                      checkout lives in an iCloud-synced folder, or the build
 #                      can fail with "input file was modified during the build".
@@ -43,9 +52,16 @@ case "$PKG" in
 esac
 DIST="${DIST_PATH:-$DEFAULT_DIST}"
 APP="$DIST/LDA.app"
-# Quick (Qwen3.5-4B) is the ONLY bundled model. It peaks at 3.1 GB so it runs
-# on the 16 GB minimum spec, which means an offline user always has a model
-# that works. Balanced needs 24 GB and is downloaded through Manage Models.
+# No model is bundled by default. A fresh install gets its detection model
+# either by downloading it through Manage Models or by importing a file the
+# user carried over, and both paths verify the file against the checksum in
+# Models.json. Bundling is opt in (BUNDLE_MODEL=1) for a single-file deploy,
+# and only Quick is a candidate: it peaks at 3.1 GB so it fits the 16 GB
+# minimum spec, where Balanced needs 24 GB.
+#
+# Bundling is deliberately NOT inferred from the presence of a file at
+# MODEL_PATH. Two builds of the same commit must ship the same app whatever
+# happens to be sitting in a directory on the build machine.
 MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf}"
 
 case "$DIST" in
@@ -158,19 +174,66 @@ for IDENTIFIER in en fr zh-hans zh-hant; do
   fi
 done
 
-if [ -f "$MODEL_PATH" ]; then
-  echo "==> Bundling Quick model ($(du -h "$MODEL_PATH" | cut -f1))"
-  cp "$MODEL_PATH" "$APP/Contents/Resources/$(basename "$MODEL_PATH")"
+# A bundled model is resolved through ModelCatalog.bundledPath straight to
+# Bundle.main.path(forResource:ofType:) and is never seen by ModelInstaller,
+# so packaging is the only moment in the product's whole life when a bundled
+# model can be checked at all. Skip the check here and the file is never
+# verified by anything, ever. Size first because it is cheap and it names the
+# likely cause (a truncated copy), then the digest.
+MANIFEST="$APP/Contents/Resources/LDACore_LDAUI.bundle/Models.json"
+if [ "${BUNDLE_MODEL:-0}" != "1" ]; then
+  echo "==> No model bundled (BUNDLE_MODEL is not set). First run will offer a download or an offline import."
+  BUNDLED_MODEL_NAME=""
 else
-  echo "!! Quick model not found at $MODEL_PATH."
-  echo "!! Shipping without it leaves a fresh install with no working model."
-  exit 1
+  if [ ! -f "$MODEL_PATH" ]; then
+    echo "!! BUNDLE_MODEL is set but there is no model file at $MODEL_PATH."
+    echo "!! Set MODEL_PATH to the Quick model GGUF, or unset BUNDLE_MODEL to ship without one."
+    exit 1
+  fi
+  MODEL_NAME="$(basename "$MODEL_PATH")"
+  # Absolute paths on purpose: PATH is prepended by the test harness, and a
+  # stubbed shasum would make this check meaningless. One awk pass extracts
+  # both figures for the record whose fileName contains the basename of
+  # MODEL_PATH; index() rather than a regex match so a dot in the file name is
+  # not a wildcard.
+  EXPECTED="$(/usr/bin/awk -v want="$MODEL_NAME" '
+    /"fileName"/ { name = $0 }
+    /"sizeBytes"/ { if (match($0, /[0-9]+/)) bytes = substr($0, RSTART, RLENGTH) }
+    /"sha256"/ {
+      if (index(name, want) > 0 && match($0, /[0-9a-f]{64}/)) {
+        print bytes, substr($0, RSTART, RLENGTH); exit
+      }
+    }
+  ' "$MANIFEST")"
+  EXPECTED_BYTES="$(printf '%s' "$EXPECTED" | /usr/bin/awk '{print $1}')"
+  EXPECTED_SHA="$(printf '%s' "$EXPECTED" | /usr/bin/awk '{print $2}')"
+  if [ "${#EXPECTED_SHA}" -ne 64 ] || [ -z "$EXPECTED_BYTES" ]; then
+    echo "!! Could not read the Quick tier checksum from the packaged Models.json."
+    echo "!! Refusing to bundle a model that cannot be verified."
+    exit 1
+  fi
+  ACTUAL_BYTES="$(/usr/bin/stat -f%z "$MODEL_PATH")"
+  if [ "$ACTUAL_BYTES" != "$EXPECTED_BYTES" ]; then
+    echo "!! $MODEL_NAME is $ACTUAL_BYTES bytes; Models.json expects $EXPECTED_BYTES."
+    echo "!! Refusing to bundle a file that is not the published Quick model."
+    exit 1
+  fi
+  ACTUAL_SHA="$(/usr/bin/shasum -a 256 "$MODEL_PATH" | /usr/bin/awk '{print $1}')"
+  if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+    echo "!! $MODEL_NAME does not match the checksum published in Models.json."
+    echo "!! Refusing to bundle an unverified model."
+    exit 1
+  fi
+  echo "==> Bundling Quick model ($(du -h "$MODEL_PATH" | cut -f1)), checksum verified"
+  cp "$MODEL_PATH" "$APP/Contents/Resources/$MODEL_NAME"
+  BUNDLED_MODEL_NAME="$MODEL_NAME"
 fi
 
 # Strip extended attributes first. macOS stamps files with xattrs such as
 # com.apple.provenance (on execution) and com.apple.quarantine / iCloud
-# sync metadata (on the copied 2.5 GB model), and codesign refuses any file
-# carrying a "resource fork, Finder information, or similar detritus".
+# sync metadata (on a copied model, when one was bundled), and codesign
+# refuses any file carrying a "resource fork, Finder information, or similar
+# detritus".
 xattr -cr "$APP"
 
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
@@ -206,3 +269,8 @@ else
 fi
 
 echo "==> Done: $APP"
+if [ -z "$BUNDLED_MODEL_NAME" ]; then
+  echo "    Model: not bundled. First run offers a download or an offline import."
+else
+  echo "    Model: $BUNDLED_MODEL_NAME bundled and checksum verified."
+fi

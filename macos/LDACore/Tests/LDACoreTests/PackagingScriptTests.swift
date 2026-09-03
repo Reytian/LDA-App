@@ -1,3 +1,20 @@
+//
+//  PackagingScriptTests.swift
+//  LDACoreTests
+//
+//  Drives packaging/package-app.sh against a fake toolchain so the packaging
+//  rules are covered by the unit suite rather than by memory.
+//
+//  Bundling a model is opt in. BUNDLE_MODEL=1 is the only thing that turns it
+//  on, and when it is on the file is verified against the packaged Models.json
+//  before it is copied. That verification is the only moment in the product's
+//  life when a bundled model can be checked at all: ModelCatalog.bundledPath
+//  resolves straight through Bundle.main, so ModelInstaller never sees it.
+//
+//  House rules: English only. No em-dash or en-dash-as-separator.
+//
+
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -19,17 +36,113 @@ final class PackagingScriptTests: XCTestCase {
         )
     }
 
-    func testPackagingRefusesWhenTheQuickModelIsMissing() throws {
-        // Shipping without the bundled Quick model leaves a fresh install with
-        // no working model at all. The script used to warn and continue, which
-        // produced a silently degraded build; it must now fail loudly.
+    func testPackagingWithoutABundledModelSucceeds() throws {
+        // The model-less build is the shipping configuration, so it must need
+        // no flag at all and must say plainly that no model went in.
         let fixture = try PackagingFixture(swiftExitStatus: 0)
         defer { fixture.remove() }
 
-        let result = try fixture.run(withModel: false)
+        let result = try fixture.run()
+
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("No model bundled"), result.output)
+        XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    func testPackagingWithoutABundledModelIgnoresAStaleModelPath() throws {
+        // This is the test that pins the opt-in decision. A model file sitting
+        // at MODEL_PATH must not change the product: two builds of the same
+        // commit have to ship the same app whatever is on the build machine.
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(modelURL: fixture.modelURL)
+
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    func testBundleModelWithAMissingFileRefuses() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.missingModelURL)
 
         XCTAssertNotEqual(result.status, 0, result.output)
-        XCTAssertTrue(result.output.contains("Quick model not found"), result.output)
+        XCTAssertTrue(
+            result.output.contains("BUNDLE_MODEL is set but there is no model file"),
+            result.output
+        )
+    }
+
+    func testBundleModelWithAWrongChecksumRefuses() throws {
+        // Same name, same byte count, different bytes. Only the digest can
+        // tell these apart, which is why the digest check is not optional.
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.wrongBytesModelURL)
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("does not match the checksum"), result.output)
+        XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    func testBundleModelWithAWrongSizeRefuses() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.wrongSizeModelURL)
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("Models.json expects"), result.output)
+        XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    func testBundleModelWithAnUnparseableManifestRefuses() throws {
+        // A manifest the script cannot read is a hard failure, never a skip:
+        // skipping would ship an unverified 2.7 GB blob.
+        let fixture = try PackagingFixture(swiftExitStatus: 0, manifestIsParseable: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.modelURL)
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(
+            result.output.contains("Refusing to bundle a model that cannot be verified"),
+            result.output
+        )
+        XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    func testBundleModelWithTheRightChecksumBundlesIt() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.modelURL)
+
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("checksum verified"), result.output)
+        XCTAssertEqual(
+            fixture.bundledModelFileNames(),
+            [fixture.modelURL.lastPathComponent],
+            result.output
+        )
+    }
+
+    func testChecksumVerificationIgnoresAStubbedShasumOnPath() throws {
+        // The fixture prepends a fake bin directory to PATH because codesign
+        // and xattr have to be stubbed. If the script resolved shasum through
+        // PATH the integrity check would be theatre, so this fixture also
+        // stubs an always-agreeing shasum and the wrong file must still be
+        // refused.
+        let fixture = try PackagingFixture(swiftExitStatus: 0, stubShasumToAlwaysAgree: true)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(bundleModel: true, modelURL: fixture.wrongBytesModelURL)
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("does not match the checksum"), result.output)
     }
 
     func testPackagedBundleCarriesTheResourceBundle() throws {
@@ -89,7 +202,23 @@ private struct PackagingFixture {
     private let fakeBinURL: URL
     private let swiftBinURL: URL
 
-    init(swiftExitStatus: Int32) throws {
+    /// A stand-in Quick model whose bytes match the fixture manifest.
+    let modelURL: URL
+    /// Same name and byte count as `modelURL`, different bytes. Only the
+    /// digest separates the two.
+    let wrongBytesModelURL: URL
+    /// Same name as `modelURL`, different byte count.
+    let wrongSizeModelURL: URL
+    /// A path with no file at it.
+    let missingModelURL: URL
+    /// The SHA-256 the fixture manifest publishes for `modelURL`.
+    let expectedDigest: String
+
+    init(
+        swiftExitStatus: Int32,
+        manifestIsParseable: Bool = true,
+        stubShasumToAlwaysAgree: Bool = false
+    ) throws {
         let fm = FileManager.default
         rootURL = fm.temporaryDirectory
             .appendingPathComponent("lda-packaging-tests-" + UUID().uuidString, isDirectory: true)
@@ -99,12 +228,12 @@ private struct PackagingFixture {
 
         try fm.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         try fm.createDirectory(at: swiftBinURL, withIntermediateDirectories: true)
-        try writeExecutable(
+        try Self.writeExecutable(
             named: "LDAApp",
             in: swiftBinURL,
             contents: "#!/bin/bash\nexit 0\n"
         )
-        try writeExecutable(
+        try Self.writeExecutable(
             named: "swift",
             in: fakeBinURL,
             contents: """
@@ -117,42 +246,76 @@ private struct PackagingFixture {
             done
             """ + "\nexit " + String(swiftExitStatus) + "\n"
         )
-        try writeExecutable(named: "xattr", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
-        try writeExecutable(named: "codesign", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
+        try Self.writeExecutable(named: "xattr", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
+        try Self.writeExecutable(named: "codesign", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
 
-        // SwiftPM emits resource bundles beside the binary, and the script now
+        // The stand-in Quick model, plus the two near misses. All three carry
+        // the same file name because the script looks the expected figures up
+        // by the basename of MODEL_PATH.
+        let modelName = "Qwen3.5-4B-Q4_K_M.gguf"
+        let modelBytes = Data("GGUF stand-in for the Quick model".utf8)
+        modelURL = rootURL.appendingPathComponent(modelName)
+        try modelBytes.write(to: modelURL)
+
+        let wrongBytesDirectory = rootURL.appendingPathComponent("wrong-bytes", isDirectory: true)
+        try fm.createDirectory(at: wrongBytesDirectory, withIntermediateDirectories: true)
+        wrongBytesModelURL = wrongBytesDirectory.appendingPathComponent(modelName)
+        var tampered = modelBytes
+        tampered[tampered.startIndex] = tampered[tampered.startIndex] ^ 0xFF
+        try tampered.write(to: wrongBytesModelURL)
+
+        let wrongSizeDirectory = rootURL.appendingPathComponent("wrong-size", isDirectory: true)
+        try fm.createDirectory(at: wrongSizeDirectory, withIntermediateDirectories: true)
+        wrongSizeModelURL = wrongSizeDirectory.appendingPathComponent(modelName)
+        try (modelBytes + Data("truncation guard".utf8)).write(to: wrongSizeModelURL)
+
+        missingModelURL = rootURL.appendingPathComponent("missing.gguf")
+
+        // Computed here, never hardcoded, so the fixture cannot drift away
+        // from the bytes it just wrote.
+        expectedDigest = Self.hexDigest(of: modelBytes)
+
+        if stubShasumToAlwaysAgree {
+            // Prints the digest the script hopes for, whatever it was asked
+            // about. The script must never reach this: it calls
+            // /usr/bin/shasum by absolute path.
+            try Self.writeExecutable(
+                named: "shasum",
+                in: fakeBinURL,
+                contents: "#!/bin/bash\necho \"\(expectedDigest)  stub\"\nexit 0\n"
+            )
+        }
+
+        // SwiftPM emits resource bundles beside the binary, and the script
         // copies them into the .app because LDAUI reads Models.json at startup.
-        // Without this the fixture would not resemble a real build output.
+        // Without this the fixture would not resemble a real build output, and
+        // the model verification would have no manifest to read.
         let resourceBundle = swiftBinURL.appendingPathComponent("LDACore_LDAUI.bundle")
-        try FileManager.default.createDirectory(
-            at: resourceBundle, withIntermediateDirectories: true)
-        try Data("[]".utf8).write(to: resourceBundle.appendingPathComponent("Models.json"))
+        try fm.createDirectory(at: resourceBundle, withIntermediateDirectories: true)
+        let manifest = manifestIsParseable
+            ? Self.manifest(
+                fileName: modelName,
+                sizeBytes: modelBytes.count,
+                sha256: expectedDigest
+            )
+            : "[]"
+        try Data(manifest.utf8).write(to: resourceBundle.appendingPathComponent("Models.json"))
         for identifier in ["en", "fr", "zh-hans", "zh-hant"] {
             let localization = resourceBundle.appendingPathComponent(
                 "\(identifier).lproj",
                 isDirectory: true
             )
-            try FileManager.default.createDirectory(
-                at: localization,
-                withIntermediateDirectories: true
-            )
+            try fm.createDirectory(at: localization, withIntermediateDirectories: true)
             try Data("\"Language\" = \"Language\";\n".utf8).write(
                 to: localization.appendingPathComponent("Localizable.strings")
             )
         }
-
-        // The Quick model. The script refuses to ship without it, which is
-        // covered separately by testPackagingRefusesWhenTheQuickModelIsMissing.
-        modelURL = rootURL.appendingPathComponent("Qwen3.5-4B-Q4_K_M.gguf")
-        try Data("GGUF".utf8).write(to: modelURL)
     }
-
-    /// The stand-in Quick model this fixture provides.
-    private(set) var modelURL = URL(fileURLWithPath: "/dev/null")
 
     func run(
         scratchPath: URL? = nil,
-        withModel: Bool = true
+        bundleModel: Bool = false,
+        modelURL: URL? = nil
     ) throws -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -162,12 +325,17 @@ private struct PackagingFixture {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = fakeBinURL.path + ":" + (environment["PATH"] ?? "")
         environment["DIST_PATH"] = distURL.path
-        environment["MODEL_PATH"] = withModel
-            ? modelURL.path
-            : rootURL.appendingPathComponent("missing.gguf").path
         environment["STAGE_SOURCE"] = "0"
         environment["FAKE_SWIFT_BIN_PATH"] = swiftBinURL.path
         environment.removeValue(forKey: "SCRATCH_PATH")
+        environment.removeValue(forKey: "MODEL_PATH")
+        environment.removeValue(forKey: "BUNDLE_MODEL")
+        if let modelURL {
+            environment["MODEL_PATH"] = modelURL.path
+        }
+        if bundleModel {
+            environment["BUNDLE_MODEL"] = "1"
+        }
         if let scratchPath {
             environment["SCRATCH_PATH"] = scratchPath.path
         }
@@ -182,6 +350,13 @@ private struct PackagingFixture {
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 
+    /// GGUF files sitting in the packaged bundle's Resources directory.
+    func bundledModelFileNames() -> [String] {
+        let resources = distURL.appendingPathComponent("LDA.app/Contents/Resources")
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
+        return entries.filter { $0.hasSuffix(".gguf") }.sorted()
+    }
+
     func remove() {
         try? FileManager.default.removeItem(at: rootURL)
     }
@@ -191,7 +366,32 @@ private struct PackagingFixture {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 
-    private func writeExecutable(named name: String, in directory: URL, contents: String) throws {
+    /// A one-entry manifest shaped like the real Models.json, including the
+    /// field order the script's awk pass relies on.
+    private static func manifest(fileName: String, sizeBytes: Int, sha256: String) -> String {
+        """
+        [
+          {
+            "id": "quick",
+            "level": "quick",
+            "displayName": "Quick",
+            "fileName": "\(fileName)",
+            "sizeBytes": \(sizeBytes),
+            "sha256": "\(sha256)"
+          }
+        ]
+        """
+    }
+
+    private static func hexDigest(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func writeExecutable(
+        named name: String,
+        in directory: URL,
+        contents: String
+    ) throws {
         let url = directory.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url)
         try FileManager.default.setAttributes(
