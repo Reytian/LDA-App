@@ -667,7 +667,6 @@
 "Applied %lld learned term and hid %lld you rejected before." = "已应用 %lld 个学习条目，并隐藏 %lld 个您此前拒绝的项目。";
 "Applied %lld learned terms and hid %lld you rejected before." = "已应用 %lld 个学习条目，并隐藏 %lld 个您此前拒绝的项目。";
 "Hid %lld you rejected before." = "已隐藏 %lld 个您此前拒绝的项目。";
-"No AI model is installed for the selected detection level, so names, companies, and addresses were not detected. Choose a different level in Settings, or add the model file." = "所选检测级别没有安装 AI 模型，因此未检测姓名、公司和地址。请在“设置”中选择其他级别，或添加模型文件。";
 "The AI model file could not be opened (%@), so names, companies, and addresses were not detected." = "无法打开 AI 模型文件（%@），因此未检测姓名、公司和地址。";
 "AI could not fully scan %lld segment; unscanned text may still contain names or companies." = "AI 未能完整扫描 %lld 个片段。未扫描的文本中可能仍有姓名或公司。";
 "AI could not fully scan %lld segments; unscanned text may still contain names or companies." = "AI 未能完整扫描 %lld 个片段。未扫描的文本中可能仍有姓名或公司。";
@@ -864,11 +863,8 @@
 
 /* Model setup at first run plus the pre-scan advisory (2026-09-03). */
 "First, add a detection model" = "第一步：添加检测模型";
-"LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document." = "LDA 需要本机上的检测模型才能找出人名、公司名和地址。在你添加模型之前，扫描只能找到规则可以匹配的内容：电子邮件、电话、日期、金额、身份证号和案号。人名、公司名和地址不会被检出，会留在文档中。";
-"Online, and quickest: download the model from Manage Models. About 2.74 GB." = "联网，最快：在“管理模型”中下载模型，约 2.74 GB。";
 "No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "无网络：在另一台 Mac 上下载模型，用移动硬盘或 U 盘带过来，然后在“管理模型”中添加该文件。LDA 会先校验再安装。";
 "Set Up a Model…" = "设置模型…";
-"No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "尚未安装检测模型，因此扫描不会查找人名、公司名或地址。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。添加模型即可找出人名。";
 
 /* Manage Models: the verified offline import (2026-09-03). */
 "Already have the model file?" = "已经有模型文件了？";
@@ -886,5 +882,27 @@
 "Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "任意本地 GGUF 文件。LDA 不会校验该文件，也不会复制它：文件留在原处，按原样使用。LDA 无法告诉你它的效果、耗时或内存占用。";
 "Choose a local GGUF model. LDA will not check it." = "请选择本地 GGUF 模型。LDA 不会对它进行校验。";
 
-/* Pre-scan advisory: the selected level has no model (2026-09-03). */
-"The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "你所选检测级别对应的模型尚未安装，因此扫描不会查找人名、公司名或地址。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。请添加该模型，或在“设置”中选择已安装的级别。";
+/* Model setup: the first-run ask, the pre-scan gate, the export gate, and the advisories (2026-09-03). */
+"A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals." = "找出人名和公司名靠的是检测模型。没有它，扫描只能匹配规则：电子邮件、电话、日期、金额、身份证号、统一社会信用代码、银行账号、案号、车牌号、微信号、网址和印章。";
+"Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number." = "人名和公司名不会被检出：它们会留在文档里，也不会出现在待审阅清单中，你交给 AI 工具的副本仍然能指认出你的客户。地址只有中文街道格式才能匹配到，而且只匹配到门牌号为止。";
+"In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part." = "在我们对两份协议的自测中，没有模型的扫描把 36 个人名、公司名和地址中的 32 个原样留在文档里，另外 4 个也只匹配到一部分。";
+"Download the Model (%@)" = "下载模型（%@）";
+"I Already Have the File…" = "我已经有该文件…";
+"Downloading the detection model. You can read the next steps while it arrives." = "正在下载检测模型。下载期间你可以先看后面的步骤。";
+"The detection model is installed. A scan will look for names, companies, and addresses." = "检测模型已安装。扫描会查找人名、公司名和地址。";
+"This Mac cannot run a detection model" = "这台 Mac 无法运行检测模型";
+"This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that." = "这台 Mac 的内存不足以运行检测模型，因此 LDA 不在此处提供模型。在这台 Mac 上，扫描只能匹配规则，人名和公司名会留在文档里。手动添加模型文件也无法改变这一点。";
+"Scan without a detection model?" = "在没有检测模型的情况下扫描？";
+"This scan will not look for people's names or company names, and it matches an address only in the Chinese street form, stopping at the street number. Those values stay in the document and are not in the review list. Emails, phones, dates, amounts, ID numbers, case numbers, bank accounts, license plates, WeChat IDs, links, and seals are still found." = "本次扫描不会查找人名或公司名，地址也只有中文街道格式才能匹配到，且只匹配到门牌号为止。这些内容会留在文档里，并且不会出现在待审阅清单中。电子邮件、电话、日期、金额、身份证号、案号、银行账号、车牌号、微信号、网址和印章仍会被找出。";
+"Scan Without Names" = "不找人名，直接扫描";
+"No detection model is installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "尚未安装检测模型，因此本次扫描不会查找人名或公司名，地址也只有中文街道格式才能匹配到。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。添加模型即可找出人名。";
+"The model for the detection level you chose is not installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "你所选检测级别对应的模型尚未安装，因此本次扫描不会查找人名或公司名，地址也只有中文街道格式才能匹配到。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。请添加该模型，或在“设置”中改选一个已安装的级别。";
+"Patterns only is selected and no detection model is installed, so no scan on this Mac looks for people's names or company names. Those names stay in the document. Add a model, then choose a detection level in Settings." = "当前选择的是“仅使用规则”，且本机未安装检测模型，因此这台 Mac 上的任何扫描都不会查找人名或公司名。这些名称会留在文档里。请添加模型，然后在“设置”中选择检测级别。";
+"This Mac does not have the memory to run a detection model, so scans here match patterns only. People's names and company names stay in the document." = "这台 Mac 的内存不足以运行检测模型，因此这里的扫描只能匹配规则。人名和公司名会留在文档里。";
+"Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model." = "文档已准备好。点击“扫描 PII”以检测日期、金额、电子邮件、电话和身份证号。人名和公司名需要检测模型。";
+"Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model." = "在打开的文档中查找 PII：日期、金额、电子邮件、电话、身份证号（Cmd+Shift+S）。人名和公司名需要检测模型。";
+"Drop Word, PDF, or text files (or a .zip). The app scans each one and you review what it will protect. Which kinds of value it can find depends on the detection model above." = "拖入 Word、PDF、文本文件或 .zip。App 会逐个扫描，你再审阅将要保护的内容。能找出哪些类型，取决于上方的检测模型。";
+"Export a copy where the AI pass did not run?" = "要导出 AI 未运行过的副本吗？";
+"The AI pass did not run on at least one of these documents, so people's names and company names were not looked for there and are still in the copy you are about to write. Read that copy before you hand it to an AI tool, or add a detection model and scan those documents again." = "这些文档中至少有一份没有运行 AI，因此其中的人名和公司名未被查找，仍然留在你即将写出的副本里。把副本交给 AI 工具之前请先通读，或者添加检测模型并重新扫描这些文档。";
+"Export Anyway" = "仍然导出";
+"No detection model is installed for the selected detection level, so people's names and company names were not looked for, and an address was matched only in the Chinese street form. Choose a different level in Settings, or add the model file." = "所选检测级别没有安装检测模型，因此没有查找人名和公司名，地址也只按中文街道格式匹配。请在“设置”中改选级别，或添加模型文件。";

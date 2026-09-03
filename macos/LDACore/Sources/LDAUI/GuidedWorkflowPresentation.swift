@@ -169,27 +169,53 @@ enum AnonymizeWorkflowPresentation {
     /// while polishing this; it is false, and it is close to a claim
     /// UIClaimsDisciplineTests bans outright.
     ///
-    /// Two sentences because there are two situations and telling them apart
+    /// Four sentences because there are four situations and telling them apart
     /// matters. `hasAnyModel` false is a fresh install with nothing at all.
     /// `hasAnyModel` true is the reachable case on a Mac with 24 GB or more:
     /// the user installed Balanced from Manage Models and left the level on
     /// Quick, so the selected rung still cannot run. Saying "no detection model
     /// is installed" to that user would be a false sentence, which is the exact
     /// defect class this advisory exists to prevent.
+    ///
+    /// The two later parameters cover the two states the row was silent about.
+    /// `canRunAModel` false is an 8 GB or 12 GB Mac, where "add a model" is
+    /// advice the user cannot take, so the sentence states the limit and stops
+    /// and the caller renders no button. `rungUsesLLM` false with no file
+    /// anywhere is the genuinely silent one: `isModelMissing` short-circuits on
+    /// the rung, so a patterns-only user with no model got no advisory, no
+    /// dialog and only a neutral grey label, forever. It is reachable through
+    /// the legacy `detectionMode == "fast"` migration, not just by choosing it.
+    ///
+    /// Both new parameters default to the pre-existing behaviour so every
+    /// existing call site and both pinned nil-cases are unchanged.
     static func missingModelAdvice(
         isModelMissing: Bool,
         hasAnyModel: Bool,
+        rungUsesLLM: Bool = true,
+        canRunAModel: Bool = true,
         language: AppLanguage? = nil
     ) -> String? {
+        if !canRunAModel, !hasAnyModel {
+            return L10n.string(
+                "This Mac does not have the memory to run a detection model, so scans here match patterns only. People's names and company names stay in the document.",
+                language: language
+            )
+        }
+        if !hasAnyModel, !rungUsesLLM {
+            return L10n.string(
+                "Patterns only is selected and no detection model is installed, so no scan on this Mac looks for people's names or company names. Those names stay in the document. Add a model, then choose a detection level in Settings.",
+                language: language
+            )
+        }
         guard isModelMissing else { return nil }
         guard hasAnyModel else {
             return L10n.string(
-                "No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names.",
+                "No detection model is installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names.",
                 language: language
             )
         }
         return L10n.string(
-            "The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings.",
+            "The model for the detection level you chose is not installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings.",
             language: language
         )
     }

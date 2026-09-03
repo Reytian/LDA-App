@@ -101,8 +101,16 @@ final class OnboardingModelSetupTests: XCTestCase {
     func testEverySetupStringIsTranslatedInAllFourCatalogs() throws {
         let keys = [
             "First, add a detection model",
-            "LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document.",
-            "Online, and quickest: download the model from Manage Models. About 2.74 GB.",
+            "A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals.",
+            "Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number.",
+            "In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part.",
+            "Download the Model (%@)",
+            "I Already Have the File\u{2026}",
+            "Downloading the detection model. You can read the next steps while it arrives.",
+            "The detection model is installed. A scan will look for names, companies, and addresses.",
+            "This Mac cannot run a detection model",
+            "This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that.",
+            "Drop Word, PDF, or text files (or a .zip). The app scans each one and you review what it will protect. Which kinds of value it can find depends on the detection model above.",
             "No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it."
         ]
         for language in [AppLanguage.english, .french, .simplifiedChinese, .traditionalChinese] {

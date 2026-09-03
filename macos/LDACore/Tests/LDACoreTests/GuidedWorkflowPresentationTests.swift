@@ -39,9 +39,11 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
             AnonymizeWorkflowPresentation.missingModelAdvice(
                 isModelMissing: true, hasAnyModel: false, language: .english
             ),
-            "No detection model is installed, so a scan will not look for names, "
-                + "companies, or addresses. It still finds emails, phones, dates, "
-                + "amounts, ID numbers, and case numbers. Add a model to find names."
+            "No detection model is installed, so this scan will not look for "
+                + "people's names or company names, and it matches an address only "
+                + "in the Chinese street form. It still finds emails, phones, "
+                + "dates, amounts, ID numbers, and case numbers. Add a model to "
+                + "find names."
         )
     }
 
@@ -68,7 +70,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         // Both must still say what a scan will not look for. That is the whole
         // point of the row.
         for advice in [none!, wrongOne!] {
-            XCTAssertTrue(advice.contains("names, companies, or addresses"))
+            XCTAssertTrue(advice.contains("people's names or company names"))
         }
     }
 
@@ -108,6 +110,85 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )!.lowercased()
         for claim in ["everything", "all sensitive", "guaranteed", "100%"] {
             XCTAssertFalse(advice.contains(claim), "advisory must not claim \(claim)")
+        }
+    }
+
+    // MARK: - The branches that are silent today
+
+    func testMissingModelAdviceCoversTheDeliberatePatternsOnlyUserWithNoFile() {
+        // The one state the app says NOTHING about today. isModelMissing is
+        // false for a patterns-only rung, so the guard used to return nil and
+        // this user got no advisory, no dialog, and a neutral grey label,
+        // forever, on a Mac that has no model file at all.
+        let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: false,
+            hasAnyModel: false,
+            rungUsesLLM: false,
+            canRunAModel: true,
+            language: .english
+        )
+        XCTAssertNotNil(advice, "a patterns-only rung with no file must not be silent")
+        XCTAssertEqual(
+            advice,
+            "Patterns only is selected and no detection model is installed, so "
+                + "no scan on this Mac looks for people's names or company "
+                + "names. Those names stay in the document. Add a model, then "
+                + "choose a detection level in Settings."
+        )
+    }
+
+    func testMissingModelAdviceOnAMacThatCannotRunAModelOffersNothingToDo() {
+        // 8 GB and 12 GB. Telling that user to add a model is advice they
+        // cannot take, so the sentence states the limit and stops.
+        let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: true,
+            hasAnyModel: false,
+            rungUsesLLM: true,
+            canRunAModel: false,
+            language: .english
+        )
+        XCTAssertEqual(
+            advice,
+            "This Mac does not have the memory to run a detection model, so "
+                + "scans here match patterns only. People's names and company "
+                + "names stay in the document."
+        )
+        XCTAssertFalse(
+            advice?.contains("Add a model") ?? true,
+            "a remedy this Mac cannot perform must not be offered"
+        )
+    }
+
+    func testEveryAdvisoryBranchIsTranslated() {
+        let branches: [(isModelMissing: Bool, hasAnyModel: Bool, rungUsesLLM: Bool, canRunAModel: Bool)] = [
+            (true, false, true, true),      // K13
+            (true, true, true, true),       // K14
+            (false, false, false, true),    // K15
+            (true, false, true, false)      // K16
+        ]
+        for branch in branches {
+            let english = AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: branch.isModelMissing,
+                hasAnyModel: branch.hasAnyModel,
+                rungUsesLLM: branch.rungUsesLLM,
+                canRunAModel: branch.canRunAModel,
+                language: .english
+            )
+            XCTAssertNotNil(english, "branch \(branch) must produce a sentence")
+            for language in [AppLanguage.french, .simplifiedChinese, .traditionalChinese] {
+                let translated = AnonymizeWorkflowPresentation.missingModelAdvice(
+                    isModelMissing: branch.isModelMissing,
+                    hasAnyModel: branch.hasAnyModel,
+                    rungUsesLLM: branch.rungUsesLLM,
+                    canRunAModel: branch.canRunAModel,
+                    language: language
+                )
+                XCTAssertNotNil(translated)
+                XCTAssertNotEqual(
+                    translated, english,
+                    "\(language) must carry a real translation for branch \(branch)"
+                )
+            }
         }
     }
 

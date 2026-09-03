@@ -189,7 +189,7 @@ extension ReviewModel {
         guard let modelPath else {
             return LLMPassOutcome(
                 spans: [], attempted: true,
-                failure: L10n.string("No AI model is installed for the selected detection level, so names, companies, and addresses were not detected. Choose a different level in Settings, or add the model file."),
+                failure: L10n.string("No detection model is installed for the selected detection level, so people's names and company names were not looked for, and an address was matched only in the Chinese street form. Choose a different level in Settings, or add the model file."),
                 cancelled: false
             )
         }

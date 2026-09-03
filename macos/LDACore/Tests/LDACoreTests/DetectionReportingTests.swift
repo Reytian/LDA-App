@@ -37,8 +37,28 @@ final class DetectionReportingTests: XCTestCase {
                       "AI was requested, so this must NOT look like a patterns-only run")
         let failure = try? XCTUnwrap(out.failure)
         XCTAssertNotNil(failure, "a requested pass that could not run must say so")
-        XCTAssertTrue(out.failure?.contains("not detected") ?? false,
+        XCTAssertTrue(out.failure?.contains("were not looked for") ?? false,
                       "the message must state what was missed: \(out.failure ?? "nil")")
+    }
+
+    func testTheMissingModelFailureSentenceNamesPersonAndCompany() {
+        // The post-scan half of the same disclosure as the pre-scan advisory.
+        // "names, companies, and addresses were not detected" was false on the
+        // address clause: the Chinese street form IS matched deterministically,
+        // truncated at the street number.
+        let out = ReviewModel.llmSpans(in: sample, useLLM: true, modelPath: nil)
+        let failure = out.failure ?? ""
+        XCTAssertTrue(
+            failure.contains("people's names and company names"),
+            "name what was not looked for: \(failure)"
+        )
+        XCTAssertTrue(
+            failure.contains("Chinese street form"),
+            "the address clause must say what IS matched: \(failure)"
+        )
+        // A model-less scan can never read as a deliberate patterns-only run.
+        XCTAssertTrue(out.attempted, "the user asked, so this is not patterns only")
+        XCTAssertTrue(out.spans.isEmpty, "the AI pass did not run at all")
     }
 
     func testAiRequestedWithAMissingFileReportsAttemptedAndNamesTheFile() {
