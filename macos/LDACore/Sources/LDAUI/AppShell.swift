@@ -551,8 +551,15 @@ public struct AppShell: View {
     private func missingModelAdvisory(_ advice: String, offersSetUp: Bool) -> some View {
         if offersSetUp {
             AdvisoryRow(advice: advice) {
-                Button("Set Up a Model\u{2026}") { isModelSheetPresented = true }
-                    .controlSize(.small)
+                // Recorded here too, because this is the route a decliner
+                // takes back: without it a stored "declined" would survive the
+                // user visibly acting to fix it, and the next launch would
+                // stay quiet about an ask they had actually taken up.
+                Button("Set Up a Model\u{2026}") {
+                    AISettings.recordModelSetupAnswer(.accepted)
+                    isModelSheetPresented = true
+                }
+                .controlSize(.small)
             }
         } else {
             // 8 GB and 12 GB: the sentence states the limit, and there is no

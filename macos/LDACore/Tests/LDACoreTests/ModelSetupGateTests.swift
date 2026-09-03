@@ -388,4 +388,70 @@ final class ModelSetupGateTests: XCTestCase {
                 + "model path first"
         )
     }
+
+    // MARK: - Every route to Manage Models records the answer
+
+    func testEveryRouteIntoManageModelsRecordsTheAnswer() throws {
+        // A stored "declined" must not survive the user visibly acting to fix
+        // it. Two of these routes used to leave the answer alone.
+        let shell = try uiSource("AppShell.swift")
+        guard let start = shell.range(of: "private func missingModelAdvisory") else {
+            XCTFail("missingModelAdvisory is missing")
+            return
+        }
+        XCTAssertTrue(
+            shell[start.lowerBound...].prefix(1_200)
+                .contains("AISettings.recordModelSetupAnswer(.accepted)"),
+            "the persistent advisory's button is the route a decliner takes "
+                + "back, so it must record that they took it"
+        )
+
+        // Onboarding funnels every route through one helper, so a button added
+        // later cannot forget.
+        let onboarding = try uiSource("OnboardingView.swift")
+        XCTAssertEqual(
+            onboarding.components(separatedBy: "onOpenModelManagement()").count - 1, 1,
+            "every onboarding route into Manage Models must go through the one "
+                + "helper that records the answer"
+        )
+        guard let helper = onboarding.range(of: "private func openModelManagement()") else {
+            XCTFail("the recording helper is missing")
+            return
+        }
+        XCTAssertTrue(
+            onboarding[helper.lowerBound...].prefix(400)
+                .contains("AISettings.recordModelSetupAnswer(.accepted)")
+        )
+
+        // Both gate dialogs record on their fix button too.
+        let flow = try uiSource("ModelSetupFlow.swift")
+        XCTAssertEqual(
+            flow.components(
+                separatedBy: "AISettings.recordModelSetupAnswer(.accepted)"
+            ).count - 1,
+            2,
+            "the pre-scan gate and the export gate each carry a fix button"
+        )
+    }
+
+    func testRecordingAnAnswerOnThoseRoutesNeverSilencesTheGate() {
+        let (defaults, name) = makeDefaults("fix-route")
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        // Every Manage Models route records .accepted. If the gate were keyed
+        // on the answer, pressing Set Up a Model and then closing the sheet
+        // without installing anything would buy permanent silence.
+        AISettings.recordModelSetupAnswer(.accepted, defaults: defaults)
+        XCTAssertTrue(
+            AISettings.scanNeedsModelConfirmation(
+                catalog: ladder, installedGB: 16.0, defaults: defaults
+            ),
+            "the gate reads the machine, so acting on the fix without finishing "
+                + "it must still ask"
+        )
+        XCTAssertNil(
+            defaults.string(forKey: AISettings.detectionLevelKey),
+            "recording an answer must never write a detection level"
+        )
+    }
 }

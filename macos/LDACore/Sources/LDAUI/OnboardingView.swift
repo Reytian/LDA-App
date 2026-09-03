@@ -334,7 +334,7 @@ public struct OnboardingView: View {
                     if error.isRetryable {
                         Button("Try Again") { retryDownload() }
                     }
-                    Button("Manage Models\u{2026}") { onOpenModelManagement() }
+                    Button("Manage Models\u{2026}") { openModelManagement() }
                 }
                 continueButton
             case .installed:
@@ -439,7 +439,7 @@ public struct OnboardingView: View {
                 // A one-click route back for someone who pressed Not Now, so
                 // the decision is reversible without hunting through chrome.
                 if !hasModel, canRunAModel {
-                    Button("Set Up a Model\u{2026}") { onOpenModelManagement() }
+                    Button("Set Up a Model\u{2026}") { openModelManagement() }
                         .controlSize(.small)
                 }
                 Spacer()
@@ -466,6 +466,19 @@ public struct OnboardingView: View {
     /// The offline route: the file is on a drive already, so the answer is
     /// accepted and Manage Models takes over.
     private func chooseExistingFile() {
+        openModelManagement()
+    }
+
+    /// The one route into Manage Models from this sheet, so no button here can
+    /// leave the answer alone.
+    ///
+    /// Pressing any of them is the user acting on the ask, and a stored
+    /// "declined" must not survive that: it would silence the return visit for
+    /// someone who had in fact taken the ask up. "Accepted" is deliberately
+    /// not terminal, so recording it here still asks once more if no file
+    /// arrives. The scan gate is unaffected either way, being keyed on the
+    /// machine and never on the stored answer.
+    private func openModelManagement() {
         AISettings.recordModelSetupAnswer(.accepted)
         onOpenModelManagement()
     }
