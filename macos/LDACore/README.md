@@ -166,7 +166,7 @@ without retyping facts by hand.
 
 ```
 lda extract-profile --label "Meridian" --out meridian.ldaprofile \
-    --model /path/to/lda-v2-Q4_K_M.gguf certificate.pdf articles.docx
+    --model /path/to/Qwen3.5-4B-Q4_K_M.gguf certificate.pdf articles.docx
 ```
 
 **Preview the fill plan without writing anything:**
@@ -237,7 +237,7 @@ Build a profile from source documents and save it to the library via a
 
 ```
 lda extract-profile --label "John Whitmore" --kind individual \
-    --model /path/to/lda-v2-Q4_K_M.gguf \
+    --model /path/to/Qwen3.5-4B-Q4_K_M.gguf \
     --out whitmore.ldaprofile identity-letter.pdf passport-scan.pdf
 ```
 
