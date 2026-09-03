@@ -271,10 +271,13 @@ extension MCPServer {
         let createdAt = MCPServer.iso8601Now()
         let style = try styleArgument(from: arguments)
         // The observer rides the engine's spanFilter seam: it sees every body
-        // span the run detects (ids only are kept), excludes the ids the
-        // caller named, and afterwards tells whether the caller reviewed the
-        // detection that actually ran. Excluded TYPES are the engine's job on
-        // every channel, including headers, footers, notes, and image text.
+        // span the run detects (ids only are kept), rejects the ids the caller
+        // named, and afterwards tells whether the caller reviewed the
+        // detection that actually ran. The engine turns a rejected span into
+        // its VALUE and leaves that value visible at every occurrence on every
+        // channel, headers, footers, notes, comments, and image text included,
+        // so the caller can never end up with a value and its own placeholder
+        // in the same document. Excluded TYPES work the same way.
         let observer = MCPDetectionObserver(handle: handle, excludedIds: review.excludedIds)
         let stagedResult = try withPlaintextSource(vault, handle) { inputURL in
             try LDAService.anonymize(
@@ -338,10 +341,16 @@ extension MCPServer {
                 "imageRedactionCount": stagedResult.imageRedactionCount,
                 "embeddedMediaCount": stagedResult.embeddedMediaCount,
                 "unboxedTokenCount": stagedResult.unboxedTokenCount,
-                // The review step's outcome: how many body values the caller
-                // left visible, and whether the detection this run made
-                // differs from the one the caller reviewed.
+                // The review step's outcome. excludedCount is the blast
+                // radius, not the size of the caller's exclusion list: every
+                // OCCURRENCE now in clear, in the body and in every header,
+                // footer, note, comment, and image, because excluding one
+                // occurrence of a value excludes them all. excludedValueCount
+                // says how many distinct values those occurrences are.
+                // detectionChanged says whether this run's detection differs
+                // from the one the caller reviewed.
                 "excludedCount": stagedResult.excludedEntityCount,
+                "excludedValueCount": stagedResult.excludedValueCount,
                 "detectionChanged": verdict.detectionChanged
             ]
         } catch {

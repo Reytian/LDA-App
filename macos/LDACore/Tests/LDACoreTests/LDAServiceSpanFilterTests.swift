@@ -27,6 +27,8 @@ final class LDAServiceSpanFilterTests: XCTestCase {
     private static let secondEmail = "beta.party@example.com"
     private static let bodyDate = "2024-01-15"
     private static let headerDate = "2023-12-31"
+    private static let repeatedPhone = "13912345678"
+    private static let otherPhone = "13800002222"
     private let protection = MappingProtection.passphrase("span-filter-pw")
 
     private var workDir: URL!
@@ -136,7 +138,76 @@ final class LDAServiceSpanFilterTests: XCTestCase {
         )
 
         XCTAssertEqual(result.excludedEntityCount, 0)
+        XCTAssertEqual(result.excludedValueCount, 0)
         XCTAssertEqual(result.entities.count, 2)
+    }
+
+    // MARK: - Excluding one occurrence excludes the value
+
+    /// Excluding ONE detected occurrence must leave EVERY occurrence of that
+    /// same value visible, on every channel. Anything less publishes the
+    /// value and its own token in one document, and a reader who sees both
+    /// can de-anonymize that token at every other site, including the ones a
+    /// header or a comment carries.
+    func testExcludingOneOccurrenceLeavesEveryOccurrenceOfThatValueVisible() throws {
+        let input = workDir.appendingPathComponent("repeated.docx")
+        try DocxFixtureSupport.write(
+            paragraphs: [
+                [.plain("Contact "), .bold(Self.firstEmail), .plain(" or \(Self.repeatedPhone).")],
+                [.plain("Call \(Self.repeatedPhone) to confirm.")],
+                [.plain("Backup line \(Self.repeatedPhone).")],
+                [.plain("Fax \(Self.repeatedPhone) as well, or \(Self.otherPhone).")]
+            ],
+            header: [[.plain("Desk \(Self.repeatedPhone)")]],
+            to: input
+        )
+        // The caller names exactly one occurrence: the FIRST one in the body.
+        let firstOccurrenceExcluded = ExcludeFirstOccurrence(of: Self.repeatedPhone)
+
+        let result = try LDAService.anonymize(
+            input: input,
+            outputDir: outputDir("out"),
+            protection: protection,
+            createdAtISO8601: Self.createdAt,
+            spanFilter: firstOccurrenceExcluded.keep
+        )
+
+        XCTAssertEqual(firstOccurrenceExcluded.matchCount, 4, "fixture: four body occurrences")
+        let body = try DocxFixtureSupport.part(docxMainPartPath, in: result.redactedFileURL)
+        XCTAssertEqual(
+            body.components(separatedBy: Self.repeatedPhone).count - 1,
+            4,
+            "every body occurrence of the excluded value stays visible: \(body)"
+        )
+        // The only PHONE token left stands for the OTHER phone: the excluded
+        // value never minted one, so the numbering never reached it.
+        XCTAssertEqual(
+            body.components(separatedBy: "{PHONE_").count - 1,
+            1,
+            "exactly one PHONE token, and it is not the excluded value's: \(body)"
+        )
+
+        let header = try DocxFixtureSupport.part("word/header1.xml", in: result.redactedFileURL)
+        XCTAssertTrue(header.contains(Self.repeatedPhone), "the header occurrence stays visible too: \(header)")
+        XCTAssertFalse(header.contains("{PHONE_"), "no PHONE token in the header part: \(header)")
+
+        // A different value of the same type is still fully tokenized.
+        XCTAssertFalse(body.contains(Self.otherPhone), "another value is still redacted: \(body)")
+        XCTAssertFalse(body.contains(Self.firstEmail), "another type is still redacted: \(body)")
+        XCTAssertTrue(body.contains("{EMAIL_1}"), body)
+
+        // Four body occurrences plus the header one are now in clear, and
+        // they are all the SAME value.
+        XCTAssertEqual(result.excludedEntityCount, 5)
+        XCTAssertEqual(result.excludedValueCount, 1)
+        XCTAssertFalse(result.entities.contains { $0.text == Self.repeatedPhone })
+
+        let mapping = try loadMapping(result)
+        XCTAssertFalse(
+            mapping.entries.values.contains { $0.value == Self.repeatedPhone },
+            "an excluded value must not enter the mapping sidecar at any site"
+        )
+        XCTAssertTrue(mapping.entries.values.contains { $0.value == Self.otherPhone })
     }
 
     // MARK: - Type exclusions reach every channel
@@ -183,7 +254,12 @@ final class LDAServiceSpanFilterTests: XCTestCase {
         XCTAssertFalse(body.contains(Self.firstEmail))
 
         XCTAssertFalse(result.entities.contains { $0.type == .date })
-        XCTAssertEqual(result.excludedEntityCount, 1, "one body DATE span was excluded")
+        XCTAssertEqual(
+            result.excludedEntityCount,
+            2,
+            "the body DATE and the header DATE are both in clear"
+        )
+        XCTAssertEqual(result.excludedValueCount, 2, "two distinct dates")
         let mapping = try loadMapping(result)
         XCTAssertFalse(mapping.entries.values.contains { $0.type == .date })
     }
@@ -216,5 +292,28 @@ final class LDAServiceSpanFilterTests: XCTestCase {
         XCTAssertTrue(session.documents[0].redactedMarkdown.contains(Self.bodyDate))
         XCTAssertTrue(session.documents[1].redactedMarkdown.contains(Self.headerDate))
         XCTAssertFalse(session.mapping.entries.values.contains { $0.type == .date })
+    }
+}
+
+/// Excludes the FIRST occurrence of one value and keeps every other span, the
+/// way an MCP caller names a single detected occurrence by its id. A reference
+/// type because the seam is consulted span by span and the verdict depends on
+/// what came before.
+private final class ExcludeFirstOccurrence {
+
+    private let value: String
+    private(set) var matchCount = 0
+    private var excluded = false
+
+    init(of value: String) {
+        self.value = value
+    }
+
+    func keep(_ span: Span) -> Bool {
+        guard span.text == value else { return true }
+        matchCount += 1
+        guard !excluded else { return true }
+        excluded = true
+        return false
     }
 }

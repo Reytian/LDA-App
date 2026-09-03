@@ -603,7 +603,11 @@ final class MCPBoundaryTests: XCTestCase {
         // summary rides inside a JSON text block, so its keys appear with
         // escaped quotes.
         let wire = wireText()
-        for field in ["\\\"detectionId\\\"", "\\\"id\\\"", "\\\"excludedCount\\\"", "\\\"detectionChanged\\\"", "\\\"format\\\""] {
+        let reviewFields = [
+            "\\\"detectionId\\\"", "\\\"id\\\"", "\\\"excludedCount\\\"",
+            "\\\"excludedValueCount\\\"", "\\\"detectionChanged\\\"", "\\\"format\\\""
+        ]
+        for field in reviewFields {
             XCTAssertTrue(wire.contains(field), "the boundary scan must cover \(field)")
         }
 

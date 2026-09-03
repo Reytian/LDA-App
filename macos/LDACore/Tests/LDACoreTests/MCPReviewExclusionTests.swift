@@ -38,6 +38,8 @@ final class MCPReviewExclusionTests: XCTestCase {
     private static let bodyDate = "2024-01-15"
     private static let headerDate = "2023-12-31"
     private static let twoEmailsText = "Reach \(firstEmail) or \(secondEmail) by \(bodyDate)."
+    private static let repeatedPhone = "13912345678"
+    private static let otherPhone = "13800002222"
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -123,6 +125,23 @@ final class MCPReviewExclusionTests: XCTestCase {
         return try stage(url)
     }
 
+    /// Four body occurrences of ONE phone number, one more in the header, an
+    /// email, and a second phone: the shape the finding was reproduced on.
+    private func stageDocxWithRepeatedPhone() throws -> String {
+        let url = workDir.appendingPathComponent("repeated.docx")
+        try DocxFixtureSupport.write(
+            paragraphs: [
+                [.plain("Contact "), .bold(Self.firstEmail), .plain(" or \(Self.repeatedPhone).")],
+                [.plain("Call \(Self.repeatedPhone) to confirm.")],
+                [.plain("Backup line \(Self.repeatedPhone).")],
+                [.plain("Fax \(Self.repeatedPhone) as well, or \(Self.otherPhone).")]
+            ],
+            header: [[.plain("Desk \(Self.repeatedPhone)")]],
+            to: url
+        )
+        return try stage(url)
+    }
+
     private func readRedacted(_ handle: String) throws -> String {
         try XCTUnwrap(try summary(tool: "read_redacted", arguments: ["handle": handle])["text"] as? String)
     }
@@ -151,6 +170,22 @@ final class MCPReviewExclusionTests: XCTestCase {
             try XCTUnwrap(result["detectionId"] as? String, "detect_entities must return a detectionId: \(result)"),
             try XCTUnwrap(result["entities"] as? [[String: Any]])
         )
+    }
+
+    /// The id detect_entities gave the FIRST occurrence of the repeated phone
+    /// (the lowest start offset among its PHONE entities of that length).
+    private func firstRepeatedPhoneId(in entities: [[String: Any]]) throws -> String {
+        let phoneLength = (Self.repeatedPhone as NSString).length
+        let first = try XCTUnwrap(
+            entities
+                .filter {
+                    ($0["type"] as? String) == "PHONE"
+                        && ($0["end"] as? Int ?? 0) - ($0["start"] as? Int ?? 0) == phoneLength
+                }
+                .min { ($0["start"] as? Int ?? 0) < ($1["start"] as? Int ?? 0) },
+            "no PHONE entity: \(entities)"
+        )
+        return try XCTUnwrap(first["id"] as? String)
     }
 
     /// The id of the entity covering `surface` in `text`, as detect_entities reported it.
@@ -203,6 +238,15 @@ final class MCPReviewExclusionTests: XCTestCase {
         XCTAssertEqual((properties["excludeTypes"] as? [String: Any])?["type"] as? String, "array")
         XCTAssertEqual((properties["detectionId"] as? [String: Any])?["type"] as? String, "string")
         XCTAssertEqual(anonymize["required"] as? [String], ["handle"], "the review arguments stay optional")
+
+        // The promise the descriptor makes has to be the one the tool keeps:
+        // excluding an id exposes a VALUE, everywhere in the document.
+        let ids = try XCTUnwrap(
+            (properties["excludeEntityIds"] as? [String: Any])?["description"] as? String
+        )
+        XCTAssertTrue(ids.contains("EVERY occurrence of that value"), ids)
+        XCTAssertTrue(ids.contains("headers, footers, notes, and comments"), ids)
+        XCTAssertTrue(ids.contains("NOT protected anywhere in that document"), ids)
 
         let session = try toolSchema(named: "anonymize_session")
         let sessionProperties = try XCTUnwrap(session["properties"] as? [String: Any])
@@ -277,6 +321,7 @@ final class MCPReviewExclusionTests: XCTestCase {
         ])
 
         XCTAssertEqual(result["excludedCount"] as? Int, 1, "\(result)")
+        XCTAssertEqual(result["excludedValueCount"] as? Int, 1, "\(result)")
         XCTAssertEqual(result["detectionChanged"] as? Bool, false, "\(result)")
         XCTAssertEqual(result["entityCount"] as? Int, 2)
         XCTAssertEqual((result["perTypeCounts"] as? [String: Int])?["EMAIL"], 1)
@@ -522,6 +567,56 @@ final class MCPReviewExclusionTests: XCTestCase {
         )
     }
 
+    /// The finding (W-03): excluding ONE id used to leave exactly one
+    /// occurrence in clear and tokenize the rest, so the value and its own
+    /// token sat in the same document and every other site of that token,
+    /// headers and comments included, could be read straight off it. Ids stay
+    /// per occurrence; the SEMANTICS are per value.
+    func testExcludingOneIdKeepsEveryOccurrenceOfThatValueVisible() throws {
+        let handle = try stageDocxWithRepeatedPhone()
+        let detected = try detection(for: handle)
+        let phoneIds = detected.entities
+            .filter { ($0["type"] as? String) == "PHONE" }
+            .compactMap { $0["id"] as? String }
+        XCTAssertEqual(phoneIds.count, 5, "fixture: four repeats plus one other phone: \(detected.entities)")
+
+        let result = try summary(tool: "anonymize", arguments: [
+            "handle": handle,
+            "passphrase": passphrase,
+            "excludeEntityIds": [try firstRepeatedPhoneId(in: detected.entities)],
+            "detectionId": detected.detectionId
+        ])
+
+        XCTAssertEqual(result["excludedCount"] as? Int, 5, "four body sites plus the header site: \(result)")
+        XCTAssertEqual(result["excludedValueCount"] as? Int, 1, "one id, one value, five sites: \(result)")
+        XCTAssertEqual(result["detectionChanged"] as? Bool, false, "\(result)")
+
+        let copy = try plaintextCopy(of: try XCTUnwrap(result["redactedHandle"] as? String), extension: "docx")
+        let body = try DocxFixtureSupport.part(docxMainPartPath, in: copy)
+        XCTAssertEqual(
+            body.components(separatedBy: Self.repeatedPhone).count - 1,
+            4,
+            "every body occurrence stays visible: \(body)"
+        )
+        // The only PHONE token left stands for the OTHER phone: the excluded
+        // value never minted one, so the numbering never reached it.
+        XCTAssertEqual(
+            body.components(separatedBy: "{PHONE_").count - 1,
+            1,
+            "exactly one PHONE token, and it is not the excluded value's: \(body)"
+        )
+        XCTAssertEqual((result["perTypeCounts"] as? [String: Int])?["PHONE"], 1, "\(result)")
+
+        let header = try DocxFixtureSupport.part("word/header1.xml", in: copy)
+        XCTAssertTrue(header.contains(Self.repeatedPhone), "the header occurrence stays visible: \(header)")
+        XCTAssertFalse(header.contains("{PHONE_"), "no PHONE token in the header part: \(header)")
+
+        // A second, different value in the same document is still tokenized.
+        XCTAssertFalse(body.contains(Self.otherPhone), "\(body)")
+        XCTAssertFalse(body.contains(Self.firstEmail), "\(body)")
+        XCTAssertTrue(body.contains("{EMAIL_1}"), body)
+    }
+
     // MARK: - Exclusion by type
 
     func testExcludedTypesVanishFromBodyAndHeaderPartsOfADocx() throws {
@@ -535,6 +630,7 @@ final class MCPReviewExclusionTests: XCTestCase {
             "fixture: the header date must be detectable"
         )
         XCTAssertEqual(control["excludedCount"] as? Int, 0)
+        XCTAssertEqual(control["excludedValueCount"] as? Int, 0)
 
         let result = try summary(tool: "anonymize", arguments: [
             "handle": handle,
@@ -543,7 +639,12 @@ final class MCPReviewExclusionTests: XCTestCase {
         ])
         XCTAssertNil((result["perTypeCounts"] as? [String: Int])?["DATE"], "\(result)")
         XCTAssertFalse((result["entityTypes"] as? [String] ?? []).contains("DATE"))
-        XCTAssertEqual(result["excludedCount"] as? Int, 1)
+        XCTAssertEqual(
+            result["excludedCount"] as? Int,
+            2,
+            "the body DATE and the header DATE are both in clear: \(result)"
+        )
+        XCTAssertEqual(result["excludedValueCount"] as? Int, 2, "two distinct dates: \(result)")
         XCTAssertEqual(result["detectionChanged"] as? Bool, false)
 
         let copy = try plaintextCopy(of: try XCTUnwrap(result["redactedHandle"] as? String), extension: "docx")

@@ -29,8 +29,8 @@ public struct SessionDocumentOutput: Sendable {
     public var entityCount: Int
     /// The accepted spans (post-merge) tokenized in this document.
     public var entities: [Span]
-    /// How many detected spans the caller's excludedTypes left visible in
-    /// this document. Always 0 when no exclusion was supplied.
+    /// How many detected occurrences the caller's excludedTypes left visible
+    /// in this document. Always 0 when no exclusion was supplied.
     public var excludedEntityCount: Int
 
     public init(
@@ -135,9 +135,9 @@ extension LDAService {
         var excludedCounts: [Int] = []
         for input in inputs {
             let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-            let candidates = try detector.detectText(imported.text)
-            let spans = exclusion.filterBody(candidates)
-            excludedCounts.append(candidates.count - spans.count)
+            let review = exclusion.resolve(bodySpans: try detector.detectText(imported.text))
+            let spans = review.keptBodySpans
+            excludedCounts.append(review.excludedOccurrenceCount)
             sessionDocuments.append(
                 SessionDocument(
                     name: input.lastPathComponent,
