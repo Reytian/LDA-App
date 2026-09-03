@@ -251,6 +251,30 @@ final class ModelSetupGateTests: XCTestCase {
         XCTAssertTrue(shell.contains("handleScanRequest(.all)"))
     }
 
+    func testADismissalOnlyRecordsAnAnswerWhereTheAskWasOnScreen() throws {
+        // The fallback in onboarding's onDismiss exists so that an escape,
+        // should a future edit drop .interactiveDismissDisabled, is recorded
+        // rather than forgotten. It must not record for a Mac that has a
+        // model, because that sheet opens straight onto the three steps: an
+        // answer inferred there would silence the ask for that user if they
+        // ever removed the model.
+        let shell = try uiSource("AppShell.swift")
+        XCTAssertTrue(
+            shell.contains(
+                "if !hasDetectionModel, AISettings.modelSetupAnswer() == nil {"
+            ),
+            "the dismissal fallback must be scoped to the state where the ask "
+                + "was actually presented"
+        )
+        XCTAssertTrue(
+            shell.contains(
+                "AISettings.recordModelSetupAnswer(canRunAModel ? .declined : .unavailable)"
+            ),
+            "a Mac that can run nothing was never asked a question it could "
+                + "answer, so its fallback is unavailable rather than declined"
+        )
+    }
+
     func testTheScanChokepointReresolvesTheModelPathBeforeDispatching() throws {
         // Defect D1. ReviewModel captures modelPath at model creation, and a
         // completed install changes neither customModelPath nor

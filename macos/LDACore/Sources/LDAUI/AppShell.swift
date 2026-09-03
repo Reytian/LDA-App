@@ -61,6 +61,11 @@ public struct AppShell: View {
         AISettings.canRunAnyModel(catalog: catalog)
     }
 
+    /// The tier the model dialogs offer: Quick, the one rung that runs on the
+    /// 16 GB minimum spec. Its published size is what the Download button
+    /// shows, so the number has one source of truth in Models.json.
+    private var quickTier: ModelTier? { catalog.tier(for: .quick) }
+
     /// True while ANY open document is scanning. Gates model removal in the
     /// Manage Models sheet reached from here: llama.cpp still has the file
     /// mmapped, so the disk would not actually come back.
@@ -290,8 +295,8 @@ public struct AppShell: View {
         }
         .modelSetupFlow(
             flow: modelSetupFlow,
-            canDownload: catalog.tier(for: .quick).map { AISettings.canDownload($0) } ?? false,
-            sizeDescription: catalog.tier(for: .quick)?.downloadSizeDescription ?? "",
+            canDownload: quickTier.map { AISettings.canDownload($0) } ?? false,
+            sizeDescription: quickTier?.downloadSizeDescription ?? "",
             onScan: { request in
                 acknowledgeScanTargets(request)
                 runScan(request)
@@ -488,9 +493,17 @@ public struct AppShell: View {
     /// today, but if a future edit drops .interactiveDismissDisabled an escape
     /// is recorded as a decline rather than forgotten. hasCompletedFirstRun
     /// keeps its own meaning, which is only that the sheet was shown.
+    ///
+    /// It fires only when this Mac has no model, because that is the only
+    /// state in which the ask was on screen at all. Recording a decline for
+    /// someone who opened straight onto the three steps would be inferring an
+    /// answer to a question they were never asked, and it would then silence
+    /// the ask for them if they ever removed that model. A model that arrived
+    /// DURING onboarding cannot reach this branch: both routes that install
+    /// one record `.accepted` on the button first.
     private func onboardingDismissed() {
         hasCompletedFirstRun = true
-        if AISettings.modelSetupAnswer() == nil {
+        if !hasDetectionModel, AISettings.modelSetupAnswer() == nil {
             AISettings.recordModelSetupAnswer(canRunAModel ? .declined : .unavailable)
         }
         if pendingModelSheet {
