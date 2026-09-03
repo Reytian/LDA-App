@@ -118,6 +118,11 @@ public struct AppShell: View {
                     workflowProgressHeader
                 }
                 statusBanner
+                if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
+                    count: model.trackedChangeCount
+                ) {
+                    trackedChangesAdvisory(advice)
+                }
                 if let handoffCompletion {
                     handoffCompletionCard(handoffCompletion)
                 }
@@ -591,6 +596,32 @@ public struct AppShell: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    // MARK: - Tracked changes advisory
+
+    /// A Word document with tracked changes round-trips exactly only after
+    /// the user accepts them, so the advice sits under the banner for as long
+    /// as the document is open, whatever its scan state.
+    private func trackedChangesAdvisory(_ advice: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.callout)
+                .foregroundStyle(CounselTheme.danger)
+            Text(verbatim: advice)
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(CounselTheme.raised)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(verbatim: advice))
     }
 
     // MARK: - Status banner

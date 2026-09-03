@@ -852,3 +852,5 @@
 "1 type" = "1 type";
 "%lld types" = "%lld types";
 "Legend, %lld types" = "Légende, %lld types";
+"This document carries tracked changes (%lld). Accept all changes before redacting for an exact round trip; a value that spans a tracked change is restored into the live text and the change is flattened." = "Ce document contient des modifications suivies (%lld). Acceptez toutes les modifications avant de caviarder pour un aller-retour exact ; une valeur qui chevauche une modification suivie est restaurée dans le texte courant et la modification est aplatie.";
+"Tracked-change and comment authors are blanked in the redacted copy and are not restored." = "Les auteurs des modifications suivies et des commentaires sont effacés dans la copie caviardée et ne sont pas restaurés.";

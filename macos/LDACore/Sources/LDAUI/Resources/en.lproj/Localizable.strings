@@ -852,3 +852,5 @@
 "1 type" = "1 type";
 "%lld types" = "%lld types";
 "Legend, %lld types" = "Legend, %lld types";
+"This document carries tracked changes (%lld). Accept all changes before redacting for an exact round trip; a value that spans a tracked change is restored into the live text and the change is flattened." = "This document carries tracked changes (%lld). Accept all changes before redacting for an exact round trip; a value that spans a tracked change is restored into the live text and the change is flattened.";
+"Tracked-change and comment authors are blanked in the redacted copy and are not restored." = "Tracked-change and comment authors are blanked in the redacted copy and are not restored.";

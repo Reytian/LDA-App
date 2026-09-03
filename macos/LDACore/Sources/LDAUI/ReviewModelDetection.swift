@@ -35,19 +35,25 @@ extension ReviewModel {
     /// original text for this document kind, reviewed like any other. Unknown
     /// extensions are treated as plain text.
     nonisolated static func importText(from url: URL) throws -> String {
+        try importDocument(from: url).text
+    }
+
+    /// Import with the importer the extension calls for, keeping the metadata
+    /// the shell reports alongside the text (the docx tracked-change count).
+    nonisolated static func importDocument(from url: URL) throws -> ImportedDocument {
         let ext = url.pathExtension.lowercased()
         if ImageTextExtractor.shouldTreatAsImage(url, extension: ext) {
-            return try ImageTextExtractor().importDocument(url).text
+            return try ImageTextExtractor().importDocument(url)
         }
         switch ext {
         case "docx":
-            return try DocxImporter().importDocument(url).text
+            return try DocxImporter().importDocument(url)
         case "pdf":
             let imported = try PdfImporter().importDocument(url)
-            guard imported.isScanned else { return imported.text }
-            return try PdfOCRImporter().importDocument(url).text
+            guard imported.isScanned else { return imported }
+            return try PdfOCRImporter().importDocument(url)
         default:
-            return try TextDocumentIO().importDocument(url).text
+            return try TextDocumentIO().importDocument(url)
         }
     }
 

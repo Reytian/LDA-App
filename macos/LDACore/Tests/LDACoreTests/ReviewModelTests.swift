@@ -289,6 +289,38 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertGreaterThan(report.restoredCount, 0)
     }
 
+    // MARK: - Tracked changes
+
+    /// The importer counts tracked-change containers; the model surfaces the
+    /// count at open time so the shell can warn before redacting, and clears
+    /// it again when a plain document replaces the revised one.
+    func testOpenSurfacesTheDocxTrackedChangeCount() async throws {
+        let revised = try DocxTestPackage.write(
+            body: DocxTestPackage.paragraph(
+                DocxTestPackage.run("Contact "),
+                "<w:ins w:id=\"1\" w:author=\"a\" w:date=\"d\">"
+                    + DocxTestPackage.run("jane.doe@example.com") + "</w:ins>",
+                "<w:del w:id=\"2\" w:author=\"a\" w:date=\"d\"><w:r><w:delText>old</w:delText></w:r></w:del>"
+            ),
+            to: workDir.appendingPathComponent("revised.docx")
+        )
+        let model = ReviewModel(modelPath: nil)
+        model.useLLM = false
+
+        await model.open(revised)
+
+        XCTAssertEqual(model.trackedChangeCount, 2, "one w:ins and one w:del")
+        guard case .imported = model.status else {
+            return XCTFail("expected the document to import, got \(model.status)")
+        }
+
+        let plain = workDir.appendingPathComponent("plain.txt")
+        try Data("No revisions.".utf8).write(to: plain)
+        await model.open(plain)
+
+        XCTAssertEqual(model.trackedChangeCount, 0, "the count belongs to the open document")
+    }
+
     // MARK: - DOCX fixture authoring
 
     /// Read one part of a .docx package as a UTF-8 string for assertions.
