@@ -67,10 +67,6 @@ public struct AppShell: View {
     /// True while the onboarding sheet is presented.
     @State private var isOnboardingPresented = false
 
-    /// A requested client change that must first close the current documents
-    /// so one matter's live content cannot be relabeled as another matter.
-    @State private var pendingClientSelection: PendingClientSelection?
-
     /// Which step of the Save Redacted flow is on screen. The directory
     /// picker and the passphrase sheet live in ExportFlow.
     @StateObject private var exportFlow = ExportFlowModel()
@@ -79,6 +75,11 @@ public struct AppShell: View {
     /// itself (panels, sheets, and the replace-live-work prompt) lives in
     /// WorkspaceFlow so this file does not grow another set of sheets.
     @StateObject private var workspaceFlow = WorkspaceFlowModel()
+
+    /// A requested matter change that must first close the current documents
+    /// so one matter's live content cannot be relabeled as another matter.
+    /// The menu and the confirmation live in ClientMatterFlow.
+    @StateObject private var clientFlow = ClientMatterFlowModel()
 
     /// Which step of the export-or-open compliance report flow is on screen.
     /// Same arrangement as the workspace flow, and for the same reason: the
@@ -159,24 +160,8 @@ public struct AppShell: View {
                 } == true
             )
         }
-        .confirmationDialog(
-            "Close current work?",
-            isPresented: Binding(
-                get: { pendingClientSelection != nil },
-                set: { if !$0 { pendingClientSelection = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let pendingClientSelection {
-                Button("Close Active Work and Switch", role: .destructive) {
-                    completeClientSelection(pendingClientSelection.label)
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingClientSelection = nil
-            }
-        } message: {
-            Text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
+        .clientMatterFlow(session: session, flow: clientFlow) { message in
+            exportMessage = message
         }
         .onAppear {
             if !hasCompletedFirstRun {
@@ -261,7 +246,12 @@ public struct AppShell: View {
                 }
                 .help("Add .txt, .docx, .pdf documents or a .zip to the session")
 
-                clientMenu
+                ClientMatterMenu(
+                    session: session,
+                    flow: clientFlow,
+                    onOpenMatters: onOpenMatters,
+                    report: { exportMessage = $0 }
+                )
             }
 
             ToolbarItemGroup(placement: .automatic) {
@@ -313,105 +303,6 @@ public struct AppShell: View {
                 .help(L10n.string(ComplianceReportPresentation.exportHelp))
             }
         }
-    }
-
-    /// The client profile menu (R10): pick a client so this session reuses and
-    /// extends that client's identities, or work without one.
-    private var clientMenu: some View {
-        Menu {
-            Button {
-                requestClientSelection(nil)
-            } label: {
-                if session.clientLabel == nil {
-                    Label("No Matter", systemImage: "checkmark")
-                } else {
-                    Text("No Matter")
-                }
-            }
-
-            Divider()
-            Button {
-                onOpenMatters()
-            } label: {
-                Label("Choose Saved Matter\u{2026}", systemImage: "briefcase")
-            }
-
-            Button("New Matter\u{2026}") {
-                promptNewClient()
-            }
-
-            // Matter-scoped learned rules (F4): where this session's accept
-            // and reject decisions are remembered. Only meaningful with a
-            // matter selected, so the item hides without one.
-            if session.clientLabel != nil {
-                Divider()
-                Toggle(
-                    "Apply learned rules to this matter only",
-                    isOn: matterScopeBinding
-                )
-            }
-        } label: {
-            Label(
-                session.clientLabel ?? L10n.string("No Matter"),
-                systemImage: "person.crop.square"
-            )
-        }
-        .help("Work under a matter keeps the same placeholders for the same values, every time")
-    }
-
-    /// Routes the matter-scope toggle through the session, which persists the
-    /// choice per matter and creates the matter's scope identity on first use.
-    private var matterScopeBinding: Binding<Bool> {
-        Binding(
-            get: { session.scopeLearnedRulesToMatter },
-            set: { enabled in
-                do {
-                    try session.setScopeLearnedRulesToMatter(enabled)
-                } catch {
-                    exportMessage = String(
-                        format: L10n.string("Could not change the matter scope. %@"),
-                        error.localizedDescription as NSString
-                    )
-                }
-            }
-        )
-    }
-
-    /// Ask for a new client label with a small input alert and select it.
-    private func promptNewClient() {
-        let alert = NSAlert()
-        alert.messageText = L10n.string("New matter")
-        alert.informativeText = L10n.string(
-            "Documents processed under this matter keep consistent placeholders across sessions. The mapping stays encrypted on this Mac."
-        )
-        alert.addButton(withTitle: L10n.string("Create"))
-        alert.addButton(withTitle: L10n.string("Cancel"))
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = L10n.string("Client or matter name")
-        alert.accessoryView = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty else { return }
-        requestClientSelection(label)
-    }
-
-    private func requestClientSelection(_ label: String?) {
-        do {
-            if try session.selectMatter(label) == false {
-                pendingClientSelection = PendingClientSelection(label: label)
-            }
-        } catch {
-            exportMessage = error.localizedDescription
-        }
-    }
-
-    private func completeClientSelection(_ label: String?) {
-        do {
-            _ = try session.selectMatter(label, discardingDocuments: true)
-        } catch {
-            exportMessage = error.localizedDescription
-        }
-        pendingClientSelection = nil
     }
 
     // MARK: - Export for AI (stage 3)
@@ -669,8 +560,4 @@ private final class WindowPresentationStateView: NSView {
     deinit {
         removeObservers()
     }
-}
-
-private struct PendingClientSelection {
-    let label: String?
 }
