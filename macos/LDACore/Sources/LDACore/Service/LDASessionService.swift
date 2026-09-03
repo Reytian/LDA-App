@@ -166,11 +166,21 @@ extension LDAService {
                 )
             )
         }
-        let spansByIndex = sessionDocuments.map { $0.spans }
+
+        // No replacement may swallow a newline or a tab, on any format, and a
+        // session intermediate is Markdown: a replacement that eats a newline
+        // deletes a line from the edit surface handed to the AI, and hides the
+        // value on the far side of the break inside a placeholder named after
+        // the value on the near side. Split such spans into parts, each with
+        // its own token, mirroring LDAService.anonymize. The UNSPLIT documents
+        // stay in hand for the alias pass below, because a break never divides
+        // a name surface.
+        let splitDocuments = SpanSplitter.splitAtBreaks(sessionDocuments)
+        let spansByIndex = splitDocuments.map { $0.spans }
 
         let label = sessionLabel(for: inputs)
         let result = SessionTokenizer.tokenize(
-            documents: sessionDocuments,
+            documents: splitDocuments,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
             seedMapping: seedMapping,
@@ -183,7 +193,9 @@ extension LDAService {
 
         // Record the full-name/short-name grouping found in each document in
         // the ONE shared mapping. Tokens and values are untouched, so restore
-        // stays byte-identical at every site.
+        // stays byte-identical at every site. Pairs are derived from the
+        // pre-split spans because a break never divides a name surface, and
+        // the alias pass must see whole names.
         var mapping = result.mapping
         for document in sessionDocuments {
             mapping = EntityRescan.linkAliases(

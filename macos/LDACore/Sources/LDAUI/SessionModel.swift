@@ -543,10 +543,19 @@ public final class SessionModel: ObservableObject {
                 spans: entry.model.entities.filter { $0.accepted }.map { $0.span }
             )
         }
+        // No replacement may swallow a newline or a tab: the handoff is
+        // Markdown, so a replacement that eats a newline deletes a line from
+        // the file the user uploads, and hides the value on the far side of
+        // the break inside a placeholder named after the value on the near
+        // side. Split such spans into parts before tokenizing, mirroring
+        // LDAService.anonymize. The UNSPLIT documents stay in hand for the
+        // alias pass and the cross-document rescan check below, because a
+        // break never divides a name surface.
+        let splitDocuments = SpanSplitter.splitAtBreaks(documents)
         let label = clientLabel ?? (ready.first.map { $0.name } ?? "session")
         let style = outputStyleProvider()
         let result = try SessionTokenizer.tokenize(
-            documents: documents,
+            documents: splitDocuments,
             sourceLabel: label,
             createdAtISO8601: createdAtISO8601,
             seedMapping: seed,
@@ -582,11 +591,18 @@ public final class SessionModel: ObservableObject {
         }
 
         // Show the assigned tokens on the accepted entities (sealed chips).
+        // A value whose surface crossed a newline or a tab was sealed as
+        // SEVERAL tokens, so its whole surface is in no mapping entry;
+        // chipToken shows the first part's token rather than nothing, which
+        // would tell the user a redacted value is exposed.
         let tokenBySurface = ReviewModel.tokenBySurface(mapping: linkedMapping)
         for entry in ready {
             for index in entry.model.entities.indices {
                 entry.model.entities[index].token = entry.model.entities[index].accepted
-                    ? tokenBySurface[entry.model.entities[index].span.text]
+                    ? ReviewModel.chipToken(
+                        for: entry.model.entities[index].span.text,
+                        in: tokenBySurface
+                    )
                     : nil
             }
         }

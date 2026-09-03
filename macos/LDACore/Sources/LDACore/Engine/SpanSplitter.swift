@@ -87,6 +87,23 @@ public enum SpanSplitter {
         return result
     }
 
+    /// The same rule over a whole session: each document's spans split at the
+    /// breaks of its own text.
+    ///
+    /// Returned as a separate list rather than folded into the caller's
+    /// documents because both session paths still need the UNSPLIT spans: a
+    /// break never divides a name surface, so EntityRescan.aliasPairs and the
+    /// cross-document rescan check must keep seeing whole names.
+    public static func splitAtBreaks(_ documents: [SessionDocument]) -> [SessionDocument] {
+        documents.map { document in
+            SessionDocument(
+                name: document.name,
+                text: document.text,
+                spans: splitAtBreaks(document.spans, in: document.text)
+            )
+        }
+    }
+
     /// The first part a surface would be split into, or nil when the surface
     /// carries no break (nothing would be split) or holds no non-whitespace
     /// part at all.
