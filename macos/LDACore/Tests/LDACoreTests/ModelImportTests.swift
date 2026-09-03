@@ -443,6 +443,98 @@ final class ModelImportTests: XCTestCase {
         )
     }
 
+    // MARK: - The sheet keeps the two paths visibly apart
+
+    func testTheVerifiedAndUncheckedSectionsAreLabelledDifferently() throws {
+        // Two file pickers on one sheet will be confused by someone unless the
+        // difference is stated in the titles, the buttons and the consequences.
+        let text = try String(
+            contentsOf: Self.uiSources.appendingPathComponent("ModelManagementView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(text.contains("Already have the model file?"))
+        XCTAssertTrue(text.contains("Add Model File"))
+        XCTAssertTrue(
+            text.contains("Use your own model, unchecked"),
+            "the unchecked path must say so in its own title"
+        )
+        XCTAssertTrue(text.contains("Choose File"))
+        XCTAssertTrue(
+            text.contains("LDA does not check this file and does not copy it"),
+            "the consequences of the unchecked path must be explicit"
+        )
+        XCTAssertFalse(
+            text.contains("Use another model"),
+            "the old neutral title gave no hint that the file is unchecked"
+        )
+    }
+
+    func testTheVerifiedImportSectionComesBeforeTheUncheckedOne() throws {
+        let text = try String(
+            contentsOf: Self.uiSources.appendingPathComponent("ModelManagementView.swift"),
+            encoding: .utf8
+        )
+        guard let verified = text.range(of: "verifiedImportSection"),
+              let custom = text.range(of: "customModelSection") else {
+            XCTFail("both sections must exist")
+            return
+        }
+        XCTAssertLessThan(
+            verified.lowerBound, custom.lowerBound,
+            "the checked path is the one to reach for first"
+        )
+    }
+
+    func testARefusalNeverPointsAtTheUncheckedPath() throws {
+        // A refusal that teaches the user how to route around itself is not a
+        // refusal. The unchecked section is on the same sheet for anyone who
+        // genuinely wants it; the failure message must not send them there.
+        for error in [
+            ModelImportError.digestUnmatched,
+            .sizeUnmatched(actualBytes: 10),
+            .unreadable("x")
+        ] {
+            let message = error.localizedMessage(language: .english).lowercased()
+            XCTAssertFalse(message.contains("choose file"))
+            XCTAssertFalse(message.contains("use your own"))
+            XCTAssertFalse(message.contains("anyway"))
+        }
+    }
+
+    func testTheOfflineURLIsCopiedRatherThanOpened() throws {
+        // NetworkChokepointTests gates Link( and openURL across all of Sources,
+        // so this asserts the positive half: the sheet offers a copy instead.
+        let text = try String(
+            contentsOf: Self.uiSources.appendingPathComponent("ModelManagementView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(text.contains("NSPasteboard.general"))
+        XCTAssertFalse(
+            codeLines(of: text).contains { $0.contains("SensitiveClipboard") },
+            "a public release URL is not client data and does not want a self-clear"
+        )
+    }
+
+    func testTheImportIsNotGatedOnAScanRunningElsewhere() throws {
+        // Ruled deliberately: the import writes a new file and mutates nothing
+        // llama.cpp has mmapped, and the imported tier cannot become the active
+        // model mid-scan because ReviewModel captures modelPath at scan start.
+        let text = try String(
+            contentsOf: Self.uiSources.appendingPathComponent("ModelManagementView.swift"),
+            encoding: .utf8
+        )
+        guard let start = text.range(of: "private var verifiedImportSection") else {
+            XCTFail("verifiedImportSection is missing")
+            return
+        }
+        let body = text[start.lowerBound...].prefix(3_000)
+        XCTAssertFalse(
+            body.contains("isBusyElsewhere"),
+            "wiring the import into isBusyElsewhere would block the one remedy "
+                + "a managed offline install has"
+        )
+    }
+
     /// Lines that are not comments, so a file may discuss an invariant it does
     /// not violate.
     private func codeLines(of text: String) -> [String] {

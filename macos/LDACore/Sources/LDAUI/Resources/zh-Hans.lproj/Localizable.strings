@@ -311,7 +311,6 @@
 "Use Automatic" = "使用自动模式";
 "Use This Text" = "使用此文本";
 "Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "使用您容易识别的客户或事项名称。App 将启动匿名化会话，并始终使用一致的受保护占位符。";
-"Use another model" = "使用其他模型";
 "Use this profile for the current fill without adding it to the library" = "使用此档案完成当前填写，但不将其添加到资料库";
 "Value" = "值";
 "Verified" = "已验证";
@@ -352,7 +351,6 @@
 "LDA processes document contents and stores the encrypted mapping on this Mac. If you ask it to download a detection model, it connects to the model host. Copying or exporting a document lets you send it to a service you choose, so review that service's privacy settings first." = "LDA 会处理文档内容，并将加密映射存储在这台 Mac 上。如果您要求下载检测模型，它会连接到模型托管服务。复制或导出文档后，您可以将其发送至所选服务，因此请先查看该服务的隐私设置。";
 "Anything you choose to keep visible stays visible in the exported document." = "您选择保持可见的任何内容都会在导出文档中保持可见。";
 "Restore Clipboard, in the menu-bar icon, is the one action that puts real values on your clipboard; it tries to clear them again about %lld seconds later, so paste promptly and do not rely on the clearing." = "菜单栏图标中的“恢复剪贴板”是唯一会将真实值放入剪贴板的操作；它会尝试在约 %lld 秒后再次清除这些值。请及时粘贴，不要完全依赖自动清除。";
-"No AI model is installed yet, so detection is pattern-only for now: emails, phones, dates, amounts, and ID numbers. Names, companies, and addresses are NOT detected until you add one. Open Settings, then AI, to choose and install a model." = "尚未安装 AI 模型，因此目前仅按模式检测电子邮件、电话号码、日期、金额和证件号码。在添加模型前，不会检测姓名、公司和地址。请打开“设置”，再前往“AI”选择并安装模型。";
 "Add" = "添加";
 "Scan" = "扫描";
 "Share" = "共享";
@@ -396,7 +394,6 @@
 "Choose a folder for the processing report." = "选择用于存放处理报告的文件夹。";
 "Choose a folder for the readable copies of this report." = "选择用于存放此报告可读副本的文件夹。";
 "Choose a folder for the redacted document and encrypted mapping." = "选择用于存放脱敏文档和加密映射的文件夹。";
-"Choose a local GGUF model for on-device detection." = "选择用于设备端检测的本地 GGUF 模型。";
 "Choose a shared LDA vocabulary file to merge." = "选择要合并的共享 LDA 词汇文件。";
 "Choose source documents to extract profile fields from." = "选择用于提取档案字段的源文档。";
 "Choose the .ldamap mapping that goes with this document." = "选择与此文档对应的 .ldamap 映射文件。";
@@ -556,7 +553,6 @@
 "Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing." = "快速已内置，并可在 LDA 支持的每台 Mac 上运行。如果内存为 24 GB 或以上，均衡能找到同样多的内容，同时需要排除的项目少得多。最彻底是我们的测试中唯一没有遗漏的设置。";
 "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app." = "这台 Mac 上也有一份已下载的 %@ 副本。%@ 已内置于 App，因此无需保留该副本。";
 "%@ of %@" = "%@ / %@";
-"Any local GGUF file. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "可选择任何本地 GGUF 文件。LDA 无法判断它的效果、运行时间或内存需求。";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "每次往返都会记录哪些内容被保护和恢复。记录绝不包含敏感值本身，并且一直加密保存在这台 Mac 上。";
 "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "更高的设置能找到更多姓名、公司和地址，但所需时间也更长。检测使用这台 Mac 上选定的模型。";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed." = "它会以与文档稍有不同的形式返回部分姓名和地址，因此这些内容不会被隐去，也不会进入审核列表。内置模型没有这个问题，而且运行速度相同。";
@@ -873,3 +869,19 @@
 "No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "无网络：在另一台 Mac 上下载模型，用移动硬盘或 U 盘带过来，然后在“管理模型”中添加该文件。LDA 会先校验再安装。";
 "Set Up a Model…" = "设置模型…";
 "No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "尚未安装检测模型，因此扫描不会查找人名、公司名或地址。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。添加模型即可找出人名。";
+
+/* Manage Models: the verified offline import (2026-09-03). */
+"Already have the model file?" = "已经有模型文件了？";
+"If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download." = "如果你在另一台 Mac 上下载了模型，可以在此添加该文件。LDA 会用本版本随附的校验和进行核对，并把文件复制到自己的目录中，使用效果与直接下载完全相同。";
+"Add Model File…" = "添加模型文件…";
+"This works with offline mode on. Adding a file makes no network request." = "开启离线模式后此功能仍可使用。添加文件不会发起任何网络请求。";
+"Offline copy of the Quick model:" = "Quick 模型的离线副本：";
+"Copy Link" = "复制链接";
+"Copied" = "已复制";
+"The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here." = "发布页面列出了两个分卷、一个校验和文件，以及用于合并和校验的命令。请在此添加合并后的文件。";
+"Checking there is room for the file" = "正在检查磁盘空间是否够用";
+"Added and verified." = "已添加并通过校验。";
+"Adding the file was cancelled. Nothing was installed." = "已取消添加文件，未安装任何内容。";
+"Use your own model, unchecked" = "使用你自己的模型（不校验）";
+"Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "任意本地 GGUF 文件。LDA 不会校验该文件，也不会复制它：文件留在原处，按原样使用。LDA 无法告诉你它的效果、耗时或内存占用。";
+"Choose a local GGUF model. LDA will not check it." = "请选择本地 GGUF 模型。LDA 不会对它进行校验。";
