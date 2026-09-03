@@ -189,46 +189,19 @@ final class LocalizationFeatureTests: XCTestCase {
         }
     }
 
-    func testHighVisibilityDynamicControlsReachALocalizationBoundary() throws {
-        let sources = Self.packageRoot.appendingPathComponent("Sources/LDAUI")
-        let statusBanner = try String(
-            contentsOf: sources.appendingPathComponent("AppShellStatusBanner.swift"),
-            encoding: .utf8
-        )
-        let restore = try String(
-            contentsOf: sources.appendingPathComponent("DeanonymizeShell.swift"),
-            encoding: .utf8
-        )
-        let fillLibrary = try String(
-            contentsOf: sources.appendingPathComponent("FillLibraryViews.swift"),
-            encoding: .utf8
-        )
-        let fillShell = try String(
-            contentsOf: sources.appendingPathComponent("FillShell.swift"),
-            encoding: .utf8
-        )
-        let documentPane = try String(
-            contentsOf: sources.appendingPathComponent("DocumentPane.swift"),
-            encoding: .utf8
-        )
-        let fillSheets = try String(
-            contentsOf: sources.appendingPathComponent("FillShellSheets.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(restore.contains("title: LocalizedStringKey"))
-        XCTAssertTrue(statusBanner.contains("scanButton(title: LocalizedStringKey"))
-        XCTAssertTrue(restore.contains("body: LocalizedStringKey"))
-        XCTAssertTrue(restore.contains("buttonTitle: LocalizedStringKey"))
-        XCTAssertTrue(restore.contains(".help(L10n.string(buttonHelp))"))
-        XCTAssertTrue(fillLibrary.contains("Text(LocalizedStringKey(kindDisplayName(kind)))"))
-        XCTAssertTrue(fillLibrary.contains("Text(LocalizedStringKey(kindDescription))"))
-        XCTAssertTrue(fillShell.contains("LocalizedStringKey(profilePrimaryActionLabel)"))
-        XCTAssertTrue(fillShell.contains(".help(L10n.string(profilePrimaryActionHelp))"))
-        XCTAssertTrue(documentPane.contains("Text(mode.localizedKey).tag(mode)"))
-        XCTAssertTrue(fillSheets.contains("title: L10n.string(\"Save failed\")"))
-        XCTAssertTrue(fillSheets.contains("title: L10n.string(\"Load failed\")"))
-    }
+    // testHighVisibilityDynamicControlsReachALocalizationBoundary removed:
+    // it positively required title: LocalizedStringKey,
+    // scanButton(title: LocalizedStringKey, Text(LocalizedStringKey(...)),
+    // and Text(mode.localizedKey).tag(mode), asserting that REACHING a
+    // LocalizedStringKey site *is* reaching a localization boundary. It is
+    // not: those are exactly the sites LocalizationRoutingTests now bans.
+    // The test's four genuinely-correct L10n.string(...) assertions
+    // (buttonHelp, profilePrimaryActionHelp, "Save failed", "Load failed")
+    // needed no manual fixture: LocalizationRoutingTests
+    // .testEveryKeyHandedToL10nExistsInAllFourCatalogs already scans every
+    // L10n.string/.text/.button/.l10nHelp call across Sources/LDAUI and
+    // Sources/LDAApp automatically, so those four keys are covered without
+    // being re-typed here.
 
     func testPassphraseValidationAndInstallFailuresUseSelectedLanguage() {
         XCTAssertEqual(
@@ -476,12 +449,22 @@ final class LocalizationFeatureTests: XCTestCase {
         )
 
         XCTAssertTrue(settings.contains("AppLanguage.storageKey"))
-        XCTAssertTrue(settings.contains("Picker(\"Language\""))
+        // The literal Picker("Language" title is gone: a bare string literal
+        // there resolves against Bundle.main, which is exactly the bug this
+        // whole change fixes. The routed form uses a label closure instead.
+        XCTAssertTrue(settings.contains("Picker(selection: languageBinding)"))
         XCTAssertTrue(app.contains("@AppStorage(AppLanguage.storageKey)"))
         XCTAssertGreaterThanOrEqual(
             app.components(separatedBy: ".environment(\\.locale, appLocale)").count - 1,
             3,
-            "The main window, Settings, and menu-bar companion must all update immediately."
+            "the shared Locale must still be set at every scene"
+        )
+        XCTAssertGreaterThanOrEqual(
+            app.components(separatedBy: ".environment(\\.appLanguage, appLanguage)").count - 1,
+            3,
+            "The main window, Settings, and menu-bar companion must all update "
+                + "immediately: \\.appLanguage is what L10n.text / L10n.button "
+                + "actually read, so it must be set at every scene .locale is."
         )
     }
 
@@ -490,22 +473,25 @@ final class LocalizationFeatureTests: XCTestCase {
             contentsOf: Self.packageRoot.appendingPathComponent("Sources/LDAUI/RootShell.swift"),
             encoding: .utf8
         )
-        let settings = try String(
-            contentsOf: Self.packageRoot.appendingPathComponent("Sources/LDAUI/SettingsView.swift"),
-            encoding: .utf8
-        )
         let onboarding = try String(
             contentsOf: Self.packageRoot.appendingPathComponent("Sources/LDAUI/OnboardingView.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(rootShell.contains("Text(mode.localizedKey)"))
+        // RootShell.swift's own Text(mode.localizedKey) is untouched by this
+        // change (it is not one of the six files this change cleans; its
+        // LocalizedStringKey budget stays nonzero in LocalizationRoutingTests)
+        // so it is not asserted here one way or the other: pinning it present
+        // would itself be pinning a broken site in place, which is the exact
+        // failure mode that got testHighVisibilityDynamicControlsReachALocalizationBoundary
+        // removed above.
         XCTAssertFalse(rootShell.contains("Text(mode.rawValue)"))
-        XCTAssertTrue(settings.contains("Text($0.localizedKey)"))
-        XCTAssertTrue(settings.contains("Text(LocalizedStringKey(Self.label(for: style)))"))
-        XCTAssertTrue(settings.contains("Text(LocalizedStringKey(Self.explanation(for:"))
         XCTAssertTrue(onboarding.contains("@AppStorage(AppLanguage.storageKey)"))
-        XCTAssertTrue(onboarding.contains("Picker(\"Language\""))
+        // Page 1 is a radio list, not a Picker: routed through
+        // language.nativeName(language:) and L10n.string("Continue", ...)
+        // rather than a bare literal title.
+        XCTAssertTrue(onboarding.contains("ForEach(AppLanguage.allCases)"))
+        XCTAssertTrue(onboarding.contains("language.nativeName(language: currentLanguage)"))
         XCTAssertFalse(
             onboarding.contains("document.\\nRestore Clipboard"),
             "The two onboarding warnings must be separate localized Text values."

@@ -341,7 +341,6 @@
 "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored." = "Les valeurs protégées deviennent des espaces réservés comme {PERSON_1}. Cette forme est précise et compacte, mais une IA externe peut parfois modifier les accolades. Un espace réservé modifié ne peut pas être restauré.";
 "Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing." = "Les valeurs protégées deviennent des pseudonymes naturels comme Société A ou 甲公司. Les outils d’IA les traitent comme des noms et ne les modifient pas. Les documents restent donc restaurables même après des modifications importantes.";
 "Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore." = "Les valeurs protégées sont partiellement masquées sur place, comme 张*明 ou 138****5678, selon le format attendu par les tribunaux et les autorités. Cette option convient aux envois à une personne. Si deux valeurs ont le même masque, LDA signale l’ambiguïté au lieu de deviner lors de la restauration.";
-"LDA protects client information before it reaches an AI tool, and puts it back afterwards. Three steps:" = "LDA protège les informations du client avant leur envoi à un outil d’IA, puis les restaure ensuite. Trois étapes :";
 "Bring documents in" = "Importer les documents";
 "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect." = "Déposez des fichiers Word, PDF ou texte, ou une archive .zip. L’app recherche les noms, sociétés, dates, montants, adresses e-mail, numéros de téléphone et identifiants. Vous vérifiez ensuite ce qui sera protégé.";
 "Hand the safe copy to any AI" = "Transmettre la copie protégée à une IA";
@@ -357,10 +356,6 @@
 "Quick" = "Rapide";
 "Balanced" = "Équilibré";
 "Most thorough" = "Le plus complet";
-"Instant. Finds emails, phones, dates, amounts, and ID numbers only. Names, companies, and addresses are not detected." = "Instantané. Détecte uniquement les adresses e-mail, numéros de téléphone, dates, montants et identifiants. Les noms, sociétés et adresses ne sont pas détectés.";
-"Smallest download. Finds nearly every name, company, and address, and is the fastest option that does." = "Téléchargement le plus léger. Détecte presque tous les noms, sociétés et adresses. C’est l’option la plus rapide qui le permet.";
-"Catches the most overall, at about twice the wait." = "Détecte le plus d’éléments au total, avec un temps d’attente environ deux fois plus long.";
-"Missed nothing in testing. Slowest by a wide margin." = "N’a rien manqué lors des tests. De loin le plus lent.";
 "Installed" = "Installé";
 "Tight fit" = "Espace limité";
 "In use" = "En cours d’utilisation";
@@ -555,7 +550,7 @@
 "%@ of %@" = "%@ sur %@";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "Chaque aller-retour enregistre ce qui a été protégé et restauré. Les enregistrements ne contiennent jamais les valeurs sensibles elles-mêmes et restent chiffrés sur ce Mac.";
 "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "Les réglages plus élevés trouvent davantage de noms, de sociétés et d’adresses, mais prennent plus de temps. La détection utilise le modèle choisi sur ce Mac.";
-"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed." = "Il restitue certains noms et certaines adresses sous une forme légèrement différente de celle du document. Ils ne sont donc jamais caviardés et n’apparaissent jamais dans la liste de vérification. Le modèle intégré n’a pas ce problème et fonctionne à la même vitesse.";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed." = "Il restitue certains noms et certaines adresses sous une forme légèrement différente de celle du document. Ils ne sont donc jamais caviardés et n’apparaissent jamais dans la liste de vérification. Le modèle Rapide n’a pas ce problème et fonctionne à la même vitesse.";
 "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above." = "LDA ne peut pas estimer la vitesse ni la mémoire d’un modèle qu’il ne connaît pas. Ce modèle remplace le réglage ci-dessus.";
 "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it." = "Le fichier contient les documents de ce dossier, vos décisions de vérification et les valeurs nécessaires à leur restauration. Choisissez une phrase secrète pour le protéger.";
 "Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase." = "Saisissez la phrase secrète utilisée pour enregistrer ce fichier d’espace de travail. Son contenu est déchiffré localement après la saisie.";
@@ -862,8 +857,6 @@
 "Add Model" = "Ajouter le modèle";
 
 /* Model setup at first run plus the pre-scan advisory (2026-09-03). */
-"First, add a detection model" = "D'abord, ajoutez un modèle de détection";
-"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "Sans connexion : téléchargez le modèle sur un autre Mac, apportez-le sur un disque, puis ajoutez le fichier depuis Gérer les modèles. LDA le vérifie avant de l'installer.";
 "Set Up a Model…" = "Configurer un modèle…";
 
 /* Manage Models: the verified offline import (2026-09-03). */
@@ -883,13 +876,8 @@
 "Choose a local GGUF model. LDA will not check it." = "Choisissez un modèle GGUF local. LDA ne le vérifiera pas.";
 
 /* Model setup: the first-run ask, the pre-scan gate, the export gate, and the advisories (2026-09-03). */
-"A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals." = "C'est le modèle de détection qui trouve les noms de personnes et les noms de sociétés. Sans lui, une analyse ne reconnaît que des motifs : adresses e-mail, téléphones, dates, montants, numéros d'identité, codes de crédit social unifiés, comptes bancaires, numéros de dossier, plaques d'immatriculation, identifiants WeChat, liens et sceaux.";
-"Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number." = "Les noms de personnes et de sociétés ne sont pas détectés : ils restent dans le document, ils ne figurent pas dans la liste de révision, et la copie que vous confiez à un outil d'IA identifie toujours votre client. Une adresse n'est reconnue que sous la forme de rue chinoise, et la correspondance s'arrête au numéro de voirie.";
-"In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part." = "Dans notre propre test sur deux contrats, une analyse sans modèle a laissé en place 32 des 36 noms, sociétés et adresses, et n'a reconnu les 4 autres qu'en partie.";
 "Download the Model (%@)" = "Télécharger le modèle (%@)";
 "I Already Have the File…" = "J'ai déjà le fichier…";
-"Downloading the detection model. You can read the next steps while it arrives." = "Téléchargement du modèle de détection. Vous pouvez lire les étapes suivantes pendant ce temps.";
-"The detection model is installed. A scan will look for names, companies, and addresses." = "Le modèle de détection est installé. Une analyse cherchera les noms, les sociétés et les adresses.";
 "This Mac cannot run a detection model" = "Ce Mac ne peut pas exécuter de modèle de détection";
 "This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that." = "Ce Mac n'a pas assez de mémoire pour exécuter un modèle de détection, LDA n'en propose donc pas ici. Sur ce Mac, les analyses ne reconnaissent que des motifs, et les noms de personnes et de sociétés restent dans le document. Ajouter un fichier de modèle à la main n'y changerait rien.";
 "Scan without a detection model?" = "Analyser sans modèle de détection ?";
@@ -910,3 +898,24 @@
 /* Export gate: the partial-coverage body, kept apart from the one for a pass that never ran (2026-09-03). */
 "Export a copy where the AI pass did not finish?" = "Exporter une copie sur laquelle l'analyse par IA ne s'est pas terminée ?";
 "The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again." = "L'analyse par IA a commencé sur au moins un de ces documents sans le parcourir en entier : certains noms de personnes et de sociétés y ont été trouvés, d'autres non. Une liste de révision peut sembler complète et rester en deçà de ce que contient le texte. Relisez la copie que vous allez écrire avant de la confier à un outil d'IA, ou analysez ces documents à nouveau.";
+
+// MARK: - Wizard language steps (2026-09-03)
+"Step %lld of %lld" = "Étape %lld sur %lld";
+"Choose a detection model" = "Choisissez un modèle de détection";
+"Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client." = "Seul un modèle de détection reconnaît les noms de personnes physiques et les dénominations sociales. À défaut, ces mentions demeurent dans le document, elles ne figurent pas dans la liste de révision, et la copie remise à un outil d'IA identifie toujours votre client.";
+"Recommended" = "Recommandé";
+"Recommended: it fits this Mac with room to spare and leaves the least to dismiss." = "Recommandé : il tient sur ce Mac avec de la marge et laisse le moins à écarter.";
+"Recommended because offline mode is on." = "Recommandé car le mode hors ligne est actif.";
+"Runs on every Mac LDA supports. About one flag in five is one you will dismiss." = "Fonctionne sur tous les Mac pris en charge par LDA. Environ un signalement sur cinq sera écarté.";
+"Misses as little as Quick, with a third as much to dismiss." = "Manque aussi peu que Rapide, avec trois fois moins à écarter.";
+"Missed nothing in testing, including the Chinese bank branch name Balanced missed. About twice the wait of Balanced." = "N'a rien manqué lors des tests, y compris le nom d'agence bancaire chinoise manqué par Équilibré. Environ deux fois plus long qu'Équilibré.";
+"No model runs. The names of people and organisations are not detected." = "Aucun modèle ne s'exécute. Les noms de personnes physiques et les dénominations sociales ne sont pas détectés.";
+"This Mac has %lld GB of memory, so %@ cannot run here." = "Ce Mac possède %lld Go de mémoire, donc %@ ne peut pas s'exécuter ici.";
+"Download and Use" = "Télécharger et utiliser";
+"Downloading connects to %@. If that is unreachable, add a file you got on another Mac." = "Le téléchargement se connecte à %@. Si ce n'est pas joignable, ajoutez un fichier obtenu sur un autre Mac.";
+"Offline mode is on, so downloads are off. You can still add a file you got on another Mac." = "Le mode hors ligne est actif : pas de téléchargement. Vous pouvez toujours ajouter un fichier obtenu sur un autre Mac.";
+"No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document." = "Aucun modèle ne s'exécute. Dans notre propre test sur deux contrats, une analyse sans modèle a manqué 32 des 36 noms, sociétés et adresses. Les formats fixes sont toujours trouvés, et LDA le redemande avant la première analyse de chaque document.";
+"Downloading the detection model." = "Téléchargement du modèle de détection.";
+"Installed and in use. Scans will now find the names of people and organisations." = "Installé et actif. Les analyses rechercheront désormais les noms de personnes physiques et les dénominations sociales.";
+"LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protège les informations du client avant qu'elles n'atteignent un outil d'IA, et les rétablit ensuite.";
+"Re-scan" = "Réanalyser";

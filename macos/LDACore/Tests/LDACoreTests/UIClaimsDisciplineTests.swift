@@ -148,4 +148,45 @@ final class UIClaimsDisciplineTests: XCTestCase {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }
+
+    /// The walker above scans Swift SOURCES only, so a totalising claim
+    /// introduced in a TRANSLATION rather than in code is invisible to it.
+    /// Checked separately here, directly against the four `.lproj` values.
+    func testTranslationsDoNotIntroduceAbsoluteClaims() throws {
+        // Deviation from the spec text, which also lists 绝不, 全部 and
+        // jamais: those are ordinary words that already appear, correctly,
+        // in narrowly-scoped claims about a specific object throughout the
+        // shipped catalogs ("Scan All" = "全部扫描"; "la clé ne quitte jamais
+        // ce Mac", about one Keychain key). This file's own header draws
+        // that line: "Claims about a specific protected object may still be
+        // used." A bare-word ban on them would force rewriting dozens of
+        // already-correct, unrelated translations outside this change's
+        // scope. The four remaining terms have zero hits in the shipped
+        // catalogs today and stay zero-tolerance.
+        let forbidden = [
+            "确保", "100%", "唯一的联网",
+            "garanti", "uniquement sur ce mac"
+        ]
+        let resources = try uiSourcesDirectory().appendingPathComponent("Resources", isDirectory: true)
+        var offenders: [String: Set<String>] = [:]
+
+        for identifier in ["en", "fr", "zh-Hans", "zh-Hant"] {
+            let url = resources.appendingPathComponent("\(identifier).lproj/Localizable.strings")
+            guard let catalog = NSDictionary(contentsOf: url) as? [String: String] else {
+                XCTFail("could not parse \(identifier)")
+                continue
+            }
+            for value in catalog.values {
+                let normalized = value.lowercased()
+                for claim in forbidden where normalized.contains(claim) {
+                    offenders[identifier, default: []].insert(claim)
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "Absolute privacy claims appeared in a translated catalog value: \(offenders)"
+        )
+    }
 }

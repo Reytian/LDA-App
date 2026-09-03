@@ -37,8 +37,8 @@
 "After Export for AI, this page will show the documents and counts for the handoff." = "执行“导出给 AI”后，此页面将显示交接的文档和数量。";
 "Always redact these" = "始终脱敏这些内容";
 "Anonymize" = "匿名化";
-"Anonymize Documents" = "匿名化文档";
-"Anonymize workflow, current step %@" = "匿名化工作流程，当前步骤：%@";
+"Anonymize Documents" = "脱敏文档";
+"Anonymize workflow, current step %@" = "脱敏工作流程，当前步骤：%@";
 "Appearance" = "外观";
 "Apply Fill" = "应用填写";
 "Apply confirmed fills and write the output document" = "应用已确认的填写内容并生成输出文档";
@@ -104,8 +104,8 @@
 "Download %@" = "下载 %@";
 "Download, remove, or choose a different detection model" = "下载、移除或选择其他检测模型";
 "Downloaded and verified." = "已下载并验证。";
-"Drop documents to anonymize" = "拖入要匿名化的文档";
-"Drop documents to anonymize, or choose files" = "拖入要匿名化的文档，或选择文件";
+"Drop documents to anonymize" = "拖入要脱敏的文档";
+"Drop documents to anonymize, or choose files" = "拖入要脱敏的文档，或选择文件";
 "Edit replacement for %@" = "编辑 %@ 的替换内容";
 "Edit the replacement text used for this value" = "编辑用于替换此值的文本";
 "Exact text" = "精确文本";
@@ -188,7 +188,7 @@
 "No sessions recorded yet. Records appear after your first Export for AI." = "尚无会话记录。首次执行“导出给 AI”后，记录将显示在这里。";
 "No sources added" = "尚未添加源文档";
 "Not Now" = "暂不";
-"Not anonymized yet" = "尚未匿名化";
+"Not anonymized yet" = "尚未脱敏";
 "OK" = "好";
 "Offline mode" = "离线模式";
 "On-device" = "设备端";
@@ -251,7 +251,7 @@
 "Return to the profile builder" = "返回档案创建器";
 "Reveal in Finder" = "在“访达”中显示";
 "Review" = "审阅";
-"Review matters, anonymize documents, restore protected values, or fill a form" = "审阅事项、匿名化文档、恢复受保护的值或填写表单";
+"Review matters, anonymize documents, restore protected values, or fill a form" = "审阅事项、脱敏文档、恢复受保护的值或填写表单";
 "Redacted file saved" = "已保存脱敏文件";
 "Save" = "存储";
 "Save Current Work First…" = "先存储当前工作…";
@@ -272,14 +272,14 @@
 "Some recent activity could not be unlocked. Readable handoffs remain below." = "部分最近活动无法解锁。仍可读取的交接记录显示在下方。";
 "Sources" = "源文档";
 "Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)" = "在打开的文档中查找 PII：姓名、公司、地址、日期和金额（Cmd+Shift+S）";
-"Start Anonymizing" = "开始匿名化";
+"Start Anonymizing" = "开始脱敏";
 "Start a New Matter" = "开始新事项";
 "Start a protected workflow for a new client or matter" = "为新客户或事项开始受保护的工作流程";
-"Start with an anonymized handoff" = "从匿名化交接开始";
+"Start with an anonymized handoff" = "从脱敏交接开始";
 "Stop" = "停止";
 "Stop LDA making any network request" = "阻止 LDA 发起任何网络请求";
 "Stop Using It" = "停止使用";
-"Stop anonymizing. The document stays loaded; no partial results are shown." = "停止匿名化。文档会保持载入，不显示部分结果。";
+"Stop anonymizing. The document stays loaded; no partial results are shown." = "停止脱敏。文档会保持载入，不显示部分结果。";
 "Switch to Quick" = "切换到快速模式";
 "Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected." = "切换事项会关闭此窗口中的文档和未完成的恢复上下文。已保存的文件不受影响。";
 "System follows your Mac's light or dark setting. Choose Light or Dark to override it." = "“系统”会跟随 Mac 的浅色或深色设置。选择“浅色”或“深色”可覆盖系统设置。";
@@ -341,7 +341,6 @@
 "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored." = "受保护的值会替换为 {PERSON_1} 这样的占位符。形式精确简洁，但外部 AI 有时会改写花括号，而改写后的占位符无法恢复。";
 "Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing." = "受保护的值会替换为 Company A 或甲公司这样的自然代称。AI 工具会将其视为名称而不作改动，因此即使经过大量编辑，文档仍可恢复。";
 "Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore." = "受保护的值会原位遮盖为张*明或 138****5678，这也是法院和监管机构惯用的格式。最适合发送给他人；若两个值产生相同的遮盖形式，恢复时会报告该形式，而不会作出猜测。";
-"LDA protects client information before it reaches an AI tool, and puts it back afterwards. Three steps:" = "LDA 会在客户信息传给 AI 工具前加以保护，并在处理后恢复。只需三步：";
 "Bring documents in" = "导入文档";
 "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect." = "拖入 Word、PDF、文本文件或 .zip。App 会查找姓名、公司、日期、金额、电子邮件、电话号码和证件号码，您可审阅将要保护的内容。";
 "Hand the safe copy to any AI" = "将安全副本交给任意 AI";
@@ -355,21 +354,17 @@
 "Scan" = "扫描";
 "Share" = "共享";
 "Quick" = "快速";
-"Balanced" = "均衡";
-"Most thorough" = "最彻底";
-"Instant. Finds emails, phones, dates, amounts, and ID numbers only. Names, companies, and addresses are not detected." = "即时完成。仅查找电子邮件、电话号码、日期、金额和证件号码，不检测姓名、公司和地址。";
-"Smallest download. Finds nearly every name, company, and address, and is the fastest option that does." = "下载体积最小。几乎可查出所有姓名、公司和地址，也是支持这些检测的最快选项。";
-"Catches the most overall, at about twice the wait." = "总体检出内容最多，等待时间约为两倍。";
-"Missed nothing in testing. Slowest by a wide margin." = "测试中没有遗漏，但速度明显最慢。";
+"Balanced" = "标准";
+"Most thorough" = "深度";
 "Installed" = "已安装";
-"Tight fit" = "空间紧张";
+"Tight fit" = "内存临界";
 "In use" = "使用中";
 "Built in" = "内置";
 "auto-redact" = "自动脱敏";
 "hidden" = "已隐藏";
 "learning" = "学习中";
 "No custom terms yet" = "尚无自定义词条";
-"Nothing learned yet. Anonymize and export a few documents." = "尚未学到任何内容。请先匿名化并导出几份文档。";
+"Nothing learned yet. Anonymize and export a few documents." = "尚未学到任何内容。请先脱敏并导出几份文档。";
 "LDA does not keep a copy of this passphrase, so the app has no way to open the file without it. Store it the way you would store the file." = "LDA 不会保留此密码短语的副本，因此没有它便无法打开文件。请像保管文件一样妥善保管密码短语。";
 "Save this matter's documents, review decisions, and replacements as one encrypted file you can reopen or hand to a colleague" = "将此事项的文档、审阅决定和替换内容存为一个加密文件，便于重新打开或交给同事";
 "Opening a workspace closes the documents and unfinished restore context in this window. Save the current work as a workspace first, or discard it." = "打开工作区会关闭此窗口中的文档和未完成的恢复上下文。请先将当前工作存为工作区，或放弃当前工作。";
@@ -498,7 +493,7 @@
 "%lld seconds" = "%lld 秒";
 "%lld min" = "%lld 分钟";
 "%lld min %lld sec" = "%lld 分钟 %lld 秒";
-"Needs %lld GB of memory. This Mac has %lld GB." = "需要 %lld GB 内存。这台 Mac 有 %lld GB。";
+"Needs %lld GB of memory. This Mac has %lld GB." = "需 %lld GB 内存，本机为 %lld GB。";
 "Needs more memory than this Mac has. This Mac has %lld GB." = "所需内存超过这台 Mac 的容量。这台 Mac 有 %lld GB。";
 "Delete \"%@\"?" = "删除“%@”？";
 "Delete portfolio?" = "删除资料集？";
@@ -555,7 +550,7 @@
 "%@ of %@" = "%@ / %@";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "每次往返都会记录哪些内容被保护和恢复。记录绝不包含敏感值本身，并且一直加密保存在这台 Mac 上。";
 "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "更高的设置能找到更多姓名、公司和地址，但所需时间也更长。检测使用这台 Mac 上选定的模型。";
-"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed." = "它会以与文档稍有不同的形式返回部分姓名和地址，因此这些内容不会被隐去，也不会进入审核列表。内置模型没有这个问题，而且运行速度相同。";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed." = "它会以与文档稍有不同的形式返回部分姓名和地址，因此这些内容不会被隐去，也不会进入审核列表。“快速”模型没有这个问题，而且运行速度相同。";
 "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above." = "LDA 无法估计未知模型的速度或内存需求。它会覆盖上方设置。";
 "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it." = "该文件包含此事项的文档、您的审核决定以及恢复内容所需的值。请为其设置密码短语。";
 "Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase." = "请输入保存此工作区文件时使用的密码短语。输入后，内容会在本地解密。";
@@ -726,7 +721,7 @@
 "importing" = "正在导入";
 "detecting" = "正在检测";
 "failed" = "失败";
-"not anonymized yet" = "尚未匿名化";
+"not anonymized yet" = "尚未脱敏";
 "Profile ready. Review and edit fields below." = "资料集已准备好。请审核并编辑下方字段。";
 "Review ready. %lld blank to review." = "已可审核。%lld 个空白项待审核。";
 "Review ready. %lld blanks to review." = "已可审核。%lld 个空白项待审核。";
@@ -862,9 +857,7 @@
 "Add Model" = "添加模型";
 
 /* Model setup at first run plus the pre-scan advisory (2026-09-03). */
-"First, add a detection model" = "第一步：添加检测模型";
-"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "无网络：在另一台 Mac 上下载模型，用移动硬盘或 U 盘带过来，然后在“管理模型”中添加该文件。LDA 会先校验再安装。";
-"Set Up a Model…" = "设置模型…";
+"Set Up a Model…" = "安装检测模型…";
 
 /* Manage Models: the verified offline import (2026-09-03). */
 "Already have the model file?" = "已经有模型文件了？";
@@ -883,15 +876,10 @@
 "Choose a local GGUF model. LDA will not check it." = "请选择本地 GGUF 模型。LDA 不会对它进行校验。";
 
 /* Model setup: the first-run ask, the pre-scan gate, the export gate, and the advisories (2026-09-03). */
-"A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals." = "找出人名和公司名靠的是检测模型。没有它，扫描只能匹配规则：电子邮件、电话、日期、金额、身份证号、统一社会信用代码、银行账号、案号、车牌号、微信号、网址和印章。";
-"Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number." = "人名和公司名不会被检出：它们会留在文档里，也不会出现在待审阅清单中，你交给 AI 工具的副本仍然能指认出你的客户。地址只有中文街道格式才能匹配到，而且只匹配到门牌号为止。";
-"In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part." = "在我们对两份协议的自测中，没有模型的扫描把 36 个人名、公司名和地址中的 32 个原样留在文档里，另外 4 个也只匹配到一部分。";
 "Download the Model (%@)" = "下载模型（%@）";
-"I Already Have the File…" = "我已经有该文件…";
-"Downloading the detection model. You can read the next steps while it arrives." = "正在下载检测模型。下载期间你可以先看后面的步骤。";
-"The detection model is installed. A scan will look for names, companies, and addresses." = "检测模型已安装。扫描会查找人名、公司名和地址。";
-"This Mac cannot run a detection model" = "这台 Mac 无法运行检测模型";
-"This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that." = "这台 Mac 的内存不足以运行检测模型，因此 LDA 不在此处提供模型。在这台 Mac 上，扫描只能匹配规则，人名和公司名会留在文档里。手动添加模型文件也无法改变这一点。";
+"I Already Have the File…" = "导入已有的模型文件…";
+"This Mac cannot run a detection model" = "本机无法运行检测模型";
+"This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that." = "本机内存不足，无法运行检测模型，故不提供。扫描仅按规则匹配，自然人姓名与单位名称将留存于文档；手动导入模型文件亦不能改变。";
 "Scan without a detection model?" = "在没有检测模型的情况下扫描？";
 "This scan will not look for people's names or company names, and it matches an address only in the Chinese street form, stopping at the street number. Those values stay in the document and are not in the review list. Emails, phones, dates, amounts, ID numbers, case numbers, bank accounts, license plates, WeChat IDs, links, and seals are still found." = "本次扫描不会查找人名或公司名，地址也只有中文街道格式才能匹配到，且只匹配到门牌号为止。这些内容会留在文档里，并且不会出现在待审阅清单中。电子邮件、电话、日期、金额、身份证号、案号、银行账号、车牌号、微信号、网址和印章仍会被找出。";
 "Scan Without Names" = "不找人名，直接扫描";
@@ -910,3 +898,24 @@
 /* Export gate: the partial-coverage body, kept apart from the one for a pass that never ran (2026-09-03). */
 "Export a copy where the AI pass did not finish?" = "要导出 AI 未扫描完的副本吗？";
 "The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again." = "这些文档中至少有一份的 AI 扫描没有覆盖全文：其中一些人名和公司名被找了出来，另一些没有。待审阅清单看起来完整，仍可能少于文档中实际存在的内容。请在把即将写出的副本交给 AI 工具之前先通读它，或者重新扫描这些文档。";
+
+// MARK: - Wizard language steps (2026-09-03)
+"Step %lld of %lld" = "第 %lld 步，共 %lld 步";
+"Choose a detection model" = "选择检测模型";
+"Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client." = "自然人姓名与单位名称须由检测模型识别；未安装模型的，该类信息留存于文档、不进入待审阅清单，交付 AI 工具的副本仍可识别委托人。";
+"Recommended" = "推荐";
+"Recommended: it fits this Mac with room to spare and leaves the least to dismiss." = "推荐：本机内存充裕，且须人工排除者最少。";
+"Recommended because offline mode is on." = "离线模式已开启，推荐此项。";
+"Runs on every Mac LDA supports. About one flag in five is one you will dismiss." = "LDA 支持的所有 Mac 均可运行；约每五处标记有一处须排除。";
+"Misses as little as Quick, with a third as much to dismiss." = "漏检与“快速”相当，须排除者约为其三分之一。";
+"Missed nothing in testing, including the Chinese bank branch name Balanced missed. About twice the wait of Balanced." = "测试中并无漏检，含“标准”漏检的中文银行分行名称；耗时约为“标准”两倍。";
+"No model runs. The names of people and organisations are not detected." = "不运行模型；自然人姓名与单位名称不予检测。";
+"This Mac has %lld GB of memory, so %@ cannot run here." = "本机内存 %lld GB，%@ 不可运行。";
+"Download and Use" = "下载并启用";
+"Downloading connects to %@. If that is unreachable, add a file you got on another Mac." = "下载将连接 %@；无法访问的，可导入在另一台 Mac 上取得的文件。";
+"Offline mode is on, so downloads are off. You can still add a file you got on another Mac." = "离线模式已开启，不提供下载；可导入在另一台 Mac 上取得的文件。";
+"No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document." = "不运行模型。经我方测试，未装模型的扫描在 36 项姓名、名称与地址中漏检 32 项；固定格式信息仍予检出，首次扫描前会再次提示。";
+"Downloading the detection model." = "正在下载检测模型。";
+"Installed and in use. Scans will now find the names of people and organisations." = "已安装并启用；此后扫描将检测自然人姓名与单位名称。";
+"LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA 在文档交付 AI 工具之前对委托人信息脱敏，事后再行还原。";
+"Re-scan" = "重新扫描";

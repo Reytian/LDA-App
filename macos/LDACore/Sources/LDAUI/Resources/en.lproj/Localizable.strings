@@ -341,7 +341,6 @@
 "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored." = "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored.";
 "Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing." = "Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing.";
 "Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore." = "Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore.";
-"LDA protects client information before it reaches an AI tool, and puts it back afterwards. Three steps:" = "LDA protects client information before it reaches an AI tool, and puts it back afterwards. Three steps:";
 "Bring documents in" = "Bring documents in";
 "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect." = "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect.";
 "Hand the safe copy to any AI" = "Hand the safe copy to any AI";
@@ -357,10 +356,6 @@
 "Quick" = "Quick";
 "Balanced" = "Balanced";
 "Most thorough" = "Most thorough";
-"Instant. Finds emails, phones, dates, amounts, and ID numbers only. Names, companies, and addresses are not detected." = "Instant. Finds emails, phones, dates, amounts, and ID numbers only. Names, companies, and addresses are not detected.";
-"Smallest download. Finds nearly every name, company, and address, and is the fastest option that does." = "Smallest download. Finds nearly every name, company, and address, and is the fastest option that does.";
-"Catches the most overall, at about twice the wait." = "Catches the most overall, at about twice the wait.";
-"Missed nothing in testing. Slowest by a wide margin." = "Missed nothing in testing. Slowest by a wide margin.";
 "Installed" = "Installed";
 "Tight fit" = "Tight fit";
 "In use" = "In use";
@@ -555,7 +550,7 @@
 "%@ of %@" = "%@ of %@";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.";
 "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.";
-"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed." = "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The built-in model does not have this problem and runs at the same speed.";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed." = "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.";
 "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above." = "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.";
 "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it." = "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.";
 "Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase." = "Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase.";
@@ -862,8 +857,6 @@
 "Add Model" = "Add Model";
 
 /* Model setup at first run plus the pre-scan advisory (2026-09-03). */
-"First, add a detection model" = "First, add a detection model";
-"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it.";
 "Set Up a Model…" = "Set Up a Model…";
 
 /* Manage Models: the verified offline import (2026-09-03). */
@@ -883,13 +876,8 @@
 "Choose a local GGUF model. LDA will not check it." = "Choose a local GGUF model. LDA will not check it.";
 
 /* Model setup: the first-run ask, the pre-scan gate, the export gate, and the advisories (2026-09-03). */
-"A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals." = "A detection model is what finds people's names and company names. Without one, a scan matches patterns only: emails, phones, dates, amounts, ID numbers, Unified Social Credit Codes, bank accounts, case numbers, license plates, WeChat IDs, links, and seals.";
-"Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number." = "Names and company names are not detected, so they stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client. An address is matched only in the Chinese street form, and the match stops at the street number.";
-"In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part." = "In our own test on two agreements, a scan with no model left 32 of the 36 names, companies, and addresses in place, and matched the other 4 only in part.";
 "Download the Model (%@)" = "Download the Model (%@)";
 "I Already Have the File…" = "I Already Have the File…";
-"Downloading the detection model. You can read the next steps while it arrives." = "Downloading the detection model. You can read the next steps while it arrives.";
-"The detection model is installed. A scan will look for names, companies, and addresses." = "The detection model is installed. A scan will look for names, companies, and addresses.";
 "This Mac cannot run a detection model" = "This Mac cannot run a detection model";
 "This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that." = "This Mac does not have the memory to run a detection model, so LDA does not offer one here. Scans on this Mac match patterns only, and names and company names stay in the document. Adding a model file by hand would not change that.";
 "Scan without a detection model?" = "Scan without a detection model?";
@@ -910,3 +898,24 @@
 /* Export gate: the partial-coverage body, kept apart from the one for a pass that never ran (2026-09-03). */
 "Export a copy where the AI pass did not finish?" = "Export a copy where the AI pass did not finish?";
 "The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again." = "The AI pass started on at least one of these documents and did not cover all of it, so some people's names and company names were found there and others were not. A review list can look complete and still be short of what the text holds. Read the copy you are about to write before you hand it to an AI tool, or scan those documents again.";
+
+// MARK: - Wizard language steps (2026-09-03)
+"Step %lld of %lld" = "Step %lld of %lld";
+"Choose a detection model" = "Choose a detection model";
+"Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client." = "Only a detection model finds the names of people and organisations. Without one, those names stay in the document, they are not in the review list, and the copy you hand to an AI tool still identifies your client.";
+"Recommended" = "Recommended";
+"Recommended: it fits this Mac with room to spare and leaves the least to dismiss." = "Recommended: it fits this Mac with room to spare and leaves the least to dismiss.";
+"Recommended because offline mode is on." = "Recommended because offline mode is on.";
+"Runs on every Mac LDA supports. About one flag in five is one you will dismiss." = "Runs on every Mac LDA supports. About one flag in five is one you will dismiss.";
+"Misses as little as Quick, with a third as much to dismiss." = "Misses as little as Quick, with a third as much to dismiss.";
+"Missed nothing in testing, including the Chinese bank branch name Balanced missed. About twice the wait of Balanced." = "Missed nothing in testing, including the Chinese bank branch name Balanced missed. About twice the wait of Balanced.";
+"No model runs. The names of people and organisations are not detected." = "No model runs. The names of people and organisations are not detected.";
+"This Mac has %lld GB of memory, so %@ cannot run here." = "This Mac has %lld GB of memory, so %@ cannot run here.";
+"Download and Use" = "Download and Use";
+"Downloading connects to %@. If that is unreachable, add a file you got on another Mac." = "Downloading connects to %@. If that is unreachable, add a file you got on another Mac.";
+"Offline mode is on, so downloads are off. You can still add a file you got on another Mac." = "Offline mode is on, so downloads are off. You can still add a file you got on another Mac.";
+"No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document." = "No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document.";
+"Downloading the detection model." = "Downloading the detection model.";
+"Installed and in use. Scans will now find the names of people and organisations." = "Installed and in use. Scans will now find the names of people and organisations.";
+"LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protects client information before it reaches an AI tool, and puts it back afterwards.";
+"Re-scan" = "Re-scan";

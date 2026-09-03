@@ -44,17 +44,17 @@ public struct SettingsView: View {
     public var body: some View {
         TabView {
             GeneralTab()
-                .tabItem { Label("General", systemImage: "gearshape") }
+                .tabItem { Label { L10n.text("General") } icon: { Image(systemName: "gearshape") } }
             AITab(installer: installer, importer: importer, isScanning: isScanning)
-                .tabItem { Label("AI", systemImage: "cpu") }
+                .tabItem { Label { L10n.text("AI") } icon: { Image(systemName: "cpu") } }
             VocabularyTab(store: patterns)
-                .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
+                .tabItem { Label { L10n.text("Vocabulary") } icon: { Image(systemName: "text.book.closed") } }
             LearnedTab(store: learning)
-                .tabItem { Label("Learned", systemImage: "brain") }
+                .tabItem { Label { L10n.text("Learned") } icon: { Image(systemName: "brain") } }
             SharingTab(patterns: patterns, learning: learning)
-                .tabItem { Label("Sharing", systemImage: "square.and.arrow.up.on.square") }
+                .tabItem { Label { L10n.text("Sharing") } icon: { Image(systemName: "square.and.arrow.up.on.square") } }
             HistoryTab()
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label { L10n.text("History") } icon: { Image(systemName: "clock.arrow.circlepath") } }
         }
         // Resizable, from the UI/UX audit on feat/lda-macos-core. Kept through
         // the merge: the model ladder makes this panel taller, so a fixed
@@ -82,10 +82,10 @@ private struct HistoryTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Session history")
+            L10n.text("Session history")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.")
+            L10n.text("Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -94,9 +94,9 @@ private struct HistoryTab: View {
                 Spacer()
                 Group {
                     if loadFailed {
-                        Text("The history could not be read.")
+                        L10n.text("The history could not be read.")
                     } else {
-                        Text("No sessions recorded yet. Records appear after your first Export for AI.")
+                        L10n.text("No sessions recorded yet. Records appear after your first Export for AI.")
                     }
                 }
                 .font(.callout)
@@ -113,7 +113,7 @@ private struct HistoryTab: View {
                                 .font(.callout.weight(.semibold))
                                 .foregroundStyle(CounselTheme.textPrimary)
                             if let client = record.clientLabel {
-                                Text(verbatim: "\u{00B7}  \(client)")
+                                L10n.text("\u{00B7}  %@", client as NSString)
                                     .font(.callout)
                                     .foregroundStyle(CounselTheme.textSecondary)
                             }
@@ -125,7 +125,7 @@ private struct HistoryTab: View {
                                     .font(.caption)
                             }
                             .buttonStyle(.borderless)
-                            .help("Delete this record")
+                            .l10nHelp("Delete this record")
                         }
                         Text(verbatim: documentsLine(record))
                             .font(CounselTheme.Typography.supporting)
@@ -188,6 +188,8 @@ private struct HistoryTab: View {
 /// fully on this Mac; a higher rung only changes WHICH local model runs and how
 /// long it takes. See docs/design/model-tiers-prd.md.
 private struct AITab: View {
+    @Environment(\.appLanguage) private var appLanguage
+
     /// App-owned, so a download survives closing this window.
     @ObservedObject var installer: ModelInstaller
     /// App-owned, so an import survives closing this window.
@@ -229,10 +231,10 @@ private struct AITab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("How hard should LDA look?")
+                    L10n.text("How hard should LDA look?")
                         .font(.system(.headline, design: .serif))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.")
+                    L10n.text("Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -257,21 +259,25 @@ private struct AITab: View {
                     Button {
                         showManageModels = true
                     } label: {
-                        Label("Manage Models\u{2026}", systemImage: "square.and.arrow.down")
+                        Label {
+                            L10n.text("Manage Models\u{2026}")
+                        } icon: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
                     }
-                    .help("Download, remove, or choose a different detection model")
+                    .l10nHelp("Download, remove, or choose a different detection model")
 
                     if !customModelPath.isEmpty {
-                        Button("Stop Using It") {
+                        L10n.button("Stop Using It") {
                             AISettings.setCustomModel(url: nil)
                             customModelPath = ""
                         }
-                        .help("Go back to the model for the selected setting")
+                        .l10nHelp("Go back to the model for the selected setting")
                     }
                 }
 
                 Label {
-                    Text("LDA processes document contents on this Mac. Installing an optional model uses a network connection to fetch its model file.")
+                    L10n.text("LDA processes document contents on this Mac. Installing an optional model uses a network connection to fetch its model file.")
                 } icon: {
                     Image(systemName: "lock.laptopcomputer")
                 }
@@ -282,10 +288,14 @@ private struct AITab: View {
                 // protected, so an inactive Touch ID gate has to be stated here,
                 // not only implied by its absence.
                 if let advisory = keychainAdvisory.advisory {
-                    Label(advisory, systemImage: "exclamationmark.triangle.fill")
-                        .font(CounselTheme.Typography.supporting)
-                        .foregroundStyle(CounselTheme.danger)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Label {
+                        Text(verbatim: advisory)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(24)
@@ -342,7 +352,7 @@ private struct AITab: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text(rung.localizedDisplayName)
+                        L10n.text(rung.displayName)
                             .font(.body.weight(.medium))
                             .foregroundStyle(selectable ? CounselTheme.textPrimary : CounselTheme.textSecondary)
                         if tier != nil, installed {
@@ -360,12 +370,12 @@ private struct AITab: View {
                             badge("Tight fit", tone: CounselTheme.danger)
                         }
                     }
-                    Text(rung.localizedSummary)
+                    Text(verbatim: OnboardingPresentation.chooseLine(for: rung, language: appLanguage))
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let tier, selectable {
-                        Text("About \(tier.secondsPerDocument) seconds for a short agreement.")
+                        L10n.text("About %lld seconds for a short agreement.", Int64(tier.secondsPerDocument))
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
@@ -375,7 +385,7 @@ private struct AITab: View {
                             .foregroundStyle(CounselTheme.danger)
                     }
                     if tier != nil, !installed {
-                        Text("Add the model file to use this setting.")
+                        L10n.text("Add the model file to use this setting.")
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.danger)
                     }
@@ -395,15 +405,15 @@ private struct AITab: View {
     /// never appear in the review list.
     private var ldaV2Notice: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Your chosen model leaves some names in the document")
+            L10n.text("Your chosen model leaves some names in the document")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.")
+            L10n.text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button("Switch to Quick") {
+                L10n.button("Switch to Quick") {
                     AISettings.setCustomModel(url: nil)
                     customModelPath = ""
                     AISettings.setDetectionLevel(.quick)
@@ -412,7 +422,7 @@ private struct AITab: View {
                     showLdaV2Notice = false
                 }
                 .buttonStyle(.borderedProminent)
-                Button("Keep using my model") {
+                L10n.button("Keep using my model") {
                     AISettings.dismissLdaV2Notice()
                     showLdaV2Notice = false
                 }
@@ -428,23 +438,23 @@ private struct AITab: View {
     private var customModelRow: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
-                Text("Custom model")
+                L10n.text("Custom model")
                     .font(.body.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
                 badge("In use", tone: CounselTheme.inkAccent)
             }
-            Text((customModelPath as NSString).lastPathComponent)
+            Text(verbatim: (customModelPath as NSString).lastPathComponent)
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
-            Text("LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.")
+            L10n.text("LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func badge(_ text: LocalizedStringKey, tone: Color) -> some View {
-        Text(text)
+    private func badge(_ text: String, tone: Color) -> some View {
+        L10n.text(text)
             .font(.caption2)
             .foregroundStyle(tone)
             .padding(.horizontal, 6)
@@ -475,10 +485,10 @@ private struct SharingTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Share or move your setup")
+                L10n.text("Share or move your setup")
                     .font(.system(.headline, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Export your custom vocabulary and learned terms to one file. Share it with your team or import it on another Mac. Importing merges into what you already have; nothing is overwritten or removed.")
+                L10n.text("Export your custom vocabulary and learned terms to one file. Share it with your team or import it on another Mac. Importing merges into what you already have; nothing is overwritten or removed.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -486,13 +496,21 @@ private struct SharingTab: View {
 
             HStack(spacing: 12) {
                 Button { exportProfile() } label: {
-                    Label("Export Profile", systemImage: "square.and.arrow.up")
+                    Label {
+                        L10n.text("Export Profile")
+                    } icon: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
 
                 Button { importProfile() } label: {
-                    Label("Import Profile", systemImage: "square.and.arrow.down")
+                    Label {
+                        L10n.text("Import Profile")
+                    } icon: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
                 }
             }
 
@@ -513,7 +531,7 @@ private struct SharingTab: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(CounselTheme.hairline, lineWidth: 1))
             }
 
-            Text("The file is plain JSON (a glossary of terms to redact). Treat it like any shared list that may name clients or matters.")
+            L10n.text("The file is plain JSON (a glossary of terms to redact). Treat it like any shared list that may name clients or matters.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -576,64 +594,76 @@ private struct SharingTab: View {
 // MARK: - General tab
 
 private struct GeneralTab: View {
+    @Environment(\.appLanguage) private var appLanguage
+
     @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(AISettings.outputStyleKey) private var outputStyleRaw = SubstitutionStyle.token.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Language")
+            L10n.text("Language")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Picker("Language", selection: languageBinding) {
+            Picker(selection: languageBinding) {
                 ForEach(AppLanguage.allCases) { language in
-                    Text(language.nativeName()).tag(language)
+                    Text(verbatim: language.nativeName(language: appLanguage)).tag(language)
                 }
+            } label: {
+                L10n.text("Language")
             }
             .pickerStyle(.menu)
             .frame(maxWidth: 320, alignment: .leading)
 
-            Text("Choose the language LDA uses for its interface. Follow System uses your Mac language.")
+            L10n.text("Choose the language LDA uses for its interface. Follow System uses your Mac language.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
-            Text("Appearance")
+            L10n.text("Appearance")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Picker("Theme", selection: appearanceBinding) {
-                ForEach(AppearanceMode.allCases) { Text($0.localizedKey).tag($0) }
+            Picker(selection: appearanceBinding) {
+                ForEach(AppearanceMode.allCases) {
+                    Text(verbatim: L10n.string($0.label, language: appLanguage)).tag($0)
+                }
+            } label: {
+                L10n.text("Theme")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: 320, alignment: .leading)
 
-            Text("System follows your Mac's light or dark setting. Choose Light or Dark to override it.")
+            L10n.text("System follows your Mac's light or dark setting. Choose Light or Dark to override it.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
-            Text("Output style")
+            L10n.text("Output style")
                 .font(.system(.headline, design: .serif))
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Picker("Output style", selection: outputStyleBinding) {
+            Picker(selection: outputStyleBinding) {
                 ForEach(SubstitutionStyle.allCases, id: \.self) { style in
-                    Text(LocalizedStringKey(Self.label(for: style))).tag(style)
+                    Text(verbatim: L10n.string(Self.label(for: style), language: appLanguage)).tag(style)
                 }
+            } label: {
+                L10n.text("Output style")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(maxWidth: 380, alignment: .leading)
 
-            Text(LocalizedStringKey(Self.explanation(for:
-                SubstitutionStyle(rawValue: outputStyleRaw) ?? .token)))
+            Text(verbatim: L10n.string(
+                Self.explanation(for: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token),
+                language: appLanguage
+            ))
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -702,10 +732,10 @@ private struct VocabularyTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Always redact these")
+                L10n.text("Always redact these")
                     .font(.system(.headline, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Literal terms or regular expressions (for example a matter number M-\\d{5}). Useful for project codenames, client names, and internal labels.")
+                L10n.text("Literal terms or regular expressions (for example a matter number M-\\d{5}). Useful for project codenames, client names, and internal labels.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -725,11 +755,17 @@ private struct VocabularyTab: View {
             }
 
             HStack {
-                Button { store.add() } label: { Label("Add Term", systemImage: "plus") }
+                Button { store.add() } label: {
+                    Label {
+                        L10n.text("Add Term")
+                    } icon: {
+                        Image(systemName: "plus")
+                    }
+                }
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
                 Spacer()
-                Text("\(store.activePatterns.count) active")
+                L10n.text("%lld active", Int64(store.activePatterns.count))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -743,6 +779,8 @@ private struct VocabularyTab: View {
 /// One editable vocabulary row: the term, a regex toggle, its token type, and a
 /// case toggle. A failing regex is flagged.
 private struct PatternRow: View {
+    @Environment(\.appLanguage) private var appLanguage
+
     @Binding var pattern: CustomPattern
 
     private static let assignableTypes: [EntityType] = AssignableEntityTypes.vocabulary
@@ -751,9 +789,9 @@ private struct PatternRow: View {
         HStack(spacing: 8) {
             Group {
                 if pattern.isRegex {
-                    TextField("Regular expression", text: $pattern.text)
+                    TextField(L10n.string("Regular expression", language: appLanguage), text: $pattern.text)
                 } else {
-                    TextField("Term to redact", text: $pattern.text)
+                    TextField(L10n.string("Term to redact", language: appLanguage), text: $pattern.text)
                 }
             }
                 .textFieldStyle(.roundedBorder)
@@ -762,30 +800,36 @@ private struct PatternRow: View {
                     if pattern.isInvalidRegex {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(CounselTheme.danger)
-                            .help("Invalid regular expression")
-                            .accessibilityLabel("Invalid regular expression")
+                            .l10nHelp("Invalid regular expression")
+                            .accessibilityLabel(Text(verbatim: L10n.string("Invalid regular expression", language: appLanguage)))
                             .padding(.trailing, 6)
                     }
                 }
 
-            Toggle(".*", isOn: $pattern.isRegex)
+            Toggle(isOn: $pattern.isRegex) {
+                Text(verbatim: ".*")
+            }
                 .toggleStyle(.button)
-                .help("Treat the term as a regular expression")
-                .accessibilityLabel("Regular expression")
+                .l10nHelp("Treat the term as a regular expression")
+                .accessibilityLabel(Text(verbatim: L10n.string("Regular expression", language: appLanguage)))
 
-            Picker("", selection: $pattern.type) {
+            Picker(selection: $pattern.type) {
                 ForEach(Self.assignableTypes, id: \.self) {
-                    Text(EntityTypePresentation.localizedKey(for: $0)).tag($0)
+                    Text(verbatim: EntityTypePresentation.localizedName(for: $0, language: appLanguage)).tag($0)
                 }
+            } label: {
+                EmptyView()
             }
             .labelsHidden()
             .frame(width: 140)
-            .accessibilityLabel("Token type")
+            .accessibilityLabel(Text(verbatim: L10n.string("Token type", language: appLanguage)))
 
-            Toggle("Aa", isOn: $pattern.caseSensitive)
+            Toggle(isOn: $pattern.caseSensitive) {
+                Text(verbatim: "Aa")
+            }
                 .toggleStyle(.button)
-                .help("Match letter case exactly")
-                .accessibilityLabel("Case sensitive")
+                .l10nHelp("Match letter case exactly")
+                .accessibilityLabel(Text(verbatim: L10n.string("Case sensitive", language: appLanguage)))
         }
         .padding(.vertical, 3)
     }
@@ -799,10 +843,10 @@ private struct LearnedTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("What LDA has learned")
+                L10n.text("What LDA has learned")
                     .font(.system(.headline, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("LDA remembers what you accept and reject. Accepted names get auto-redacted next time; rejected ones stop appearing. Forget any entry to undo it.")
+                L10n.text("LDA remembers what you accept and reject. Accepted names get auto-redacted next time; rejected ones stop appearing. Forget any entry to undo it.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -823,7 +867,11 @@ private struct LearnedTab: View {
             HStack {
                 Spacer()
                 Button(role: .destructive) { store.reset() } label: {
-                    Label("Forget All", systemImage: "trash")
+                    Label {
+                        L10n.text("Forget All")
+                    } icon: {
+                        Image(systemName: "trash")
+                    }
                 }
                 .disabled(store.sortedTerms.isEmpty)
             }
@@ -835,6 +883,8 @@ private struct LearnedTab: View {
 }
 
 private struct LearnedRow: View {
+    @Environment(\.appLanguage) private var appLanguage
+
     let term: LearnedTerm
     let onForget: () -> Void
 
@@ -844,13 +894,13 @@ private struct LearnedRow: View {
                 .fill(CounselTheme.color(for: term.type))
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
-                Text(term.value)
+                Text(verbatim: term.value)
                     .font(.system(.callout, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(1)
                 Text(verbatim: String(
-                    format: L10n.string("%@  \u{00B7}  kept %lld, rejected %lld"),
-                    EntityTypePresentation.localizedName(for: term.type) as NSString,
+                    format: L10n.string("%@  \u{00B7}  kept %lld, rejected %lld", language: appLanguage),
+                    EntityTypePresentation.localizedName(for: term.type, language: appLanguage) as NSString,
                     Int64(term.acceptCount),
                     Int64(term.rejectCount)
                 ))
@@ -866,8 +916,8 @@ private struct LearnedRow: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(CounselTheme.textSecondary)
-            .help("Forget this term")
-            .accessibilityLabel("Forget \(term.value)")
+            .l10nHelp("Forget this term")
+            .accessibilityLabel(Text(verbatim: L10n.formatted("Forget %@", language: appLanguage, [term.value as NSString])))
         }
         .padding(.vertical, 2)
     }
@@ -885,7 +935,7 @@ private struct LearnedRow: View {
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {
-        Text(LocalizedStringKey(text))
+        L10n.text(text)
             .font(.caption2.weight(.medium))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
@@ -902,7 +952,7 @@ private func placeholder(_ text: String, systemImage: String) -> some View {
         Image(systemName: systemImage)
             .font(.system(size: 28, weight: .light))
             .foregroundStyle(CounselTheme.textSecondary)
-        Text(LocalizedStringKey(text))
+        L10n.text(text)
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .multilineTextAlignment(.center)

@@ -210,7 +210,7 @@ public struct ModelManagementView: View {
         ) {
             if let tier = pendingRemoval {
                 Button(removalButtonTitle(for: tier), role: .destructive) { confirmRemoval(tier) }
-                Button("Cancel", role: .cancel) { pendingRemoval = nil }
+                Button(role: .cancel) { pendingRemoval = nil } label: { L10n.text("Cancel") }
             }
         } message: {
             if let tier = pendingRemoval {
@@ -224,13 +224,13 @@ public struct ModelManagementView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Models")
+                L10n.text("Models")
                     .font(.system(.title2, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                L10n.button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            Text("Detection models process document text on this Mac. When you press Download, LDA connects to the configured model host to fetch the selected model file. Offline mode below tells LDA to refuse network requests, but it is an app setting rather than a firewall.")
+            L10n.text("Detection models process document text on this Mac. When you press Download, LDA connects to the configured model host to fetch the selected model file. Offline mode below tells LDA to refuse network requests, but it is an app setting rather than a firewall.")
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -240,24 +240,32 @@ public struct ModelManagementView: View {
                 set: { UserDefaults.standard.set($0, forKey: AISettings.offlineModeKey) }
             )) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Offline mode")
+                    L10n.text("Offline mode")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall.")
+                    L10n.text("Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall.")
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
             }
             .toggleStyle(.switch)
             .disabled(AISettings.managedOfflineMode() != nil)
-            .help(L10n.string(AISettings.managedOfflineMode() != nil
+            .l10nHelp(AISettings.managedOfflineMode() != nil
                   ? "Your organisation has set this and it cannot be changed here."
-                  : "Stop LDA making any network request"))
+                  : "Stop LDA making any network request")
 
-            Text("Which should I choose?")
+            L10n.text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
+            // Deviation from spec section 4F: the spec's RETIRED list names
+            // this exact key ("superseded by #18-21 as one shared source"),
+            // but BundledModelClaimTests.testTheCatalogsCarryNoRetiredBundledClaim
+            // asserts this precise value must remain present in all four
+            // catalogs (it is the already-shipped replacement for an older
+            // "built in" claim). Retiring it would break that pre-existing,
+            // non-negotiable test, so it stays here unchanged in content,
+            // routed only through the new idiom.
+            L10n.text("Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -312,7 +320,7 @@ public struct ModelManagementView: View {
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text(lvl.localizedDisplayName)
+                L10n.text(lvl.displayName)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text(tier.fileName.replacingOccurrences(of: "-Q4_K_M.gguf", with: "")
@@ -357,7 +365,7 @@ public struct ModelManagementView: View {
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Remove downloaded copy") {
+                    L10n.button("Remove downloaded copy") {
                         if let bytes = installer.removeRedundantCopy(tier) {
                             lastReclaimed = ByteCountFormatter.string(
                                 fromByteCount: bytes, countStyle: .file)
@@ -398,13 +406,13 @@ public struct ModelManagementView: View {
                     ))
                         .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
-                    Button("Cancel") { installer.cancel(tier) }
+                    L10n.button("Cancel") { installer.cancel(tier) }
                 }
             }
         case .verifying:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Checking the file is exactly what it should be")
+                L10n.text("Checking the file is exactly what it should be")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -415,31 +423,31 @@ public struct ModelManagementView: View {
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                 if error.isRetryable {
-                    Button("Try Again") { installer.install(tier) }
+                    L10n.button("Try Again") { installer.install(tier) }
                 }
             }
         default:
             if bundled {
-                Text("Built in and verified. Part of the app, so it cannot be removed.")
+                L10n.text("Built in and verified. Part of the app, so it cannot be removed.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             } else if installed {
                 HStack(spacing: 10) {
-                    Text("Downloaded and verified.")
+                    L10n.text("Downloaded and verified.")
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
-                    Button("Remove") { pendingRemoval = tier }
+                    L10n.button("Remove") { pendingRemoval = tier }
                         .disabled(isBusyElsewhere)
-                        .help(L10n.string(isBusyElsewhere
+                        .l10nHelp(isBusyElsewhere
                               ? "Finish or stop the current scan first."
-                              : "Delete this model and free the space"))
+                              : "Delete this model and free the space")
                 }
             } else if !availability.isSelectable {
-                Text("Cannot run on this Mac, so it is not offered for download.")
+                L10n.text("Cannot run on this Mac, so it is not offered for download.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
             } else {
-                Button("Download \(tier.downloadSizeDescription)") { installer.install(tier) }
+                L10n.button("Download %@", tier.downloadSizeDescription as NSString) { installer.install(tier) }
             }
         }
     }
@@ -459,22 +467,22 @@ public struct ModelManagementView: View {
     /// block the only remedy a managed offline install has.
     private var verifiedImportSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Already have the model file?")
+            L10n.text("Already have the model file?")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
-                Text("If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download.")
+                L10n.text("If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 12)
-                Button("Add Model File\u{2026}") { beginImport() }
+                L10n.button("Add Model File\u{2026}") { beginImport() }
                     .disabled(importer.isImporting)
             }
             // Said only when it is the answer to a question the user is
             // already asking, which is why it is conditional.
             if AISettings.isOfflineMode() {
-                Text("This works with offline mode on. Adding a file makes no network request.")
+                L10n.text("This works with offline mode on. Adding a file makes no network request.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -493,7 +501,7 @@ public struct ModelManagementView: View {
         case .preparing:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Checking there is room for the file")
+                L10n.text("Checking there is room for the file")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -512,18 +520,18 @@ public struct ModelManagementView: View {
                     ))
                         .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
-                    Button("Cancel") { importer.cancel() }
+                    L10n.button("Cancel") { importer.cancel() }
                 }
             }
         case .verifying:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Checking the file is exactly what it should be")
+                L10n.text("Checking the file is exactly what it should be")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
         case .installed:
-            Text("Added and verified.")
+            L10n.text("Added and verified.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
         case let .failed(error):
@@ -532,7 +540,7 @@ public struct ModelManagementView: View {
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
         case .cancelled:
-            Text("Adding the file was cancelled. Nothing was installed.")
+            L10n.text("Adding the file was cancelled. Nothing was installed.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
         case nil:
@@ -544,7 +552,7 @@ public struct ModelManagementView: View {
     /// button. Never an opened link: see NetworkChokepointTests.
     private func offlineSourceRow(_ page: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Offline copy of the Quick model:")
+            L10n.text("Offline copy of the Quick model:")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
             HStack(spacing: 8) {
@@ -553,8 +561,10 @@ public struct ModelManagementView: View {
                     .foregroundStyle(CounselTheme.textSecondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(didCopyReleasePage ? "Copied" : "Copy Link") {
+                Button {
                     copyReleasePageURL(page)
+                } label: {
+                    L10n.text(didCopyReleasePage ? "Copied" : "Copy Link")
                 }
                 .controlSize(.small)
             }
@@ -562,7 +572,7 @@ public struct ModelManagementView: View {
             // localized copy: baking part filenames into the app would couple
             // an app release to release-asset naming, and the user reading this
             // is about to be on that page anyway.
-            Text("The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here.")
+            L10n.text("The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -606,22 +616,22 @@ public struct ModelManagementView: View {
     /// is stated rather than implied.
     private var customModelSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Use your own model, unchecked")
+            L10n.text("Use your own model, unchecked")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
-                Text("Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
+                L10n.text("Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 12)
-                Button("Choose File\u{2026}") { chooseCustomModel() }
+                L10n.button("Choose File\u{2026}") { chooseCustomModel() }
             }
             if !customModelPath.isEmpty {
                 HStack(spacing: 10) {
-                    Text((customModelPath as NSString).lastPathComponent)
+                    Text(verbatim: (customModelPath as NSString).lastPathComponent)
                         .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
-                    Button("Stop Using It") {
+                    L10n.button("Stop Using It") {
                         AISettings.setCustomModel(url: nil)
                         customModelPath = ""
                     }
@@ -632,7 +642,7 @@ public struct ModelManagementView: View {
     }
 
     private func tag(_ text: String, tone: Color = CounselTheme.textSecondary) -> some View {
-        Text(LocalizedStringKey(text))
+        L10n.text(text)
             .font(.caption2).foregroundStyle(tone)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(tone.opacity(0.4), lineWidth: 1))

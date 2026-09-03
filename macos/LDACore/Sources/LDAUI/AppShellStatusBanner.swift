@@ -25,6 +25,8 @@ import LDACore
 /// recent export outcome. Hidden when idle with nothing to report.
 struct AppShellStatusBanner: View {
 
+    @Environment(\.appLanguage) private var appLanguage
+
     @ObservedObject var session: SessionModel
 
     /// A one-line outcome message shown after an export completes or fails.
@@ -64,13 +66,17 @@ struct AppShellStatusBanner: View {
                 Button {
                     model.cancelAnonymize()
                 } label: {
-                    Label("Stop", systemImage: "stop.circle")
-                        .font(.callout)
+                    Label {
+                        L10n.text("Stop")
+                    } icon: {
+                        Image(systemName: "stop.circle")
+                    }
+                    .font(.callout)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .tint(CounselTheme.danger)
-                .help("Stop anonymizing. The document stays loaded; no partial results are shown.")
+                .l10nHelp("Stop anonymizing. The document stays loaded; no partial results are shown.")
                 .accessibilityIdentifier("stopAnonymize")
             }
         } else if case .ready = model.status {
@@ -112,14 +118,14 @@ struct AppShellStatusBanner: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "text.magnifyingglass")
-                Text("Scan All")
+                L10n.text("Scan All")
             }
             .padding(.horizontal, 2)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
         .disabled(!session.canScanAll)
-        .help("Scan every document in the session that has not been scanned yet, one after another")
+        .l10nHelp("Scan every document in the session that has not been scanned yet, one after another")
         .accessibilityIdentifier("scanAllDocuments")
     }
 
@@ -127,7 +133,7 @@ struct AppShellStatusBanner: View {
     /// pill is visually even. Available once a document is imported, and again
     /// after a run (so the user can re-run, for example after toggling AI
     /// entities). Not available while a pass is in flight.
-    private func scanButton(title: LocalizedStringKey, prominent: Bool) -> some View {
+    private func scanButton(title: String, prominent: Bool) -> some View {
         Group {
             if prominent {
                 Button {
@@ -135,7 +141,7 @@ struct AppShellStatusBanner: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "text.magnifyingglass")
-                        Text(title)
+                        L10n.text(title)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -148,7 +154,7 @@ struct AppShellStatusBanner: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")
-                        Text(title)
+                        L10n.text(title)
                     }
                     .padding(.horizontal, 2)
                 }
@@ -157,9 +163,9 @@ struct AppShellStatusBanner: View {
             }
         }
         .disabled(!model.canAnonymize)
-        .help(L10n.string(hasDetectionModel
+        .l10nHelp(hasDetectionModel
               ? "Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)"
-              : "Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model."))
+              : "Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model.")
         .accessibilityIdentifier("scanForPII")
     }
 
@@ -174,12 +180,12 @@ struct AppShellStatusBanner: View {
         bannerChrome {
             Image(systemName: "checkmark.seal")
                 .foregroundStyle(CounselTheme.inkAccent)
-            Text("\(model.totalRedactedCount) to redact")
+            L10n.text("%lld to redact", model.totalRedactedCount)
                 .font(.callout).monospacedDigit()
                 .foregroundStyle(CounselTheme.textPrimary)
 
             if model.visibleCount > 0 {
-                Text("\u{00B7}  \(model.visibleCount) will remain visible")
+                L10n.text("\u{00B7}  %lld will remain visible", model.visibleCount)
                     .font(.callout).monospacedDigit()
                     .foregroundStyle(CounselTheme.danger)
             }
@@ -193,20 +199,28 @@ struct AppShellStatusBanner: View {
                 // makes a failed redaction indistinguishable from an intended
                 // one. See docs/design/model-tiers-prd.md section 7.
                 if model.aiWarning == nil {
-                    Label("Patterns only", systemImage: "info.circle")
-                        .font(.callout)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                        .help(L10n.string("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model."))
+                    Label {
+                        L10n.text("Patterns only")
+                    } icon: {
+                        Image(systemName: "info.circle")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .l10nHelp("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model.")
                 } else {
-                    Label("AI did not run", systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(CounselTheme.danger)
-                        .help(model.aiWarning ?? "")
+                    Label {
+                        L10n.text("AI did not run")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(CounselTheme.danger)
+                    .help(model.aiWarning ?? "")
                 }
             }
 
             if let warning = model.aiWarning {
-                Text("\u{00B7}  \(warning)")
+                L10n.text("\u{00B7}  %@", warning as NSString)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.danger)
                     .lineLimit(1)
@@ -214,7 +228,7 @@ struct AppShellStatusBanner: View {
             }
 
             if let note = model.learningNote {
-                Text("\u{00B7}  \(note)")
+                L10n.text("\u{00B7}  %@", note as NSString)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -226,7 +240,7 @@ struct AppShellStatusBanner: View {
             Spacer(minLength: 0)
 
             if let exportMessage {
-                Text(exportMessage)
+                Text(verbatim: exportMessage)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(1)
@@ -247,14 +261,13 @@ struct AppShellStatusBanner: View {
     /// documents, through the model's gate rather than a local condition, so
     /// every entry point agrees on when the choice exists.
     private var sealCandidateToggle: some View {
-        Toggle(
-            LocalizedStringKey(ImageExportPresentation.sealCandidateToggleTitle),
-            isOn: sealCandidateBinding
-        )
+        Toggle(isOn: sealCandidateBinding) {
+            L10n.text(ImageExportPresentation.sealCandidateToggleTitle)
+        }
         .toggleStyle(.checkbox)
         .font(.callout)
         .foregroundStyle(CounselTheme.textSecondary)
-        .help(L10n.string(ImageExportPresentation.sealCandidateToggleHelp))
+        .l10nHelp(ImageExportPresentation.sealCandidateToggleHelp)
     }
 
     /// Reads and writes the choice on whichever document is active NOW. The
@@ -281,23 +294,31 @@ struct AppShellStatusBanner: View {
 
             Divider().frame(height: 14)
 
-            Label("On-device", systemImage: "lock.laptopcomputer")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .help(L10n.string("Detection and redaction run on this Mac. A detection-model download uses a network connection while it runs."))
-                .accessibilityLabel(Text("On-device detection and redaction"))
+            Label {
+                L10n.text("On-device")
+            } icon: {
+                Image(systemName: "lock.laptopcomputer")
+            }
+            .labelStyle(.titleAndIcon)
+            .font(.caption)
+            .foregroundStyle(CounselTheme.textSecondary)
+            .l10nHelp("Detection and redaction run on this Mac. A detection-model download uses a network connection while it runs.")
+            .accessibilityLabel(Text(verbatim: L10n.string("On-device detection and redaction")))
 
             // When the user-presence upgrade failed, say so here rather than
             // letting the On-device badge imply a Touch ID gate that is not
             // there. See KeychainAdvisoryStore.
             if let advisory = keychainAdvisory.advisory {
-                Label("Touch ID inactive", systemImage: "exclamationmark.triangle.fill")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-                    .foregroundStyle(CounselTheme.danger)
-                    .help(advisory)
-                    .accessibilityLabel(Text(verbatim: advisory))
+                Label {
+                    L10n.text("Touch ID inactive")
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(CounselTheme.danger)
+                .help(advisory)
+                .accessibilityLabel(Text(verbatim: advisory))
             }
         }
         .padding(.horizontal, 16)
@@ -316,7 +337,8 @@ struct AppShellStatusBanner: View {
     private var detectingLabel: String {
         AnonymizeWorkflowPresentation.detectingLabel(
             progress: model.progress,
-            eta: model.etaText
+            eta: model.etaText,
+            language: appLanguage
         )
     }
 
@@ -325,26 +347,29 @@ struct AppShellStatusBanner: View {
         case .idle:
             return exportMessage ?? session.sessionNote
         case .importing:
-            return L10n.string("Importing document")
+            return L10n.string("Importing document", language: appLanguage)
         case .imported:
             // The shipped sentence promises names. With no model on this Mac
             // that is a promise the scan cannot keep, and it is made in the
             // same strip as the button that starts the scan.
             guard hasDetectionModel else {
-                return L10n.string("Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model.")
+                return L10n.string(
+                    "Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model.",
+                    language: appLanguage
+                )
             }
-            return L10n.string("Document ready. Click Scan for PII to spot names, companies, and other personal data.")
+            return L10n.string(
+                "Document ready. Click Scan for PII to spot names, companies, and other personal data.",
+                language: appLanguage
+            )
         case .detecting:
-            return L10n.string("Spotting PII")
+            return L10n.string("Spotting PII", language: appLanguage)
         case .ready:
             if let exportMessage { return exportMessage }
             if let note = model.learningNote {
-                return String(
-                    format: L10n.string("Ready for review. %@."),
-                    note as NSString
-                )
+                return L10n.formatted("Ready for review. %@.", language: appLanguage, [note as NSString])
             }
-            return L10n.string("Ready for review")
+            return L10n.string("Ready for review", language: appLanguage)
         case .failed(let detail):
             return detail
         }
