@@ -282,9 +282,13 @@ final class RootShellLayoutTests: XCTestCase {
     func testReadableTypographyRolesAreUsedForSentencesAndInstructions() throws {
         let themeSource = try String(contentsOf: Self.themeSourceURL, encoding: .utf8)
         let restoreSource = try String(contentsOf: Self.restoreSourceURL, encoding: .utf8)
-        // The shell's own prose moved into the extracted card when AppShell was
-        // split, so the supporting role is asserted where the sentences now live.
-        let appSource = try String(contentsOf: Self.handoffCardSourceURL, encoding: .utf8)
+        // The shell's own prose renders through AdvisoryRow (both the
+        // tracked-changes row and the missing-model row are two-line wrappers
+        // around it), so the supporting role is asserted where those sentences
+        // actually live. The completion card has its own font-role check below,
+        // keyed on "private func completionNote", so pointing this at the card
+        // would duplicate that and leave the advisory path unasserted.
+        let advisorySource = try String(contentsOf: Self.advisoryRowSourceURL, encoding: .utf8)
         let sidebarSource = try String(contentsOf: Self.entitySidebarSourceURL, encoding: .utf8)
         let matterSource = try String(contentsOf: Self.matterSourceURL, encoding: .utf8)
 
@@ -298,7 +302,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         XCTAssertTrue(restoreSource.contains("CounselTheme.Typography.sectionTitle"))
         XCTAssertTrue(restoreSource.contains("CounselTheme.Typography.supporting"))
-        XCTAssertTrue(appSource.contains("CounselTheme.Typography.supporting"))
+        XCTAssertTrue(advisorySource.contains("CounselTheme.Typography.supporting"))
         XCTAssertTrue(sidebarSource.contains("CounselTheme.Typography.supporting"))
         XCTAssertTrue(matterSource.contains("CounselTheme.Typography.supporting"))
     }
@@ -398,6 +402,12 @@ final class RootShellLayoutTests: XCTestCase {
     private static let workflowHeaderSourceURL = sourceURL
         .deletingLastPathComponent()
         .appendingPathComponent("AppShellWorkflowHeader.swift")
+
+    /// The shared advisory row. The shell's advisories are wrappers around it,
+    /// so this file, not AppShell.swift, is where their typography lives.
+    private static let advisoryRowSourceURL = sourceURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("AdvisoryRow.swift")
 
     /// The handoff completion card, extracted from AppShell.
     private static let handoffCardSourceURL = sourceURL
