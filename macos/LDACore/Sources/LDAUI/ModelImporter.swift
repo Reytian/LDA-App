@@ -245,51 +245,42 @@ public final class ModelImporter: ObservableObject {
         let scoped = url.startAccessingSecurityScopedResource()
         phase = .preparing
 
-        guard let size = fileSize(of: url) else {
-            settle(.failed(.unreadable(url.lastPathComponent)), url: url, scoped: scoped)
+        // ONE release site for every refusal, rather than one per guard. The
+        // scope balance is the defect class that only the sandboxed build
+        // reveals, so it is worth being auditable in a single glance.
+        let plan: ImportPlan
+        switch prepare(url) {
+        case let .refused(error):
+            settle(.failed(error), url: url, scoped: scoped)
             return nil
+        case let .ready(ready):
+            plan = ready
         }
-        // The prefilter. A file that is not the size of any published model is
-        // refused before a single byte is hashed, and the message can say why.
-        guard !catalog.tiersMatching(size: size).isEmpty else {
-            settle(.failed(.sizeUnmatched(actualBytes: size)), url: url, scoped: scoped)
-            return nil
-        }
-        // Same rule as the download path, from the same helper, so the two
-        // never disagree about how much room an install needs.
-        let needed = size + 1_000_000_000
-        if let free = freeSpaceProvider(), free < needed {
-            settle(
-                .failed(.insufficientDisk(neededBytes: needed, freeBytes: free)),
-                url: url,
-                scoped: scoped
-            )
-            return nil
-        }
-        guard let root = ModelCatalog.modelsRoot(fileManager: fileManager) else {
-            settle(.failed(.storage("no model folder")), url: url, scoped: scoped)
-            return nil
-        }
-        do {
-            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        } catch {
-            settle(
-                .failed(.storage(error.localizedDescription)), url: url, scoped: scoped
-            )
-            return nil
-        }
-
-        let temp = root.appendingPathComponent(
-            "\(Self.tempPrefix)\(UUID().uuidString)\(Self.tempSuffix)"
-        )
         cancelFlag.reset()
+        let task = dispatchCopy(from: url, plan: plan, scoped: scoped)
+        running = task
+        return task
+    }
+
+    /// Run the copy off the main actor and settle when it finishes.
+    ///
+    /// `scoped` travels with the work rather than being released here: the
+    /// security scope must outlive every byte of the read, and settling is the
+    /// one place that gives it back.
+    private func dispatchCopy(
+        from url: URL,
+        plan: ImportPlan,
+        scoped: Bool
+    ) -> Task<Void, Never> {
+        let size = plan.sizeBytes
+        let temp = plan.temp
         let currentGeneration = generation
         let catalog = self.catalog
         let manager = FileManagerBox(self.fileManager)
         let chunk = self.chunkBytes
         let flag = self.cancelFlag
 
-        let task = Task { [weak self] in
+        return Task { [weak self] in
             let outcome = await Task.detached(priority: .userInitiated) {
                 Self.performImport(
                     from: url,
@@ -325,8 +316,52 @@ public final class ModelImporter: ObservableObject {
                 importer.settle(outcome, url: url, scoped: scoped)
             }
         }
-        running = task
-        return task
+    }
+
+    /// What the prechecks agreed to, when they agree.
+    private struct ImportPlan {
+        let sizeBytes: Int64
+        let temp: URL
+    }
+
+    private enum ImportPrecheck {
+        case ready(ImportPlan)
+        case refused(ModelImportError)
+    }
+
+    /// Everything decided before a byte is read: the size, the prefilter, the
+    /// free-space rule and the temp file's home.
+    ///
+    /// Split out of `importFile` so that function stays readable and so every
+    /// refusal returns through one path. Opens nothing: the caller has the
+    /// security scope and is the only place that releases it.
+    private func prepare(_ url: URL) -> ImportPrecheck {
+        guard let size = fileSize(of: url) else {
+            return .refused(.unreadable(url.lastPathComponent))
+        }
+        // The prefilter. A file that is not the size of any published model is
+        // refused before a single byte is hashed, and the message can say why.
+        guard !catalog.tiersMatching(size: size).isEmpty else {
+            return .refused(.sizeUnmatched(actualBytes: size))
+        }
+        // Same rule as the download path, from the same helper, so the two
+        // never disagree about how much room an install needs.
+        let needed = size + 1_000_000_000
+        if let free = freeSpaceProvider(), free < needed {
+            return .refused(.insufficientDisk(neededBytes: needed, freeBytes: free))
+        }
+        guard let root = ModelCatalog.modelsRoot(fileManager: fileManager) else {
+            return .refused(.storage("no model folder"))
+        }
+        do {
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            return .refused(.storage(error.localizedDescription))
+        }
+        let temp = root.appendingPathComponent(
+            "\(Self.tempPrefix)\(UUID().uuidString)\(Self.tempSuffix)"
+        )
+        return .ready(ImportPlan(sizeBytes: size, temp: temp))
     }
 
     /// Stop an in-flight copy. The temp file is removed by the worker.
