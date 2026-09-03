@@ -42,16 +42,6 @@ public struct AppShell: View {
     /// Opens the guided Matters workspace for choosing an existing matter.
     private let onOpenMatters: () -> Void
 
-    /// True while the passphrase sheet is presented, after a directory is chosen.
-    @State private var isPromptingPassphrase = false
-
-    /// The directory chosen for export, held while the passphrase is collected.
-    @State private var pendingExportDir: URL?
-
-    /// The optional passphrase typed into the sheet. Empty means use the
-    /// Keychain instead of a passphrase.
-    @State private var passphrase = ""
-
     /// A one-line outcome message shown after an export completes or fails.
     @State private var exportMessage: String?
 
@@ -85,6 +75,10 @@ public struct AppShell: View {
     /// On-device badge when it did not, so the trust claim in the UI matches
     /// what the Keychain is really doing.
     @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+
+    /// Which step of the Save Redacted flow is on screen. The directory
+    /// picker and the passphrase sheet live in ExportFlow.
+    @StateObject private var exportFlow = ExportFlowModel()
 
     /// Which step of the save-or-open workspace flow is on screen. The flow
     /// itself (panels, sheets, and the replace-live-work prompt) lives in
@@ -144,8 +138,14 @@ public struct AppShell: View {
         )
         .navigationTitle(windowTitle)
         .toolbar { toolbarContent }
-        .sheet(isPresented: $isPromptingPassphrase) {
-            passphraseSheet
+        .exportFlow(
+            session: session,
+            flow: exportFlow,
+            report: { exportMessage = $0 }
+        ) { completion in
+            exportMessage = nil
+            handoffCompletion = completion
+            hasSharedOutput = true
         }
         .workspaceFlow(session: session, flow: workspaceFlow) { message in
             exportMessage = message
@@ -184,9 +184,6 @@ public struct AppShell: View {
             if !hasCompletedFirstRun {
                 isOnboardingPresented = true
             }
-        }
-        .onChange(of: model.exportRequestToken) { _, _ in
-            beginExport()
         }
         .onChange(of: model.anonymizeRequestToken) { _, _ in
             guard model.canAnonymize else { return }
@@ -288,7 +285,7 @@ public struct AppShell: View {
                 .help(exportForAIHelp)
 
                 Button {
-                    beginExport()
+                    exportFlow.requestExport()
                 } label: {
                     Label("Save Redacted", systemImage: "square.and.arrow.up")
                 }
@@ -852,78 +849,6 @@ public struct AppShell: View {
         }
     }
 
-    // MARK: - Passphrase sheet
-
-    private var passphraseSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the mapping")
-                .font(.headline)
-                .foregroundStyle(CounselTheme.textPrimary)
-
-            Text("Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Confidentiality nudge: the mapping sidecar holds the original
-            // values (encrypted). Exporting into an iCloud-synced folder ships
-            // that file off this Mac.
-            if let dir = pendingExportDir, Self.isUnderICloud(dir) {
-                Label {
-                    Text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
-                } icon: {
-                    Image(systemName: "icloud.and.arrow.up")
-                }
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Trust confirmation: what is and is not being redacted. The
-            // count is the whole export, headers and footers included, not
-            // the length of the review list.
-            (Text("\(model.totalRedactedCount)").bold() + Text(" entities will be redacted.")
-                + (model.visibleCount > 0
-                    ? Text("  \(model.visibleCount) you rejected will remain visible in the exported file.")
-                        .foregroundColor(CounselTheme.danger)
-                    : Text("")))
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let note = AnonymizeWorkflowPresentation.supplementaryCoverageNote(
-                count: model.supplementaryRedactedCount
-            ) {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SecureField("Passphrase (optional)", text: $passphrase)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
-
-            HStack {
-                Spacer()
-                Button("Cancel", role: .cancel) {
-                    cancelPassphrase()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Export") {
-                    confirmExport()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 380)
-        .background(CounselTheme.raised)
-    }
-
     // MARK: - Open flow
 
     /// Present a native open panel for the session's documents. NSOpenPanel is
@@ -969,30 +894,6 @@ public struct AppShell: View {
         }
     }
 
-    // MARK: - Export flow
-
-    private func beginExport() {
-        guard model.canExport else { return }
-        exportMessage = nil
-        passphrase = ""
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = L10n.string("Choose a folder for the redacted document and encrypted mapping.")
-        panel.prompt = L10n.string("Export Here")
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
-        pendingExportDir = dir
-        isPromptingPassphrase = true
-    }
-
-    private func cancelPassphrase() {
-        isPromptingPassphrase = false
-        pendingExportDir = nil
-        passphrase = ""
-    }
-
     /// Export the session's compliance report. The report carries NO protected
     /// value, but it does carry the matter label and every document name, and
     /// in PRC legal practice those names are the parties, which is why the
@@ -1004,52 +905,8 @@ public struct AppShell: View {
         reportFlow.requestExport()
     }
 
-    private func confirmExport() {
-        isPromptingPassphrase = false
-        guard let dir = pendingExportDir else { return }
-
-        let phrase = passphrase.isEmpty ? nil : passphrase
-        let protection = passphrase.isEmpty
-            ? L10n.string("Mac Keychain")
-            : L10n.string("Passphrase protected")
-        let createdAt = ISO8601DateFormatter().string(from: Date())
-        pendingExportDir = nil
-        passphrase = ""
-
-        let needsScope = dir.startAccessingSecurityScopedResource()
-        Task {
-            defer {
-                if needsScope { dir.stopAccessingSecurityScopedResource() }
-            }
-            do {
-                let outcome = try await model.export(
-                    to: dir,
-                    passphrase: phrase,
-                    createdAtISO8601: createdAt
-                )
-                exportMessage = nil
-                handoffCompletion = .exported(
-                    result: outcome,
-                    protection: protection
-                )
-                hasSharedOutput = true
-            } catch {
-                exportMessage = String(
-                    format: L10n.string("Export failed: %@"),
-                    error.localizedDescription as NSString
-                )
-            }
-        }
-    }
-
     // The Restore flow (choose or drop the file that came back) lives in
     // DeanonymizeShell.
-
-    /// True when the directory lives inside iCloud Drive (any app container or
-    /// the Desktop and Documents sync surface).
-    private static func isUnderICloud(_ url: URL) -> Bool {
-        url.standardizedFileURL.path.contains("/Library/Mobile Documents/")
-    }
 
     // MARK: - Content types
 
