@@ -327,7 +327,7 @@ final class RootShellLayoutTests: XCTestCase {
             role: "CounselTheme.Typography.supporting"
         )
         try assertFontRole(
-            in: Self.appShellSourceURL,
+            in: Self.handoffCardSourceURL,
             after: "private func completionNote",
             role: "CounselTheme.Typography.supporting"
         )
@@ -390,6 +390,11 @@ final class RootShellLayoutTests: XCTestCase {
     private static let appShellSourceURL = sourceURL
         .deletingLastPathComponent()
         .appendingPathComponent("AppShell.swift")
+
+    /// The handoff completion card, extracted from AppShell.
+    private static let handoffCardSourceURL = sourceURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("HandoffCompletionCard.swift")
 
     private static let ldaAppSourceURL = packageRootURL
         .appendingPathComponent("Sources/LDAApp/LDAApp.swift")
