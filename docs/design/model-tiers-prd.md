@@ -3,7 +3,13 @@
 **Date**: 2026-08-29
 **Type**: PRD / functional specification
 **Owner**: Product
-**Status**: Superseded in part by `model-management-prd.md`
+**Status**: Superseded in part by `model-management-prd.md`, and see the 2026-09-03 note below
+
+
+> **Update, 2026-09-03.** This document's Appendix N position, that nothing is bundled, is
+> the shipping design again. The app ships without a model; a fresh install downloads one
+> or imports a checksum-verified file the user supplies. Statements below that Quick is
+> "bundled with the app" describe the interim build only.
 
 > This spec was written for a build with **no** network entitlement, so it
 > routes model acquisition through a manual copy-the-link sheet and

@@ -3,9 +3,21 @@
 **Date**: 2026-08-29
 **Type**: PRD / functional specification
 **Owner**: Product
-**Status**: Ready for engineering
+**Status**: Superseded in part, 2026-09-03 (the bundled model is gone; see the note below)
 **Applies to**: `macos/LDACore` (LDAUI, LDACore, LDAApp, packaging)
 **Companion**: [model-tiers-prd.md](model-tiers-prd.md). That document decides *which* models exist and *how they are chosen*. This one decides *how they get onto the Mac, how they are proven, and how they leave*.
+
+
+> **Superseded in part, 2026-09-03.** The app no longer bundles a model. `package-app.sh`
+> ships a model-less build by default and bundles one only when `BUNDLE_MODEL=1` is set,
+> in which case it verifies the file against the checksum in `Models.json` first. Every
+> statement below that a model "ships inside the app", and the settled decision recorded
+> in section 1 that "the app bundle ships exactly one model, Quick", are reversed: the
+> tiers PRD's Appendix N position (nothing is bundled) is the shipping design again.
+> A fresh install now installs a model in one of two ways, either an in-app download or a
+> checksum-verified import of a file the user supplies, which is also the only remedy for
+> a machine running with offline mode forced on. See `macos/LDACore/README.md`, section
+> "Installing a detection model".
 
 ---
 
