@@ -62,11 +62,13 @@ public struct AnonymizeResult: Sendable {
     /// UI can surface "N seal candidates boxed". Always 0 for non-image input
     /// and when includeSealCandidates is false.
     public var sealCandidateCount: Int
-    /// How many detected BODY spans the caller's exclusions (spanFilter and
-    /// excludedTypes) dropped before tokenization. Those values stay visible
-    /// in the redacted output by the caller's choice. Always 0 when no
-    /// exclusion was supplied.
+    /// How many detected OCCURRENCES the caller's exclusions (spanFilter and
+    /// excludedTypes) left visible, on every channel, and how many DISTINCT
+    /// values those occurrences carry. Excluding one occurrence of a value
+    /// excludes every occurrence of it, so these counts, not the size of the
+    /// caller's exclusion list, are what the output discloses. 0 when none.
     public var excludedEntityCount: Int
+    public var excludedValueCount: Int
     /// DOCX only: how many tracked-change containers the body carries (see
     /// ImportedDocument.trackedChangeCount). A non-zero count should be
     /// surfaced as a warning: "This document carries tracked changes; accept
@@ -86,6 +88,7 @@ public struct AnonymizeResult: Sendable {
         sealCandidateCount: Int = 0,
         redactedImageURL: URL? = nil,
         excludedEntityCount: Int = 0,
+        excludedValueCount: Int = 0,
         trackedChangeCount: Int = 0
     ) {
         self.redactedFileURL = redactedFileURL
@@ -100,6 +103,7 @@ public struct AnonymizeResult: Sendable {
         self.unboxedTokenCount = unboxedTokenCount
         self.sealCandidateCount = sealCandidateCount
         self.excludedEntityCount = excludedEntityCount
+        self.excludedValueCount = excludedValueCount
     }
 }
 
@@ -222,9 +226,9 @@ public enum LDAService {
     ///     redacted image's coverage; candidates only, never certain seal
     ///     detections. Ignored for every other input format.
     ///   - spanFilter: the caller's review step over BODY spans: return false
-    ///     to leave a detected value visible. Consulted for every detected
-    ///     body span in detection order, before the type test, so a caller may
-    ///     also use it to observe the detection set. Nil keeps every span.
+    ///     to leave a detected value visible, at EVERY occurrence of it.
+    ///     Consulted for every body span in detection order, before the type
+    ///     test, so a caller may also observe the set. Nil keeps every span.
     ///   - excludedTypes: entity types left visible on EVERY channel (body,
     ///     docx headers, footers, notes, comments, and the image-PII pass).
     public static func anonymize(
@@ -268,15 +272,13 @@ public enum LDAService {
         }
         let detector = makeDetector(modelPath: llmModelPath)
         // The caller's review step: drop excluded spans BEFORE splitting,
-        // tokenization, and alias linking, so an excluded value never mints a
-        // token or enters the mapping. Types are excluded on every channel;
-        // the per-span filter is body-only (see SpanExclusion).
+        // tokenization, and alias linking. Exclusion resolves to VALUES and
+        // reaches every channel, headers and image text alike (SpanExclusion).
         let exclusion = SpanExclusion(excludedTypes: excludedTypes, bodyFilter: spanFilter)
-        let candidates = try detector.detectText(imported.text)
-        let detected = exclusion.filterBody(candidates)
-        let excludedEntityCount = candidates.count - detected.count
+        let review = exclusion.resolve(bodySpans: try detector.detectText(imported.text))
+        let detected = review.keptBodySpans
         let detectSupplementary: (String) -> [Span] = { text in
-            exclusion.filterSupplementary(detector.detectForImages(text))
+            review.filterSupplementary(detector.detectForImages(text))
         }
         // No replacement may swallow a newline or a tab, on any format. In a
         // DOCX those characters exist in no w:t run, so a crossing surface
@@ -360,7 +362,8 @@ public enum LDAService {
                 unboxedTokenCount: coverage.unlocatedRangeCount,
                 sealCandidateCount: render.sealCandidateCount,
                 redactedImageURL: imageURL,
-                excludedEntityCount: excludedEntityCount
+                excludedEntityCount: review.excludedOccurrenceCount,
+                excludedValueCount: review.excludedValueCount
             )
         }
 
@@ -484,7 +487,8 @@ public enum LDAService {
             imageRedactionCount: imageRedactionCount,
             embeddedMediaCount: embeddedMediaCount,
             unboxedTokenCount: unboxedTokenCount,
-            excludedEntityCount: excludedEntityCount,
+            excludedEntityCount: review.excludedOccurrenceCount,
+            excludedValueCount: review.excludedValueCount,
             trackedChangeCount: imported.trackedChangeCount
         )
     }

@@ -182,9 +182,9 @@ launch); exports land only in the vault's own `outbox/`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (values the review step left visible; 0 means fully redacted) |
+| `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (occurrences the review step left visible, on every channel; 0 means fully redacted) |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
-| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `detectionChanged` |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `excludedValueCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
@@ -213,9 +213,25 @@ without ever seeing a name:
 1. `detect_entities {handle}` and read the `entities` list.
 2. `anonymize {handle, excludeEntityIds: [ids], detectionId, excludeTypes: ["DATE"]}`.
 
-`excludeEntityIds` applies to body text only (a header occurrence of the same
-value is still redacted); `excludeTypes` applies everywhere, including
-headers, footers, notes, comments, and the image channel. `anonymize` detects
+Exclusion works by VALUE, not by occurrence. An `id` names one occurrence, but
+excluding it leaves EVERY occurrence of that occurrence's value visible in the
+whole document: the body, headers, footers, notes, comments, and the image
+channel, exactly like `excludeTypes`. Anything else would be worse than
+useless, because the value would then sit in the same document as its own
+placeholder, and any reader could equate the two and de-anonymize every other
+site of that placeholder, including sites the caller never looked at. So a
+value left visible is NOT protected anywhere in that document, and the choice
+is per value, not per site. Other values, including other values of the same
+type, are unaffected.
+
+The response says how far that reaches: `excludedCount` is the number of
+OCCURRENCES now in clear on every channel (usually larger than the number of
+ids passed) and `excludedValueCount` is how many distinct values they are.
+Both are counts; no entity text ever crosses the boundary. The same
+`excludedCount` reaches `list_pending` as the artifact's
+`excludedEntityCount`, and reading such an artifact is counted separately by
+`attest`, so a partially redacted artifact is never mistaken for a complete
+one. `anonymize` detects
 again on its own: an excluded id it does not find (including any id minted
 for another document) is refused with `unknown_entity_id` and nothing is
 written; a detection that changed while

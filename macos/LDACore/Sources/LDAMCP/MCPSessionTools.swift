@@ -177,8 +177,9 @@ extension MCPServer {
                 "totalEntityCount": allSpans.count,
                 "entityTypes": entityTypeStrings(allSpans),
                 "perTypeCounts": MCPServer.perTypeCounts(allSpans),
-                // How many detected values excludeTypes left visible across
-                // the whole session.
+                // How many detected OCCURRENCES excludeTypes left visible
+                // across the whole session. An excluded type is visible in
+                // every document and every part, so this is the blast radius.
                 "excludedCount": session.documents.reduce(0) { $0 + $1.excludedEntityCount },
                 // Sites this session would restore to a DIFFERENT party's real
                 // name. Empty in the ordinary case. Non-empty means the

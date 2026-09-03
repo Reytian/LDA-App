@@ -88,7 +88,7 @@ extension MCPServer {
     static let vaultToolDescriptors: [[String: Any]] = [
         [
             "name": "list_pending",
-            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at, source handle, and for redacted artifacts excludedEntityCount: how many detected values the review step left visible; 0 means fully redacted). Never returns filenames or paths.",
+            "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at, source handle, and for redacted artifacts excludedEntityCount: how many detected occurrences the review step left visible, on every channel; 0 means fully redacted). Never returns filenames or paths.",
             "inputSchema": [
                 "type": "object",
                 "properties": [String: Any](),
@@ -97,7 +97,7 @@ extension MCPServer {
         ],
         [
             "name": "anonymize",
-            "description": "Detect and tokenize PII in a staged document (by handle), producing a redacted artifact with its own handle and an encrypted mapping sidecar kept inside the vault. Returns the redacted handle and aggregate counts only. Review step: to leave chosen values visible, run detect_entities once, then pass its ids as excludeEntityIds together with its detectionId, and/or pass excludeTypes for whole types. The response reports excludedCount (body values left visible) and detectionChanged (true when this run's detection differs from the reviewed one; the run still proceeds when every excluded id is present, since over-redaction is the safe direction).",
+            "description": "Detect and tokenize PII in a staged document (by handle), producing a redacted artifact with its own handle and an encrypted mapping sidecar kept inside the vault. Returns the redacted handle and aggregate counts only. Review step: to leave chosen values visible, run detect_entities once, then pass its ids as excludeEntityIds together with its detectionId, and/or pass excludeTypes for whole types. Exclusion works by VALUE: whatever you leave visible stays visible at every occurrence in the document, headers, footers, notes and comments included, and is therefore not protected anywhere in it. The response reports excludedCount (occurrences now in clear, on every channel; expect it to exceed the number of ids you passed), excludedValueCount (how many distinct values those occurrences are), and detectionChanged (true when this run's detection differs from the reviewed one; the run still proceeds when every excluded id is present, since over-redaction is the safe direction).",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -108,7 +108,7 @@ extension MCPServer {
                     "excludeEntityIds": [
                         "type": "array",
                         "items": ["type": "string"],
-                        "description": "Ids from detect_entities for THIS handle whose values must stay visible. Body text only: an occurrence of the same value in a header, footer, note, or comment is still redacted (use excludeTypes for that). Requires detectionId. An id the fresh detection does not know, including any id from another document, is refused (unknown_entity_id) and nothing is written."
+                        "description": "Ids from detect_entities for THIS handle whose VALUES must stay visible. Excluding one id keeps EVERY occurrence of that value visible in the whole document, headers, footers, notes, and comments included, not only the occurrence the id names: a value left in clear beside its own placeholder tells any reader what that placeholder stands for, at every other site. So a value you leave visible is NOT protected anywhere in that document. Other values, including other values of the same type, are unaffected. The response reports excludedCount, the number of occurrences now in clear, which is usually larger than the number of ids you passed. Requires detectionId. An id the fresh detection does not know, including any id from another document, is refused (unknown_entity_id) and nothing is written."
                     ],
                     "excludeTypes": [
                         "type": "array",
@@ -125,7 +125,7 @@ extension MCPServer {
         ],
         [
             "name": "anonymize_session",
-            "description": "Anonymize several staged documents (by handle) as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Each document gets its own redacted handle; the shared encrypted sidecar stays inside the vault. Optional excludeTypes leaves whole entity types visible in every document (reported as excludedCount). CHECK unresolvedSeams in the response: when it is non-empty, restoring puts a DIFFERENT party's real name at the listed sites, and the redacted output looks completely ordinary, so nothing later in the round trip will catch it.",
+            "description": "Anonymize several staged documents (by handle) as ONE session sharing ONE mapping: the same value keeps the same placeholder across the set. Each document gets its own redacted handle; the shared encrypted sidecar stays inside the vault. Optional excludeTypes leaves whole entity types visible in every document, at every occurrence (excludedCount reports how many occurrences that is). CHECK unresolvedSeams in the response: when it is non-empty, restoring puts a DIFFERENT party's real name at the listed sites, and the redacted output looks completely ordinary, so nothing later in the round trip will catch it.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
@@ -141,7 +141,7 @@ extension MCPServer {
                     "excludeTypes": [
                         "type": "array",
                         "items": ["type": "string", "enum": EntityType.allCases.map(\.rawValue)],
-                        "description": "Entity types to leave visible in every document of the session, for example [\"DATE\"]. Per-entity ids are single-document by construction, so excludeEntityIds is not accepted here: call anonymize per document to exclude by id."
+                        "description": "Entity types to leave visible in every document of the session, for example [\"DATE\"]: every occurrence of those types, in every part of every document, stays in clear and is protected nowhere in the session. Per-entity ids are single-document by construction, so excludeEntityIds is not accepted here: call anonymize per document to exclude by id."
                     ]
                 ],
                 "required": ["handles"]
@@ -160,7 +160,7 @@ extension MCPServer {
         ],
         [
             "name": "detect_entities",
-            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from the handle, type, and offsets, so it is never valid for another document), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
+            "description": "Detect PII entities in a staged document (by handle) without writing anything. Returns entity types, counts, character offsets, a per-entity id (derived from the handle, type, and offsets, so it is never valid for another document), and a detectionId for the whole set; the detected text itself never leaves the machine. This is the review step: read the list, then call anonymize with excludeEntityIds plus this detectionId (and/or excludeTypes) to leave chosen values visible. One id names ONE occurrence, but excluding it leaves every occurrence of that same value visible in the document, so repeated values need only one of their ids. Run it once per document; anonymize detects again on its own and reports detectionChanged if the set moved.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

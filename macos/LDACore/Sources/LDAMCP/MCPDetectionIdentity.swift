@@ -65,7 +65,10 @@ struct MCPReviewArguments {
 
     /// Entity types left visible on every channel.
     let excludedTypes: Set<EntityType>
-    /// Entity ids (from detect_entities) left visible in the body.
+    /// Entity ids (from detect_entities) whose VALUES stay visible. An id
+    /// names one occurrence; the engine resolves it to that occurrence's
+    /// value and leaves every occurrence of that value visible, on every
+    /// channel (see SpanExclusion).
     let excludedIds: Set<String>
     /// The detectionId the ids came with, when given.
     let detectionId: String?
