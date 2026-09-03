@@ -461,34 +461,46 @@ public final class ModelImporter: ObservableObject {
             return .failed(error)
         case let .digest(hex):
             onVerifying()
-            // The catalog inside the signed app is the only reference trusted
-            // here. Nothing that travelled with the file is consulted.
-            guard let tier = catalog.tier(matchingSha256: hex) else {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.digestUnmatched)
-            }
-            guard let destination = ModelCatalog.installedURL(
-                for: tier, fileManager: fileManager
-            ) else {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.storage("no install location for \(tier.id)"))
-            }
-            do {
-                try fileManager.createDirectory(
-                    at: destination.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if fileManager.fileExists(atPath: destination.path) {
-                    try fileManager.removeItem(at: destination)
-                }
-                // Same volume as the temp file, so this is a rename.
-                try fileManager.moveItem(at: temp, to: destination)
-            } catch {
-                try? fileManager.removeItem(at: temp)
-                return .failed(.storage(error.localizedDescription))
-            }
-            return .installed(tierID: tier.id)
+            return install(temp: temp, digest: hex, catalog: catalog, fileManager: fileManager)
         }
+    }
+
+    /// Attribute the streamed file to a tier by its digest and move it in.
+    ///
+    /// The catalog inside the signed app is the only reference trusted here.
+    /// Nothing that travelled with the file is consulted, which is the whole
+    /// reason a checksum file carried alongside the model is never read.
+    nonisolated private static func install(
+        temp: URL,
+        digest: String,
+        catalog: ModelCatalog,
+        fileManager: FileManager
+    ) -> ModelImportPhase {
+        guard let tier = catalog.tier(matchingSha256: digest) else {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.digestUnmatched)
+        }
+        guard let destination = ModelCatalog.installedURL(
+            for: tier, fileManager: fileManager
+        ) else {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.storage("no install location for \(tier.id)"))
+        }
+        do {
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
+            }
+            // Same volume as the temp file, so this is a rename.
+            try fileManager.moveItem(at: temp, to: destination)
+        } catch {
+            try? fileManager.removeItem(at: temp)
+            return .failed(.storage(error.localizedDescription))
+        }
+        return .installed(tierID: tier.id)
     }
 
     /// What one streaming pass produced.
