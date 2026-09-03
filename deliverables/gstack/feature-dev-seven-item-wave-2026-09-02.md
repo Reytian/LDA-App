@@ -22,7 +22,7 @@
 | Verdict | Go for the wave itself: green, reviewed, and verified live. GUI interaction still needs a human on an unlocked screen, and one pre-existing leak is worth fixing before release |
 | Blockers | None in code |
 | Severity found and fixed | 2 silent PII leaks (docx), 1 high MCP disclosure, 2 medium MCP integrity, 1 sandbox write denial |
-| Open follow-ups | 10, all listed below, none blocking |
+| Open follow-ups | 9, all listed below, none blocking |
 
 ### Independent QA pass
 
@@ -117,11 +117,11 @@ The MacBook has no model, so the wave was first verified deterministic-only with
 
 The features this wave added hold up live. Two documents exported together share one mapping, so the same person carries the same placeholder across both while a person unique to the second document continues the numbering. A phone sitting directly above a date splits into two correctly typed tokens instead of one swallowing the other. On the machine-facing surface, excluding one person left all six of that person's occurrences visible while everything else stayed tokenized, and a scan of the whole transcript for eighteen different needles found no path, no filename, and no entity text beyond the one value the caller deliberately exposed.
 
-### Two defects found, both pre-existing
+### Two defects found, both pre-existing, both now fixed
 
 **A spaced Chinese date was never detected and shipped in clear. Now fixed.** The pattern required `2026年3月15日` with no spaces, so `2026 年 3 月 15 日` passed straight through into the redacted file, leaking in all three channels at once: the Word file, the text file, and the machine-facing read. It was asymmetric within the same function, since every English date form a few lines below tolerates whitespace and phone numbers match with spaces. It matters because converting a PDF to text routinely inserts spaces around Chinese numerals, and this project has already lost entities once to exactly this kind of spacing. Fixed at `a7fcec4`: the gap between the date parts is now the Unicode space separators plus the tab, so it also covers the ideographic space a Chinese editor inserts. Each run is bounded, because an unbounded whitespace quantifier beside another quantifier is the backtracking shape this engine has stalled on before, and newlines are excluded so a date can never span a line break. Four tests pin it, including a backtracking guard, and all three forms verified end to end through the command line tool.
 
-**Coverage is under-reported.** The detect command and the anonymize summary count body text only, while redaction also covers headers, footers and notes. A fixture reported 19 entities and made 22 replacements. It errs in the safe direction, but anyone auditing coverage with detect would wrongly conclude the header names leak.
+**Coverage was under-reported. Now fixed.** The detect command and the anonymize summary counted body text only, while redaction also covers headers, footers and notes, so a fixture reported 19 entities and made 22 replacements. It erred in the safe direction, but anyone auditing coverage with detect would wrongly conclude the header names leak. Fixed at `0308ee1`: the reported total now counts every replacement site, body and supplementary, and a companion figure shows the supplementary share with its own per-type breakdown. The unit had to be a site rather than a distinct value, because a header repeating a name from the body reuses that token and mints no new mapping entry, yet is still a replacement the restore puts back; counting sites is what makes the reported total equal the restore count on every document rather than only on the fixture. The span list stays body-only by design, since a supplementary offset would collide with a body one, and that asymmetry is now spelled out where a reader previously misread it. Preview and run agree through one shared detection path, and on the machine-facing surface the supplementary half crosses as type names and integers only, so it carries no offsets and stays non-excludable.
 
 ## 4. What still needs a human
 
@@ -131,7 +131,6 @@ The features this wave added hold up live. Two documents exported together share
 ## 5. Open follow-ups, none blocking
 
 - Type exclusion is applied before a value is split, so asking to keep dates visible can still lose a date that arrived inside a phone-shaped span. The type is now correct everywhere the user sees it, but the deny-list decision was already made by then. Moving it is a design call because the app path has no exclusion layer at all today.
-- The detect command and the anonymize summary count body text only, while redaction covers the whole package.
 - Dual-view detection so a value spanning a tracked change stops producing a chimera.
 - Tracked changes inside headers and footers are not counted, only the body.
 - Word glossary parts are still not scanned, so Quick Part content can carry PII.
