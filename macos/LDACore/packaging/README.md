@@ -44,10 +44,10 @@ You need an Apple Developer account.
   shipping such a build.
 - `Contents/Info.plist` : bundle id `com.haotianyi.LDA` (change as needed).
 
-**No detection model is bundled by default**, so the shipping .app is a few MB
-and a fresh install asks for a model on first run: Manage Models downloads one,
-or the user adds a file they carried over. Both paths verify the file against
-the checksum in `Models.json` and copy it into
+**No detection model is bundled by default**, so the shipping .app is about
+16 MB and a fresh install asks for a model on first run: Manage Models
+downloads one, or the user adds a file they carried over. Both paths verify the
+file against the checksum in `Models.json` and copy it into
 `Application Support/LDA/Models/`.
 
 Set `BUNDLE_MODEL=1` to build a single-file deploy instead, with `MODEL_PATH`
@@ -57,7 +57,7 @@ would block it. The script verifies the file's byte count and SHA-256 against
 the packaged `Models.json` before copying it and exits non-zero on any
 mismatch, because a bundled model is resolved straight through `Bundle.main`
 and packaging is the only point at which it is ever checked. Bundling adds
-about 2.7 GB, so the .app becomes roughly 3.2 GB.
+2740937888 bytes, taking the .app to about 2.6 GiB.
 
 Bundling is deliberately not inferred from a file being present at
 `MODEL_PATH`: two builds of the same commit must produce the same app whatever
