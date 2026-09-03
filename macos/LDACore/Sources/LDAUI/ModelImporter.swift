@@ -372,6 +372,13 @@ public final class ModelImporter: ObservableObject {
     /// One sweep at construction: without it a process killed mid-copy leaves a
     /// multi-gigabyte `.part` in the container with nothing to notice it. Only
     /// this importer's own prefix is touched.
+    ///
+    /// This assumes ONE importer per process, which LDAApp guarantees: it owns
+    /// a single `@StateObject` inside a `Window` scene and threads it by
+    /// reference to Settings, RootShell and the sheets. A second instance would
+    /// sweep a live sibling's in-flight `.part` out from under it. If a second
+    /// one ever becomes necessary, give the temp name a per-instance component
+    /// and sweep only that, rather than dropping the sweep.
     private func sweepAbandonedTempFiles() {
         guard let root = ModelCatalog.modelsRoot(fileManager: fileManager),
               let names = try? fileManager.contentsOfDirectory(atPath: root.path) else {
@@ -478,6 +485,12 @@ public final class ModelImporter: ObservableObject {
 
         var hasher = SHA256()
         var written: Int64 = 0
+        // Report on whole-percent changes rather than once per chunk. A 2.6 GB
+        // file is 654 chunks, and every report is a main-actor hop that
+        // re-renders the shell; a progress bar cannot show more than 100 steps
+        // anyway. The first and last updates always go through, so a caller
+        // watching the phase stream still sees the copy begin and finish.
+        var lastReportedPercent = -1
         while true {
             if cancel.isCancelled { return .cancelled }
             let chunk: Data?
@@ -494,11 +507,28 @@ public final class ModelImporter: ObservableObject {
                 return .failure(.storage(error.localizedDescription))
             }
             written += Int64(chunk.count)
-            onProgress(written)
+            let percent = expectedBytes > 0
+                ? Int(Double(written) / Double(expectedBytes) * 100) : 100
+            if percent != lastReportedPercent || written == expectedBytes {
+                lastReportedPercent = percent
+                onProgress(written)
+            }
 #if DEBUG
             afterChunkSeam.value?(written)
 #endif
         }
+        // Once more after the loop. The top-of-iteration check already catches
+        // a cancel raised any time up to the last read, including during the
+        // final chunk. What is left is the narrow window between that last
+        // read of the flag and the file being moved into place: a click
+        // arriving there would otherwise be absorbed and the import would
+        // report .installed while the user had asked for the opposite.
+        //
+        // That window is microseconds wide and no test can hit it
+        // deterministically, since the only seam fires after a chunk write. It
+        // is cheap hardening, and the alternative is a Cancel press that
+        // silently installs, so it stays.
+        if cancel.isCancelled { return .cancelled }
         // A file that shrank under us is not the model it claimed to be, and
         // the digest would be a digest of something nobody published.
         guard written == expectedBytes else {

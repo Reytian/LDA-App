@@ -401,6 +401,73 @@ final class ModelImportTests: XCTestCase {
 #endif
     }
 
+    func testCancellingOnTheLastChunkDoesNotCompleteTheInstall() async throws {
+#if DEBUG
+        // A cancel raised while the FINAL chunk is being written must not end
+        // as .installed. The loop's next-iteration check is what catches this
+        // one, and this test pins that: without it, a user who cancels at 99%
+        // gets a completed install.
+        //
+        // Honest scope note: this does NOT exercise the post-loop check in
+        // `copy`. That one covers the remaining window between the loop's last
+        // flag read and the move into place, which is a few microseconds wide
+        // and cannot be hit deterministically from a test, because the only
+        // seam available fires after a chunk write. It is hardening, kept
+        // because the alternative is a Cancel press that silently installs.
+        let fixture = try makeFixture("cancel-tail")
+        let payload = bytes(64 * 1024, seed: 7)
+        let source = try place(payload, named: "q.gguf", in: fixture)
+        let importer = makeImporter(fixture, chunkBytes: 4096)
+        let total = Int64(payload.count)
+        ModelImporter.afterChunkSeam.value = { [weak importer] written in
+            guard written == total else { return }
+            importer?.cancelFromWorkerForTesting()
+        }
+
+        await importer.importFile(at: source)?.value
+
+        XCTAssertEqual(
+            importer.phase, .cancelled,
+            "a cancel on the last chunk must not silently complete the install"
+        )
+        XCTAssertFalse(ModelCatalog.isInstalled(fixture.quick, fileManager: fixture.fileManager))
+        XCTAssertTrue(leftoverTempFiles(fixture).isEmpty)
+#else
+        throw XCTSkip("the chunk seam is compiled out of release builds")
+#endif
+    }
+
+    func testProgressIsReportedOnWholePercentChangesNotOncePerChunk() async throws {
+        // Every report is a main-actor hop that re-renders the shell, and the
+        // Quick model is 654 chunks. A progress bar cannot show more than 100
+        // steps, so the copy coalesces to whole percents. The first and last
+        // updates must still arrive, or a caller watching the phase stream
+        // cannot tell the copy began.
+        let fixture = try makeFixture("progress-throttle")
+        let payload = bytes(64 * 1024, seed: 7)
+        let source = try place(payload, named: "q.gguf", in: fixture)
+        // 512 byte chunks over 64 KB is 128 chunks for 100 possible percents.
+        let importer = makeImporter(fixture, chunkBytes: 512)
+        var copying: [Int64] = []
+        let subscription = importer.$phase.sink { phase in
+            if case let .copying(_, received, _) = phase { copying.append(received) }
+        }
+        defer { subscription.cancel() }
+
+        await importer.importFile(at: source)?.value
+
+        XCTAssertEqual(importer.phase, .installed(tierID: "quick"))
+        XCTAssertLessThanOrEqual(
+            copying.count, 101,
+            "one report per whole percent at most, not one per chunk"
+        )
+        XCTAssertGreaterThan(copying.count, 1, "progress must actually be reported")
+        XCTAssertEqual(
+            copying.last, Int64(payload.count),
+            "the final byte count must be reported so the bar reaches the end"
+        )
+    }
+
     func testAbandonedTempFilesAreSweptWhenTheImporterIsCreated() throws {
         // The app can be killed mid-copy. A 2.6 GB .part must not sit in the
         // container forever waiting for somebody to notice it.

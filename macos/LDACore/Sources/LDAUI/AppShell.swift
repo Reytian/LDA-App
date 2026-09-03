@@ -30,6 +30,18 @@ public struct AppShell: View {
     /// The active document's review model (the session forwards its changes).
     private var model: ReviewModel { session.activeModel }
 
+    /// The tier manifest, loaded once per view instance rather than on every
+    /// body pass.
+    ///
+    /// This matters more than it looks: `ModelCatalog.load()` probes up to five
+    /// bundles, reads Models.json from disk and JSON-decodes it, and the
+    /// missing-model check below runs on every body evaluation. `importer` is
+    /// observed and publishes while a multi-gigabyte copy is in flight, so
+    /// leaving both calls on their reloading default parameter put a disk read
+    /// and a JSON parse on the main thread for every progress update. Same
+    /// pattern as ModelManagementView.
+    private let catalog = ModelCatalog.load()
+
     /// True while ANY open document is scanning. Gates model removal in the
     /// Manage Models sheet reached from here: llama.cpp still has the file
     /// mmapped, so the disk would not actually come back.
@@ -153,8 +165,8 @@ public struct AppShell: View {
                 // observed, so their phase change re-evaluates this body, and
                 // so does dismissing the sheet.
                 if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
-                    isModelMissing: AISettings.isModelMissing(),
-                    hasAnyModel: AISettings.hasAnyModelAvailable()
+                    isModelMissing: AISettings.isModelMissing(catalog: catalog),
+                    hasAnyModel: AISettings.hasAnyModelAvailable(catalog: catalog)
                 ) {
                     missingModelAdvisory(advice)
                 }
@@ -195,7 +207,7 @@ public struct AppShell: View {
             // too, so onboarding told them they had to add a model.
             OnboardingView(
                 isPresented: $isOnboardingPresented,
-                hasModel: AISettings.hasAnyModelAvailable(),
+                hasModel: AISettings.hasAnyModelAvailable(catalog: catalog),
                 onSetUpModel: {
                     isOnboardingPresented = false
                     isModelSheetPresented = true
