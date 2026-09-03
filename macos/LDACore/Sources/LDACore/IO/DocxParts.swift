@@ -172,6 +172,68 @@ enum DocxParts {
         /// Their PII would ride into the output verbatim, so a non-empty list
         /// means the redaction must not be written (DocxRedactor.redact throws).
         var failedParts: [String]
+        /// What was covered outside the body, for the caller's coverage report.
+        var coverage: SupplementaryCoverage
+    }
+
+    /// How much redaction happened outside word/document.xml, as counts only.
+    ///
+    /// Counts SITES, not distinct values: a header that repeats a body name
+    /// reuses the body token and mints no new mapping entry, yet it is still a
+    /// replacement the redacted package carries and a restore puts back. This
+    /// is why newEntries.count is the wrong number to report as coverage.
+    ///
+    /// No text, no offsets, and no part paths: a part path can itself be PII,
+    /// and a supplementary offset would collide with a body offset if the two
+    /// were ever flattened into one list.
+    struct SupplementaryCoverage: Equatable {
+        /// Total replacements applied across every supplementary part.
+        var replacementCount: Int
+        /// Those replacements' types and how many of each. Sums to
+        /// replacementCount.
+        var countsByType: [EntityType: Int]
+
+        static let none = SupplementaryCoverage(replacementCount: 0, countsByType: [:])
+
+        /// Fold one part's accepted spans in.
+        mutating func add(_ spans: [Span]) {
+            replacementCount += spans.count
+            for span in spans {
+                countsByType[span.type, default: 0] += 1
+            }
+        }
+    }
+
+    /// What the supplementary parts of `url` would receive, WITHOUT writing
+    /// anything. Runs the same detection, break splitting, and dominance
+    /// filter the redaction pass runs, so a preview and the run it predicts
+    /// cannot drift apart.
+    ///
+    /// A part that fails to parse is simply not counted here; the redaction
+    /// pass refuses to write such a package, so no caller ever sees a coverage
+    /// number for one.
+    static func supplementaryCoverage(
+        url: URL,
+        detect: (String) -> [Span]
+    ) -> SupplementaryCoverage {
+        var coverage = SupplementaryCoverage.none
+        for part in loadTextBearingParts(from: url).parts {
+            coverage.add(acceptedSupplementarySpans(in: part.layout.text, detect: detect))
+        }
+        return coverage
+    }
+
+    /// The spans one supplementary part's text would actually have replaced:
+    /// detected, split at synthetic breaks (a surface carrying a paragraph
+    /// newline, line break, or tab cannot restore into a single run; see
+    /// SpanSplitter), then reduced to the dominant non-overlapping set.
+    ///
+    /// The single source of truth for both the redaction pass and the preview.
+    private static func acceptedSupplementarySpans(
+        in text: String,
+        detect: (String) -> [Span]
+    ) -> [Span] {
+        acceptedSpans(SpanSplitter.splitAtBreaks(detect(text), in: text), in: text)
     }
 
     /// Redact every non-body text part, scrub docProps metadata, and neutralize
@@ -182,7 +244,8 @@ enum DocxParts {
     ///   - mapping: the body mapping (read-only here); used so a surface already
     ///     mapped in the body reuses its token.
     ///   - detect: detection over arbitrary text (deterministic plus optional LLM).
-    /// - Returns: the per-path rewritten bytes and any new mapping entries.
+    /// - Returns: the per-path rewritten bytes, any new mapping entries, and
+    ///   how much was covered outside the body.
     static func redactNonBodyParts(
         url: URL,
         mapping: Mapping,
@@ -190,6 +253,7 @@ enum DocxParts {
     ) -> Result {
         var replacements: [String: Data] = [:]
         var newEntries: [MappingEntry] = []
+        var coverage = SupplementaryCoverage.none
 
         // Token reuse index and per-type counters seeded from the body mapping,
         // then carried across parts so numbering never collides.
@@ -205,17 +269,14 @@ enum DocxParts {
         let loaded = loadTextBearingParts(from: url)
         var failedParts = loaded.failedParts
         for part in loaded.parts {
-            // Split spans crossing a synthetic break (paragraph newline, line
-            // break, tab); a surface carrying one cannot restore into a single
-            // run (see SpanSplitter).
-            let spans = SpanSplitter.splitAtBreaks(
-                detect(part.layout.text),
-                in: part.layout.text
-            )
+            // Exactly the spans supplementaryCoverage would preview, so the
+            // preview and this pass can never disagree.
+            let accepted = acceptedSupplementarySpans(in: part.layout.text, detect: detect)
+            coverage.add(accepted)
 
             // Resolve a token for each accepted span, extending the mapping.
             var replacementsForPart: [Replacement] = []
-            for span in acceptedSpans(spans, in: part.layout.text) {
+            for span in accepted {
                 let token = resolveToken(
                     for: span,
                     tokenByNormSurface: &tokenByNormSurface,
@@ -271,7 +332,12 @@ enum DocxParts {
             }
         }
 
-        return Result(replacements: replacements, newEntries: newEntries, failedParts: failedParts)
+        return Result(
+            replacements: replacements,
+            newEntries: newEntries,
+            failedParts: failedParts,
+            coverage: coverage
+        )
     }
 
     // MARK: - Restore of text-bearing parts

@@ -330,6 +330,10 @@ extension ReviewModel {
         var redactedImageURL: URL?
         var sealCandidateCount = 0
         var unboxedTokenCount = 0
+        // DOCX only: replacements made in headers, footers, notes, and
+        // comments. Those parts are redacted but are not in the review list,
+        // so the window must add them to report honest coverage.
+        var supplementaryCount = 0
 
         if sourceExt == "docx", let source {
             embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
@@ -346,15 +350,16 @@ extension ReviewModel {
             // only in a non-body part mint new tokens that are folded into the
             // mapping below so they persist in the sidecar and restore correctly.
             let detect = Self.nonBodyDetector(useLLM: useLLM, modelPath: modelPath, custom: custom)
-            let nonBodyEntries = try DocxRedactor.redact(
+            let outcome = try DocxRedactor.redact(
                 original: source,
                 replacements: replacements,
                 to: redactedURL,
                 nonBody: (mapping: tokenized.mapping, detect: detect)
             )
-            for entry in nonBodyEntries {
+            for entry in outcome.newEntries {
                 tokenized.mapping.entries[entry.token] = entry
             }
+            supplementaryCount = outcome.replacementCount
         } else {
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
         }
@@ -387,7 +392,9 @@ extension ReviewModel {
             embeddedMediaCount: embeddedMediaCount,
             redactedImageURL: redactedImageURL,
             sealCandidateCount: sealCandidateCount,
-            unboxedTokenCount: unboxedTokenCount
+            unboxedTokenCount: unboxedTokenCount,
+            entityCount: exportSpans.count + supplementaryCount,
+            supplementaryEntityCount: supplementaryCount
         )
         return (export: export, tokenBySurface: tokenBySurface(mapping: tokenized.mapping))
     }

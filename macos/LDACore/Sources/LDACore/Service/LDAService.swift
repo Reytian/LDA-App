@@ -19,125 +19,6 @@
 
 import Foundation
 
-// MARK: - Results
-
-/// The outcome of an anonymize run.
-public struct AnonymizeResult: Sendable {
-    /// The edit surface: a docx-run-preserving redacted .docx for docx input, a
-    /// companion .docx/.txt for pdf input, or a redacted .txt for text input.
-    public var redactedFileURL: URL
-    /// The encrypted mapping sidecar (<redactedBaseName>.ldamap).
-    public var mappingFileURL: URL
-    /// A boxes-over-PII review PDF, present only when the input was a PDF.
-    public var visualPdfURL: URL?
-    /// A boxes-over-PII redacted PNG, present only when the input was a
-    /// standalone image (png / jpg / jpeg). The boxes are destructive, so
-    /// this artifact is NOT restorable; the paired redacted text companion
-    /// is the round-trip surface.
-    public var redactedImageURL: URL?
-    /// How many entities were tokenized.
-    public var entityCount: Int
-    /// The accepted spans (post-merge) that were tokenized.
-    public var entities: [Span]
-    /// How many image-origin regions were redacted (signatures, stamps). 0 unless
-    /// the input was a PDF with an image-PII channel pass.
-    public var imageRedactionCount: Int
-    /// How many embedded media files (word/media/...) were copied verbatim into
-    /// a redacted DOCX without being scanned for PII. Wet-ink signature scans
-    /// and stamps live there; a non-zero count must be surfaced to the user as
-    /// a warning. Always 0 for non-DOCX input.
-    public var embeddedMediaCount: Int
-    /// How many tokenized values could not be given a redaction box in the
-    /// review PDF. Always 0 for non-PDF input.
-    ///
-    /// A non-zero count MUST be surfaced to the user as a warning, for the same
-    /// reason as embeddedMediaCount: the value IS tokenized in the edit surface
-    /// and the mapping, so the round trip is correct, but the review PDF still
-    /// shows it. A lawyer who forwards that PDF believing it redacted is the
-    /// failure this count exists to prevent. Flag, never guess: no box is
-    /// invented for a value whose position could not be established.
-    public var unboxedTokenCount: Int
-    /// How many red-region seal CANDIDATE boxes were merged into the redacted
-    /// image's coverage. Candidates only, never certain seal detections; the
-    /// UI can surface "N seal candidates boxed". Always 0 for non-image input
-    /// and when includeSealCandidates is false.
-    public var sealCandidateCount: Int
-    /// How many detected OCCURRENCES the caller's exclusions (spanFilter and
-    /// excludedTypes) left visible, on every channel, and how many DISTINCT
-    /// values those occurrences carry. Excluding one occurrence of a value
-    /// excludes every occurrence of it, so these counts, not the size of the
-    /// caller's exclusion list, are what the output discloses. 0 when none.
-    public var excludedEntityCount: Int
-    public var excludedValueCount: Int
-    /// DOCX only: how many tracked-change containers the body carries (see
-    /// ImportedDocument.trackedChangeCount). A non-zero count should be
-    /// surfaced as a warning: "This document carries tracked changes; accept
-    /// all changes before redacting for an exact round trip." Always 0 for
-    /// non-DOCX input.
-    public var trackedChangeCount: Int
-
-    public init(
-        redactedFileURL: URL,
-        mappingFileURL: URL,
-        visualPdfURL: URL?,
-        entityCount: Int,
-        entities: [Span],
-        imageRedactionCount: Int = 0,
-        embeddedMediaCount: Int = 0,
-        unboxedTokenCount: Int = 0,
-        sealCandidateCount: Int = 0,
-        redactedImageURL: URL? = nil,
-        excludedEntityCount: Int = 0,
-        excludedValueCount: Int = 0,
-        trackedChangeCount: Int = 0
-    ) {
-        self.redactedFileURL = redactedFileURL
-        self.mappingFileURL = mappingFileURL
-        self.visualPdfURL = visualPdfURL
-        self.redactedImageURL = redactedImageURL
-        self.trackedChangeCount = trackedChangeCount
-        self.entityCount = entityCount
-        self.entities = entities
-        self.imageRedactionCount = imageRedactionCount
-        self.embeddedMediaCount = embeddedMediaCount
-        self.unboxedTokenCount = unboxedTokenCount
-        self.sealCandidateCount = sealCandidateCount
-        self.excludedEntityCount = excludedEntityCount
-        self.excludedValueCount = excludedValueCount
-    }
-}
-
-/// The outcome of a restore run.
-public struct RestoreReport: Sendable {
-    /// Where the restored document was written.
-    public var outputURL: URL
-    /// How many tokens were restored to their values.
-    public var restoredCount: Int
-    /// Tokens present in the edited file but absent from (or broken in) the
-    /// mapping, as reported by the orphan guard.
-    public var orphanTokens: [String]
-    /// Near-miss placeholder shapes flagged by the forensics scan (an external
-    /// AI may have mangled a placeholder); never substituted, only reported.
-    public var suspectPlaceholders: [String]
-    /// Asterisk style only: masked forms shared by several entities. Their
-    /// sites were left verbatim because substituting one would be a guess.
-    public var ambiguousReplacements: [String]
-
-    public init(
-        outputURL: URL,
-        restoredCount: Int,
-        orphanTokens: [String],
-        suspectPlaceholders: [String] = [],
-        ambiguousReplacements: [String] = []
-    ) {
-        self.outputURL = outputURL
-        self.restoredCount = restoredCount
-        self.orphanTokens = orphanTokens
-        self.suspectPlaceholders = suspectPlaceholders
-        self.ambiguousReplacements = ambiguousReplacements
-    }
-}
-
 // MARK: - Errors
 
 /// Errors the service surfaces to its callers (CLI, MCP, app UI).
@@ -372,6 +253,9 @@ public enum LDAService {
         var imageRedactionCount = 0
         var embeddedMediaCount = 0
         var unboxedTokenCount = 0
+        // DOCX only: what the parts outside word/document.xml received.
+        var supplementaryCount = 0
+        var supplementaryCountsByType: [EntityType: Int] = [:]
 
         switch ext {
         case "docx":
@@ -390,15 +274,20 @@ public enum LDAService {
             // mapping below so they persist in the sidecar and restore correctly.
             // detectForImages is the non-throwing detector (deterministic plus
             // best-effort LLM); the throwing primary pass already gated the body.
-            let nonBodyEntries = try DocxRedactor.redact(
+            let outcome = try DocxRedactor.redact(
                 original: input,
                 replacements: replacements,
                 to: redactedFileURL,
                 nonBody: (mapping: tokenized.mapping, detect: detectSupplementary)
             )
-            for entry in nonBodyEntries {
+            for entry in outcome.newEntries {
                 tokenized.mapping.entries[entry.token] = entry
             }
+            // What those parts covered, so the reported total is the total the
+            // redacted package carries and a restore puts back. Sites, not new
+            // entries: a header repeating a body name mints no entry.
+            supplementaryCount = outcome.replacementCount
+            supplementaryCountsByType = outcome.countsByType
 
         case "pdf":
             // PDF is never edited in place: write a fresh tokenized companion as
@@ -482,14 +371,18 @@ public enum LDAService {
             redactedFileURL: redactedFileURL,
             mappingFileURL: mappingFileURL,
             visualPdfURL: visualPdfURL,
-            entityCount: spans.count,
+            // Everything replaced, body and supplementary parts alike. The
+            // spans below stay body only; see AnonymizeResult for why.
+            entityCount: spans.count + supplementaryCount,
             entities: spans,
             imageRedactionCount: imageRedactionCount,
             embeddedMediaCount: embeddedMediaCount,
             unboxedTokenCount: unboxedTokenCount,
             excludedEntityCount: review.excludedOccurrenceCount,
             excludedValueCount: review.excludedValueCount,
-            trackedChangeCount: imported.trackedChangeCount
+            trackedChangeCount: imported.trackedChangeCount,
+            supplementaryEntityCount: supplementaryCount,
+            supplementaryCountsByType: supplementaryCountsByType
         )
     }
 
@@ -615,8 +508,46 @@ public enum LDAService {
         input: URL,
         llmModelPath: String? = nil
     ) throws -> [Span] {
-        let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-        return try makeDetector(modelPath: llmModelPath).detectText(imported.text)
+        try detectSummary(input: input, llmModelPath: llmModelPath).bodySpans
+    }
+
+    /// Detect entities AND report how much a run would redact outside the body.
+    /// Performs no writes.
+    ///
+    /// detect above answers "which values are where", which is what a caller
+    /// that draws boxes or assigns ids needs, and it can only speak about the
+    /// body: a value in a header has no offset into the body text. This entry
+    /// point adds what that list cannot express, the coverage of the DOCX
+    /// parts outside word/document.xml, as counts. For every other format the
+    /// supplementary side is 0 and this is detect with a total attached.
+    ///
+    /// The supplementary pass reuses the SAME detector the run uses (the
+    /// non-throwing secondary pass, over the same parts, with the same break
+    /// splitting and dominance filter), so a preview cannot promise a
+    /// different number than the run delivers.
+    ///
+    /// - Parameters:
+    ///   - input: the source document.
+    ///   - llmModelPath: optional absolute path to the v2 GGUF model; see detect.
+    public static func detectSummary(
+        input: URL,
+        llmModelPath: String? = nil
+    ) throws -> DetectionSummary {
+        let ext = input.pathExtension.lowercased()
+        let imported = try importDocument(input, extension: ext)
+        let detector = makeDetector(modelPath: llmModelPath)
+        let bodySpans = try detector.detectText(imported.text)
+        guard ext == "docx" else { return DetectionSummary(bodySpans: bodySpans) }
+
+        let coverage = DocxParts.supplementaryCoverage(
+            url: input,
+            detect: detector.detectForImages
+        )
+        return DetectionSummary(
+            bodySpans: bodySpans,
+            supplementaryEntityCount: coverage.replacementCount,
+            supplementaryCountsByType: coverage.countsByType
+        )
     }
 
     // MARK: - Private helpers

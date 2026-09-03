@@ -38,6 +38,42 @@
 
 import Foundation
 
+/// What redacting the DOCX parts outside word/document.xml produced.
+///
+/// Empty when DocxRedactor.redact ran without a `nonBody` argument (the
+/// body-only legacy path used to fill forms).
+public struct DocxNonBodyOutcome: Sendable, Equatable {
+    /// Tokens minted for surfaces found ONLY outside the body. The caller
+    /// folds these into the mapping sidecar so they restore.
+    public var newEntries: [MappingEntry]
+    /// How many replacements the supplementary parts received in total.
+    ///
+    /// Sites, not distinct values, and therefore usually LARGER than
+    /// newEntries.count: a header that repeats a body name reuses the body
+    /// token and mints no entry, yet the redacted package carries that
+    /// replacement and a restore puts it back.
+    public var replacementCount: Int
+    /// Those replacements' types and how many of each. Sums to
+    /// replacementCount.
+    public var countsByType: [EntityType: Int]
+
+    public static let empty = DocxNonBodyOutcome(
+        newEntries: [],
+        replacementCount: 0,
+        countsByType: [:]
+    )
+
+    public init(
+        newEntries: [MappingEntry],
+        replacementCount: Int,
+        countsByType: [EntityType: Int]
+    ) {
+        self.newEntries = newEntries
+        self.replacementCount = replacementCount
+        self.countsByType = countsByType
+    }
+}
+
 public enum DocxRedactor {
 
     // MARK: - Redact
@@ -55,15 +91,18 @@ public enum DocxRedactor {
     /// word/people.xml; see DocxMarkupScrub), all in the same single rewrite.
     /// Any token minted for a surface found only in a non-body part is returned
     /// so the caller can fold it into the mapping sidecar (and therefore restore
-    /// it). When `nonBody` is nil the behavior is exactly the body-only legacy
-    /// path used to fill forms: run text is rewritten and nothing else changes.
+    /// it), together with how many replacements those parts received so the
+    /// caller can report coverage that matches what the file carries. When
+    /// `nonBody` is nil the behavior is exactly the body-only legacy path used
+    /// to fill forms: run text is rewritten, nothing else changes, and the
+    /// outcome is empty.
     @discardableResult
     public static func redact(
         original: URL,
         replacements: [Replacement],
         to out: URL,
         nonBody: (mapping: Mapping, detect: (String) -> [Span])? = nil
-    ) throws -> [MappingEntry] {
+    ) throws -> DocxNonBodyOutcome {
         let data = try DocxZip.readEntry(docxMainPartPath, from: original)
         var layout = try DocxDocumentXML.parse(data)
 
@@ -80,7 +119,7 @@ public enum DocxRedactor {
 
         let bodyXML = DocxDocumentXML.serializeXML(layout)
         var rewriteParts: [String: Data] = [docxMainPartPath: Data(bodyXML.utf8)]
-        var newEntries: [MappingEntry] = []
+        var outcome = DocxNonBodyOutcome.empty
 
         if let nonBody {
             // The redacted copy also loses the PII the body keeps in markup:
@@ -108,7 +147,11 @@ public enum DocxRedactor {
             for (path, bytes) in result.replacements {
                 rewriteParts[path] = bytes
             }
-            newEntries = result.newEntries
+            outcome = DocxNonBodyOutcome(
+                newEntries: result.newEntries,
+                replacementCount: result.coverage.replacementCount,
+                countsByType: result.coverage.countsByType
+            )
         }
 
         try DocxZip.rewrite(
@@ -116,7 +159,7 @@ public enum DocxRedactor {
             replacing: rewriteParts,
             to: out
         )
-        return newEntries
+        return outcome
     }
 
     /// How many embedded media files (word/media/...) the package carries.

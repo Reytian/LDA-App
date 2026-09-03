@@ -99,6 +99,16 @@ public struct ExportResult: Equatable {
     /// the mapping, but the exported PNG may still show it. Always 0 for
     /// non-image sources.
     public let unboxedTokenCount: Int
+    /// How many replacement SITES this export wrote, everywhere: the reviewed
+    /// body spans plus every replacement made in a DOCX header, footer, note,
+    /// or comment. Unlike tokenCount (which counts distinct tokens in the
+    /// mapping), this is the number a restore of this file puts back.
+    public let entityCount: Int
+    /// How many of entityCount landed outside the body. Those parts are
+    /// redacted but never appear in the review list, so a window that showed
+    /// only the review list's count would under-report its own output.
+    /// Always 0 for non-DOCX sources.
+    public let supplementaryEntityCount: Int
 
     public init(
         redactedURL: URL,
@@ -107,7 +117,9 @@ public struct ExportResult: Equatable {
         embeddedMediaCount: Int = 0,
         redactedImageURL: URL? = nil,
         sealCandidateCount: Int = 0,
-        unboxedTokenCount: Int = 0
+        unboxedTokenCount: Int = 0,
+        entityCount: Int = 0,
+        supplementaryEntityCount: Int = 0
     ) {
         self.redactedURL = redactedURL
         self.mappingURL = mappingURL
@@ -116,6 +128,8 @@ public struct ExportResult: Equatable {
         self.redactedImageURL = redactedImageURL
         self.sealCandidateCount = sealCandidateCount
         self.unboxedTokenCount = unboxedTokenCount
+        self.entityCount = entityCount
+        self.supplementaryEntityCount = supplementaryEntityCount
     }
 }
 
