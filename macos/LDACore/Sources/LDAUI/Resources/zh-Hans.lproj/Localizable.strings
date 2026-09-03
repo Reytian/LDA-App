@@ -550,7 +550,7 @@
 "If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain." = "如果此资料集是使用密码短语保存的，请输入该密码短语。如果它使用钥匙串，请留空。";
 "Detection models process document text on this Mac. When you press Download, LDA connects to the configured model host to fetch the selected model file. Offline mode below tells LDA to refuse network requests, but it is an app setting rather than a firewall." = "检测模型在这台 Mac 上处理文档文本。点击下载时，LDA 会连接已配置的模型主机以获取所选模型文件。下方的离线模式会让 LDA 拒绝网络请求，但它是 App 内设置，不是防火墙。";
 "Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall." = "拒绝所有网络请求，包括模型下载。这是 LDA 内部的设置，不是防火墙。";
-"Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing." = "快速已内置，并可在 LDA 支持的每台 Mac 上运行。如果内存为 24 GB 或以上，均衡能找到同样多的内容，同时需要排除的项目少得多。最彻底是我们的测试中唯一没有遗漏的设置。";
+"Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing." = "快速是下载量最小的选项，并可在 LDA 支持的每台 Mac 上运行。如果内存为 24 GB 或以上，均衡能找到同样多的内容，同时需要排除的项目少得多。最彻底是我们的测试中唯一没有遗漏的设置。";
 "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app." = "这台 Mac 上也有一份已下载的 %@ 副本。%@ 已内置于 App，因此无需保留该副本。";
 "%@ of %@" = "%@ / %@";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "每次往返都会记录哪些内容被保护和恢复。记录绝不包含敏感值本身，并且一直加密保存在这台 Mac 上。";
@@ -875,7 +875,7 @@
 "If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download." = "如果你在另一台 Mac 上下载了模型，可以在此添加该文件。LDA 会用本版本随附的校验和进行核对，并把文件复制到自己的目录中，使用效果与直接下载完全相同。";
 "Add Model File…" = "添加模型文件…";
 "This works with offline mode on. Adding a file makes no network request." = "开启离线模式后此功能仍可使用。添加文件不会发起任何网络请求。";
-"Offline copy of the Quick model:" = "Quick 模型的离线副本：";
+"Offline copy of the Quick model:" = "快速模型的离线副本：";
 "Copy Link" = "复制链接";
 "Copied" = "已复制";
 "The release page lists two parts, a checksum file, and the commands to join and check them. Add the joined file here." = "发布页面列出了两个分卷、一个校验和文件，以及用于合并和校验的命令。请在此添加合并后的文件。";

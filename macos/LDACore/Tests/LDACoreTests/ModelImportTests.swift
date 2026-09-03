@@ -307,28 +307,42 @@ final class ModelImportTests: XCTestCase {
     // MARK: - The enterprise unbrick
 
     func testImportWorksWithOfflineModeOn() async throws {
-        // A firm that sets offline mode and installs a model-less build has no
-        // other way to get a model, so gating the import would leave that
-        // configuration permanently patterns-only with no in-app remedy.
+        // THE ENTERPRISE UNBRICK. A firm that sets offline mode and installs a
+        // model-less build has no other way to get a model, so gating the
+        // import would leave that configuration permanently patterns-only with
+        // no in-app remedy. The import IS the remedy.
         //
-        // The importer takes no UserDefaults at all, so the only channel by
-        // which offline mode could reach it is UserDefaults.standard. This flips
-        // that real key and restores it, which is why the assertion is worth the
-        // intrusion: it is the one place the invariant can be observed rather
-        // than merely read.
-        let key = AISettings.offlineModeKey
-        let previous = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previous {
-                UserDefaults.standard.set(previous, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-        UserDefaults.standard.set(true, forKey: key)
-        XCTAssertTrue(AISettings.isOfflineMode(), "the test would be vacuous otherwise")
+        // Asserted as an asymmetry, which is the shape that cannot pass
+        // vacuously: with offline mode on, the DOWNLOAD is refused and the
+        // IMPORT still installs. The precondition on canDownload is what proves
+        // the offline flag in this suite is real rather than inert.
+        //
+        // Deliberately through a namespaced suite rather than
+        // UserDefaults.standard: that domain is shared by every test process on
+        // the machine (see TestHermeticityTests). The structural half of this
+        // invariant, that ModelImporter cannot read the flag through any
+        // channel at all, is locked by
+        // testImportNeverConsultsTheDownloadHostAllowlistOrAnyURL and by
+        // testTheImporterTakesNoUserDefaultsSeamAtAll below.
+        let (defaults, name) = TestNamespace.defaults("import-offline-mode")
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(true, forKey: AISettings.offlineModeKey)
+        XCTAssertTrue(
+            AISettings.isOfflineMode(defaults: defaults),
+            "the test would be vacuous if the flag were not set"
+        )
 
         let fixture = try makeFixture("offline")
+        XCTAssertFalse(
+            AISettings.canDownload(
+                fixture.quick,
+                installedGB: 32,
+                fileManager: fixture.fileManager,
+                defaults: defaults
+            ),
+            "precondition: downloading IS gated by offline mode, which is why "
+                + "the import must not be"
+        )
         let source = try place(bytes(64 * 1024, seed: 7), named: "q.gguf", in: fixture)
         let importer = makeImporter(fixture)
 
@@ -338,6 +352,25 @@ final class ModelImportTests: XCTestCase {
             importer.phase, .installed(tierID: "quick"),
             "offline mode must not stop a local file from being added"
         )
+    }
+
+    func testTheImporterTakesNoUserDefaultsSeamAtAll() throws {
+        // The structural half of the unbrick. A gate needs a value to read, and
+        // the importer has no channel to any: no UserDefaults parameter on its
+        // init or on importFile, and no reference to the flag in its source.
+        // Someone reaching for the "check the gate at the bottom of the stack"
+        // convention in ModelInstaller.install would have to add one, and this
+        // is where that shows up.
+        let text = try String(
+            contentsOf: Self.uiSources.appendingPathComponent("ModelImporter.swift"),
+            encoding: .utf8
+        )
+        for symbol in ["UserDefaults", "defaults:", "offlineMode"] {
+            XCTAssertFalse(
+                codeLines(of: text).contains { $0.contains(symbol) },
+                "\(symbol) must not reach the import path"
+            )
+        }
     }
 
     // MARK: - Cancellation and litter

@@ -655,7 +655,7 @@ public struct AppShell: View {
     /// the user accepts them, so the advice sits under the banner for as long
     /// as the document is open, whatever its scan state.
     private func trackedChangesAdvisory(_ advice: String) -> some View {
-        advisoryRow(advice)
+        AdvisoryRow(advice: advice)
     }
 
     /// No model for the selected rung: the scan will not look for names,
@@ -668,38 +668,10 @@ public struct AppShell: View {
     /// would nag a legitimate patterns-only workflow. A persistent row directly
     /// above the Scan button is read before the click without blocking anyone.
     private func missingModelAdvisory(_ advice: String) -> some View {
-        advisoryRow(advice) {
+        AdvisoryRow(advice: advice) {
             Button("Set Up a Model\u{2026}") { isModelSheetPresented = true }
                 .controlSize(.small)
         }
-    }
-
-    /// The shared advisory chrome: one hairline-separated row above the
-    /// document pane, with an optional trailing control.
-    @ViewBuilder
-    private func advisoryRow<Trailing: View>(
-        _ advice: String,
-        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
-    ) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-            Text(verbatim: advice)
-                .font(CounselTheme.Typography.supporting)
-                .foregroundStyle(CounselTheme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            trailing()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(CounselTheme.raised)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: advice))
     }
 
     // MARK: - Status banner

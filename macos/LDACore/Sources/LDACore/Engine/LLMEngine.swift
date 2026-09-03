@@ -1,7 +1,10 @@
 //
 //  LLMEngine.swift
 //  On-device LLM inference for the fuzzy entities (PERSON / COMPANY / ADDRESS),
-//  backed by a bundled GGUF model run through llama.cpp with the Metal backend.
+//  backed by a local GGUF model run through llama.cpp with the Metal backend.
+//  The model path is always supplied by the caller: the CLI and the MCP server
+//  take it as an argument, and the app resolves it from the installed tier. No
+//  model ships inside the app.
 //
 //  This is the substrate for Phase 2. It exposes a minimal, synchronous text
 //  completion API. Higher layers (Pass-1 anchoring, Pass-2 chunked extraction,

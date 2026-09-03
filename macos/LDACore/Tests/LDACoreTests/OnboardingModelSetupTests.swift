@@ -151,11 +151,16 @@ final class OnboardingModelSetupTests: XCTestCase {
             XCTFail("missingModelAdvisory is missing")
             return
         }
-        let body = text[start.lowerBound...].prefix(1_600)
+        let body = text[start.lowerBound...].prefix(1_200)
         XCTAssertFalse(
             body.contains("Dismiss"),
             "the advisory must hold while the condition holds"
         )
         XCTAssertTrue(body.contains("Set Up a Model"))
+        // The shared chrome carries no dismiss affordance either, so neither
+        // advisory can acquire one by editing one place.
+        let row = try source("AdvisoryRow.swift")
+        XCTAssertFalse(row.contains("Dismiss"))
+        XCTAssertFalse(row.contains("isPresented"))
     }
 }

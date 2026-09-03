@@ -315,7 +315,14 @@ public final class ModelImporter: ObservableObject {
                 )
             }.value
             await MainActor.run {
-                self?.settle(outcome, url: url, scoped: scoped)
+                guard let importer = self else {
+                    // The importer went away mid-copy. Release the scope
+                    // anyway: an unbalanced start is a sandbox resource leak
+                    // for the life of the process.
+                    if scoped { url.stopAccessingSecurityScopedResource() }
+                    return
+                }
+                importer.settle(outcome, url: url, scoped: scoped)
             }
         }
         running = task

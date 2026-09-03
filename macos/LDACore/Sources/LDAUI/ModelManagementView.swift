@@ -62,6 +62,10 @@ enum ModelAnnotation {
     }
 
     /// "2.74 GB download   ~8.5 GB of memory   ~2 min 15 sec a contract"
+    ///
+    /// The `bundled` variant only renders in a BUNDLE_MODEL=1 single-file
+    /// build, where `ModelCatalog.isBundled` is true. Kept for that build; it
+    /// never renders in the shipping configuration.
     static func facts(for tier: ModelTier, bundled: Bool) -> String {
         let size = bundled
             ? "\(tier.downloadSizeDescription), inside the app"
@@ -250,7 +254,7 @@ public struct ModelManagementView: View {
             Text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Quick is built in and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
+            Text("Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
