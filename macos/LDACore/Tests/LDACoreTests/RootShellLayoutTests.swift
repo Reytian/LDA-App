@@ -345,7 +345,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         try assertFontRole(
             in: Self.settingsSourceURL,
-            after: "Text(rung.localizedSummary)",
+            after: "OnboardingPresentation.chooseLine(for: rung",
             role: "CounselTheme.Typography.supporting"
         )
         try assertFontRole(
