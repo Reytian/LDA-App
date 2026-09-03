@@ -166,24 +166,49 @@ final class PackagingScriptTests: XCTestCase {
         )
     }
 
-    func testPackagedBundlePromotesLocalizationsForSwiftUI() throws {
+    func testPackagedBundleVerifiesEveryLocalizationInTheNestedBundle() throws {
+        // No promotion to Contents/Resources any more: every string now
+        // reaches the interface through L10n.text / L10n.button / .l10nHelp
+        // / L10n.string, which resolve against LDACore_LDAUI.bundle's own
+        // nested .lproj folders directly (Localization.swift), so SwiftUI's
+        // Bundle.main-only initializers are no longer in the resolution path
+        // at all. The script still refuses to ship an app missing a language.
         let fixture = try PackagingFixture(swiftExitStatus: 0)
         defer { fixture.remove() }
 
         let result = try fixture.run()
 
         XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fixture.distURL.appendingPathComponent(
+                    "LDA.app/Contents/Resources/en.lproj/Localizable.strings"
+                ).path
+            ),
+            "the promotion is retired; a top-level .lproj must not appear.\n\(result.output)"
+        )
         for identifier in ["en", "fr", "zh-hans", "zh-hant"] {
             XCTAssertTrue(
                 FileManager.default.fileExists(
                     atPath: fixture.distURL.appendingPathComponent(
-                        "LDA.app/Contents/Resources/\(identifier).lproj/Localizable.strings"
+                        "LDA.app/Contents/Resources/LDACore_LDAUI.bundle/\(identifier).lproj/Localizable.strings"
                     ).path
                 ),
-                "SwiftUI cannot localize from the nested SwiftPM bundle alone. "
-                + "Missing main-bundle catalog for \(identifier).\n\(result.output)"
+                "Missing nested-bundle catalog for \(identifier).\n\(result.output)"
             )
         }
+    }
+
+    func testPackagingRefusesAnAppMissingALanguage() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0, omitLocalization: "fr")
+        defer { fixture.remove() }
+
+        let result = try fixture.run()
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(
+            result.output.contains("Missing fr interface localization"), result.output
+        )
     }
 
     func testPackagingPropagatesBuildFailure() throws {
@@ -217,7 +242,8 @@ private struct PackagingFixture {
     init(
         swiftExitStatus: Int32,
         manifestIsParseable: Bool = true,
-        stubShasumToAlwaysAgree: Bool = false
+        stubShasumToAlwaysAgree: Bool = false,
+        omitLocalization: String? = nil
     ) throws {
         let fm = FileManager.default
         rootURL = fm.temporaryDirectory
@@ -301,6 +327,7 @@ private struct PackagingFixture {
             : "[]"
         try Data(manifest.utf8).write(to: resourceBundle.appendingPathComponent("Models.json"))
         for identifier in ["en", "fr", "zh-hans", "zh-hant"] {
+            if identifier == omitLocalization { continue }
             let localization = resourceBundle.appendingPathComponent(
                 "\(identifier).lproj",
                 isDirectory: true

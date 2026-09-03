@@ -156,19 +156,24 @@ if [ "$FOUND_BUNDLE" -eq 0 ] || [ ! -f "$APP/Contents/Resources/LDACore_LDAUI.bu
   exit 1
 fi
 
-# SwiftUI's localization-aware initializers look in the host app bundle. The
-# catalogs originate in LDAUI's SwiftPM resource bundle, so promote a copy of
-# each localization into Contents/Resources while retaining the nested bundle
-# for explicit runtime lookups.
-echo "==> Promoting interface localizations"
-LOCALIZATION_SOURCE="$APP/Contents/Resources/LDACore_LDAUI.bundle"
-for LOCALIZATION in "$LOCALIZATION_SOURCE"/*.lproj; do
-  [ -e "$LOCALIZATION" ] || continue
-  cp -R "$LOCALIZATION" "$APP/Contents/Resources/"
-done
-for IDENTIFIER in en fr zh-hans zh-hant; do
-  if [ ! -f "$APP/Contents/Resources/$IDENTIFIER.lproj/Localizable.strings" ]; then
-    echo "!! Missing $IDENTIFIER interface localization."
+# Every string in the app now reaches the interface through
+# L10n.text / L10n.button / .l10nHelp / L10n.string, which resolve against
+# LDACore_LDAUI.bundle's own nested .lproj folders directly (see
+# Localization.swift) rather than through Bundle.main's localization-aware
+# initializers. Promoting a copy into Contents/Resources used to be required
+# because those initializers only look in the host app bundle; now that no
+# implicit LocalizedStringKey site is left in a localizing position (enforced
+# by LocalizationRoutingTests), the promotion is dead weight, and leaving it
+# in would mean a future implicit literal renders Chinese in the packaged app
+# and English in `swift run`, hiding a regression from human testing instead
+# of failing it the same way in both.
+echo "==> Verifying interface localizations"
+CATALOG_BUNDLE="$APP/Contents/Resources/LDACore_LDAUI.bundle"
+for IDENTIFIER in en fr zh-Hans zh-Hant; do
+  LOWER_IDENTIFIER="$(echo "$IDENTIFIER" | tr '[:upper:]' '[:lower:]')"
+  if [ ! -f "$CATALOG_BUNDLE/$IDENTIFIER.lproj/Localizable.strings" ] \
+     && [ ! -f "$CATALOG_BUNDLE/$LOWER_IDENTIFIER.lproj/Localizable.strings" ]; then
+    echo "!! Missing $IDENTIFIER interface localization in $CATALOG_BUNDLE."
     echo "!! Refusing to ship an app with incomplete language support."
     exit 1
   fi
