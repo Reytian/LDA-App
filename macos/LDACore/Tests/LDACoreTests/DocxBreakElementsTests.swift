@@ -174,9 +174,13 @@ final class DocxBreakElementsTests: XCTestCase {
     /// tokenized as a bank account and restored with the date on the wrong
     /// side of the break. Both values must now be redacted, the break must
     /// stay where it was, and the restore must reproduce the original text.
-    /// (The engine may still type the pair as one PHONE because its grouped
-    /// digit pattern bridges a single whitespace; that is over-redaction, not
-    /// a leak, and identical for plain text, so it is not pinned here.)
+    ///
+    /// The merger still absorbs the pair into ONE span typed PHONE (a
+    /// candidate bridges the break), so the split has to re-type each half
+    /// from its own text. The second half is a DATE and must say so: the
+    /// pseudonym style would otherwise hand the AI a date presented as a
+    /// phone number, and the asterisk style would mask it with the phone rule,
+    /// which leaves the year prefix visible.
     func testPhoneBreakDateIsNoLongerReadAsABankAccount() throws {
         let date = "2026-04-01"
         let original = try DocxTestPackage.write(
@@ -203,6 +207,16 @@ final class DocxBreakElementsTests: XCTestCase {
         XCTAssertFalse(redactedXML.contains(date), "date leaked")
         XCTAssertTrue(redactedXML.contains("</w:t><w:br/></w:r><w:r><w:t>"), "break must stay between the runs: \(redactedXML)")
         XCTAssertTrue(redactedXML.contains(" 起生效</w:t>"), "text after the break stays on its side: \(redactedXML)")
+        XCTAssertEqual(
+            try importer.importDocument(result.redactedFileURL).text,
+            "手机 {PHONE_1}\n{DATE_1} 起生效",
+            "the half after the break is a DATE, not a second phone number"
+        )
+        XCTAssertEqual(
+            result.entities.map(\.type),
+            [.phone, .date],
+            "\(result.entities)"
+        )
 
         let restored = workDir.appendingPathComponent("restored.docx")
         _ = try LDAService.restore(
