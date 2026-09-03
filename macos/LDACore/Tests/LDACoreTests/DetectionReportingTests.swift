@@ -65,6 +65,25 @@ final class DetectionReportingTests: XCTestCase {
         XCTAssertNotNil(broken.failure)
     }
 
+    func testAModellessInstallReportsTheFailureRatherThanDemotingItself() {
+        // Regression lock on the anti-auto-demotion ruling. It is tempting to
+        // set the level to patternsOnly when no model file exists, because the
+        // outcome is the same either way. It is wrong: patternsOnly sets
+        // usesLLM == false, which makes this pass report attempted == false and
+        // no failure, and that state is reserved for "the user did not ask".
+        // Demoting would turn a reported failure into a silent one.
+        let (defaults, name) = TestNamespace.defaults("no-auto-demotion")
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let level = AISettings.detectionLevel(defaults: defaults)
+        XCTAssertEqual(level, .quick, "the default rung must not demote itself")
+        XCTAssertTrue(level.usesLLM)
+
+        let out = ReviewModel.llmSpans(in: sample, useLLM: level.usesLLM, modelPath: nil)
+        XCTAssertTrue(out.attempted)
+        XCTAssertNotNil(out.failure)
+    }
+
     // MARK: - The one-time lda-v2 migration offer
 
     private func freshDefaults() -> UserDefaults {

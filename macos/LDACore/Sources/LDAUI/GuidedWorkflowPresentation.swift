@@ -159,6 +159,26 @@ enum AnonymizeWorkflowPresentation {
         return warning + " " + authors
     }
 
+    /// No model installed for the selected rung: what a scan will and will not
+    /// look for, or nil when the rung has its model.
+    ///
+    /// Pure so it is unit-testable without a view, and phrased as an
+    /// enumeration rather than a totalising claim: it lists what patterns match
+    /// and states plainly that names, companies and addresses are not looked
+    /// for. Do NOT add a reassuring clause such as "everything else is found"
+    /// while polishing this; it is false, and it is close to a claim
+    /// UIClaimsDisciplineTests bans outright.
+    static func missingModelAdvice(
+        isModelMissing: Bool,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard isModelMissing else { return nil }
+        return L10n.string(
+            "No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names.",
+            language: language
+        )
+    }
+
     static func embeddedMediaWarning(
         count: Int,
         language: AppLanguage? = nil

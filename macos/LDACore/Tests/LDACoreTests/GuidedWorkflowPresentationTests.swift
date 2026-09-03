@@ -24,6 +24,55 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
+    // MARK: - Missing model advice
+
+    func testMissingModelAdviceIsSilentWhenTheSelectedRungHasItsModel() {
+        XCTAssertNil(
+            AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: false, language: .english
+            )
+        )
+    }
+
+    func testMissingModelAdviceNamesWhatWillAndWillNotBeFound() {
+        XCTAssertEqual(
+            AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: true, language: .english
+            ),
+            "No detection model is installed, so a scan will not look for names, "
+                + "companies, or addresses. It still finds emails, phones, dates, "
+                + "amounts, ID numbers, and case numbers. Add a model to find names."
+        )
+    }
+
+    func testMissingModelAdviceIsTranslatedRatherThanEnglishEverywhere() {
+        for language in [AppLanguage.french, .simplifiedChinese, .traditionalChinese] {
+            let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+                isModelMissing: true, language: language
+            )
+            XCTAssertNotNil(advice)
+            XCTAssertNotEqual(
+                advice,
+                AnonymizeWorkflowPresentation.missingModelAdvice(
+                    isModelMissing: true, language: .english
+                ),
+                "\(language) must carry a real translation, not the English string"
+            )
+        }
+    }
+
+    func testMissingModelAdviceMakesNoTotalisingClaimAboutWhatIsFound() {
+        // The advisory is the one place a lawyer learns the scan is reduced. It
+        // must not reassure them that "everything else" is caught, which is
+        // both false and close to a claim UIClaimsDisciplineTests bans.
+        let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+            isModelMissing: true, language: .english
+        )!.lowercased()
+        for claim in ["everything", "all sensitive", "guaranteed", "100%"] {
+            XCTAssertFalse(advice.contains(claim), "advisory must not claim \(claim)")
+        }
+    }
+
     // MARK: - Export for AI copy
 
     func testExportCompletionDetailNamesTheFileAndTheSkippedDocuments() {

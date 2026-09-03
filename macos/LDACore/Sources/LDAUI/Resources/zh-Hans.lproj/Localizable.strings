@@ -865,3 +865,11 @@
 "Could not read that file (%@). It was not installed." = "无法读取该文件（%@）。未安装。";
 "Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "请选择合并后的模型文件（.gguf）。如果你分两部分下载，请先合并。";
 "Add Model" = "添加模型";
+
+/* Model setup at first run plus the pre-scan advisory (2026-09-03). */
+"First, add a detection model" = "第一步：添加检测模型";
+"LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document." = "LDA 需要本机上的检测模型才能找出人名、公司名和地址。在你添加模型之前，扫描只能找到规则可以匹配的内容：电子邮件、电话、日期、金额、身份证号和案号。人名、公司名和地址不会被检出，会留在文档中。";
+"Online, and quickest: download the model from Manage Models. About 2.74 GB." = "联网，最快：在“管理模型”中下载模型，约 2.74 GB。";
+"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "无网络：在另一台 Mac 上下载模型，用移动硬盘或 U 盘带过来，然后在“管理模型”中添加该文件。LDA 会先校验再安装。";
+"Set Up a Model…" = "设置模型…";
+"No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "尚未安装检测模型，因此扫描不会查找人名、公司名或地址。它仍会找出电子邮件、电话、日期、金额、身份证号和案号。添加模型即可找出人名。";

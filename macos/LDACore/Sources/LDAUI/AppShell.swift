@@ -30,6 +30,18 @@ public struct AppShell: View {
     /// The active document's review model (the session forwards its changes).
     private var model: ReviewModel { session.activeModel }
 
+    /// True while ANY open document is scanning. Gates model removal in the
+    /// Manage Models sheet reached from here: llama.cpp still has the file
+    /// mmapped, so the disk would not actually come back.
+    ///
+    /// Note that this deliberately does NOT gate the IMPORT. Adding a file
+    /// writes a new path and mutates nothing that is mmapped, and the imported
+    /// tier cannot become the active model mid-scan because ReviewModel
+    /// captures modelPath when the scan starts.
+    private var isScanning: Bool {
+        session.entries.contains { $0.model.status == .detecting }
+    }
+
     /// The model downloader and the verified offline importer, both owned by
     /// LDAApp. Required parameters with no default: see RootShell.
     @ObservedObject private var installer: ModelInstaller
@@ -82,6 +94,11 @@ public struct AppShell: View {
     /// True while the onboarding sheet is presented.
     @State private var isOnboardingPresented = false
 
+    /// True while Manage Models is presented from here. Reached from the
+    /// first-run setup step and from the pre-scan advisory, so both routes land
+    /// in the one sheet that already carries every download gate.
+    @State private var isModelSheetPresented = false
+
     /// A requested client change that must first close the current documents
     /// so one matter's live content cannot be relabeled as another matter.
     @State private var pendingClientSelection: PendingClientSelection?
@@ -127,6 +144,19 @@ public struct AppShell: View {
                     workflowProgressHeader
                 }
                 statusBanner
+                // Above the tracked-changes row on purpose: a scan that is not
+                // looking for names changes what the review list can possibly
+                // contain, which outranks advice about how a value round trips.
+                //
+                // Read here rather than cached in @State so the row disappears
+                // the moment a model arrives: `importer` and `installer` are
+                // observed, so their phase change re-evaluates this body, and
+                // so does dismissing the sheet.
+                if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+                    isModelMissing: AISettings.isModelMissing()
+                ) {
+                    missingModelAdvisory(advice)
+                }
                 if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
                     count: model.trackedChangeCount
                 ) {
@@ -159,11 +189,23 @@ public struct AppShell: View {
             exportMessage = message
         }
         .sheet(isPresented: $isOnboardingPresented, onDismiss: { hasCompletedFirstRun = true }) {
+            // hasAnyModelAvailable, not the selected rung: the old check was
+            // model.modelPath, which is nil for a deliberate patterns-only user
+            // too, so onboarding told them they had to add a model.
             OnboardingView(
                 isPresented: $isOnboardingPresented,
-                modelAvailable: model.modelPath.map {
-                    FileManager.default.fileExists(atPath: $0)
-                } == true
+                hasModel: AISettings.hasAnyModelAvailable(),
+                onSetUpModel: {
+                    isOnboardingPresented = false
+                    isModelSheetPresented = true
+                }
+            )
+        }
+        .sheet(isPresented: $isModelSheetPresented) {
+            ModelManagementView(
+                installer: installer,
+                importer: importer,
+                isBusyElsewhere: isScanning
             )
         }
         .confirmationDialog(
@@ -613,6 +655,32 @@ public struct AppShell: View {
     /// the user accepts them, so the advice sits under the banner for as long
     /// as the document is open, whatever its scan state.
     private func trackedChangesAdvisory(_ advice: String) -> some View {
+        advisoryRow(advice)
+    }
+
+    /// No model for the selected rung: the scan will not look for names,
+    /// companies or addresses, said BEFORE the Scan button is pressed.
+    ///
+    /// Deliberately not dismissible while the condition holds, and deliberately
+    /// not a modal. A dismissible advisory would let a lawyer hide the fact
+    /// that the scan does not look for names and then act on a review list that
+    /// looks complete because every deterministic type is still in it. A modal
+    /// would nag a legitimate patterns-only workflow. A persistent row directly
+    /// above the Scan button is read before the click without blocking anyone.
+    private func missingModelAdvisory(_ advice: String) -> some View {
+        advisoryRow(advice) {
+            Button("Set Up a Model\u{2026}") { isModelSheetPresented = true }
+                .controlSize(.small)
+        }
+    }
+
+    /// The shared advisory chrome: one hairline-separated row above the
+    /// document pane, with an optional trailing control.
+    @ViewBuilder
+    private func advisoryRow<Trailing: View>(
+        _ advice: String,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    ) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.callout)
@@ -622,6 +690,7 @@ public struct AppShell: View {
                 .foregroundStyle(CounselTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            trailing()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

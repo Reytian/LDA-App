@@ -865,3 +865,11 @@
 "Could not read that file (%@). It was not installed." = "無法讀取該檔案（%@）。未安裝。";
 "Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "請選擇合併後的模型檔案（.gguf）。如果你分兩部分下載，請先合併。";
 "Add Model" = "新增模型";
+
+/* Model setup at first run plus the pre-scan advisory (2026-09-03). */
+"First, add a detection model" = "第一步：新增偵測模型";
+"LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document." = "LDA 需要本機上的偵測模型才能找出人名、公司名稱和地址。在你新增模型之前，掃描只能找到規則可以比對的內容：電子郵件、電話、日期、金額、身分證號和案號。人名、公司名稱和地址不會被偵測到，會留在文件中。";
+"Online, and quickest: download the model from Manage Models. About 2.74 GB." = "連網，最快：在「管理模型」中下載模型，約 2.74 GB。";
+"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "無網路：在另一台 Mac 上下載模型，用外接硬碟或 USB 隨身碟帶過來，然後在「管理模型」中新增該檔案。LDA 會先驗證再安裝。";
+"Set Up a Model…" = "設定模型…";
+"No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "尚未安裝偵測模型，因此掃描不會尋找人名、公司名稱或地址。它仍會找出電子郵件、電話、日期、金額、身分證號和案號。新增模型即可找出人名。";

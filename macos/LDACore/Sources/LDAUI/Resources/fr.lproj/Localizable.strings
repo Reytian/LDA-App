@@ -865,3 +865,11 @@
 "Could not read that file (%@). It was not installed." = "Impossible de lire ce fichier (%@). Il n'a pas été installé.";
 "Choose the joined model file (.gguf). If you downloaded it in two parts, join them first." = "Choisissez le fichier de modèle assemblé (.gguf). Si vous l'avez téléchargé en deux parties, réunissez-les d'abord.";
 "Add Model" = "Ajouter le modèle";
+
+/* Model setup at first run plus the pre-scan advisory (2026-09-03). */
+"First, add a detection model" = "D'abord, ajoutez un modèle de détection";
+"LDA needs a detection model on this Mac to find names, companies, and addresses. Until you add one, a scan finds only what patterns can match: emails, phones, dates, amounts, ID numbers, and case numbers. Names, companies, and addresses are not detected and stay in the document." = "LDA a besoin d'un modèle de détection sur ce Mac pour trouver les noms, les sociétés et les adresses. Tant que vous n'en avez pas ajouté un, une analyse ne trouve que ce que les motifs peuvent reconnaître : adresses e-mail, téléphones, dates, montants, numéros d'identité et numéros de dossier. Les noms, les sociétés et les adresses ne sont pas détectés et restent dans le document.";
+"Online, and quickest: download the model from Manage Models. About 2.74 GB." = "En ligne, et le plus rapide : téléchargez le modèle depuis Gérer les modèles. Environ 2,74 Go.";
+"No connection: download the model on another Mac, bring it over on a drive, and add the file in Manage Models. LDA checks it before installing it." = "Sans connexion : téléchargez le modèle sur un autre Mac, apportez-le sur un disque, puis ajoutez le fichier depuis Gérer les modèles. LDA le vérifie avant de l'installer.";
+"Set Up a Model…" = "Configurer un modèle…";
+"No detection model is installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add a model to find names." = "Aucun modèle de détection n'est installé, donc une analyse ne cherchera pas les noms, les sociétés ni les adresses. Elle trouve toujours les adresses e-mail, les téléphones, les dates, les montants, les numéros d'identité et les numéros de dossier. Ajoutez un modèle pour trouver les noms.";
