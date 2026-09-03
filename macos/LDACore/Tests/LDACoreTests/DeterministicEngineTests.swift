@@ -313,6 +313,56 @@ final class DeterministicEngineTests: XCTestCase {
         assertOffsetsSliceBack(spans, in: text)
     }
 
+    /// A Chinese date written with spaces around its unit characters must be
+    /// detected exactly like the unspaced form. Converting a PDF to text
+    /// routinely inserts those spaces, and an undetected date is a value that
+    /// ships in clear, so this is a leak rather than a recall nicety.
+    func testSpacedChineseDateDetection() {
+        let text = "另一处 2026 年 3 月 15 日 也是日期。"
+        let spans = engine.detect(text)
+
+        let span = assertHasSpan(spans, type: .date, text: "2026 年 3 月 15 日")
+        XCTAssertEqual(span.type, .date)
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// The ideographic space (U+3000) is what a Chinese editor inserts, so the
+    /// gap class must cover it and not only the ASCII space.
+    func testIdeographicSpacedChineseDateDetection() {
+        let text = "签署日期\u{3000}2026\u{3000}年\u{3000}3\u{3000}月\u{3000}15\u{3000}日。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .date, text: "2026\u{3000}年\u{3000}3\u{3000}月\u{3000}15\u{3000}日")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// A date may not span a line break: the gap class excludes newlines, so a
+    /// year on one line and a month on the next is not one date. A span that
+    /// crossed a break would also have to be split again downstream.
+    func testChineseDateDoesNotSpanALineBreak() {
+        let text = "2026\n年 3 月 15 日"
+        let spans = engine.detect(text)
+
+        XCTAssertFalse(
+            spans.contains { $0.type == .date && $0.text.contains("\n") },
+            "a date must not cross a line break"
+        )
+    }
+
+    /// Regression guard against quadratic backtracking. The gap class is
+    /// bounded on purpose: an unbounded whitespace quantifier next to another
+    /// quantifier is the shape that has stalled this engine before, and
+    /// PDF-extracted legal text is full of long padding runs.
+    func testChineseDateScanStaysFastOnLongWhitespaceRuns() {
+        let gap = String(repeating: " ", count: 6000)
+        let text = "2026" + gap + "年" + gap + "3" + gap + "月" + gap + "15" + gap + "日"
+        let started = Date()
+        _ = engine.detect(text)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 1.5)
+    }
+
     // MARK: - DATE (English month names)
 
     func testLongFormMonthFirstDate() {

@@ -645,7 +645,18 @@ public struct DeterministicEngine: Sendable {
         let iso = #"(?<!\d)\d{4}-\d{1,2}-\d{1,2}(?!\d)"#
         let slashed = #"(?<!\d)\d{1,4}/\d{1,2}/\d{1,4}(?!\d)"#
         let dotted = #"(?<!\d)\d{1,2}\.\d{1,2}\.\d{4}(?!\d)"#
-        let chinese = #"\d{4}年\d{1,2}月\d{1,2}日"#
+        // A Chinese date tolerates whitespace around its unit characters, the
+        // way every English form below does. Converting a PDF to text routinely
+        // inserts those spaces, and a Chinese editor inserts the ideographic
+        // space (U+3000), so the gap class is the Unicode space separators plus
+        // the tab. Two deliberate limits: each run is BOUNDED, because an
+        // unbounded whitespace quantifier beside another quantifier is the
+        // backtracking shape this engine has stalled on before, and newlines
+        // are excluded, so a date can never span a line break (a span that did
+        // would have to be split again before it could be written back).
+        let gap = #"[\p{Zs}\t]{0,4}"#
+        let chinese = #"\d{4}"# + gap + #"年"# + gap + #"\d{1,2}"# + gap
+            + #"月"# + gap + #"\d{1,2}"# + gap + #"日"#
 
         // English month names: full names, three-letter abbreviations, the "Sept"
         // variant, and an optional trailing period. The day takes an optional
