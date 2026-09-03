@@ -885,3 +885,6 @@
 "Use your own model, unchecked" = "Utiliser votre propre modèle, non vérifié";
 "Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "N'importe quel fichier GGUF local. LDA ne vérifie pas ce fichier et ne le copie pas : il reste où il est et est utilisé tel quel. LDA ne peut pas vous dire s'il fonctionnera bien, combien de temps il prendra ni quelle mémoire il exigera.";
 "Choose a local GGUF model. LDA will not check it." = "Choisissez un modèle GGUF local. LDA ne le vérifiera pas.";
+
+/* Pre-scan advisory: the selected level has no model (2026-09-03). */
+"The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "Le modèle du niveau de détection que vous avez choisi n'est pas installé, donc une analyse ne cherchera pas les noms, les sociétés ni les adresses. Elle trouve toujours les adresses e-mail, les téléphones, les dates, les montants, les numéros d'identité et les numéros de dossier. Ajoutez ce modèle, ou choisissez un niveau installé dans les Réglages.";

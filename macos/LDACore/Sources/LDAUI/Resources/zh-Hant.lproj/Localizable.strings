@@ -885,3 +885,6 @@
 "Use your own model, unchecked" = "使用你自己的模型（不驗證）";
 "Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "任意本機 GGUF 檔案。LDA 不會驗證該檔案，也不會複製它：檔案留在原處，按原樣使用。LDA 無法告訴你它的效果、耗時或記憶體用量。";
 "Choose a local GGUF model. LDA will not check it." = "請選擇本機 GGUF 模型。LDA 不會對它進行驗證。";
+
+/* Pre-scan advisory: the selected level has no model (2026-09-03). */
+"The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "你所選偵測層級對應的模型尚未安裝，因此掃描不會尋找人名、公司名稱或地址。它仍會找出電子郵件、電話、日期、金額、身分證號和案號。請新增該模型，或在「設定」中選擇已安裝的層級。";

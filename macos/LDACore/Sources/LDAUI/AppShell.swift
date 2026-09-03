@@ -153,7 +153,8 @@ public struct AppShell: View {
                 // observed, so their phase change re-evaluates this body, and
                 // so does dismissing the sheet.
                 if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
-                    isModelMissing: AISettings.isModelMissing()
+                    isModelMissing: AISettings.isModelMissing(),
+                    hasAnyModel: AISettings.hasAnyModelAvailable()
                 ) {
                     missingModelAdvisory(advice)
                 }

@@ -885,3 +885,6 @@
 "Use your own model, unchecked" = "Use your own model, unchecked";
 "Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs." = "Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.";
 "Choose a local GGUF model. LDA will not check it." = "Choose a local GGUF model. LDA will not check it.";
+
+/* Pre-scan advisory: the selected level has no model (2026-09-03). */
+"The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "The model for the detection level you chose is not installed, so a scan will not look for names, companies, or addresses. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings.";
