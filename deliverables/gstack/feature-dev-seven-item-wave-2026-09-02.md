@@ -3,26 +3,26 @@
 **Date**: 2026-09-02
 **Scenario**: Full-flow delivery (product review, design, investigation, implementation, security audit, code review, QA)
 **Members**: product reviewer, designer, investigator, security officer, QA lead, plus four implementation engineers
-**Branch**: `feat/wave-2026-09-02-integration` at `c164baf`, in the worktree `~/Developer/lda-worktrees/wave-integration-0902`. Local only: nothing pushed, nothing merged into `main` or `feat/lda-macos-core`.
+**Branch**: merged into `feat/lda-macos-core` at `ce98f12` by fast-forward from `feat/wave-2026-09-02-integration`. Local only: nothing pushed.
 
 ---
 
 ## TL;DR
 
 - All seven requests are delivered. Two of them were questions, and both answers are yes with stated caveats.
-- 47 commits plus 9 merges, 96 files, +12,645 / -1,409, 27 new test files. Final full suite on the merged tree at `c164baf`: **2017 tests, 0 failures, 8 skipped**. The three products (`LDAApp`, `lda`, `lda-mcp`) all build.
+- 47 commits plus 9 merges, 96 files, +12,645 / -1,409, 27 new test files. Final full suite: **2017 tests, 0 failures**, and **0 skipped** once re-run on the Mac mini against the real model. The three products (`LDAApp`, `lda`, `lda-mcp`) all build.
 - The investigation for item 5 found four real defects, two of them silent PII leaks in the redacted Word file. All are fixed and pinned by tests.
 - A security audit of the MCP surface returned five findings, three of them blocking. All five are fixed and pinned by tests.
-- Nothing is pushed and nothing is merged into the working branch. That is the one decision left.
+- Verified live against the real model on the Mac mini, which surfaced two pre-existing defects, one of them a leak. Nothing is pushed.
 
 ## Go / No-Go
 
 | Item | Content |
 |------|---------|
-| Verdict | Conditional Go: code is green and reviewed, GUI interaction still needs a human on an unlocked screen |
+| Verdict | Go for the wave itself: green, reviewed, and verified live. GUI interaction still needs a human on an unlocked screen, and one pre-existing leak is worth fixing before release |
 | Blockers | None in code |
 | Severity found and fixed | 2 silent PII leaks (docx), 1 high MCP disclosure, 2 medium MCP integrity, 1 sandbox write denial |
-| Open follow-ups | 6, all listed below, none blocking |
+| Open follow-ups | 11, all listed below, none blocking |
 
 ### Independent QA pass
 
@@ -32,7 +32,7 @@ Three medium findings came back, all in one family: a value's **type** was not r
 
 Fixing them turned up three more problems that no one had reported. Splitting is now done inside the splitter itself rather than at each call site, because the defect was precisely that one call site behaved differently from another. The export used by the app's Export for AI action never split at all, which meant a value spanning a line break got a **different placeholder from the same value in a partner document**, quietly breaking the one promise a shared session mapping exists to make. And excluding a value by exact bytes still tokenized the same value in a different letter case a few words away, which re-created the inference leak the fix was meant to close; values are now compared the same way the rest of the pipeline compares them.
 
-One residual risk is recorded rather than fixed: a defined-term alias attached to an excluded name is still replaced, so a document can read `ABC Company (hereinafter "{COMPANY_2}")` and hand a reader the equation directly. It is not new, and closing it needs both a refactor and a model this Mac does not currently have.
+One residual risk is recorded rather than fixed: a defined-term alias attached to an excluded name is still replaced, so a document can read `ABC Company (hereinafter "{COMPANY_2}")` and hand a reader the equation directly. It is not new, and closing it needs a refactor plus a live model run to confirm.
 
 ---
 
@@ -103,15 +103,36 @@ The one path that stays text is `editedText`: restoring an edited **text** blob 
 
 ---
 
-## 3. What still needs a human
+## 3. Live verification on the Mac mini
+
+The MacBook has no model, so the wave was first verified deterministic-only with 8 tests skipping. The whole suite was then re-run on the Mac mini against the real 2.74 GB Qwen3.5-4B model, twice: once through the staged Command Line Tools workaround, and once through plain `swift test` after full Xcode 26.6 was installed mid-run. Both agree.
+
+| | |
+|---|---|
+| Result | 2017 tests, 0 failures, **0 skipped** |
+| Live-model tests | all 8 ran and passed, from 6.5 s model load to a 17 s profile fill |
+| Person and company | redacted end to end, absent from all 18 package parts |
+| Restore | text identical, 17 of 19 parts byte-identical, headers and footers included |
+| Whitespace drift | none; every detected value was located and replaced |
+
+The features this wave added hold up live. Two documents exported together share one mapping, so the same person carries the same placeholder across both while a person unique to the second document continues the numbering. A phone sitting directly above a date splits into two correctly typed tokens instead of one swallowing the other. On the machine-facing surface, excluding one person left all six of that person's occurrences visible while everything else stayed tokenized, and a scan of the whole transcript for eighteen different needles found no path, no filename, and no entity text beyond the one value the caller deliberately exposed.
+
+### Two defects found, both pre-existing
+
+**A spaced Chinese date is never detected and ships in clear.** The pattern requires `2026年3月15日` with no spaces, so `2026 年 3 月 15 日` passes straight through into the redacted file. It leaked in all three channels at once: the Word file, the text file, and the machine-facing read. This is asymmetric within the same function, since every English date form a few lines below tolerates whitespace and phone numbers match with spaces, so it reads as an oversight rather than a deliberate precision trade. It matters because converting a PDF to text routinely inserts spaces around Chinese numerals, and this project has already lost entities once to exactly this kind of spacing. The fix is one regex plus a test.
+
+**Coverage is under-reported.** The detect command and the anonymize summary count body text only, while redaction also covers headers, footers and notes. A fixture reported 19 entities and made 22 replacements. It errs in the safe direction, but anyone auditing coverage with detect would wrongly conclude the header names leak.
+
+## 4. What still needs a human
 
 1. **GUI interaction on an unlocked screen.** Automated input was refused, so the select-to-protect flow, the legend collapse, the export panel and the restore panel were verified by hosted tests and by inspection, not by driving the real app. Manual scripts are in the implementer reports.
-2. **The local model is gone.** `~/Developer/lda-models/` does not exist on this Mac, so every run this wave was deterministic-only and 8 live-model tests skip. Person and company detection could not be exercised end to end.
-3. **Decide where this lands.** The wave sits on `feat/wave-2026-09-02-integration` locally. Nothing was pushed and nothing was merged into `feat/lda-macos-core`.
+2. **Decide where this lands.** The wave is merged into `feat/lda-macos-core` locally. Nothing has been pushed.
 
-## 4. Open follow-ups, none blocking
+## 5. Open follow-ups, none blocking
 
 - Type exclusion is applied before a value is split, so asking to keep dates visible can still lose a date that arrived inside a phone-shaped span. The type is now correct everywhere the user sees it, but the deny-list decision was already made by then. Moving it is a design call because the app path has no exclusion layer at all today.
+- The Chinese date pattern rejects spaced forms, so a spaced date ships in clear. One regex plus a test.
+- The detect command and the anonymize summary count body text only, while redaction covers the whole package.
 - Dual-view detection so a value spanning a tracked change stops producing a chimera.
 - Tracked changes inside headers and footers are not counted, only the body.
 - Word glossary parts are still not scanned, so Quick Part content can carry PII.
@@ -121,7 +142,7 @@ The one path that stays text is `editedText`: restoring an edited **text** blob 
 - The parked session stores the mapping without its alias metadata, so a restore resumed after quitting loses the full-name to short-name links.
 - `SessionModel.swift` is 1573 lines, past the 800-line house limit, and was already over before this wave.
 
-## 5. Rollback
+## 6. Rollback
 
 Every change is on one local branch. Reverting means deleting `feat/wave-2026-09-02-integration`; the four feature branches remain independently revertible, and `feat/lda-macos-core` was never touched.
 
