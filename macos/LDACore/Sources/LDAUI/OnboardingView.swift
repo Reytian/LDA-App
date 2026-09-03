@@ -119,7 +119,7 @@ public struct OnboardingView: View {
                     // so the picker stays above it on page 1.
                     Picker("Language", selection: languageBinding) {
                         ForEach(AppLanguage.allCases) { language in
-                            Text(language.nativeName).tag(language)
+                            Text(language.nativeName()).tag(language)
                         }
                     }
                     .labelsHidden()

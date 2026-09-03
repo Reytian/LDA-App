@@ -134,6 +134,7 @@ struct LDAApp: App {
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
+                .environment(\.appLanguage, appLanguage)
                 .onAppear {
                     // Attach the global vocabulary and learning layers; the
                     // session injects matter-scoped facades over them into
@@ -335,6 +336,7 @@ struct LDAApp: App {
             )
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
+                .environment(\.appLanguage, appLanguage)
         }
 
         // The menu-bar companion (auxiliary posture): the round-trip has no
@@ -343,6 +345,7 @@ struct LDAApp: App {
         MenuBarExtra("LDA", systemImage: "shield.lefthalf.filled") {
             CompanionMenu(session: sessionModel)
                 .environment(\.locale, appLocale)
+                .environment(\.appLanguage, appLanguage)
         }
     }
 

@@ -21,9 +21,16 @@ public enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
     public static let storageKey = "com.haotianyi.LDA.appLanguage"
 
     /// Language names remain recognizable before and after the picker changes.
-    public var nativeName: String {
+    ///
+    /// `language` is the language THIS NAME renders in, not the language it
+    /// names: `.system.nativeName(language: .simplifiedChinese)` is
+    /// "跟随系统". Defaults to nil, which resolves against `AppLanguage.selected`
+    /// (UserDefaults) for call sites outside a SwiftUI body; a view should
+    /// instead pass `\.appLanguage` from the environment, so the label updates
+    /// the instant the picker changes rather than lagging one relaunch behind.
+    public func nativeName(language: AppLanguage? = nil) -> String {
         switch self {
-        case .system: return L10n.string("Follow System")
+        case .system: return L10n.string("Follow System", language: language)
         case .english: return "English"
         case .french: return "Français"
         case .simplifiedChinese: return "简体中文"

@@ -588,7 +588,7 @@ private struct GeneralTab: View {
 
             Picker("Language", selection: languageBinding) {
                 ForEach(AppLanguage.allCases) { language in
-                    Text(language.nativeName).tag(language)
+                    Text(language.nativeName()).tag(language)
                 }
             }
             .pickerStyle(.menu)
