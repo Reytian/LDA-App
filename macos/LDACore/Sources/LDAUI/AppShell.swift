@@ -3,11 +3,17 @@
 //  LDAUI
 //
 //  The top-level review window: a NavigationSplitView with the entity sidebar on
-//  the leading side and the paper document pane as the detail. The unified
-//  toolbar carries the Open control (.fileImporter for txt/docx/pdf), the
-//  prominent ink-accent Export control (a directory picker plus an optional
-//  passphrase sheet), and the "AI entities" toggle bound to the model. The
-//  current status is surfaced unobtrusively as a subtle banner above the pane.
+//  the leading side and the paper document pane as the detail. This file keeps
+//  the shell itself: the split layout, the window title, the state the pieces
+//  share, and the open panel that fills the session.
+//
+//  The pieces live next door, each in its own file, so this one stays readable:
+//  AppShellToolbar (the unified toolbar), AppShellStatusBanner (the status
+//  strip and the mode's primary action), AppShellWorkflowHeader (the guided
+//  workflow row), HandoffCompletionCard (what one finished export wrote),
+//  ExportFlow (Save Redacted and its passphrase sheet), ClientMatterFlow (the
+//  matter menu and the close-live-work confirmation), WorkspaceFlow and
+//  ComplianceReportFlow.
 //
 //  Counsel direction: the detail is solid paper; the sidebar uses the default
 //  sidebar material. Hairlines over shadows. A single ink-blue accent is
@@ -43,6 +49,8 @@ public struct AppShell: View {
     private let onOpenMatters: () -> Void
 
     /// A one-line outcome message shown after an export completes or fails.
+    /// Shared: the banner reads it, and every flow in this window reports
+    /// into it.
     @State private var exportMessage: String?
 
     /// The most recent successful export or save handoff, shown as a recovery
@@ -136,7 +144,20 @@ public struct AppShell: View {
                 .frame(width: 0, height: 0)
         )
         .navigationTitle(windowTitle)
-        .toolbar { toolbarContent }
+        .toolbar {
+            AppShellToolbar(
+                session: session,
+                isActive: isActive,
+                exportFlow: exportFlow,
+                workspaceFlow: workspaceFlow,
+                reportFlow: reportFlow,
+                clientFlow: clientFlow,
+                onOpenMatters: onOpenMatters,
+                onOpen: { presentOpenPanel() },
+                onExportForAI: { runExportForAI() },
+                report: { exportMessage = $0 }
+            )
+        }
         .exportFlow(
             session: session,
             flow: exportFlow,
@@ -233,78 +254,6 @@ public struct AppShell: View {
         }
     }
 
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        if isActive {
-            ToolbarItemGroup(placement: .navigation) {
-                Button {
-                    presentOpenPanel()
-                } label: {
-                    Label("Open", systemImage: "doc.badge.plus")
-                }
-                .help("Add .txt, .docx, .pdf documents or a .zip to the session")
-
-                ClientMatterMenu(
-                    session: session,
-                    flow: clientFlow,
-                    onOpenMatters: onOpenMatters,
-                    report: { exportMessage = $0 }
-                )
-            }
-
-            ToolbarItemGroup(placement: .automatic) {
-                // The mode's primary action (Scan for PII) lives in the status
-                // banner, not here: toolbar items overflow into the >> menu on
-                // narrow windows, and the primary action must never disappear.
-                // Two doors, one Restore. Export for AI writes the whole
-                // session as ONE Markdown file for chat or upload; Save
-                // Redacted writes one document in its original format for
-                // editors that keep formatting. Both leave an encrypted
-                // .ldamap next to the file, and Restore opens either.
-                Button {
-                    runExportForAI()
-                } label: {
-                    Label("Export for AI\u{2026}", systemImage: "doc.richtext")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.entries.contains { $0.model.canExport })
-                .help(exportForAIHelp)
-
-                Button {
-                    exportFlow.requestExport()
-                } label: {
-                    Label("Save Redacted", systemImage: "square.and.arrow.up")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!model.canExport)
-                .help("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
-
-                // Next to Save Redacted, because it is the other thing a user
-                // saves at the end of a sitting: the redacted output goes out,
-                // the workspace stays with the matter.
-                Button {
-                    workspaceFlow.requestSave()
-                } label: {
-                    Label("Save Workspace", systemImage: "shippingbox")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.canSaveWorkspace)
-                .help(L10n.string(WorkspacePresentation.saveHelp))
-
-                Button {
-                    beginReportExport()
-                } label: {
-                    Label("Export Report", systemImage: "list.clipboard")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.canExportComplianceReport)
-                .help(L10n.string(ComplianceReportPresentation.exportHelp))
-            }
-        }
-    }
-
     // MARK: - Export for AI (stage 3)
 
     /// Ask where the redacted Markdown should go, THEN build the handoff and
@@ -355,25 +304,6 @@ public struct AppShell: View {
         .accessibilityLabel(Text(verbatim: advice))
     }
 
-    /// The Export for AI tooltip, enriched with how many of the session's
-    /// documents are ready so a multi-document user is not silently handed a
-    /// partial session (F5, partially: a tooltip is hover-only, so this cannot
-    /// be the whole answer. See the audit doc.)
-    private var exportForAIHelp: String {
-        let ready = session.entries.filter { $0.model.canExport }.count
-        // A failed import can never become ready, so counting it in the
-        // denominator reads as "you are about to leave that document out" when
-        // there is in fact nothing in it to leave out.
-        let candidates = session.entries.filter {
-            if case .failed = $0.model.status { return false }
-            return true
-        }.count
-        return AnonymizeWorkflowPresentation.exportForAIHelp(
-            ready: ready,
-            candidates: candidates
-        )
-    }
-
     // MARK: - Open flow
 
     /// Present a native open panel for the session's documents. NSOpenPanel is
@@ -417,17 +347,6 @@ public struct AppShell: View {
                 exportMessage = failure
             }
         }
-    }
-
-    /// Export the session's compliance report. The report carries NO protected
-    /// value, but it does carry the matter label and every document name, and
-    /// in PRC legal practice those names are the parties, which is why the
-    /// record it renders is encrypted at rest. So the export is passphrase
-    /// protected by default, like the workspace file, and the readable pair is
-    /// an explicit choice on the sheet. The panels and the sheet live in
-    /// ComplianceReportFlow.
-    private func beginReportExport() {
-        reportFlow.requestExport()
     }
 
     // The Restore flow (choose or drop the file that came back) lives in
