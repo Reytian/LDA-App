@@ -207,6 +207,86 @@ final class ModelSetupGateTests: XCTestCase {
         )
     }
 
+    // MARK: - One chokepoint, and the stale model path it fixes
+
+    private func uiSource(_ name: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LDAUI")
+            .appendingPathComponent(name)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            XCTFail("\(name) is missing; this check must not be skipped")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return text
+    }
+
+    func testEveryScanEntryPointOnlyBumpsATokenSoOneGateCoversThemAll() throws {
+        // The gate can only be bypassed by an entry point nobody rerouted, so
+        // the banner's three buttons must not dispatch a pass themselves.
+        let banner = try uiSource("AppShellStatusBanner.swift")
+        XCTAssertFalse(
+            banner.contains("await model.anonymize()"),
+            "Scan for PII and Re-scan must go through the shell's gate"
+        )
+        XCTAssertFalse(
+            banner.contains("await session.anonymizeAll()"),
+            "Scan All must go through the shell's gate too: it was the second, "
+                + "ungated entry point"
+        )
+        XCTAssertTrue(banner.contains("model.requestAnonymize()"))
+        XCTAssertTrue(banner.contains("session.requestScanAll()"))
+
+        let shell = try uiSource("AppShell.swift")
+        for token in [
+            "model.anonymizeRequestToken",
+            "session.scanAllRequestToken",
+            "session.exportForAIRequestToken"
+        ] {
+            XCTAssertTrue(shell.contains(token), "\(token) must reach the shell")
+        }
+        XCTAssertTrue(shell.contains("handleScanRequest(.active)"))
+        XCTAssertTrue(shell.contains("handleScanRequest(.all)"))
+    }
+
+    func testTheScanChokepointReresolvesTheModelPathBeforeDispatching() throws {
+        // Defect D1. ReviewModel captures modelPath at model creation, and a
+        // completed install changes neither customModelPath nor
+        // detectionLevelRaw, so LDAApp's two reapply triggers do not fire: the
+        // advisory cleared the instant the download landed while an
+        // already-open document kept scanning with no model.
+        let shell = try uiSource("AppShell.swift")
+        guard let start = shell.range(of: "private func runScan("),
+              let end = shell.range(
+                of: "private func requestExportForAI(",
+                range: start.upperBound..<shell.endIndex
+              ) else {
+            XCTFail("runScan is missing")
+            return
+        }
+        let body = shell[start.lowerBound..<end.lowerBound]
+        XCTAssertTrue(
+            body.contains("session.reapplyConfiguration()"),
+            "the one place every scan is dispatched must re-resolve the model "
+                + "path first"
+        )
+        let reapply = try XCTUnwrap(body.range(of: "session.reapplyConfiguration()"))
+        let dispatch = try XCTUnwrap(body.range(of: "await model.anonymize()"))
+        XCTAssertTrue(
+            reapply.upperBound < dispatch.lowerBound,
+            "re-resolving after dispatch would be too late"
+        )
+        // The rejected alternative. Matched as the observation rather than as
+        // the word, because the comment above runScan names it on purpose.
+        XCTAssertFalse(
+            shell.contains("onChange(of: installer.phases"),
+            "observing phases republishes on every progress tick and says "
+                + "nothing about a file that arrived by another route"
+        )
+    }
+
     func testTheAnswerKeyDoesNotTouchTheDetectionLevel() {
         // Recording a decline as detectionLevel = .patternsOnly would set
         // usesLLM == false, and isModelMissing() short-circuits on usesLLM, so
