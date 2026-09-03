@@ -296,6 +296,7 @@ public struct AppShell: View {
         .modelSetupFlow(
             flow: modelSetupFlow,
             canDownload: quickTier.map { AISettings.canDownload($0) } ?? false,
+            canRunAModel: canRunAModel,
             sizeDescription: quickTier?.downloadSizeDescription ?? "",
             onScan: { request in
                 acknowledgeScanTargets(request)

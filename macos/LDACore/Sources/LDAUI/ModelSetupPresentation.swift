@@ -37,6 +37,33 @@ enum ModelSetupPresentation {
         case unavailable
     }
 
+    /// The three buttons a gate dialog can carry.
+    ///
+    /// `fix` leads to the remedy, `proceed` is the one that scans blind or
+    /// writes the copy, and `cancel` leaves the state alone.
+    enum GateButton: Equatable {
+        case fix
+        case proceed
+        case cancel
+    }
+
+    /// Which button Return reaches in a gate dialog.
+    ///
+    /// The invariant: never `proceed`. The fix owns Return wherever a fix
+    /// exists, so an accidental keypress spends bandwidth. Where none does,
+    /// Cancel owns it, because the safe path has to be the keypress even when
+    /// there is no remedy to offer: a Mac that can run no model never reaches
+    /// the scan gate, but it does reach the export gate.
+    ///
+    /// A decision rather than an ordering, on purpose. It is not established
+    /// that SwiftUI's macOS `confirmationDialog` binds Return to the first
+    /// listed button, and a sibling dialog in `ClientMatterFlow` lists a
+    /// destructive action first with no shortcut at all, so listing the fix
+    /// first is not by itself the safety property.
+    static func gateDefault(offersFix: Bool) -> GateButton {
+        offersFix ? .fix : .cancel
+    }
+
     /// The route for a Mac, given what it can run and whether it may download.
     ///
     /// Offline mode makes `canDownload` false for every tier and can be

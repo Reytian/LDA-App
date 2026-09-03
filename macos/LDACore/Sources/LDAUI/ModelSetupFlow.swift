@@ -12,8 +12,16 @@
 //  never presenting (the two .fileImporter modifiers that broke Open), so each
 //  flow owns its own attachment point rather than stacking.
 //
-//  Both dialogs offer the fix first, so an accidental Return spends bandwidth
-//  and never confidentiality.
+//  Neither dialog lets a keypress be the thing that discloses. Each puts the
+//  fix first AND binds Return to it explicitly, because order is not a safety
+//  property on its own: it is not established that SwiftUI's macOS
+//  confirmationDialog binds Return to the first listed button, and the sibling
+//  dialog in ClientMatterFlow lists a destructive action first with no
+//  shortcut at all. So Return starts the download or opens Manage Models, the
+//  button that proceeds carries no keypress, and Escape reaches Cancel. Where
+//  no fix can be offered, Cancel owns Return instead: a Mac that can run no
+//  model never reaches the scan gate, but it does reach the export gate, and
+//  there the safe path still has to be the keypress.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -87,6 +95,12 @@ struct ModelSetupFlow: ViewModifier {
     /// route that still leads somewhere reachable.
     let canDownload: Bool
 
+    /// Whether any tier could run on this Mac at all. False on 8 GB and 12 GB,
+    /// where the export gate carries no fix button because there is nothing
+    /// the user could press that would change the answer. Apple silicon memory
+    /// is soldered.
+    let canRunAModel: Bool
+
     /// The Quick tier's download size, from Models.json.
     let sizeDescription: String
 
@@ -109,19 +123,23 @@ struct ModelSetupFlow: ViewModifier {
                 ),
                 titleVisibility: .visible
             ) {
-                // The fix first: an accidental Return starts a download rather
-                // than a names-blind scan.
-                Button(fixTitle) {
+                // The fix first, and Return bound to it rather than inferred
+                // from the order: an accidental Return starts a download, never
+                // a names-blind scan. The gate cannot fire on a Mac that can
+                // run no model, so this button always exists here.
+                Button(scanFixTitle) {
                     flow.pendingScan = nil
                     AISettings.recordModelSetupAnswer(.accepted)
                     onOpenModelManagement()
                 }
+                .keyboardShortcut(.defaultAction)
                 Button(scan.proceed) {
                     let request = flow.pendingScan
                     flow.pendingScan = nil
                     if let request { onScan(request) }
                 }
                 Button("Cancel", role: .cancel) { flow.pendingScan = nil }
+                    .keyboardShortcut(.cancelAction)
             } message: {
                 Text(verbatim: scan.message)
             }
@@ -130,22 +148,52 @@ struct ModelSetupFlow: ViewModifier {
                 isPresented: $flow.pendingExport,
                 titleVisibility: .visible
             ) {
+                if canRunAModel {
+                    Button(exportFixTitle) {
+                        flow.pendingExport = false
+                        AISettings.recordModelSetupAnswer(.accepted)
+                        onOpenModelManagement()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
                 Button(export.proceed) {
                     flow.pendingExport = false
                     onExport()
                 }
                 Button("Cancel", role: .cancel) { flow.pendingExport = false }
+                    .keyboardShortcut(
+                        exportDefault == .cancel ? .defaultAction : .cancelAction
+                    )
             } message: {
                 Text(verbatim: export.message)
             }
     }
 
-    /// The first button: the download when it can start, otherwise the route
-    /// into Manage Models where the checksum-verified import lives.
-    private var fixTitle: String {
+    /// The pre-scan gate's first button: the download when it can start,
+    /// otherwise the route into Manage Models where the checksum-verified
+    /// import lives.
+    private var scanFixTitle: String {
         canDownload
             ? ModelSetupPresentation.downloadButtonTitle(sizeDescription: sizeDescription)
             : L10n.string("Set Up a Model\u{2026}")
+    }
+
+    /// The export gate's first button.
+    ///
+    /// Manage Models rather than a download, because this gate does not mean
+    /// "no model on this Mac". It fires whenever an exportable document's AI
+    /// pass was asked for and did not finish, which includes a document that
+    /// was scanned before an install landed and one where the pass ran and
+    /// stopped short. Offering a 2.74 GB download to someone who already has
+    /// the file would be wrong; Manage Models is true in every one of those
+    /// states, and it is where both the download and the verified import live.
+    private var exportFixTitle: String {
+        L10n.string("Manage Models\u{2026}")
+    }
+
+    /// Which button Return reaches in the export dialog.
+    private var exportDefault: ModelSetupPresentation.GateButton {
+        ModelSetupPresentation.gateDefault(offersFix: canRunAModel)
     }
 
     private var scan: (title: String, message: String, proceed: String) {
@@ -163,6 +211,7 @@ extension View {
     func modelSetupFlow(
         flow: ModelSetupFlowModel,
         canDownload: Bool,
+        canRunAModel: Bool,
         sizeDescription: String,
         onScan: @escaping (PendingScan) -> Void,
         onExport: @escaping () -> Void,
@@ -172,6 +221,7 @@ extension View {
             ModelSetupFlow(
                 flow: flow,
                 canDownload: canDownload,
+                canRunAModel: canRunAModel,
                 sizeDescription: sizeDescription,
                 onScan: onScan,
                 onExport: onExport,
