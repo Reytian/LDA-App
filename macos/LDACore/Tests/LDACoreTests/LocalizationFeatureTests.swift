@@ -191,8 +191,8 @@ final class LocalizationFeatureTests: XCTestCase {
 
     func testHighVisibilityDynamicControlsReachALocalizationBoundary() throws {
         let sources = Self.packageRoot.appendingPathComponent("Sources/LDAUI")
-        let appShell = try String(
-            contentsOf: sources.appendingPathComponent("AppShell.swift"),
+        let statusBanner = try String(
+            contentsOf: sources.appendingPathComponent("AppShellStatusBanner.swift"),
             encoding: .utf8
         )
         let restore = try String(
@@ -217,7 +217,7 @@ final class LocalizationFeatureTests: XCTestCase {
         )
 
         XCTAssertTrue(restore.contains("title: LocalizedStringKey"))
-        XCTAssertTrue(appShell.contains("scanButton(title: LocalizedStringKey"))
+        XCTAssertTrue(statusBanner.contains("scanButton(title: LocalizedStringKey"))
         XCTAssertTrue(restore.contains("body: LocalizedStringKey"))
         XCTAssertTrue(restore.contains("buttonTitle: LocalizedStringKey"))
         XCTAssertTrue(restore.contains(".help(L10n.string(buttonHelp))"))
