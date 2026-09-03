@@ -22,11 +22,34 @@ import SwiftUI
 
 // MARK: - Flow state
 
-/// Which scan the user asked for. Both entry points are gated, so a Scan All
-/// over twelve documents asks once and acknowledges all twelve.
-enum PendingScan: Equatable {
+/// Which scan the user asked for, before the shell resolves which documents
+/// that means. Both entry points are gated, so a Scan All over twelve
+/// documents asks once and acknowledges all twelve.
+enum ScanRequest: Equatable {
     case active
     case all
+}
+
+/// A scan request with its target documents fixed at the moment the user
+/// asked.
+///
+/// The identity is snapshotted rather than re-derived on the way out of the
+/// dialog. Deriving it twice, once when the gate fires and once inside the
+/// confirm closure, made the acknowledgment and the dispatch depend on which
+/// document happened to be active when the user answered. The dialog is
+/// window-modal today, so that was probably unreachable; a request that
+/// carries its own target cannot depend on the timing at all.
+enum PendingScan: Equatable {
+    case active(UUID)
+    case all([UUID])
+
+    /// The tray documents this request would scan.
+    var targets: [UUID] {
+        switch self {
+        case .active(let id): return [id]
+        case .all(let ids): return ids
+        }
+    }
 }
 
 /// Owns the parked scan or export request, and which tray documents have

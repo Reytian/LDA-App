@@ -418,33 +418,45 @@ public struct AppShell: View {
     /// then Return as one gesture, and that reflex then fires through the
     /// genuinely different unresolved-seam advisory, which renders in the same
     /// region.
-    private func handleScanRequest(_ request: PendingScan) {
+    private func handleScanRequest(_ request: ScanRequest) {
+        guard let pending = resolveScan(request) else { return }
         guard AISettings.scanNeedsModelConfirmation(catalog: catalog) else {
-            return runScan(request)
+            return runScan(pending)
         }
-        let ids = scanTargets(for: request)
-        guard !ids.isEmpty else { return }
-        guard !ids.allSatisfy(modelSetupFlow.confirmedIDs.contains) else {
-            return runScan(request)
+        guard !pending.targets.allSatisfy(modelSetupFlow.confirmedIDs.contains) else {
+            return runScan(pending)
         }
-        modelSetupFlow.pendingScan = request
+        modelSetupFlow.pendingScan = pending
     }
 
-    /// The documents one request would scan.
-    private func scanTargets(for request: PendingScan) -> [UUID] {
+    /// Fix which documents a request means, once, at the moment the user asked.
+    ///
+    /// The only place the live selection is read. Deriving the target again on
+    /// the way out of the dialog made the acknowledgment and the dispatch
+    /// depend on which document was active when the user answered, which the
+    /// window-modal dialog probably made unreachable and which a request
+    /// carrying its own target cannot depend on at all.
+    ///
+    /// nil means there is nothing to scan. The dispatch guards below reject
+    /// the same states (an idle empty model cannot anonymize, and canScanAll
+    /// is false with no imported document), so this is where they are caught
+    /// before a dialog can ask about no documents.
+    private func resolveScan(_ request: ScanRequest) -> PendingScan? {
         switch request {
         case .active:
-            return session.activeEntryID.map { [$0] } ?? []
+            guard let id = session.activeEntryID else { return nil }
+            return .active(id)
         case .all:
-            return session.entries
+            let ids = session.entries
                 .filter { $0.model.status == .imported }
                 .map(\.id)
+            return ids.isEmpty ? nil : .all(ids)
         }
     }
 
     /// Remember that the user chose to scan these documents without a model.
     private func acknowledgeScanTargets(_ request: PendingScan) {
-        modelSetupFlow.confirmedIDs.formUnion(scanTargets(for: request))
+        modelSetupFlow.confirmedIDs.formUnion(request.targets)
     }
 
     /// The one place a scan is dispatched, and the D1 fix.
@@ -461,8 +473,12 @@ public struct AppShell: View {
     private func runScan(_ request: PendingScan) {
         session.reapplyConfiguration()
         switch request {
-        case .active:
-            guard model.canAnonymize else { return }
+        case .active(let id):
+            // The document the request named, not whichever one is selected
+            // now. The local is called model so it reads like the shell's own
+            // active-document property at the dispatch line below.
+            guard let model = session.entries.first(where: { $0.id == id })?.model,
+                  model.canAnonymize else { return }
             Task { await model.anonymize() }
         case .all:
             guard session.canScanAll else { return }

@@ -333,4 +333,59 @@ final class ModelSetupGateTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - A scan request carries the document that triggered it
+
+    func testAScanRequestCarriesItsTargetsSoADocumentSwitchCannotRedirectIt() {
+        let first = UUID()
+        let second = UUID()
+
+        XCTAssertEqual(PendingScan.active(first).targets, [first])
+        XCTAssertEqual(PendingScan.all([first, second]).targets, [first, second])
+        XCTAssertNotEqual(
+            PendingScan.active(first), PendingScan.active(second),
+            "two requests for different documents must not compare equal: the "
+                + "identity is part of the request, not a decoration over it"
+        )
+    }
+
+    func testTheShellResolvesAScanTargetOnceWhenTheUserAsks() throws {
+        let shell = try uiSource("AppShell.swift")
+        XCTAssertFalse(
+            shell.contains("scanTargets(for:"),
+            "deriving the target twice, once when the gate fires and once "
+                + "inside the confirm closure, let a document switch redirect "
+                + "the acknowledgment and the dispatch to a document that never "
+                + "triggered the ask"
+        )
+        XCTAssertEqual(
+            shell.components(separatedBy: "session.activeEntryID").count - 1, 1,
+            "the active document is read in exactly one place: the resolver "
+                + "that builds the request"
+        )
+
+        guard let start = shell.range(of: "private func runScan("),
+              let end = shell.range(
+                of: "private func requestExportForAI(",
+                range: start.upperBound..<shell.endIndex
+              ) else {
+            XCTFail("runScan is missing")
+            return
+        }
+        let body = shell[start.lowerBound..<end.lowerBound]
+        XCTAssertTrue(
+            body.contains("$0.id == id"),
+            "the dispatch must follow the document the request names"
+        )
+        XCTAssertFalse(
+            body.contains("activeEntryID"),
+            "re-reading the selection at dispatch time is the timing "
+                + "dependency this snapshot removes"
+        )
+        XCTAssertTrue(
+            body.contains("session.reapplyConfiguration()"),
+            "D1 must not regress: the one dispatch point still re-resolves the "
+                + "model path first"
+        )
+    }
 }
