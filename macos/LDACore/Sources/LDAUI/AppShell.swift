@@ -104,7 +104,10 @@ public struct AppShell: View {
         } detail: {
             VStack(spacing: 0) {
                 if WindowLayoutPolicy.showsWorkflowProgress(isWindowNarrow: isWindowNarrow) {
-                    workflowProgressHeader
+                    AppShellWorkflowHeader(
+                        session: session,
+                        hasSharedOutput: hasSharedOutput
+                    )
                 }
                 AppShellStatusBanner(session: session, exportMessage: exportMessage)
                 if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
@@ -433,70 +436,6 @@ public struct AppShell: View {
         case .failed(let message):
             exportMessage = message
         }
-    }
-
-    /// Anonymize is available once a document is imported, and again after a run
-    /// (so the user can re-run, for example after toggling AI entities). It is not
-    /// available while a pass is in flight.
-    private var canAnonymize: Bool { model.canAnonymize }
-
-    // MARK: - Guided workflow
-
-    private var workflowProgressHeader: some View {
-        let current = AnonymizeWorkflowPresentation.currentStep(
-            status: model.status,
-            hasDocument: !model.documentText.isEmpty,
-            hasSharedOutput: hasSharedOutput
-        )
-
-        return HStack(spacing: 0) {
-            ForEach(Array(AnonymizeWorkflowStep.allCases.enumerated()), id: \.element) { index, step in
-                workflowStep(step, current: current)
-
-                if index < AnonymizeWorkflowStep.allCases.count - 1 {
-                    Rectangle()
-                        .fill(step.rawValue < current.rawValue
-                            ? CounselTheme.inkAccent.opacity(0.55)
-                            : CounselTheme.hairline)
-                        .frame(height: 1)
-                        .frame(maxWidth: 72)
-                        .padding(.horizontal, 8)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 9)
-        .background(CounselTheme.appSurface)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(CounselTheme.hairline).frame(height: 1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "Anonymize workflow, current step \(L10n.string(current.title))"
-        )
-    }
-
-    private func workflowStep(
-        _ step: AnonymizeWorkflowStep,
-        current: AnonymizeWorkflowStep
-    ) -> some View {
-        let completed = step.rawValue < current.rawValue
-        let active = step == current
-
-        return HStack(spacing: 6) {
-            Image(systemName: completed ? "checkmark.circle.fill" : step.systemImage)
-                .font(.system(size: 13, weight: active ? .semibold : .regular))
-                .foregroundStyle(active || completed
-                    ? CounselTheme.inkAccent
-                    : CounselTheme.textSecondary)
-            Text(step.localizedTitle)
-                .font(.caption.weight(active ? .semibold : .regular))
-                .foregroundStyle(active
-                    ? CounselTheme.textPrimary
-                    : CounselTheme.textSecondary)
-        }
-        .fixedSize()
     }
 
     // MARK: - Tracked changes advisory

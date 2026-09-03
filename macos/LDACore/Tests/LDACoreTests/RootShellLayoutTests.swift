@@ -98,10 +98,11 @@ final class RootShellLayoutTests: XCTestCase {
     func testWorkflowHeaderFitsMinimumWindowWithWidestSidebar() throws {
         let appSource = try String(contentsOf: Self.ldaAppSourceURL, encoding: .utf8)
         let shellSource = try String(contentsOf: Self.appShellSourceURL, encoding: .utf8)
+        let headerSource = try String(contentsOf: Self.workflowHeaderSourceURL, encoding: .utf8)
 
         XCTAssertTrue(appSource.contains(".frame(minWidth: 1100, minHeight: 720)"))
         XCTAssertTrue(shellSource.contains("min: 260, ideal: 320, max: 420"))
-        XCTAssertTrue(shellSource.contains(".frame(maxWidth: 72)"))
+        XCTAssertTrue(headerSource.contains(".frame(maxWidth: 72)"))
 
         let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let textWidth = ["Add", "Scan", "Review", "Share"].reduce(CGFloat.zero) {
@@ -390,6 +391,11 @@ final class RootShellLayoutTests: XCTestCase {
     private static let appShellSourceURL = sourceURL
         .deletingLastPathComponent()
         .appendingPathComponent("AppShell.swift")
+
+    /// The guided workflow row, extracted from AppShell.
+    private static let workflowHeaderSourceURL = sourceURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("AppShellWorkflowHeader.swift")
 
     /// The handoff completion card, extracted from AppShell.
     private static let handoffCardSourceURL = sourceURL
