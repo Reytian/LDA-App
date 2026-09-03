@@ -173,6 +173,26 @@ enum AnonymizeWorkflowPresentation {
         )
     }
 
+    /// Why the coverage number is larger than the review list.
+    ///
+    /// A .docx is redacted in its headers, footers, notes, and comments too,
+    /// and those hits are not offered for review, so without this line a
+    /// careful reader counts the list, finds fewer items, and doubts the
+    /// number. Nil when nothing sits outside the body.
+    static func supplementaryCoverageNote(
+        count: Int,
+        language: AppLanguage? = nil
+    ) -> String? {
+        guard count > 0 else { return nil }
+        let key = count == 1
+            ? "Includes %lld value in headers, footers, or notes, always protected and not listed above."
+            : "Includes %lld values in headers, footers, or notes, always protected and not listed above."
+        return String(
+            format: L10n.string(key, language: language),
+            Int64(count)
+        )
+    }
+
     static func etaText(
         seconds: Double,
         language: AppLanguage? = nil

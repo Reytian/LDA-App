@@ -700,6 +700,14 @@ public final class SessionModel: ObservableObject {
             clientLabel: clientLabel,
             documents: ready.map { entry in
                 SessionRecordDocument(
+                    // The review-list count, NOT totalRedactedCount, and that
+                    // is correct here: this record describes the Markdown
+                    // handoff, which carries each document's BODY only. A
+                    // .docx header or footer is never part of that artifact,
+                    // so counting its redactions would over-state what left
+                    // the machine. The per-document file export is the place
+                    // supplementary parts are redacted, and it reports its own
+                    // total (ExportResult.entityCount).
                     name: entry.name,
                     entityCount: entry.model.redactedCount,
                     entityTypes: distinctTypes(of: entry.model),

@@ -38,6 +38,42 @@
 
 import Foundation
 
+/// How much redaction happened, or would happen, in the DOCX parts outside
+/// word/document.xml (headers, footers, footnotes, endnotes, comments).
+///
+/// Counts SITES, not distinct values, and is therefore usually LARGER than
+/// the number of mapping entries those parts mint: a header that repeats a
+/// body name reuses the body token and mints no entry, yet the redacted
+/// package carries that replacement and a restore puts it back. Sites are
+/// what makes a reported total agree with RestoreReport.restoredCount.
+///
+/// Counts only. No surface text, no offsets, and no part paths: a part path
+/// can itself be PII, and a supplementary offset would collide with a body
+/// offset if the two lists were ever flattened into one.
+public struct DocxSupplementaryCoverage: Sendable, Equatable {
+    /// Total replacements across every supplementary part.
+    public var replacementCount: Int
+    /// Those replacements' types and how many of each. Sums to
+    /// replacementCount.
+    public var countsByType: [EntityType: Int]
+
+    /// Nothing outside the body: no such parts, or nothing detected in them.
+    public static let none = DocxSupplementaryCoverage(replacementCount: 0, countsByType: [:])
+
+    public init(replacementCount: Int, countsByType: [EntityType: Int]) {
+        self.replacementCount = replacementCount
+        self.countsByType = countsByType
+    }
+
+    /// Fold one part's accepted spans in.
+    mutating func add(_ spans: [Span]) {
+        replacementCount += spans.count
+        for span in spans {
+            countsByType[span.type, default: 0] += 1
+        }
+    }
+}
+
 /// What redacting the DOCX parts outside word/document.xml produced.
 ///
 /// Empty when DocxRedactor.redact ran without a `nonBody` argument (the
@@ -46,31 +82,14 @@ public struct DocxNonBodyOutcome: Sendable, Equatable {
     /// Tokens minted for surfaces found ONLY outside the body. The caller
     /// folds these into the mapping sidecar so they restore.
     public var newEntries: [MappingEntry]
-    /// How many replacements the supplementary parts received in total.
-    ///
-    /// Sites, not distinct values, and therefore usually LARGER than
-    /// newEntries.count: a header that repeats a body name reuses the body
-    /// token and mints no entry, yet the redacted package carries that
-    /// replacement and a restore puts it back.
-    public var replacementCount: Int
-    /// Those replacements' types and how many of each. Sums to
-    /// replacementCount.
-    public var countsByType: [EntityType: Int]
+    /// How much those parts received, for the caller's coverage report.
+    public var coverage: DocxSupplementaryCoverage
 
-    public static let empty = DocxNonBodyOutcome(
-        newEntries: [],
-        replacementCount: 0,
-        countsByType: [:]
-    )
+    public static let empty = DocxNonBodyOutcome(newEntries: [], coverage: .none)
 
-    public init(
-        newEntries: [MappingEntry],
-        replacementCount: Int,
-        countsByType: [EntityType: Int]
-    ) {
+    public init(newEntries: [MappingEntry], coverage: DocxSupplementaryCoverage) {
         self.newEntries = newEntries
-        self.replacementCount = replacementCount
-        self.countsByType = countsByType
+        self.coverage = coverage
     }
 }
 
@@ -149,8 +168,7 @@ public enum DocxRedactor {
             }
             outcome = DocxNonBodyOutcome(
                 newEntries: result.newEntries,
-                replacementCount: result.coverage.replacementCount,
-                countsByType: result.coverage.countsByType
+                coverage: result.coverage
             )
         }
 
@@ -160,6 +178,21 @@ public enum DocxRedactor {
             to: out
         )
         return outcome
+    }
+
+    /// What the supplementary parts of `original` WOULD receive, writing
+    /// nothing. Runs the same detection, break splitting, and dominance filter
+    /// redact runs, so a preview and the redaction it predicts cannot drift.
+    ///
+    /// This is the only public way to ask the question without producing an
+    /// artifact; the window uses it to state honest coverage while the user is
+    /// still reviewing, and LDAService.detectSummary uses it for the same
+    /// reason on the CLI and MCP edges.
+    public static func supplementaryCoverage(
+        in original: URL,
+        detect: (String) -> [Span]
+    ) -> DocxSupplementaryCoverage {
+        DocxParts.supplementaryCoverage(url: original, detect: detect)
     }
 
     /// How many embedded media files (word/media/...) the package carries.

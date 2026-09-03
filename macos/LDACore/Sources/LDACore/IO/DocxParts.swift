@@ -173,35 +173,7 @@ enum DocxParts {
         /// means the redaction must not be written (DocxRedactor.redact throws).
         var failedParts: [String]
         /// What was covered outside the body, for the caller's coverage report.
-        var coverage: SupplementaryCoverage
-    }
-
-    /// How much redaction happened outside word/document.xml, as counts only.
-    ///
-    /// Counts SITES, not distinct values: a header that repeats a body name
-    /// reuses the body token and mints no new mapping entry, yet it is still a
-    /// replacement the redacted package carries and a restore puts back. This
-    /// is why newEntries.count is the wrong number to report as coverage.
-    ///
-    /// No text, no offsets, and no part paths: a part path can itself be PII,
-    /// and a supplementary offset would collide with a body offset if the two
-    /// were ever flattened into one list.
-    struct SupplementaryCoverage: Equatable {
-        /// Total replacements applied across every supplementary part.
-        var replacementCount: Int
-        /// Those replacements' types and how many of each. Sums to
-        /// replacementCount.
-        var countsByType: [EntityType: Int]
-
-        static let none = SupplementaryCoverage(replacementCount: 0, countsByType: [:])
-
-        /// Fold one part's accepted spans in.
-        mutating func add(_ spans: [Span]) {
-            replacementCount += spans.count
-            for span in spans {
-                countsByType[span.type, default: 0] += 1
-            }
-        }
+        var coverage: DocxSupplementaryCoverage
     }
 
     /// What the supplementary parts of `url` would receive, WITHOUT writing
@@ -215,8 +187,8 @@ enum DocxParts {
     static func supplementaryCoverage(
         url: URL,
         detect: (String) -> [Span]
-    ) -> SupplementaryCoverage {
-        var coverage = SupplementaryCoverage.none
+    ) -> DocxSupplementaryCoverage {
+        var coverage = DocxSupplementaryCoverage.none
         for part in loadTextBearingParts(from: url).parts {
             coverage.add(acceptedSupplementarySpans(in: part.layout.text, detect: detect))
         }
@@ -253,7 +225,7 @@ enum DocxParts {
     ) -> Result {
         var replacements: [String: Data] = [:]
         var newEntries: [MappingEntry] = []
-        var coverage = SupplementaryCoverage.none
+        var coverage = DocxSupplementaryCoverage.none
 
         // Token reuse index and per-type counters seeded from the body mapping,
         // then carried across parts so numbering never collides.

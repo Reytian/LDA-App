@@ -359,7 +359,7 @@ extension ReviewModel {
             for entry in outcome.newEntries {
                 tokenized.mapping.entries[entry.token] = entry
             }
-            supplementaryCount = outcome.replacementCount
+            supplementaryCount = outcome.coverage.replacementCount
         } else {
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
         }
@@ -493,6 +493,26 @@ extension ReviewModel {
                 llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath).spans
             )
         }
+    }
+
+    /// How many replacements a .docx export would make OUTSIDE the body, so
+    /// the window can report the coverage it actually delivers rather than
+    /// the length of the review list.
+    ///
+    /// 0 for a nil source and for every non-docx format. Uses the same
+    /// nonBodyDetector the export uses, over the same parts, so the number
+    /// shown before the export and the number written by it agree. Only the
+    /// small supplementary parts are scanned; the body the user already
+    /// reviewed is never re-detected here.
+    nonisolated static func supplementaryCount(
+        source: URL?,
+        useLLM: Bool,
+        modelPath: String?,
+        custom: [CustomPattern]
+    ) -> Int {
+        guard let source, source.pathExtension.lowercased() == "docx" else { return 0 }
+        let detect = nonBodyDetector(useLLM: useLLM, modelPath: modelPath, custom: custom)
+        return DocxRedactor.supplementaryCoverage(in: source, detect: detect).replacementCount
     }
 
     /// Map each accepted span to a Replacement by looking up its token via the

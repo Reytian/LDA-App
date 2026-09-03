@@ -854,3 +854,7 @@
 "Legend, %lld types" = "圖例，%lld 種類型";
 "This document carries tracked changes (%lld). Accept all changes before redacting for an exact round trip; a value that spans a tracked change is restored into the live text and the change is flattened." = "此文件包含追蹤修訂（%lld 處）。請在遮蔽前接受所有修訂，以便精確還原；跨越修訂的值會被還原到本文中，該修訂將被合併。";
 "Tracked-change and comment authors are blanked in the redacted copy and are not restored." = "追蹤修訂與註解的作者資訊在遮蔽副本中會被清空，且不會還原。";
+
+/* Coverage reporting: replacements outside the DOCX body (2026-09-03). */
+"Includes %lld value in headers, footers, or notes, always protected and not listed above." = "其中 %lld 項位於頁首、頁尾或註解中，始終受保護，未列在上方。";
+"Includes %lld values in headers, footers, or notes, always protected and not listed above." = "其中 %lld 項位於頁首、頁尾或註解中，始終受保護，未列在上方。";

@@ -286,8 +286,8 @@ public enum LDAService {
             // What those parts covered, so the reported total is the total the
             // redacted package carries and a restore puts back. Sites, not new
             // entries: a header repeating a body name mints no entry.
-            supplementaryCount = outcome.replacementCount
-            supplementaryCountsByType = outcome.countsByType
+            supplementaryCount = outcome.coverage.replacementCount
+            supplementaryCountsByType = outcome.coverage.countsByType
 
         case "pdf":
             // PDF is never edited in place: write a fresh tokenized companion as

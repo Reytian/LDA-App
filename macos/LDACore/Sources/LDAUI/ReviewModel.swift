@@ -279,8 +279,27 @@ public final class ReviewModel: ObservableObject {
     /// The open document's file name, for the window title.
     public var documentName: String? { sourceURL?.lastPathComponent }
 
-    /// How many entities will be redacted (accepted) on export.
+    /// How many entities of the REVIEW LIST will be redacted (accepted) on
+    /// export. Body only, because the review list is body only.
     public var redactedCount: Int { entities.filter { $0.accepted }.count }
+
+    /// How many further replacements a .docx export will make in the parts
+    /// outside the body (headers, footers, footnotes, endnotes, comments),
+    /// as measured by the last completed scan. 0 for every other format.
+    ///
+    /// Those parts are always redacted and are deliberately not offered for
+    /// review: they carry running matter names and contact blocks, and a
+    /// per-part review list would need offsets that cannot be shown in the
+    /// body pane. They still have to be COUNTED, or the window promises less
+    /// coverage than it delivers and a reader can conclude the header names
+    /// leaked.
+    @Published public private(set) var supplementaryRedactedCount: Int = 0
+
+    /// Everything this document's export will replace: the accepted review
+    /// entities plus the supplementary parts. This is the number to show
+    /// wherever the window claims coverage, and it is what a restore of the
+    /// exported file puts back.
+    public var totalRedactedCount: Int { redactedCount + supplementaryRedactedCount }
 
     /// How many detected entities the user rejected and that will therefore
     /// remain visible in the exported document.
@@ -441,6 +460,9 @@ public final class ReviewModel: ObservableObject {
         etaText = nil
         aiWarning = nil
         trackedChangeCount = 0
+        // A supplementary count belongs to the document that produced it; a
+        // stale one would mis-state the next document's coverage.
+        supplementaryRedactedCount = 0
         // The candidate choice is per document, so a model reused across
         // documents starts each one from the covering default.
         includeSealCandidates = true
@@ -505,6 +527,7 @@ public final class ReviewModel: ObservableObject {
             }
         }
 
+        let source = sourceURL
         let outcome = await Task.detached(priority: .userInitiated) {
             Self.detect(
                 in: text,
@@ -516,6 +539,20 @@ public final class ReviewModel: ObservableObject {
                 knownEntities: knownEntities,
                 cancel: cancelToken,
                 onProgress: report
+            )
+        }.value
+
+        // What a .docx export will additionally replace outside the body. Run
+        // here rather than only at export time so the window can state honest
+        // coverage while the user is still deciding. It scans only the small
+        // supplementary parts with the SAME detector the export uses, so the
+        // preview and the export cannot disagree.
+        let supplementary = await Task.detached(priority: .utility) {
+            Self.supplementaryCount(
+                source: source,
+                useLLM: shouldUseLLM,
+                modelPath: path,
+                custom: custom
             )
         }.value
 
@@ -538,6 +575,7 @@ public final class ReviewModel: ObservableObject {
         // The cancellation branch above deliberately leaves selection intact.
         selectedGroupIDs = []
         entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
+        supplementaryRedactedCount = supplementary
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
         // AI is only "active" when the pass ran to full coverage; a load
         // failure or partial scan must warn, never silently pose as a clean

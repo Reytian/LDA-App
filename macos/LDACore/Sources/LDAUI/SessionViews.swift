@@ -62,12 +62,14 @@ struct DocumentTrayRow: View {
             ProgressView()
                 .controlSize(.mini)
         case .ready:
-            Text("\(model.redactedCount)")
+            // The whole document's coverage, headers and footers included,
+            // so the tray chip and the review banner say the same thing.
+            Text("\(model.totalRedactedCount)")
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
                 .help(String(
                     format: L10n.string("%lld values will be protected"),
-                    Int64(model.redactedCount)
+                    Int64(model.totalRedactedCount)
                 ))
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
@@ -88,7 +90,7 @@ struct DocumentTrayRow: View {
         case .ready:
             return String(
                 format: L10n.string("%lld values protected"),
-                Int64(model.redactedCount)
+                Int64(model.totalRedactedCount)
             )
         case .failed: return L10n.string("failed")
         case .idle, .imported: return L10n.string("not anonymized yet")

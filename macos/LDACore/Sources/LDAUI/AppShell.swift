@@ -235,7 +235,7 @@ public struct AppShell: View {
             AccessibilityNotification.Announcement(
                 String(
                     format: L10n.string("Review ready. %lld to redact, %lld will remain visible."),
-                    Int64(model.redactedCount),
+                    Int64(model.totalRedactedCount),
                     Int64(model.visibleCount)
                 )
             ).post()
@@ -746,7 +746,7 @@ public struct AppShell: View {
         bannerChrome {
             Image(systemName: "checkmark.seal")
                 .foregroundStyle(CounselTheme.inkAccent)
-            Text("\(model.redactedCount) to redact")
+            Text("\(model.totalRedactedCount) to redact")
                 .font(.callout).monospacedDigit()
                 .foregroundStyle(CounselTheme.textPrimary)
 
@@ -1043,8 +1043,10 @@ public struct AppShell: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Trust confirmation: what is and is not being redacted.
-            (Text("\(model.redactedCount)").bold() + Text(" entities will be redacted.")
+            // Trust confirmation: what is and is not being redacted. The
+            // count is the whole export, headers and footers included, not
+            // the length of the review list.
+            (Text("\(model.totalRedactedCount)").bold() + Text(" entities will be redacted.")
                 + (model.visibleCount > 0
                     ? Text("  \(model.visibleCount) you rejected will remain visible in the exported file.")
                         .foregroundColor(CounselTheme.danger)
@@ -1052,6 +1054,15 @@ public struct AppShell: View {
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let note = AnonymizeWorkflowPresentation.supplementaryCoverageNote(
+                count: model.supplementaryRedactedCount
+            ) {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             SecureField("Passphrase (optional)", text: $passphrase)
                 .textFieldStyle(.roundedBorder)
