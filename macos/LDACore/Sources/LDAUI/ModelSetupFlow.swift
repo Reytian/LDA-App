@@ -168,6 +168,10 @@ struct ModelSetupFlow: ViewModifier {
                     flow.pendingExport = nil
                     onExport()
                 }
+                // Cancel takes Return on a Mac where no fix button rendered,
+                // because the safe path has to be the keypress even with no
+                // remedy to offer. Escape reaches a cancel-role button anyway,
+                // so nothing is lost by spending its shortcut here.
                 Button("Cancel", role: .cancel) { flow.pendingExport = nil }
                     .keyboardShortcut(
                         exportDefault == .cancel ? .defaultAction : .cancelAction
