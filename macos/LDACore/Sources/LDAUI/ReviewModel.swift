@@ -1019,13 +1019,15 @@ public final class ReviewModel: ObservableObject {
         // passed no closure at all now reach the same refusal.
         if export.workspaceURL == nil, export.mappingURL == nil {
             Self.removeExportArtifacts(of: export)
+            // One literal, deliberately not a concatenation.
+            // LocalizationRoutingTests' key scanner reads the first quoted
+            // fragment after L10n.string(, so a sentence assembled with + is
+            // registered under a TRUNCATED key and the catalog entry the
+            // runtime actually looks up goes unchecked. Passing the sentence
+            // through a named constant hides it from the scanner the same way.
+            // Long line, verified key.
             throw keepFailure ?? DocumentIOError.unreadable(
-                L10n.string("The redacted document was not saved because its "
-                    + "mapping had nowhere to go. Nothing can restore a "
-                    + "document without its mapping, so the file was removed "
-                    + "rather than left in place looking finished. Add a "
-                    + "passphrase to save a mapping beside the document, or "
-                    + "check that this Mac allows LDA to store keys.")
+                L10n.string("The redacted document was not saved because its mapping had nowhere to go. Nothing can restore a document without its mapping, so the file was removed rather than left in place looking finished. Add a passphrase to save a mapping beside the document, or check that this Mac allows LDA to store keys.")
             )
         }
 
