@@ -423,13 +423,17 @@ public enum LDAService {
         try validateRestoreInput(editedRedacted, output: output)
         let ext = editedRedacted.pathExtension.lowercased()
 
-        if ext == "docx" {
-            // Report against one PRE-restore view of every visible text part.
-            // A post-restore scan cannot count successful substitutions, and a
-            // body-only scan omits headers, footers, notes, and comments.
-            let preRestoreText = try DocxParts.restoreReportText(from: editedRedacted)
-            let report = Restorer.restore(text: preRestoreText, mapping: loadedMapping)
+        // The one scan. restorePreview(editedRedacted:mapping:) computes this
+        // same value and stops here, which is what lets a surface show the
+        // result before choosing where it goes: the write below cannot drift
+        // from what the preview showed, because it is reading the preview.
+        let preview = try makeRestorePreview(
+            editedRedacted: editedRedacted,
+            extension: ext,
+            mapping: loadedMapping
+        )
 
+        if ext == "docx" {
             if loadedMapping.style == .token {
                 let tokenToValue = Dictionary(
                     uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
@@ -439,7 +443,7 @@ public enum LDAService {
                     tokenToValue: tokenToValue,
                     to: output
                 )
-                return makeRestoreReport(output: output, from: report)
+                return makeRestoreReport(output: output, from: preview)
             }
 
             // The literal rewrite follows the same restore plan as the report,
@@ -449,30 +453,81 @@ public enum LDAService {
                 redactedDocx: editedRedacted,
                 plan: Restorer.literalRestorePlan(
                     for: loadedMapping,
-                    refusingReplacements: Set(report.ambiguousReplacements)
+                    refusingReplacements: Set(preview.ambiguousReplacements)
                 ),
                 to: output
             )
-            return makeRestoreReport(output: output, from: report)
+            return makeRestoreReport(output: output, from: preview)
         }
 
-        // Text edit surface: restore the tokens, then write the output in the
-        // form its extension promises. A .docx output becomes a freshly
-        // regenerated plain Word file (one paragraph per line, the agreed
-        // fidelity floor), never UTF-8 text bytes under a .docx name: Word
-        // refuses to open those, and the restore would report success over a
-        // file the user cannot use. This decision lives here rather than in a
-        // caller so the CLI, the MCP server, and both GUI routes inherit it.
-        // Merging the edits back into an original Word document's runs is a
-        // different feature and is deliberately not offered.
-        let imported = try importDocument(editedRedacted, extension: ext)
-        let report = Restorer.restore(text: imported.text, mapping: loadedMapping)
+        // Text edit surface: write the restored text in the form the output's
+        // extension promises. A .docx output becomes a freshly regenerated
+        // plain Word file (one paragraph per line, the agreed fidelity floor),
+        // never UTF-8 text bytes under a .docx name: Word refuses to open
+        // those, and the restore would report success over a file the user
+        // cannot use. This decision lives here rather than in a caller so the
+        // CLI, the MCP server, and both GUI routes inherit it. Merging the
+        // edits back into an original Word document's runs is a different
+        // feature and is deliberately not offered.
         if output.pathExtension.lowercased() == "docx" {
-            try SimpleDocxWriter.write(report.text, to: output)
+            try SimpleDocxWriter.write(preview.restoredText, to: output)
         } else {
-            try TextDocumentIO.exportText(report.text, to: output)
+            try TextDocumentIO.exportText(preview.restoredText, to: output)
         }
-        return makeRestoreReport(output: output, from: report)
+        return makeRestoreReport(output: output, from: preview)
+    }
+
+    /// What restore(editedRedacted:mapping:output:) would produce, without
+    /// writing anything and without needing a destination.
+    ///
+    /// Restore used to pick its output path and write the file before the
+    /// reader saw any of the result, so every warning the report carries
+    /// (orphans, damaged placeholders, ambiguous sites) arrived too late to
+    /// act on. This is the same computation, ending one step before the
+    /// writer, so a surface can show the restored text and its warnings first
+    /// and only then ask where the document goes. See `RestorePreview` for
+    /// what the returned text is exactly, and for why `.docx` byte parity is
+    /// neither claimed nor testable.
+    ///
+    /// Only the input-shape guard runs here: the output-equals-input check
+    /// belongs to a write, and there is no output yet.
+    public static func restorePreview(
+        editedRedacted: URL,
+        mapping loadedMapping: Mapping
+    ) throws -> RestorePreview {
+        try validateRestoreSource(editedRedacted)
+        return try makeRestorePreview(
+            editedRedacted: editedRedacted,
+            extension: editedRedacted.pathExtension.lowercased(),
+            mapping: loadedMapping
+        )
+    }
+
+    /// Read the edit surface and run the restorer over it. Writes nothing.
+    ///
+    /// A `.docx` is reported against one PRE-restore view of every visible
+    /// text part: a post-restore scan cannot count successful substitutions,
+    /// and a body-only scan omits headers, footers, notes, and comments.
+    private static func makeRestorePreview(
+        editedRedacted: URL,
+        extension ext: String,
+        mapping loadedMapping: Mapping
+    ) throws -> RestorePreview {
+        let sourceText: String
+        if ext == "docx" {
+            sourceText = try DocxParts.restoreReportText(from: editedRedacted)
+        } else {
+            sourceText = try importDocument(editedRedacted, extension: ext).text
+        }
+        let report = Restorer.restore(text: sourceText, mapping: loadedMapping)
+        return RestorePreview(
+            sourceText: sourceText,
+            restoredText: report.text,
+            restoredCount: report.restoredCount,
+            orphanTokens: report.orphanTokens,
+            suspectPlaceholders: report.suspectPlaceholders,
+            ambiguousReplacements: report.ambiguousReplacements
+        )
     }
 
     /// The fail-fast checks both restore entry points share, run before any
@@ -484,6 +539,12 @@ public enum LDAService {
         guard editedRedacted.standardizedFileURL.path != output.standardizedFileURL.path else {
             throw LDAServiceError.outputEqualsInput
         }
+        try validateRestoreSource(editedRedacted)
+    }
+
+    /// The half of the restore guards that is about the INPUT alone, so a
+    /// preview with no destination yet still refuses what a write would.
+    private static func validateRestoreSource(_ editedRedacted: URL) throws {
         let ext = editedRedacted.pathExtension.lowercased()
         // A redacted image is not an edit surface: the opaque boxes destroy
         // the covered pixels, so restoring one is impossible by design.
@@ -499,15 +560,15 @@ public enum LDAService {
         }
     }
 
-    /// The report shape every restore path returns: the restorer's counts and
+    /// The report shape every restore path returns: the preview's counts and
     /// lists, stamped with where the output landed.
-    private static func makeRestoreReport(output: URL, from report: RestoreResult) -> RestoreReport {
+    private static func makeRestoreReport(output: URL, from preview: RestorePreview) -> RestoreReport {
         RestoreReport(
             outputURL: output,
-            restoredCount: report.restoredCount,
-            orphanTokens: report.orphanTokens,
-            suspectPlaceholders: report.suspectPlaceholders,
-            ambiguousReplacements: report.ambiguousReplacements
+            restoredCount: preview.restoredCount,
+            orphanTokens: preview.orphanTokens,
+            suspectPlaceholders: preview.suspectPlaceholders,
+            ambiguousReplacements: preview.ambiguousReplacements
         )
     }
 

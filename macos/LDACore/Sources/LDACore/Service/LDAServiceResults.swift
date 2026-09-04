@@ -141,6 +141,59 @@ public struct AnonymizeResult: Sendable {
     }
 }
 
+/// What a restore WOULD produce, computed without writing anything.
+///
+/// The same scan the write path reports from, stopped one step short of the
+/// writer. Restore used to choose its destination and write the file before
+/// the reader had seen a single character of the result, so the counts and the
+/// warning sentences only ever arrived after the document was already on disk.
+/// This type is that report, available first.
+///
+/// The counts and the lists are exactly what the write path reports for the
+/// same input and mapping, because both come from the same call into
+/// `Restorer`. `restoredText` is exact for a text edit surface, where it is
+/// literally the string the writer receives. For a `.docx` edit surface it is
+/// the restored form of every visible text part joined for reporting, which is
+/// faithful COPY but not the file's layout: a token-style Word write runs
+/// through `DocxRedactor.restore`, a different mechanism, so no byte parity is
+/// claimed there and none is testable.
+public struct RestorePreview: Sendable {
+    /// The text the restore was computed over, before any substitution. The
+    /// surface a caller needs in order to tell which mapping entries this
+    /// document actually spells.
+    public var sourceText: String
+    /// The restored text. See the type's note on what this is for a `.docx`
+    /// edit surface.
+    public var restoredText: String
+    /// How many replacement occurrences would be substituted.
+    public var restoredCount: Int
+    /// Replacements the restore cannot account for. See
+    /// `RestoreResult.orphanTokens`.
+    public var orphanTokens: [String]
+    /// Placeholder shapes that look damaged by editing. Flagged, never
+    /// substituted. See `RestoreResult.suspectPlaceholders`.
+    public var suspectPlaceholders: [String]
+    /// Masked forms no single entity owns. Left verbatim, never guessed. See
+    /// `RestoreResult.ambiguousReplacements`.
+    public var ambiguousReplacements: [String]
+
+    public init(
+        sourceText: String,
+        restoredText: String,
+        restoredCount: Int,
+        orphanTokens: [String],
+        suspectPlaceholders: [String] = [],
+        ambiguousReplacements: [String] = []
+    ) {
+        self.sourceText = sourceText
+        self.restoredText = restoredText
+        self.restoredCount = restoredCount
+        self.orphanTokens = orphanTokens
+        self.suspectPlaceholders = suspectPlaceholders
+        self.ambiguousReplacements = ambiguousReplacements
+    }
+}
+
 /// The outcome of a restore run.
 public struct RestoreReport: Sendable {
     /// Where the restored document was written.
