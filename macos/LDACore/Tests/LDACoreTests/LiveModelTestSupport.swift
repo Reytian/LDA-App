@@ -38,32 +38,89 @@ enum LiveModelTestSupport {
     /// Launch-environment key that overrides the model location.
     static let modelPathEnvironmentKey = "LDA_MODEL_PATH"
 
-    /// Default on-disk location of the GGUF model, relative to the home
-    /// directory. The one place this path is written down.
-    static let defaultModelSubpath = "Developer/lda-models/lda-v2-Q4_K_M.gguf"
+    /// Directory that holds installed GGUF models, relative to the home
+    /// directory. The one place this DIRECTORY is written down.
+    static let modelDirectorySubpath = "Developer/lda-models"
+
+    /// Absolute location of that directory.
+    static var modelDirectoryURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(modelDirectorySubpath)
+    }
+
+    /// The shipped detection-tier catalog, read from the source tree.
+    static var catalogURL: URL {
+        URL(fileURLWithPath: #filePath)          // .../Tests/LDACoreTests/<this file>
+            .deletingLastPathComponent()          // .../Tests/LDACoreTests
+            .deletingLastPathComponent()          // .../Tests
+            .deletingLastPathComponent()          // package root
+            .appendingPathComponent("Sources/LDAUI/Resources/Models.json")
+    }
+
+    /// File name of the smallest catalog tier, read from Models.json rather
+    /// than restated here.
+    ///
+    /// This used to be a hardcoded "lda-v2-Q4_K_M.gguf". That fine-tune was
+    /// later retired in favour of stock Qwen3.5-4B and the constant was never
+    /// updated, so modelPath() resolved a file that no longer exists, every
+    /// caller turned the nil into XCTSkip, and all eight live-model tests went
+    /// quiet WITHOUT A SINGLE FAILURE. XCTSkip is green, so a summary line
+    /// reading "2158 tests, 0 failures" was indistinguishable from one where
+    /// the model had actually loaded, and PERSON detection is LLM-only. Reading
+    /// the catalog means retiring the next model breaks ONE test loudly
+    /// instead of silently disarming the live suite.
+    static func catalogModelFileName() -> String? {
+        guard let data = try? Data(contentsOf: catalogURL),
+              let tiers = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let smallest = tiers.first,
+              let fileName = smallest["fileName"] as? String,
+              !fileName.isEmpty
+        else { return nil }
+        return fileName
+    }
+
+    /// Every .gguf actually sitting in the model directory.
+    static func installedModelFileNames() -> [String] {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: modelDirectoryURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return contents
+            .filter { $0.pathExtension.lowercased() == "gguf" }
+            .map { $0.lastPathComponent }
+            .sorted()
+    }
 
     /// The GGUF model path, or nil when the model is not installed.
     ///
     /// Resolve order: the LDA_MODEL_PATH environment override, then the
-    /// default location under the home directory.
+    /// smallest catalog tier inside the model directory.
     static func modelPath() -> String? {
         if let override = ProcessInfo.processInfo.environment[modelPathEnvironmentKey],
            FileManager.default.fileExists(atPath: override) {
             return override
         }
-        let candidate = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(defaultModelSubpath)
-            .path
+        guard let fileName = catalogModelFileName() else { return nil }
+        let candidate = modelDirectoryURL.appendingPathComponent(fileName).path
         return FileManager.default.fileExists(atPath: candidate) ? candidate : nil
     }
 
     /// The GGUF model path, or an XCTSkip when the model is not installed, so
     /// the suite stays green on a machine without the 2.7 GB download.
+    ///
+    /// The message names the directory searched AND the file wanted, because
+    /// the failure this replaces was a skip that said neither.
     static func requireModelPath() throws -> String {
         guard let path = modelPath() else {
+            let wanted = catalogModelFileName() ?? "(catalog unreadable)"
+            let present = installedModelFileNames()
+            let presentNote = present.isEmpty
+                ? "that directory holds no .gguf at all"
+                : "that directory holds: \(present.joined(separator: ", "))"
             throw XCTSkip(
-                "GGUF model not present; set \(modelPathEnvironmentKey) or place it at "
-                    + "~/\(defaultModelSubpath)"
+                "GGUF model not present. Wanted \(wanted) in "
+                    + "\(modelDirectoryURL.path); \(presentNote). "
+                    + "Set \(modelPathEnvironmentKey) to override."
             )
         }
         return path
