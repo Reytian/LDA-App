@@ -36,9 +36,9 @@
 "Add the model file to use this setting." = "Add the model file to use this setting.";
 "After Export for AI, this page will show the documents and counts for the handoff." = "After Export for AI, this page will show the documents and counts for the handoff.";
 "Always redact these" = "Always redact these";
-"Anonymize" = "Anonymize";
-"Anonymize Documents" = "Anonymize Documents";
-"Anonymize workflow, current step %@" = "Anonymize workflow, current step %@";
+"Anonymize" = "De-identify";
+"Anonymize Documents" = "De-identify Documents";
+"Anonymize workflow, current step %@" = "De-identify workflow, current step %@";
 "Appearance" = "Appearance";
 "Apply Fill" = "Apply Fill";
 "Apply confirmed fills and write the output document" = "Apply confirmed fills and write the output document";
@@ -104,8 +104,8 @@
 "Download %@" = "Download %@";
 "Download, remove, or choose a different detection model" = "Download, remove, or choose a different detection model";
 "Downloaded and verified." = "Downloaded and verified.";
-"Drop documents to anonymize" = "Drop documents to anonymize";
-"Drop documents to anonymize, or choose files" = "Drop documents to anonymize, or choose files";
+"Drop documents to anonymize" = "Drop documents to de-identify";
+"Drop documents to anonymize, or choose files" = "Drop documents to de-identify, or choose files";
 "Edit replacement for %@" = "Edit replacement for %@";
 "Edit the replacement text used for this value" = "Edit the replacement text used for this value";
 "Exact text" = "Exact text";
@@ -188,7 +188,7 @@
 "No sessions recorded yet. Records appear after your first Export for AI." = "No sessions recorded yet. Records appear after your first Export for AI.";
 "No sources added" = "No sources added";
 "Not Now" = "Not Now";
-"Not anonymized yet" = "Not anonymized yet";
+"Not anonymized yet" = "Not de-identified yet";
 "OK" = "OK";
 "Offline mode" = "Offline mode";
 "On-device" = "On-device";
@@ -251,7 +251,7 @@
 "Return to the profile builder" = "Return to the profile builder";
 "Reveal in Finder" = "Reveal in Finder";
 "Review" = "Review";
-"Review matters, anonymize documents, restore protected values, or fill a form" = "Review matters, anonymize documents, restore protected values, or fill a form";
+"Review matters, anonymize documents, restore protected values, or fill a form" = "Review matters, de-identify documents, restore protected values, or fill a form";
 "Redacted file saved" = "Redacted file saved";
 "Save" = "Save";
 "Save Current Work First…" = "Save Current Work First…";
@@ -272,14 +272,14 @@
 "Some recent activity could not be unlocked. Readable handoffs remain below." = "Some recent activity could not be unlocked. Readable handoffs remain below.";
 "Sources" = "Sources";
 "Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)" = "Spot PII in the open document: names, companies, addresses, dates, amounts (Cmd+Shift+S)";
-"Start Anonymizing" = "Start Anonymizing";
+"Start Anonymizing" = "Start De-identifying";
 "Start a New Matter" = "Start a New Matter";
 "Start a protected workflow for a new client or matter" = "Start a protected workflow for a new client or matter";
-"Start with an anonymized handoff" = "Start with an anonymized handoff";
+"Start with an anonymized handoff" = "Start with a de-identified handoff";
 "Stop" = "Stop";
 "Stop LDA making any network request" = "Stop LDA making any network request";
 "Stop Using It" = "Stop Using It";
-"Stop anonymizing. The document stays loaded; no partial results are shown." = "Stop anonymizing. The document stays loaded; no partial results are shown.";
+"Stop anonymizing. The document stays loaded; no partial results are shown." = "Stop de-identifying. The document stays loaded; no partial results are shown.";
 "Switch to Quick" = "Switch to Quick";
 "Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected." = "Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.";
 "System follows your Mac's light or dark setting. Choose Light or Dark to override it." = "System follows your Mac's light or dark setting. Choose Light or Dark to override it.";
@@ -310,7 +310,7 @@
 "Use AI on confidential documents, safely" = "Use AI on confidential documents, safely";
 "Use Automatic" = "Use Automatic";
 "Use This Text" = "Use This Text";
-"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders.";
+"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "Use a client or matter name you will recognize. The app will start a De-identify session with consistent protected placeholders.";
 "Use this profile for the current fill without adding it to the library" = "Use this profile for the current fill without adding it to the library";
 "Value" = "Value";
 "Verified" = "Verified";
@@ -364,7 +364,7 @@
 "hidden" = "hidden";
 "learning" = "learning";
 "No custom terms yet" = "No custom terms yet";
-"Nothing learned yet. Anonymize and export a few documents." = "Nothing learned yet. Anonymize and export a few documents.";
+"Nothing learned yet. Anonymize and export a few documents." = "Nothing learned yet. De-identify and export a few documents.";
 "LDA does not keep a copy of this passphrase, so the app has no way to open the file without it. Store it the way you would store the file." = "LDA does not keep a copy of this passphrase, so the app has no way to open the file without it. Store it the way you would store the file.";
 "Save this matter's documents, review decisions, and replacements as one encrypted file you can reopen or hand to a colleague" = "Save this matter's documents, review decisions, and replacements as one encrypted file you can reopen or hand to a colleague";
 "Opening a workspace closes the documents and unfinished restore context in this window. Save the current work as a workspace first, or discard it." = "Opening a workspace closes the documents and unfinished restore context in this window. Save the current work as a workspace first, or discard it.";
@@ -721,7 +721,7 @@
 "importing" = "importing";
 "detecting" = "detecting";
 "failed" = "failed";
-"not anonymized yet" = "not anonymized yet";
+"not anonymized yet" = "not de-identified yet";
 "Profile ready. Review and edit fields below." = "Profile ready. Review and edit fields below.";
 "Review ready. %lld blank to review." = "Review ready. %lld blank to review.";
 "Review ready. %lld blanks to review." = "Review ready. %lld blanks to review.";

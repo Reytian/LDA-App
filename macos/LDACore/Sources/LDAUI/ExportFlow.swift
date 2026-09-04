@@ -233,7 +233,7 @@ extension View {
 /// on purpose so that it cannot be spliced into a sentence by accident.
 /// The count-first shape is not an English accident: all four catalogs
 /// translate " entities will be redacted." as a suffix to a leading number
-/// (zh-Hans " 个实体将被脱敏。", fr " entités seront masquées."), so the
+/// (zh-Hans " 个实体将被隐去。", fr " entités seront caviardées."), so the
 /// concatenation reads correctly in every language the app ships.
 private struct ExportCoverageSummary: View {
     @Environment(\.appLanguage) private var language

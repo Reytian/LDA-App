@@ -28,8 +28,8 @@ final class LocalizationFeatureTests: XCTestCase {
 
     func testRepresentativeWorkflowLabelsResolveInEveryLanguage() {
         let expected: [(AppLanguage, [String])] = [
-            (.english, ["Matters", "Anonymize", "Restore", "Fill"]),
-            (.french, ["Dossiers", "Anonymiser", "Restaurer", "Remplir"]),
+            (.english, ["Matters", "De-identify", "Restore", "Fill"]),
+            (.french, ["Dossiers", "Désidentifier", "Restaurer", "Remplir"]),
             (.simplifiedChinese, ["事项", "脱敏", "恢复", "填写"]),
             (.traditionalChinese, ["案件", "脫敏", "還原", "填寫"])
         ]

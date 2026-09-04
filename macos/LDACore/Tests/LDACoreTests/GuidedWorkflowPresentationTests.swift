@@ -452,7 +452,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
                 style: .pseudonym,
                 language: .simplifiedChinese
             ),
-            "无法显示脱敏预览：无法验证化名能否正确恢复。"
+            "无法显示隐去预览：无法验证化名能否正确恢复。"
         )
     }
 
