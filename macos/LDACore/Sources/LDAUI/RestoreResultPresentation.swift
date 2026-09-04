@@ -24,6 +24,9 @@ public enum RestoreResultPresentation {
         case session
         /// The .ldamap saved next to the file.
         case sidecar
+        /// The workspace LDA keeps for this document, which is where an
+        /// ordinary Save Redacted leaves its key.
+        case defaultWorkspace
         /// A .ldamap the user picked by hand.
         case chosenMapping
     }
@@ -38,6 +41,11 @@ public enum RestoreResultPresentation {
             return L10n.string("Restored with this session's mapping.", language: language)
         case .sidecar:
             return L10n.string("Restored with the mapping saved next to the file.", language: language)
+        case .defaultWorkspace:
+            return L10n.string(
+                "Restored with the workspace LDA keeps for this document.",
+                language: language
+            )
         case .chosenMapping:
             return L10n.string("Restored with the mapping you chose.", language: language)
         }

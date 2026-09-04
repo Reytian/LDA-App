@@ -292,7 +292,44 @@ extension ReviewModel {
 
     // MARK: - Export helpers
 
+    /// The subset of `mapping` that this document actually spells, for a
+    /// sidecar that must not carry any other document's values.
+    ///
+    /// Matches on `entry.token`, NOT on the dictionary key. Under the asterisk
+    /// output style a mask can collide across entities, so a colliding entry
+    /// is stored under a disambiguated key ("张*#2") while `token` keeps the
+    /// shared replacement that is what the document really contains. Filtering
+    /// on the key would drop every colliding entry and produce a sidecar that
+    /// restores those sites to nothing, which is the quiet kind of wrong.
+    ///
+    /// A shared mask keeps ALL entries that share it. Restore cannot tell them
+    /// apart either, and that case is already surfaced as an ambiguous
+    /// replacement rather than guessed at.
+    nonisolated static func mappingSpelledBy(
+        _ mapping: Mapping,
+        tokenizedText: String,
+        nonBodyTokens: Set<String>
+    ) -> Mapping {
+        var narrowed = mapping
+        narrowed.entries = mapping.entries.filter { _, entry in
+            nonBodyTokens.contains(entry.token)
+                || tokenizedText.contains(entry.token)
+        }
+        return narrowed
+    }
     /// The off-main-actor body of export. Pure function of its inputs.
+    ///
+    /// - Parameters:
+    ///   - passphrase: nil writes NO mapping sidecar, which is the default;
+    ///     a passphrase writes one, protected by it. See the comment at the
+    ///     write itself for why those two are one decision.
+    ///   - seedMapping: the mapping this export must extend. Everything the
+    ///     seed holds comes back in the returned mapping under the same
+    ///     tokens, so the caller can replace whatever the seed came from with
+    ///     the result and strand nothing: the previous export's key is still
+    ///     in there. Without it, two exports of one document would mint the
+    ///     same {COMPANY_1} for different values and the second would silently
+    ///     make the first file unrestorable.
     nonisolated static func performExport(
         text: String,
         acceptedSpans: [Span],
@@ -304,8 +341,9 @@ extension ReviewModel {
         passphrase: String?,
         createdAtISO8601: String,
         style: SubstitutionStyle = .token,
-        includeSealCandidates: Bool = true
-    ) throws -> (export: ExportResult, tokenBySurface: [String: String]) {
+        includeSealCandidates: Bool = true,
+        seedMapping: Mapping? = nil
+    ) throws -> (export: ExportResult, mapping: Mapping, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
         let sourceExt = source?.pathExtension.lowercased() ?? "txt"
@@ -325,6 +363,7 @@ extension ReviewModel {
                 spans: exportSpans,
                 sourceFile: sourceFile,
                 createdAtISO8601: createdAtISO8601,
+                seedMapping: seedMapping,
                 style: style
             )
         )
@@ -350,7 +389,7 @@ extension ReviewModel {
         } ?? false
         let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"
         let redactedBaseName = collisionFreeBaseName(
-            "\(baseName)_redacted",
+            baseName + DefaultWorkspace.redactedSuffix,
             extension: redactedExt,
             in: outputDir,
             alsoProbing: isImageSource ? ["png"] : []
@@ -364,6 +403,11 @@ extension ReviewModel {
         // comments. Those parts are redacted but are not in the review list,
         // so the window must add them to report honest coverage.
         var supplementaryCount = 0
+        /// Tokens emitted OUTSIDE the body text: docx headers, footers and
+        /// fields. They belong to this document but never appear in
+        /// tokenizedText, so a sidecar filtered on the body alone would drop
+        /// them and their values would restore as nothing.
+        var nonBodyTokens: Set<String> = []
 
         if sourceExt == "docx", let source {
             embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
@@ -388,6 +432,7 @@ extension ReviewModel {
             )
             for entry in outcome.newEntries {
                 tokenized.mapping.entries[entry.token] = entry
+                nonBodyTokens.insert(entry.token)
             }
             supplementaryCount = outcome.coverage.replacementCount
         } else {
@@ -409,11 +454,55 @@ extension ReviewModel {
             unboxedTokenCount = artifact.unboxedTokenCount
         }
 
-        let mappingURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
-        let protection: MappingProtection = passphrase
-            .map { .passphrase($0) }
-            ?? .keychain(account: redactedBaseName)
-        try MappingStore.save(tokenized.mapping, to: mappingURL, protection: protection)
+        // The sidecar is written IF AND ONLY IF the user typed a passphrase,
+        // which is the whole of two decisions at once.
+        //
+        // It is not written by default because it sits in the folder the user
+        // is about to send the redacted document from, and its contents are
+        // the original values. Encrypted, so this is not an exposure today;
+        // but a file that travels with the document by default is a file that
+        // will eventually travel to somebody who should not have the key. The
+        // key's default home is now a workspace on this Mac; see
+        // DefaultWorkspace and SessionModel.keepMappingInWorkspace.
+        //
+        // And when it IS written it is passphrase protected, never Keychain
+        // protected. The point of a sidecar is to travel (another Mac, a
+        // colleague), and a Keychain sealed file cannot be opened anywhere but
+        // here, so the old blank-means-Keychain default produced the one thing
+        // a sidecar is useless as. A caller that wants the local, no
+        // passphrase form asks for the workspace instead.
+        var mappingURL: URL?
+        if let passphrase {
+            let url = outputDir.appendingPathComponent(
+                "\(redactedBaseName).\(MappingStore.fileExtension)"
+            )
+            // NARROWED TO THIS DOCUMENT, and this is a confidentiality fix
+            // rather than a tidiness one.
+            //
+            // The tokenizer is seeded with the session mapping so one company
+            // keeps one token across every document in the sitting. That
+            // seeding is correct and stays. But it means tokenized.mapping
+            // carries the entries of every OTHER document too, and this file
+            // is the one the export sheet tells the user to keep and send. A
+            // sidecar for the Wang matter was therefore shipping the Chen
+            // matter's names to whoever received it.
+            //
+            // The workspace deliberately keeps the WIDE mapping: it never
+            // leaves this Mac, and its breadth is what stops a re-export after
+            // a relaunch minting a second token for a value the first
+            // document already sealed. Narrow the thing that travels; leave
+            // the thing that stays.
+            try MappingStore.save(
+                Self.mappingSpelledBy(
+                    tokenized.mapping,
+                    tokenizedText: tokenized.tokenizedText,
+                    nonBodyTokens: nonBodyTokens
+                ),
+                to: url,
+                protection: .passphrase(passphrase)
+            )
+            mappingURL = url
+        }
 
         let export = ExportResult(
             redactedURL: redactedURL,
@@ -426,7 +515,11 @@ extension ReviewModel {
             entityCount: exportSpans.count + supplementaryCount,
             supplementaryEntityCount: supplementaryCount
         )
-        return (export: export, tokenBySurface: tokenBySurface(mapping: tokenized.mapping))
+        return (
+            export: export,
+            mapping: tokenized.mapping,
+            tokenBySurface: tokenBySurface(mapping: tokenized.mapping)
+        )
     }
 
     /// Render the redacted PNG for a standalone image source.

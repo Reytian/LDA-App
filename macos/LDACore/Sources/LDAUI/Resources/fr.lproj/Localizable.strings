@@ -215,7 +215,6 @@
 "Protect" = "Protéger";
 "Protect a missed item" = "Protéger un élément non détecté";
 "Protect the export" = "Protéger l’exportation";
-"Protect the mapping" = "Protéger la table de correspondance";
 "Protect the profile" = "Protéger le profil";
 "Protect this workspace" = "Protéger cet espace de travail";
 "Re-extract from Sources" = "Réextraire depuis les sources";
@@ -258,7 +257,6 @@
 "Save Redacted" = "Enregistrer le document caviardé";
 "Save Redacted Document…" = "Enregistrer le document caviardé…";
 "Save Workspace" = "Enregistrer l’espace de travail";
-"Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved." = "Enregistrer ce document caviardé dans son format d’origine, avec la table de correspondance chiffrée. Restaurer le ramène avec sa mise en forme.";
 "Save and leave" = "Enregistrer et quitter";
 "Save to Library" = "Enregistrer dans la bibliothèque";
 "Scan All" = "Tout analyser";
@@ -387,10 +385,8 @@
 "Choose a folder for the filled output document." = "Choisissez un dossier pour le document rempli.";
 "Choose a folder for the processing report." = "Choisissez un dossier pour le rapport de traitement.";
 "Choose a folder for the readable copies of this report." = "Choisissez un dossier pour les copies lisibles de ce rapport.";
-"Choose a folder for the redacted document and encrypted mapping." = "Choisissez un dossier pour le document caviardé et la table de correspondance chiffrée.";
 "Choose a shared LDA vocabulary file to merge." = "Choisissez un fichier de vocabulaire LDA partagé à fusionner.";
 "Choose source documents to extract profile fields from." = "Choisissez les documents sources dont extraire les champs du profil.";
-"Choose the .ldamap mapping that goes with this document." = "Choisissez la table de correspondance .ldamap associée à ce document.";
 "Choose the Word or PDF document to fill." = "Choisissez le document Word ou PDF à remplir.";
 "Choose the edited redacted document to restore." = "Choisissez le document caviardé modifié à restaurer.";
 "Choose where to keep this matter's workspace file." = "Choisissez où conserver le fichier d’espace de travail de ce dossier.";
@@ -530,7 +526,6 @@
 "regex" = "expression régulière";
 "LLM" = "LLM";
 "manual" = "manuel";
-"Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain." = "Saisissez éventuellement une phrase secrète pour chiffrer le fichier de correspondance. Laissez le champ vide pour le protéger avec le trousseau système.";
 "PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac." = "PDF, Word (.docx), texte brut, ou archive .zip les contenant. Plusieurs fichiers forment une seule session. La détection et le caviardage s’exécutent sur ce Mac.";
 "Toggles whether every occurrence of this value is replaced in the exported document or remains visible." = "Détermine si chaque occurrence de cette valeur est remplacée dans le document exporté ou reste visible.";
 "This text stands in for the value in the safe copy. It cannot already appear in the session documents." = "Ce texte remplace la valeur dans la copie sécurisée. Il ne doit pas déjà apparaître dans les documents de la session.";
@@ -788,9 +783,8 @@
 "Restore a file" = "Restaurer un fichier";
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choisissez ou déposez le fichier qui vous est revenu : le Markdown exporté pour l’IA, ou un document Word caviardé que vous avez enregistré. La table de correspondance est retrouvée automatiquement dans cette session ou dans le fichier .ldamap enregistré à côté. La mise en forme est conservée lorsque le fichier est un document Word.";
 "Pick the file that came back, review the restored document, then save it (Cmd+R)" = "Choisir le fichier revenu, vérifier le document restauré, puis l’enregistrer (Cmd+R)";
+"Pick the file that came back and write the restored document (Cmd+R)" = "Choisir le fichier revenu et enregistrer le document restauré (Cmd+R)";
 "Bring the real values back. Restore runs on this Mac." = "Rétablissez les valeurs réelles. La restauration s’exécute sur ce Mac.";
-"No mapping was found for this file." = "Aucune table de correspondance n’a été trouvée pour ce fichier.";
-"Choose the .ldamap that was saved with it." = "Choisissez le fichier .ldamap enregistré avec lui.";
 "Choose Mapping…" = "Choisir la table de correspondance…";
 "This mapping was protected with a passphrase. Enter it to restore." = "Cette table de correspondance est protégée par une phrase secrète. Saisissez-la pour restaurer.";
 "Word output from Markdown carries plain formatting." = "Un document Word produit à partir de Markdown a une mise en forme simple.";
@@ -940,3 +934,19 @@
 "Plain text" = "Texte brut";
 "Word document" = "Document Word";
 "Choose Where to Save…" = "Choisir l’emplacement d’enregistrement…";
+"Where the mapping is kept" = "Où la table de correspondance est conservée";
+"LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it." = "LDA conserve la table de correspondance de ce document dans un espace de travail sur ce Mac, nommé d'après le document. Restaurer l'y retrouve, de sorte que le document caviardé que vous envoyez ne transporte aucune clé à côté de lui.";
+"Also save a mapping file next to the redacted document" = "Enregistrer aussi un fichier de correspondance à côté du document caviardé";
+"Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately." = "Seul ce fichier peut restaurer le document sur un autre Mac. Envoyez-le à quelqu'un qui doit pouvoir le faire, et communiquez-lui la phrase secrète séparément.";
+"Enter a passphrase for this mapping file." = "Saisissez une phrase secrète pour ce fichier de correspondance.";
+"Choose a folder for the redacted document." = "Choisissez un dossier pour le document caviardé.";
+"Mapping kept in: %@  ·  %@" = "Correspondance conservée dans : %@  ·  %@";
+"Restored with the workspace LDA keeps for this document." = "Restauré avec l'espace de travail que LDA conserve pour ce document.";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session, from the workspace LDA keeps for the document, or from a .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choisissez ou déposez le fichier qui vous est revenu : le Markdown exporté pour l'IA, ou un document Word caviardé que vous avez enregistré. La table de correspondance est retrouvée automatiquement dans cette session, dans l'espace de travail que LDA conserve pour le document, ou dans un fichier .ldamap enregistré à côté. La mise en forme est conservée lorsque le fichier est un document Word.";
+"No single mapping was found for this file." = "Aucune table de correspondance unique n'a été trouvée pour ce fichier.";
+"Choose the .ldamap saved with it, or the workspace for the document it came from." = "Choisissez le fichier .ldamap enregistré avec lui, ou l'espace de travail du document dont il provient.";
+"Choose the .ldamap or workspace file that goes with this document." = "Choisissez le fichier .ldamap ou l'espace de travail qui accompagne ce document.";
+"Workspace passphrase" = "Phrase secrète de l'espace de travail";
+"That workspace file holds no mapping yet." = "Ce fichier d'espace de travail ne contient encore aucune table de correspondance.";
+"Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved." = "Enregistrer ce document caviardé dans son format d'origine. La table de correspondance est conservée dans un espace de travail sur ce Mac, et Restaurer ramène le document avec sa mise en forme.";
+"The redacted document was not saved because its mapping had nowhere to go. Nothing can restore a document without its mapping, so the file was removed rather than left in place looking finished. Add a passphrase to save a mapping beside the document, or check that this Mac allows LDA to store keys." = "Le document caviarde n'a pas ete enregistre car sa correspondance n'avait aucun endroit ou aller. Rien ne peut restaurer un document sans sa correspondance, le fichier a donc ete supprime plutot que laisse en place avec l'apparence d'un travail termine. Ajoutez une phrase secrete pour enregistrer une correspondance a cote du document, ou verifiez que ce Mac autorise LDA a stocker des cles.";

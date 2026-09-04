@@ -4,11 +4,16 @@
 //
 //  The Restore mode's file flow: which mapping opens the file that came back,
 //  how a sidecar is opened, and the restore itself. Restore asks no question
-//  the app can answer: the .ldamap saved next to the file wins (Save Redacted
-//  tokenizes without the session seed, so its tokens can differ from the
-//  session's), then the session mapping (the parked round trip is resumed just
-//  in time), then the matter's stored mapping, and only then does the shell
-//  ask for a file. A passphrase is asked for only after a Keychain load fails.
+//  the app can answer: the .ldamap saved next to the file wins (it was written
+//  for exactly that file, by a user who chose to make the key travel with it),
+//  then the session mapping (the parked round trip is resumed just in time),
+//  then the default workspace the export kept the key in, then the matter's
+//  stored mapping, and only then does the shell ask for a file. A passphrase
+//  is asked for only after a Keychain load fails.
+//
+//  The workspace step is not a nicety. Save Redacted writes no sidecar by
+//  default, so for an ordinary export it is the ONLY thing standing between a
+//  relaunched app and a redacted document nobody can restore.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -27,7 +32,11 @@ extension SessionModel {
         /// The in-memory session mapping, possibly just resumed from the
         /// parked round trip.
         case session(Mapping)
-        /// The matter's stored mapping, when nothing is in memory.
+        /// The default workspace the export kept this document's key in. The
+        /// ordinary answer for a document redacted with default settings and
+        /// restored after a relaunch.
+        case defaultWorkspace(Mapping)
+        /// The matter's stored mapping, when nothing else is in memory.
         case clientProfile(Mapping)
         /// Nothing found; the shell has to ask.
         case none
@@ -37,10 +46,12 @@ extension SessionModel {
     nonisolated public static func resolveRestoreMappingSource(
         sidecar: URL?,
         sessionMapping: Mapping?,
+        workspaceMapping: Mapping?,
         clientMapping: Mapping?
     ) -> RestoreMappingSource {
         if let sidecar { return .sidecar(sidecar) }
         if let sessionMapping { return .session(sessionMapping) }
+        if let workspaceMapping { return .defaultWorkspace(workspaceMapping) }
         if let clientMapping { return .clientProfile(clientMapping) }
         return .none
     }
@@ -50,6 +61,12 @@ extension SessionModel {
     /// file's related-item grant, or a sandboxed stat would report it
     /// absent), so a file that brought its own key never costs a Keychain
     /// prompt for the parked round trip.
+    ///
+    /// The workspace lookup is allowed to THROW rather than falling through to
+    /// the picker. A default workspace that exists but will not open is the
+    /// one case where the app knows exactly where the key is and cannot read
+    /// it, and "no mapping was found for this file" would be a false statement
+    /// that sends the user hunting for a .ldamap that was never written.
     public func restoreMappingSource(for editedFile: URL) throws -> RestoreMappingSource {
         let sibling = Self.sidecarURL(for: editedFile)
         if RelatedSidecarAccess.sidecarExists(sibling, primary: editedFile) {
@@ -58,16 +75,21 @@ extension SessionModel {
         // Just-in-time parked-session resume (no-op when a mapping is already
         // loaded or nothing is parked). Keeps Keychain access user-initiated.
         resumeParkedSession()
+        var workspaceMapping: Mapping?
         var clientMapping: Mapping?
-        if sessionMapping == nil, let clientLabel {
-            clientMapping = try clientStore().load(
-                label: clientLabel,
-                protection: clientProtection(clientLabel)
-            )
+        if sessionMapping == nil {
+            workspaceMapping = try defaultWorkspaceMapping(forRedactedFile: editedFile)
+            if workspaceMapping == nil, let clientLabel {
+                clientMapping = try clientStore().load(
+                    label: clientLabel,
+                    protection: clientProtection(clientLabel)
+                )
+            }
         }
         return Self.resolveRestoreMappingSource(
             sidecar: nil,
             sessionMapping: sessionMapping,
+            workspaceMapping: workspaceMapping,
             clientMapping: clientMapping
         )
     }
