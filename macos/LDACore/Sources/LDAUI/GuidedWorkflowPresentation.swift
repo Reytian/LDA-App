@@ -28,7 +28,6 @@ enum AnonymizeWorkflowStep: Int, CaseIterable, Equatable {
         }
     }
 
-
     var systemImage: String {
         switch self {
         case .add: return "doc.badge.plus"

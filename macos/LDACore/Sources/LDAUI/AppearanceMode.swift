@@ -29,7 +29,6 @@ public enum AppearanceMode: String, CaseIterable, Identifiable {
         }
     }
 
-
     /// The SwiftUI color scheme to force, or nil to follow the system.
     public var colorScheme: ColorScheme? {
         switch self {

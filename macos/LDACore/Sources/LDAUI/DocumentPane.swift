@@ -520,6 +520,5 @@ public enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
 
-
     var allowsTextSelection: Bool { self == .original }
 }

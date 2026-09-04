@@ -40,7 +40,6 @@ public enum AppMode: String, Hashable, CaseIterable {
     case anonymize = "Anonymize"
     case deanonymize = "Restore"
     case fill = "Fill"
-
 }
 
 // MARK: - AppModeStore

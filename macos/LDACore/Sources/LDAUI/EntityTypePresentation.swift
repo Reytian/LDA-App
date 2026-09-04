@@ -31,7 +31,6 @@ enum EntityTypePresentation {
         }
     }
 
-
     static func localizedName(
         for type: EntityType,
         language: AppLanguage? = nil
