@@ -372,8 +372,27 @@ final class TestHermeticityTests: XCTestCase {
         /// The two calls that hold the lock for the duration of their body.
         let lockHolders = ["withLiveModel", "withExclusiveModelAccess"]
 
+        /// The support file that defines the chokepoint and this file, which
+        /// quotes the needles as data.
+        let infrastructure: Set<String> = [
+            "LiveModelTestSupport.swift",
+            "TestHermeticityTests.swift"
+        ]
+        /// Suites that RESOLVE the path but provably never load, mirroring
+        /// testTheLiveModelPathIsResolvedInOnePlace's auditedNonLoaders.
+        ///
+        /// LiveModelResolverTests asserts on resolution itself: whether the
+        /// catalog and the installed file agree. It cannot be wrapped in
+        /// withLiveModel, because that calls requireModelPath, which throws
+        /// XCTSkip when the model is absent, and a skip is precisely the
+        /// silence that suite exists to break: a resolver pointed at a retired
+        /// filename once disarmed all eight live tests without one failure.
+        /// The exemption is policed below rather than trusted.
+        let auditedNonLoaders: Set<String> = ["LiveModelResolverTests.swift"]
+
         let offenders = try testSources()
-            .filter { $0.name != "LiveModelTestSupport.swift" && $0.name != "TestHermeticityTests.swift" }
+            .filter { !infrastructure.contains($0.name) }
+            .filter { !auditedNonLoaders.contains($0.name) }
             .filter { file in
                 liveModelEntryPoints.contains { !codeLines(file, containing: $0).isEmpty }
             }
@@ -389,6 +408,26 @@ final class TestHermeticityTests: XCTestCase {
                 + "runs report different numbers. Wrap the body in "
                 + "LiveModelTestSupport.withLiveModel."
         )
+
+        // An exemption by name is only sound while the claim behind it holds,
+        // so assert the claim instead of the name: an audited non-loader must
+        // not construct an engine and must not reach the locking chokepoint.
+        // Add a load to one of those files and this fires, rather than the
+        // exemption quietly outliving the audit that justified it.
+        for file in try testSources() where auditedNonLoaders.contains(file.name) {
+            XCTAssertTrue(
+                codeLines(file, containing: "LLMEngine(").isEmpty,
+                "\(file.name) is exempt from the model lock on the grounds that it "
+                    + "never loads a model, but it now constructs an engine. Either "
+                    + "wrap it in withLiveModel or drop the exemption."
+            )
+            XCTAssertTrue(
+                codeLines(file, containing: "requireModelPath").isEmpty,
+                "\(file.name) is exempt from the model lock on the grounds that it "
+                    + "never loads a model, but it now calls requireModelPath, which "
+                    + "both resolves and locks. Drop the exemption."
+            )
+        }
     }
 
     // MARK: - The namespace itself
