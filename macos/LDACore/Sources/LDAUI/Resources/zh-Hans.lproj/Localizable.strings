@@ -684,7 +684,6 @@
 "Could not restore: %@" = "无法恢复：%@";
 "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back." = "已恢复上次会话。AI 回答准备好后，请使用“恢复”还原真实值。";
 "Could not change the matter scope. %@" = "无法更改事项范围。%@";
-"Scan a document for PII first, then export it for the AI." = "请先扫描文档中的个人信息，然后导出给 AI。";
 "Could not export the redacted file. %@" = "无法导出已隐去文件。%@";
 "The file could not be read. %@" = "无法读取文件。%@";
 "Unsupported format. %@" = "不支持的格式。%@";
@@ -920,3 +919,9 @@
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA 在文档交付 AI 工具之前对委托人信息脱敏，事后再行还原。";
 "Re-scan" = "重新扫描";
 "matter" = "该事项";
+"Save Redacted and Save Workspace need a document. Click Open to add one." = "“存储已隐去文档”和“存储工作区”都需要一份文档。点击“打开”以添加。";
+"Save Redacted waits for this document to finish opening." = "“存储已隐去文档”需等待此文档打开完成。";
+"Save Redacted waits for this scan to finish." = "“存储已隐去文档”需等待本次扫描完成。";
+"Save Redacted needs a finished scan. Click Scan for PII first." = "“存储已隐去文档”需要一次已完成的扫描。请先点击“扫描个人信息”。";
+"This document did not open, so there is nothing to save. Open the file again." = "此文档未能打开，因此没有内容可存储。请重新打开该文件。";
+"Export Report covers an Export for AI handoff. Run one first." = "“导出报告”记录的是一次“导出给 AI”交付。请先执行一次。";

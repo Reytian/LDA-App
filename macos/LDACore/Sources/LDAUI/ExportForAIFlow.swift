@@ -22,8 +22,10 @@ enum ExportForAIFlow {
     enum Outcome: Equatable {
         /// The user dismissed the save panel; nothing ran.
         case cancelled
-        /// No document is scanned yet; the banner names the next step.
-        case nothingReady
+        /// Nothing in the session is ready to hand over. Carries WHY, so the
+        /// banner names the next step for the state the session is actually
+        /// in rather than assuming an unscanned document.
+        case nothingReady(SaveBlockReason)
         /// The Markdown file and its sidecar were written.
         case exported(SessionModel.ExportForAIResult)
         /// The handoff or a write failed; the message is banner ready.
@@ -43,8 +45,10 @@ enum ExportForAIFlow {
         chooseDestination: () -> URL? = presentSavePanel,
         createdAtISO8601: String = ISO8601DateFormatter().string(from: Date())
     ) -> Outcome {
-        guard session.entries.contains(where: { $0.model.canExport }) else {
-            return .nothingReady
+        // The reason comes out with the refusal, so the shell can name the
+        // state the session is actually in rather than one fixed sentence.
+        if let blockReason = session.exportForAIAvailability.blockReason {
+            return .nothingReady(blockReason)
         }
         guard let url = chooseDestination() else { return .cancelled }
 
@@ -52,7 +56,11 @@ enum ExportForAIFlow {
         defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
         do {
             guard let result = try session.exportForAI(to: url, createdAtISO8601: createdAtISO8601) else {
-                return .nothingReady
+                // The gate said yes but the build found nothing to include,
+                // which can only mean every ready document lost its accepted
+                // entities between the two reads. Report it as unscanned work,
+                // because re-scanning is the recovery.
+                return .nothingReady(.scanNotFinished)
             }
             return .exported(result)
         } catch {

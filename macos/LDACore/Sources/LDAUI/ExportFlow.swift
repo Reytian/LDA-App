@@ -148,7 +148,16 @@ struct ExportFlow: ViewModifier {
     // MARK: - Export
 
     private func presentExportPanel() {
-        guard model.canExport else { return }
+        // Not a bare `guard ... else { return }`. Both triggers watched above
+        // can fire while the gate is shut (the flow's own token, and the
+        // document's, which the Cmd+E menu command bumps), and a silent return
+        // here is indistinguishable from a save that worked. Report the reason
+        // into the banner instead.
+        let availability = model.exportAvailability
+        guard availability.isAvailable else {
+            report(SaveAvailabilityPresentation.notice(availability))
+            return
+        }
         report(nil)
         flow.passphrase = ""
         let panel = NSOpenPanel()

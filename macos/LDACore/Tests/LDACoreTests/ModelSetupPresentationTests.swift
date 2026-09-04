@@ -134,7 +134,7 @@ final class ModelSetupPresentationTests: XCTestCase {
 
     func testExportConfirmationFiresOnlyForADocumentWhoseAIPassDidNotRun() {
         typealias Document = (
-            canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
+            isExportable: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
         )
 
         XCTAssertFalse(
@@ -143,33 +143,33 @@ final class ModelSetupPresentationTests: XCTestCase {
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: false, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
+                documents: [(isExportable: false, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
             ),
             "a document that cannot be exported carries nothing into the handoff"
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false)]
+                documents: [(isExportable: true, aiRan: true, aiFailure: nil, aiRanPartially: false)]
             ),
             "the pass ran"
         )
         XCTAssertFalse(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: false, aiFailure: nil, aiRanPartially: false)]
+                documents: [(isExportable: true, aiRan: false, aiFailure: nil, aiRanPartially: false)]
             ),
             "a deliberate patterns-only run is a choice, not a failure"
         )
         XCTAssertTrue(
             ModelSetupPresentation.exportNeedsConfirmation(
-                documents: [(canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
+                documents: [(isExportable: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)]
             ),
             "asked for and did not run: this is the disclosure case"
         )
         // One bad document in a tray of good ones still asks.
         let mixed: [Document] = [
-            (canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false),
-            (canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false),
-            (canExport: true, aiRan: true, aiFailure: nil, aiRanPartially: false)
+            (isExportable: true, aiRan: true, aiFailure: nil, aiRanPartially: false),
+            (isExportable: true, aiRan: false, aiFailure: "no model", aiRanPartially: false),
+            (isExportable: true, aiRan: true, aiFailure: nil, aiRanPartially: false)
         ]
         XCTAssertTrue(ModelSetupPresentation.exportNeedsConfirmation(documents: mixed))
     }
@@ -242,15 +242,15 @@ final class ModelSetupPresentationTests: XCTestCase {
 
     func testTheExportGateTellsAPartialPassApartFromOneThatNeverRan() {
         typealias Document = (
-            canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
+            isExportable: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool
         )
 
         let neverRan: [Document] = [
-            (canExport: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)
+            (isExportable: true, aiRan: false, aiFailure: "no model", aiRanPartially: false)
         ]
         let partial: [Document] = [
             (
-                canExport: true, aiRan: false,
+                isExportable: true, aiRan: false,
                 aiFailure: "AI could not fully scan 2 segments", aiRanPartially: true
             )
         ]
@@ -275,7 +275,7 @@ final class ModelSetupPresentationTests: XCTestCase {
         XCTAssertNil(
             ModelSetupPresentation.exportGateReason(documents: [
                 (
-                    canExport: false, aiRan: false,
+                    isExportable: false, aiRan: false,
                     aiFailure: "AI could not fully scan 2 segments", aiRanPartially: true
                 )
             ]),
@@ -283,7 +283,7 @@ final class ModelSetupPresentationTests: XCTestCase {
         )
         XCTAssertNil(
             ModelSetupPresentation.exportGateReason(documents: [
-                (canExport: true, aiRan: false, aiFailure: nil, aiRanPartially: true)
+                (isExportable: true, aiRan: false, aiFailure: nil, aiRanPartially: true)
             ]),
             "no failure means the pass was never asked for"
         )

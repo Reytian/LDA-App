@@ -238,7 +238,7 @@ struct LDAApp: App {
                     sessionModel.requestExportForAI()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(!sessionModel.entries.contains { $0.model.canExport })
+                .disabled(!sessionModel.exportForAIAvailability.isAvailable)
 
                 Divider()
 
@@ -246,7 +246,7 @@ struct LDAApp: App {
                     sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(!sessionModel.activeModel.canExport)
+                .disabled(!sessionModel.activeModel.exportAvailability.isAvailable)
 
                 Button(localized("Restore…")) {
                     // Land the user in the Restore mode so the flow has

@@ -217,7 +217,7 @@ final class WorkspaceSessionTests: XCTestCase {
         // Every decision, without a detection pass: the colleague has no model.
         for (index, document) in expected.enumerated() {
             let model = colleague.session.entries[index].model
-            XCTAssertTrue(model.canExport, "\(document.name) did not restore to the reviewed state")
+            XCTAssertTrue(model.exportAvailability.isAvailable, "\(document.name) did not restore to the reviewed state")
             XCTAssertEqual(model.entities.count, document.entities.count)
             for (offset, entity) in model.entities.enumerated() {
                 XCTAssertEqual(entity.span, document.entities[offset].0)
@@ -335,7 +335,7 @@ final class WorkspaceSessionTests: XCTestCase {
         _ = try await colleague.session.openWorkspace(at: fileURL, passphrase: Self.passphrase)
 
         // The unreviewed document comes back unreviewed, not falsely ready.
-        XCTAssertTrue(colleague.session.entries[0].model.canExport)
+        XCTAssertTrue(colleague.session.entries[0].model.exportAvailability.isAvailable)
         XCTAssertEqual(colleague.session.entries[1].model.status, .imported)
     }
 
@@ -444,10 +444,10 @@ final class WorkspaceSessionTests: XCTestCase {
 
     func testSaveWorkspaceNeedsAtLeastOneDocument() async throws {
         let fixture = makeFixture("origin")
-        XCTAssertFalse(fixture.session.canSaveWorkspace)
+        XCTAssertFalse(fixture.session.workspaceAvailability.isAvailable)
 
         await fixture.session.addDocuments([try write("a.txt", "Text.")])
-        XCTAssertTrue(fixture.session.canSaveWorkspace)
+        XCTAssertTrue(fixture.session.workspaceAvailability.isAvailable)
     }
 
     func testEmptyingTheTrayRemovesTheUnpackedOriginals() async throws {

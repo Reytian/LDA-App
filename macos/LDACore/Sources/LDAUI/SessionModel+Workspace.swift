@@ -40,9 +40,14 @@ extension SessionModel {
 
     // MARK: - Save
 
-    /// Whether Save Workspace can run. One document is the floor: an empty
-    /// tray has no work to package.
-    public var canSaveWorkspace: Bool { !entries.isEmpty }
+    /// Whether Save Workspace can run, and why not when it cannot. One
+    /// document is the floor: an empty tray has no work to package.
+    ///
+    /// The same availability type Save Redacted uses, so the two gates state
+    /// their asymmetry instead of hiding it behind two Bools that differ.
+    public var workspaceAvailability: SaveAvailability {
+        SaveAvailabilityRules.saveWorkspace(documentCount: entries.count)
+    }
 
     /// Package the current session into a single encrypted file.
     ///
@@ -93,7 +98,7 @@ extension SessionModel {
             ),
             mapping: sessionMapping,
             sessionState: WorkspaceSessionState(pseudonymOverrides: pseudonymOverrides),
-            snapshots: entries.filter { $0.model.canExport }
+            snapshots: entries.filter { $0.model.exportAvailability.isAvailable }
                 .map { $0.model.workspaceSnapshot(documentID: $0.id) },
             matterLearnedTermsJSON: matterLists.learnedTerms,
             matterCustomPatternsJSON: matterLists.customPatterns

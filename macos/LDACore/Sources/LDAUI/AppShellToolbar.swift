@@ -85,7 +85,7 @@ struct AppShellToolbar: ToolbarContent {
                     L10n.label("Export for AI\u{2026}", systemImage: "doc.richtext")
                 }
                 .labelStyle(.titleAndIcon)
-                .disabled(!session.entries.contains { $0.model.canExport })
+                .disabled(!session.exportForAIAvailability.isAvailable)
                 .help(exportForAIHelp)
 
                 Button {
@@ -94,7 +94,11 @@ struct AppShellToolbar: ToolbarContent {
                     L10n.label("Save Redacted", systemImage: "square.and.arrow.up")
                 }
                 .labelStyle(.titleAndIcon)
-                .disabled(!model.canExport)
+                // Still disabled, and deliberately so: an enabled button that
+                // fails is worse. What changed is that the status banner now
+                // renders the reason from this same availability value, so the
+                // click that produces nothing is no longer unexplained.
+                .disabled(!model.exportAvailability.isAvailable)
                 .l10nHelp("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
 
                 // Next to Save Redacted, because it is the other thing a user
@@ -106,7 +110,7 @@ struct AppShellToolbar: ToolbarContent {
                     L10n.label("Save Workspace", systemImage: "shippingbox")
                 }
                 .labelStyle(.titleAndIcon)
-                .disabled(!session.canSaveWorkspace)
+                .disabled(!session.workspaceAvailability.isAvailable)
                 .help(L10n.string(WorkspacePresentation.saveHelp))
 
                 // The report carries NO protected value, but it does carry the
@@ -121,7 +125,7 @@ struct AppShellToolbar: ToolbarContent {
                     L10n.label("Export Report", systemImage: "list.clipboard")
                 }
                 .labelStyle(.titleAndIcon)
-                .disabled(!session.canExportComplianceReport)
+                .disabled(!session.complianceReportAvailability.isAvailable)
                 .help(L10n.string(ComplianceReportPresentation.exportHelp))
             }
         }
@@ -132,7 +136,7 @@ struct AppShellToolbar: ToolbarContent {
     /// partial session (F5, partially: a tooltip is hover-only, so this cannot
     /// be the whole answer. See the audit doc.)
     private var exportForAIHelp: String {
-        let ready = session.entries.filter { $0.model.canExport }.count
+        let ready = session.entries.filter { $0.model.exportAvailability.isAvailable }.count
         // A failed import can never become ready, so counting it in the
         // denominator reads as "you are about to leave that document out" when
         // there is in fact nothing in it to leave out.

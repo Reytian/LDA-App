@@ -445,6 +445,17 @@ public final class SessionModel: ObservableObject {
             && !entries.contains { $0.model.status == .detecting }
     }
 
+    /// Whether Export for AI can run, and why not when it cannot. Available as
+    /// soon as ANY document is ready; the handoff includes what is ready and
+    /// says how many it left out.
+    ///
+    /// The same availability type as the other three saves, so the toolbar's
+    /// four buttons all answer with a reason instead of an empty click. See
+    /// SaveAvailability.swift.
+    public var exportForAIAvailability: SaveAvailability {
+        SaveAvailabilityRules.exportForAI(statuses: entries.map { $0.model.status })
+    }
+
     /// Detect entities in every document that has not run yet, sequentially so
     /// only one model pass is in flight at a time. The sequential order also
     /// feeds the cross-document sweep: each document's pass sees the partners
@@ -537,7 +548,7 @@ public final class SessionModel: ObservableObject {
     /// Documents whose review is ready are included; documents still
     /// unprocessed are counted as skipped. Returns nil when nothing is ready.
     public func buildHandToAI(createdAtISO8601: String) throws -> HandToAIResult? {
-        let ready = entries.filter { $0.model.canExport }
+        let ready = entries.filter { $0.model.exportAvailability.isAvailable }
         guard !ready.isEmpty else { return nil }
 
         // Seed from the client profile so identities persist across sessions.

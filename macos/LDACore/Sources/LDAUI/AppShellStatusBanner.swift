@@ -92,6 +92,32 @@ struct AppShellStatusBanner: View {
                     .foregroundStyle(bannerIsError
                         ? CounselTheme.danger
                         : CounselTheme.textSecondary)
+                // Why the two save buttons are dark. A disabled toolbar button
+                // swallows its own click and its tooltip is unreliable, so
+                // without this the user clicks Save Redacted on a document
+                // they can see, nothing happens, and they may conclude the
+                // work WAS saved. This is the one surface where they are
+                // already reading.
+                //
+                // This branch covers .importing, .imported and .failed, which
+                // is the whole window between opening a document and finishing
+                // a scan: the state where a full document is on screen and the
+                // dark button is genuinely unexplained.
+                //
+                // Deliberately NOT everywhere. In .ready the gate is open. In
+                // .detecting the branch above shows a progress bar, an ETA and
+                // a Stop button, which answers the same question in less
+                // space. In .idle the whole banner can be hidden, and that is
+                // correct: the window is visibly empty and the document pane's
+                // own drop zone is a larger, better answer than a banner line
+                // nagging about a save the user has not reached for yet.
+                if let notice = saveBlockNotice {
+                    L10n.text("\u{00B7}  %@", notice as NSString)
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .lineLimit(2)
+                        .help(notice)
+                }
                 Spacer(minLength: 0)
                 // The mode's primary action lives IN the banner, next to the
                 // sentence that names it: it can never vanish into toolbar
@@ -338,6 +364,20 @@ struct AppShellStatusBanner: View {
         AnonymizeWorkflowPresentation.detectingLabel(
             progress: model.progress,
             eta: model.etaText,
+            language: appLanguage
+        )
+    }
+
+    /// Why Save Redacted is unavailable, or nil when it can run.
+    ///
+    /// Read from the SAME availability value the toolbar button's
+    /// `.disabled(...)` reads, so the sentence and the dark button can never
+    /// disagree. It covers Save Workspace too: that gate is only ever shut on
+    /// an empty tray, and an empty tray shuts this one as well, so the pair
+    /// never needs two lines.
+    private var saveBlockNotice: String? {
+        SaveAvailabilityPresentation.notice(
+            model.exportAvailability,
             language: appLanguage
         )
     }

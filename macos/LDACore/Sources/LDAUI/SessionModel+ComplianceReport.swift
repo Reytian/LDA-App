@@ -60,9 +60,16 @@ public enum ComplianceReportExportResult: Equatable, Sendable {
 @MainActor
 extension SessionModel {
 
-    /// Whether the session has a record to report on. Set by the hand-to-AI
-    /// build; cleared when the matter boundary changes.
-    public var canExportComplianceReport: Bool { currentRecordID != nil }
+    /// Whether the session has a record to report on, and why not when it does
+    /// not. Set by the hand-to-AI build; cleared when the matter boundary
+    /// changes.
+    ///
+    /// Routed through the shared availability type for the same reason the two
+    /// save gates are: this button sits beside them in the toolbar and used to
+    /// swallow its click just as silently.
+    public var complianceReportAvailability: SaveAvailability {
+        SaveAvailabilityRules.exportReport(hasHandoffRecord: currentRecordID != nil)
+    }
 
     /// Render the current session's record as the compliance report and write
     /// it into the chosen directory in the chosen shape. The caller supplies
