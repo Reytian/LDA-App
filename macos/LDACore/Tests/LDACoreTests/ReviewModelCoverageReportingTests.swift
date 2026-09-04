@@ -139,7 +139,7 @@ final class ReviewModelCoverageReportingTests: XCTestCase {
         // And the total is what a restore of that file puts back.
         let report = try LDAService.restore(
             editedRedacted: result.redactedURL,
-            mapping: result.mappingURL,
+            mapping: try XCTUnwrap(result.mappingURL),
             protection: .passphrase("pw"),
             output: workDir.appendingPathComponent("restored.docx")
         )

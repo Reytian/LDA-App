@@ -215,7 +215,6 @@
 "Protect" = "Protect";
 "Protect a missed item" = "Protect a missed item";
 "Protect the export" = "Protect the export";
-"Protect the mapping" = "Protect the mapping";
 "Protect the profile" = "Protect the profile";
 "Protect this workspace" = "Protect this workspace";
 "Re-extract from Sources" = "Re-extract from Sources";
@@ -258,7 +257,6 @@
 "Save Redacted" = "Save Redacted";
 "Save Redacted Document…" = "Save Redacted Document…";
 "Save Workspace" = "Save Workspace";
-"Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved." = "Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.";
 "Save and leave" = "Save and leave";
 "Save to Library" = "Save to Library";
 "Scan All" = "Scan All";
@@ -387,10 +385,8 @@
 "Choose a folder for the filled output document." = "Choose a folder for the filled output document.";
 "Choose a folder for the processing report." = "Choose a folder for the processing report.";
 "Choose a folder for the readable copies of this report." = "Choose a folder for the readable copies of this report.";
-"Choose a folder for the redacted document and encrypted mapping." = "Choose a folder for the redacted document and encrypted mapping.";
 "Choose a shared LDA vocabulary file to merge." = "Choose a shared LDA vocabulary file to merge.";
 "Choose source documents to extract profile fields from." = "Choose source documents to extract profile fields from.";
-"Choose the .ldamap mapping that goes with this document." = "Choose the .ldamap mapping that goes with this document.";
 "Choose the Word or PDF document to fill." = "Choose the Word or PDF document to fill.";
 "Choose the edited redacted document to restore." = "Choose the edited redacted document to restore.";
 "Choose where to keep this matter's workspace file." = "Choose where to keep this matter's workspace file.";
@@ -530,7 +526,6 @@
 "regex" = "regex";
 "LLM" = "LLM";
 "manual" = "manual";
-"Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain." = "Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.";
 "PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac." = "PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac.";
 "Toggles whether every occurrence of this value is replaced in the exported document or remains visible." = "Toggles whether every occurrence of this value is replaced in the exported document or remains visible.";
 "This text stands in for the value in the safe copy. It cannot already appear in the session documents." = "This text stands in for the value in the safe copy. It cannot already appear in the session documents.";
@@ -786,11 +781,8 @@
 "Edit" = "Edit";
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac.";
 "Restore a file" = "Restore a file";
-"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document.";
 "Pick the file that came back and write the restored document (Cmd+R)" = "Pick the file that came back and write the restored document (Cmd+R)";
 "Bring the real values back. Restore runs on this Mac." = "Bring the real values back. Restore runs on this Mac.";
-"No mapping was found for this file." = "No mapping was found for this file.";
-"Choose the .ldamap that was saved with it." = "Choose the .ldamap that was saved with it.";
 "Choose Mapping…" = "Choose Mapping…";
 "This mapping was protected with a passphrase. Enter it to restore." = "This mapping was protected with a passphrase. Enter it to restore.";
 "Word output from Markdown carries plain formatting." = "Word output from Markdown carries plain formatting.";
@@ -925,3 +917,22 @@
 "Save Redacted needs a finished scan. Click Scan for PII first." = "Save Redacted needs a finished scan. Click Scan for PII first.";
 "This document did not open, so there is nothing to save. Open the file again." = "This document did not open, so there is nothing to save. Open the file again.";
 "Export Report covers an Export for AI handoff. Run one first." = "Export Report covers an Export for AI handoff. Run one first.";
+
+/* The mapping's default home: no sidecar unless asked for, a passphrase when it is, and a workspace on this Mac either way (2026-09-04). */
+"Where the mapping is kept" = "Where the mapping is kept";
+"LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it." = "LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it.";
+"Also save a mapping file next to the redacted document" = "Also save a mapping file next to the redacted document";
+"Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately." = "Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately.";
+"Enter a passphrase for this mapping file." = "Enter a passphrase for this mapping file.";
+"Choose a folder for the redacted document." = "Choose a folder for the redacted document.";
+"Mapping kept in: %@  ·  %@" = "Mapping kept in: %@  ·  %@";
+"Restored with the workspace LDA keeps for this document." = "Restored with the workspace LDA keeps for this document.";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session, from the workspace LDA keeps for the document, or from a .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session, from the workspace LDA keeps for the document, or from a .ldamap saved next to the file. Formatting is kept when the file is a Word document.";
+
+/* Restore can be pointed at a workspace, now that an ordinary export leaves its key in one (2026-09-04). */
+"No single mapping was found for this file." = "No single mapping was found for this file.";
+"Choose the .ldamap saved with it, or the workspace for the document it came from." = "Choose the .ldamap saved with it, or the workspace for the document it came from.";
+"Choose the .ldamap or workspace file that goes with this document." = "Choose the .ldamap or workspace file that goes with this document.";
+"Workspace passphrase" = "Workspace passphrase";
+"That workspace file holds no mapping yet." = "That workspace file holds no mapping yet.";
+"Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved." = "Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.";

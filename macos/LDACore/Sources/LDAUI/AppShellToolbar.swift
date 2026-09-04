@@ -77,8 +77,10 @@ struct AppShellToolbar: ToolbarContent {
                 // Two doors, one Restore. Export for AI writes the whole
                 // session as ONE Markdown file for chat or upload; Save
                 // Redacted writes one document in its original format for
-                // editors that keep formatting. Both leave an encrypted
-                // .ldamap next to the file, and Restore opens either.
+                // editors that keep formatting. They leave their key in
+                // different places (Export for AI beside its Markdown, Save
+                // Redacted in the document's workspace on this Mac), and
+                // Restore finds either without being told.
                 Button {
                     onExportForAI()
                 } label: {
@@ -99,7 +101,7 @@ struct AppShellToolbar: ToolbarContent {
                 // renders the reason from this same availability value, so the
                 // click that produces nothing is no longer unexplained.
                 .disabled(!model.exportAvailability.isAvailable)
-                .l10nHelp("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
+                .l10nHelp("Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.")
 
                 // Next to Save Redacted, because it is the other thing a user
                 // saves at the end of a sitting: the redacted output goes out,

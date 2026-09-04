@@ -8,8 +8,9 @@
 //  saved with Save Redacted), and the mapping is resolved without questions
 //  the app can answer itself. In order: the .ldamap saved next to the file,
 //  the session mapping (the parked round trip is resumed just in time), the
-//  matter's stored mapping, and only then a picker. A passphrase is asked for
-//  only after a Keychain load fails.
+//  workspace LDA keeps for this document, the matter's stored mapping, and
+//  only then a picker. A passphrase is asked for only after a Keychain load
+//  fails.
 //
 //  Word documents restore through LDAService with their formatting kept.
 //  Markdown and text restore as text, or as a plain regenerated Word file
@@ -122,7 +123,8 @@ public struct DeanonymizeShell: View {
             title: "Restore a file",
             body: "Choose or drop the file that came back: the Markdown you exported for the AI, "
                 + "or a redacted Word document you saved. The mapping is found automatically "
-                + "from this session or from the .ldamap saved next to the file. "
+                + "from this session, from the workspace LDA keeps for the document, or from a "
+                + ".ldamap saved next to the file. "
                 + "Formatting is kept when the file is a Word document.",
             buttonTitle: "Choose File & Restore\u{2026}",
             buttonHelp: "Pick the file that came back and write the restored document (Cmd+R)",
@@ -247,10 +249,64 @@ public struct DeanonymizeShell: View {
             return openSidecar(sidecar, primary: file).map { ($0, .sidecar) }
         case .session(let mapping), .clientProfile(let mapping):
             return (mapping, .session)
+        case .defaultWorkspace(let mapping):
+            return (mapping, .defaultWorkspace)
         case .none:
             guard confirmChoosingAMapping(), let picked = pickMapping() else { return nil }
             // Picked in an open panel, so granted on its own.
-            return openSidecar(picked, primary: nil).map { ($0, .chosenMapping) }
+            return openPickedKey(picked).map { ($0, .chosenMapping) }
+        }
+    }
+
+    /// Open a key the user picked by hand: a .ldamap sidecar, or a workspace.
+    ///
+    /// A workspace is offered here because it is now where an ordinary Save
+    /// Redacted leaves its key, so a picker that took only .ldamap files would
+    /// send the user hunting for a file this app no longer writes by default.
+    /// It is also the honest answer for the case the resolver deliberately
+    /// refuses to guess at: two documents with the same name, where the app
+    /// can see two candidate workspaces and only the user knows which matter
+    /// the file came from.
+    private func openPickedKey(_ picked: URL) -> Mapping? {
+        guard picked.pathExtension == WorkspaceArchive.fileExtension else {
+            return openSidecar(picked, primary: nil)
+        }
+        return openPickedWorkspace(picked)
+    }
+
+    /// Read a picked workspace's mapping, trying this Mac's own key first and
+    /// asking for a passphrase only when that fails.
+    ///
+    /// Same shape as openSidecar, and for the same reason: a workspace LDA
+    /// keeps for a document opens with no question, while one a colleague sent
+    /// needs the passphrase they chose. Only the mapping member is read, so a
+    /// picked workspace never unpacks its documents to disk.
+    private func openPickedWorkspace(_ workspaceURL: URL) -> Mapping? {
+        func read(_ protection: MappingProtection) throws -> Mapping? {
+            try WorkspaceArchive.readMapping(from: workspaceURL, protection: protection)
+        }
+        do {
+            let keychain = MappingProtection.keychain(
+                account: DefaultWorkspace.keychainAccount(for: workspaceURL)
+            )
+            if let mapping = try read(keychain) { return mapping }
+            showFailure(L10n.string("That workspace file holds no mapping yet."))
+            return nil
+        } catch {
+            guard let passphrase = askWorkspacePassphrase() else { return nil }
+            do {
+                guard let mapping = try read(.passphrase(passphrase)) else {
+                    showFailure(L10n.string("That workspace file holds no mapping yet."))
+                    return nil
+                }
+                return mapping
+            } catch {
+                showFailure(
+                    WorkspacePresentation.archiveErrorDescription(error)
+                        ?? DocumentErrorPresentation.describeOrFallback(error)
+                )
+                return nil
+            }
         }
     }
 
@@ -280,8 +336,10 @@ public struct DeanonymizeShell: View {
     /// The one alert of the flow: nothing this session knows opens the file.
     private func confirmChoosingAMapping() -> Bool {
         let alert = NSAlert()
-        alert.messageText = L10n.string("No mapping was found for this file.")
-        alert.informativeText = L10n.string("Choose the .ldamap that was saved with it.")
+        alert.messageText = L10n.string("No single mapping was found for this file.")
+        alert.informativeText = L10n.string(
+            "Choose the .ldamap saved with it, or the workspace for the document it came from."
+        )
         alert.addButton(withTitle: L10n.string("Choose Mapping\u{2026}"))
         alert.addButton(withTitle: L10n.string("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
@@ -292,13 +350,33 @@ public struct DeanonymizeShell: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        if let mappingType = UTType(filenameExtension: MappingStore.fileExtension) {
-            panel.allowedContentTypes = [mappingType]
-        }
-        panel.message = L10n.string("Choose the .ldamap mapping that goes with this document.")
+        panel.allowedContentTypes = [
+            MappingStore.fileExtension,
+            WorkspaceArchive.fileExtension
+        ].compactMap { UTType(filenameExtension: $0) }
+        panel.message = L10n.string(
+            "Choose the .ldamap or workspace file that goes with this document."
+        )
         panel.prompt = L10n.string("Choose")
         guard panel.runModal() == .OK else { return nil }
         return panel.url
+    }
+
+    /// Ask for a picked workspace's passphrase, shown only after this Mac's
+    /// own key could not open it. Returns nil when the user cancels or types
+    /// nothing.
+    private func askWorkspacePassphrase() -> String? {
+        let alert = NSAlert()
+        alert.messageText = L10n.string("Workspace passphrase")
+        alert.informativeText = L10n.string(
+            "Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase."
+        )
+        alert.addButton(withTitle: L10n.string("Restore"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue.isEmpty ? nil : field.stringValue
     }
 
     /// Ask for the mapping passphrase, shown only after the Keychain could not

@@ -76,11 +76,19 @@ public struct ReviewGroup: Identifiable, Equatable {
 
 // MARK: - ExportResult
 
-/// The outcome of an export: where the redacted edit surface and the encrypted
-/// mapping sidecar were written, and how many tokens were minted.
+/// The outcome of an export: where the redacted edit surface was written,
+/// where the key that restores it now lives, and how many tokens were minted.
 public struct ExportResult: Equatable {
     public let redactedURL: URL
-    public let mappingURL: URL
+    /// The encrypted .ldamap written next to the redacted document, or nil
+    /// when none was: no sidecar is written unless the user asked for one and
+    /// gave it a passphrase. The key is still kept, in `workspaceURL`.
+    public let mappingURL: URL?
+    /// The workspace this export's mapping was kept in. Set by the caller
+    /// that owns the session, because the workspace holds session state this
+    /// per-document export cannot see; nil when the caller kept none, which
+    /// leaves a sidecar as the only key.
+    public var workspaceURL: URL?
     public let tokenCount: Int
     /// Embedded media files (word/media/...) copied verbatim into the redacted
     /// DOCX without PII scanning. Non-zero means the UI must warn: wet-ink
@@ -112,17 +120,19 @@ public struct ExportResult: Equatable {
 
     public init(
         redactedURL: URL,
-        mappingURL: URL,
+        mappingURL: URL?,
         tokenCount: Int,
         embeddedMediaCount: Int = 0,
         redactedImageURL: URL? = nil,
         sealCandidateCount: Int = 0,
         unboxedTokenCount: Int = 0,
         entityCount: Int = 0,
-        supplementaryEntityCount: Int = 0
+        supplementaryEntityCount: Int = 0,
+        workspaceURL: URL? = nil
     ) {
         self.redactedURL = redactedURL
         self.mappingURL = mappingURL
+        self.workspaceURL = workspaceURL
         self.tokenCount = tokenCount
         self.embeddedMediaCount = embeddedMediaCount
         self.redactedImageURL = redactedImageURL
@@ -879,23 +889,34 @@ public final class ReviewModel: ObservableObject {
 
     // MARK: - Export
 
-    /// Tokenize the accepted spans over the current (possibly edited) text, write
-    /// the redacted edit surface, and save the encrypted mapping sidecar. The
-    /// caller supplies createdAtISO8601 so tokenize stays deterministic.
+    /// Tokenize the accepted spans over the current (possibly edited) text,
+    /// write the redacted edit surface, and hand the mapping to whoever will
+    /// keep it. The caller supplies createdAtISO8601 so tokenize stays
+    /// deterministic.
     ///
     /// The edit surface depends on the source format: a run-preserving redacted
-    /// .docx for .docx input, otherwise a redacted .txt companion. The sidecar is
-    /// always written next to the edit surface as <baseName>.ldamap. When a
+    /// .docx for .docx input, otherwise a redacted .txt companion. When a
     /// previous export already occupies the name, a numeric suffix is added
-    /// instead of overwriting: the prior .ldamap may be the only key to restore
-    /// an already-shared document, so silent overwrite is never acceptable.
+    /// instead of overwriting: a prior export may already have been shared, so
+    /// silent overwrite is never acceptable.
+    ///
+    /// WHERE THE KEY GOES, which is the question this method must never leave
+    /// unanswered. A `passphrase` writes a .ldamap sidecar next to the output,
+    /// protected by it; no passphrase writes no sidecar at all. Either way
+    /// `keepMapping` is handed the mapping so the session can keep it, and its
+    /// answer travels back in `ExportResult.workspaceURL`. A caller that
+    /// supplies neither a passphrase nor a keeper gets a redacted document
+    /// with no key anywhere, which is why `seedMapping`/`keepMapping` exist as
+    /// a pair and why SessionModel always passes both.
     ///
     /// The heavy work (tokenize, DOCX rewrite, the non-body LLM pass) runs off
     /// the main actor so the window stays responsive during export.
     public func export(
         to outputDir: URL,
         passphrase: String?,
-        createdAtISO8601: String
+        createdAtISO8601: String,
+        seedMapping: Mapping? = nil,
+        keepMapping: (Mapping) throws -> URL? = { _ in nil }
     ) async throws -> ExportResult {
         let acceptedSpans = entities.filter { $0.accepted }.map { $0.span }
         let text = documentText
@@ -930,9 +951,35 @@ public final class ReviewModel: ObservableObject {
                 passphrase: passphrase,
                 createdAtISO8601: createdAtISO8601,
                 style: style,
-                includeSealCandidates: wantsSealCandidates
+                includeSealCandidates: wantsSealCandidates,
+                seedMapping: seedMapping
             )
         }.value
+
+        // Keep the key BEFORE anything cosmetic, and fail CLOSED when it
+        // cannot be kept.
+        //
+        // At this point a redacted document exists on disk. If its key landed
+        // nowhere, that file looks like a finished deliverable and nothing can
+        // reverse it, which is worse than no export at all, so the artifacts
+        // this call just wrote are removed and the error reaches the user.
+        // Removing them is safe precisely here: both were created moments ago
+        // under collision-free names, so neither can be a file that was
+        // already there.
+        //
+        // A sidecar changes the answer. If the user asked for one, the key IS
+        // beside the document and the export stands; only the local copy is
+        // missing, and the completion card then names the sidecar and no
+        // workspace rather than claiming a home that does not exist.
+        var export = result.export
+        do {
+            export.workspaceURL = try keepMapping(result.mapping)
+        } catch {
+            guard export.mappingURL != nil else {
+                Self.removeExportArtifacts(of: export)
+                throw error
+            }
+        }
 
         // Record the assigned tokens back onto the matching entities so the UI
         // can render sealed chips after export. A value that crossed a newline
@@ -959,7 +1006,17 @@ public final class ReviewModel: ObservableObject {
             )
         }
 
-        return result.export
+        return export
+    }
+
+    /// Remove the files one export wrote, for the fail-closed path above.
+    /// Only the edit surface and the redacted image: the sidecar is never
+    /// among them, because its presence is what makes the export worth
+    /// keeping.
+    private static func removeExportArtifacts(of export: ExportResult) {
+        for url in [export.redactedURL] + (export.redactedImageURL.map { [$0] } ?? []) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
 }

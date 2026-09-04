@@ -69,7 +69,24 @@ extension SessionModel {
     }
 
     /// Everything the archive needs from this session.
-    func buildWorkspacePayload(createdAtISO8601: String) -> WorkspacePayload {
+    ///
+    /// - Parameters:
+    ///   - documentIDs: the tray entries to include, or nil for all of them.
+    ///     Save Workspace packages the whole session; the default workspace an
+    ///     export keeps its mapping in packages the ONE document it belongs to,
+    ///     so a matter's other documents are not copied into a file named
+    ///     after this one.
+    ///   - mapping: the mapping to store, or nil for the session's. An export
+    ///     passes its own, because the export mints the key and the session
+    ///     has not adopted it yet at the moment the workspace is written.
+    func buildWorkspacePayload(
+        createdAtISO8601: String,
+        documentIDs: Set<UUID>? = nil,
+        mapping overrideMapping: Mapping? = nil
+    ) -> WorkspacePayload {
+        let entries = documentIDs.map { ids in
+            self.entries.filter { ids.contains($0.id) }
+        } ?? self.entries
         let records = entries.map { entry in
             WorkspaceDocumentRecord(
                 id: entry.id,
@@ -96,7 +113,7 @@ extension SessionModel {
             documentSources: Dictionary(
                 uniqueKeysWithValues: entries.map { ($0.id, $0.url) }
             ),
-            mapping: sessionMapping,
+            mapping: overrideMapping ?? sessionMapping,
             sessionState: WorkspaceSessionState(pseudonymOverrides: pseudonymOverrides),
             snapshots: entries.filter { $0.model.exportAvailability.isAvailable }
                 .map { $0.model.workspaceSnapshot(documentID: $0.id) },
@@ -268,5 +285,161 @@ extension SessionModel {
             }
         }
         return warnings
+    }
+
+    // MARK: - The default workspace an export keeps its mapping in
+    //
+    // Save Redacted writes no .ldamap beside its output any more, so the key
+    // has to be kept somewhere the app can find later or the user is left
+    // with a redacted document nothing can restore. It is kept in a
+    // workspace, using the machinery above rather than a second store of its
+    // own: same format, same reader, same validation.
+    //
+    // WHICH WORKSPACE. The one named after the document, derived from the
+    // source file's own path (DefaultWorkspace), and sealed with a key in
+    // this Mac's Keychain. It is created when the user chose no destination,
+    // which today is every Save Redacted, and updated in place on every
+    // later export of the same document.
+    //
+    // WHAT STAYS AVAILABLE, deliberately. A workspace the user SAVES is a
+    // different thing and is never touched here: it is passphrase protected
+    // so it can be handed to a colleague, this app keeps no copy of that
+    // passphrase, and a file meant to travel must not change under the person
+    // holding it. And a mapping can still travel two ways on purpose: a
+    // passphrase protected .ldamap sidecar from the export sheet, or Save
+    // Workspace. A mapping that cannot travel cannot be restored on another
+    // Mac, so neither route is closed by keeping a local default.
+
+    /// The default workspace file for the document at `source`.
+    public func defaultWorkspaceURL(forSource source: URL) throws -> URL {
+        DefaultWorkspace.url(
+            forSource: source,
+            in: try defaultWorkspaceDirectory()
+        )
+    }
+
+    /// The mapping an export of `source` must extend.
+    ///
+    /// The session's own mapping when it has one, and otherwise whatever the
+    /// document's default workspace already holds. That second half is not
+    /// belt and braces: after a quit and relaunch the session mapping is gone,
+    /// and an unseeded second export would mint the same {COMPANY_1} for a
+    /// different value, then overwrite the workspace and leave the FIRST
+    /// export's redacted file restoring to the wrong party. Seeding makes
+    /// every rewrite of a default workspace a superset of what it replaced.
+    ///
+    /// A workspace that cannot be opened yields no seed rather than throwing,
+    /// and the export goes on to REPLACE it. That is deliberate and it loses
+    /// nothing: a workspace this Mac can no longer open was already no key to
+    /// anything, so refusing to overwrite it would only leave the user with a
+    /// document they cannot redact and a file they cannot read. What it must
+    /// never do is replace a workspace that WOULD have opened, which is why
+    /// the seed is read on the same rule the writer names its output by.
+    func exportMappingSeed(forSource source: URL) -> Mapping? {
+        if let sessionMapping { return sessionMapping }
+        return try? defaultWorkspaceMapping(forSource: source)
+    }
+
+    /// The mapping held in the default workspace for a document, or nil when
+    /// that workspace does not exist.
+    ///
+    /// Reads the mapping member only: no document is unpacked, so this never
+    /// puts a plaintext original back on disk to answer a question about the
+    /// key.
+    public func defaultWorkspaceMapping(forSource source: URL) throws -> Mapping? {
+        let url = try defaultWorkspaceURL(forSource: source)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try WorkspaceArchive.readMapping(
+            from: url,
+            protection: defaultWorkspaceProtection(url)
+        )
+    }
+
+    /// Keep an export's mapping in the document's default workspace, and adopt
+    /// it as the session's mapping so a restore in this same sitting needs no
+    /// file at all.
+    ///
+    /// Returns where it was kept. Throws rather than degrading: a caller that
+    /// has already written a redacted document needs to hear that its key did
+    /// not land, because nothing else on screen would say so. ReviewModel.export
+    /// takes that further and removes what it wrote, so a failure here cannot
+    /// leave an unrestorable document behind.
+    @discardableResult
+    public func keepMappingInWorkspace(
+        _ mapping: Mapping,
+        forSource source: URL,
+        documentID: UUID,
+        createdAtISO8601: String
+    ) throws -> URL {
+        let url = try defaultWorkspaceURL(forSource: source)
+        try WorkspaceArchive.write(
+            buildWorkspacePayload(
+                createdAtISO8601: createdAtISO8601,
+                documentIDs: [documentID],
+                mapping: mapping
+            ),
+            to: url,
+            protection: defaultWorkspaceProtection(url)
+        )
+        adoptWorkspaceMapping(mapping)
+        return url
+    }
+
+    /// The mapping that restores `redactedFile`, taken from the default
+    /// workspace the export kept it in, or nil when there is no single
+    /// workspace that can be said to belong to that file.
+    ///
+    /// Resolved from the file's NAME, because the file that came back is all
+    /// Restore has. Two documents with the same stem resolve to two
+    /// workspaces, and this returns nil rather than choosing between them: see
+    /// DefaultWorkspace's header for why guessing there would restore one
+    /// matter's document with another matter's names.
+    public func defaultWorkspaceMapping(forRedactedFile redactedFile: URL) throws -> Mapping? {
+        guard let url = DefaultWorkspace.unambiguousCandidate(
+            forRedactedFileNamed: redactedFile.lastPathComponent,
+            in: try defaultWorkspaceDirectory()
+        ) else { return nil }
+        return try WorkspaceArchive.readMapping(
+            from: url,
+            protection: defaultWorkspaceProtection(url)
+        )
+    }
+
+    // MARK: - Save Redacted
+
+    /// Redact the active document into `outputDir` and keep its key.
+    ///
+    /// The session owns this rather than the review model because the key's
+    /// home is a workspace, and a workspace is session state: the matter
+    /// label, the pseudonym overrides, the matter's own rule layer. The
+    /// per-document model cannot see any of that.
+    ///
+    /// - Parameter passphrase: nil, the default, writes no .ldamap beside the
+    ///   output. A passphrase writes one, protected by it, for a mapping the
+    ///   user means to carry to another Mac.
+    public func exportRedacted(
+        to outputDir: URL,
+        passphrase: String?,
+        createdAtISO8601: String
+    ) async throws -> ExportResult {
+        guard let entry = activeEntry else {
+            throw DocumentIOError.unreadable("No document is open to redact.")
+        }
+        let source = entry.url
+        let documentID = entry.id
+        return try await entry.model.export(
+            to: outputDir,
+            passphrase: passphrase,
+            createdAtISO8601: createdAtISO8601,
+            seedMapping: exportMappingSeed(forSource: source),
+            keepMapping: { mapping in
+                try keepMappingInWorkspace(
+                    mapping,
+                    forSource: source,
+                    documentID: documentID,
+                    createdAtISO8601: createdAtISO8601
+                )
+            }
+        )
     }
 }

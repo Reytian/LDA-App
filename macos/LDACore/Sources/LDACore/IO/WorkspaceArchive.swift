@@ -13,10 +13,23 @@
 //  parties' names, so an "encrypted" archive built that way would publish the
 //  very thing the app exists to protect, to anyone holding the file.
 //
-//  Passphrase only, never the Keychain. The whole point of the format is
-//  cross-machine handoff: opening one must need nothing but the file and the
-//  passphrase, so a colleague's Mac (which has never seen this matter, this
-//  Keychain, or this app's stores) can open it.
+//  TWO PROTECTIONS, for two jobs, and the difference is which Mac can open the
+//  file.
+//
+//   - .passphrase is the TRAVELLING form, and the reason the format exists:
+//     opening one must need nothing but the file and the passphrase, so a
+//     colleague's Mac (which has never seen this matter, this Keychain, or
+//     this app's stores) can open it. Save Workspace always writes this form.
+//   - .keychain is the LOCAL form, added for the default workspace an export
+//     keeps its mapping in when the user chose no destination. It is protected
+//     by a key held only in this Mac's Keychain, so it deliberately does NOT
+//     travel: it is the safety net that means a document redacted with default
+//     settings can still be restored here, not a file to hand over. A user who
+//     needs the mapping to travel exports a passphrase protected sidecar, or
+//     saves a passphrase protected workspace.
+//
+//  Both forms are the same container and the same inner zip. The protection
+//  tag lives in the container header, so a reader is never guessing.
 //
 //  One KDF pass protects the whole archive, by construction: the container
 //  derives one key and seals one payload. Members are not individually
@@ -75,9 +88,9 @@ public enum WorkspaceArchive {
     /// The encrypted envelope. Its magic is distinct from the mapping
     /// sidecar's ("LDAMAP"), so feeding a sidecar to the workspace reader (or
     /// the reverse) fails immediately with a clear format error instead of a
-    /// confusing decryption failure. The Keychain service is required by the
-    /// initializer but never reached: this container is only ever used with
-    /// .passphrase protection.
+    /// confusing decryption failure. The Keychain service is reached only by
+    /// the LOCAL default workspace described in this file's header; every
+    /// workspace the user saves to travel is .passphrase protected.
     static let container = EncryptedContainer(
         magic: Array("LDAWRK".utf8),
         keychainService: "ai.openclaw.lda.workspacekey",
@@ -100,12 +113,36 @@ public enum WorkspaceArchive {
         to url: URL,
         passphrase: String
     ) throws {
+        try write(payload, to: url, protection: .passphrase(passphrase))
+    }
+
+    /// Package and encrypt a workspace into `url` under an explicit
+    /// protection.
+    ///
+    /// The protection decides whether the file can leave this Mac; see this
+    /// file's header. Everything else about the write is identical, so a
+    /// local default workspace and a travelling one differ in exactly one
+    /// property and nothing else can drift between them.
+    public static func write(
+        _ payload: WorkspacePayload,
+        to url: URL,
+        protection: MappingProtection
+    ) throws {
         let zipBytes = try buildArchiveBytes(payload)
         do {
-            try container.save(zipBytes, to: url, protection: .passphrase(passphrase))
+            try container.save(zipBytes, to: url, protection: protection)
         } catch {
             throw WorkspaceArchiveError.writeFailed(describe(error))
         }
+    }
+
+    /// Remove the Keychain key a .keychain protected workspace was sealed
+    /// under. Best-effort cleanup helper for tests and key rotation, mirroring
+    /// MappingStore's; a missing item is treated as success. Deleting the key
+    /// makes that workspace permanently unreadable, so it is never called on a
+    /// user's behalf.
+    public static func deleteKeychainKey(account: String) throws {
+        try container.deleteKeychainKey(account: account)
     }
 
     /// Assemble the inner zip in memory.

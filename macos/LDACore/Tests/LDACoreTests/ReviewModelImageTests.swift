@@ -97,7 +97,7 @@ final class ReviewModelImageTests: XCTestCase {
         XCTAssertFalse(
             ImageFixtureRenderer.digitsOnly(redactedText).contains(ImageTextExtractorTests.plantedPhone)
         )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outcome.export.mappingURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(outcome.export.mappingURL).path))
 
         // Image artifact: present, differs from the source, and re-OCR shows
         // no trace of the accepted value.
