@@ -400,7 +400,49 @@ public struct EncryptedContainer {
     /// out 15 real minutes. Lock guarded and compiled out of release; see
     /// TestSeam.
     static let clockSeam = TestSeam<() -> UInt64>()
+
+    /// Debug-only override that makes a chosen user-presence Keychain
+    /// operation fail with a chosen OSStatus.
+    ///
+    /// A real protected add cannot be driven from a test process: it needs a
+    /// signed app with a provisioned application identifier, and on a machine
+    /// that happens to allow it the fallback branch would never run at all. So
+    /// the branch that matters (protection asked for, protection not obtained)
+    /// would otherwise be the one branch with no coverage, which is exactly how
+    /// it came to stay silent. Injecting the status covers it on every machine
+    /// and lets a test pin the specific errSec it simulates.
+    ///
+    /// Returning nil for an operation leaves that call on the real Keychain,
+    /// which is what lets a test fail the add WITHOUT failing the lookup.
+    static let userPresenceStatusSeam = TestSeam<(UserPresenceOperation) -> OSStatus?>()
 #endif
+
+    /// The two user-presence Keychain calls, so a test can fail one without
+    /// the other.
+    ///
+    /// The distinction is not cosmetic. The create path and the lookup path
+    /// each had their own way of staying quiet, so a seam that broke both at
+    /// once would let a test for one of them pass on the strength of the
+    /// other's fix. Declared outside the DEBUG block because the production
+    /// read names an operation in every build configuration.
+    enum UserPresenceOperation {
+        /// Writing the user-presence-protected item.
+        case add
+        /// Reading the user-presence-protected item.
+        case lookup
+    }
+
+    /// The injected failure status for one operation, or nil for the real
+    /// Keychain.
+    private static func injectedUserPresenceStatus(
+        for operation: UserPresenceOperation
+    ) -> OSStatus? {
+#if DEBUG
+        return userPresenceStatusSeam.value?(operation)
+#else
+        return nil
+#endif
+    }
 
     /// Monotonic nanoseconds, INCLUDING time the machine spends asleep.
     ///
@@ -548,10 +590,29 @@ public struct EncryptedContainer {
                     // Direct Developer ID sandbox builds do not carry the
                     // provisioned application identifier required by this
                     // access control path. Continue with the traditional
-                    // login Keychain, and skip the user-presence upgrade so
-                    // the protection advisory does not fire on every launch
-                    // of a build that can never hold the protected item.
+                    // login Keychain, and skip the doomed re-add: retrying an
+                    // access control this build can never hold just costs a
+                    // SecItemDelete and a SecItemAdd on every launch.
+                    //
+                    // But do NOT skip the advisory with it. That is what this
+                    // branch used to do, and it inverted the priority: a build
+                    // that can NEVER apply Touch ID is precisely the build
+                    // whose user has to be told, because for them the promise
+                    // is not delayed, it is never kept. Skipping the retry is
+                    // an efficiency; skipping the record was a silent security
+                    // downgrade.
                     entitlementBlocked = true
+                    noteUserPresenceFallback(
+                        status: status,
+                        kind: .userPresenceUnavailable,
+                        account: account,
+                        // Whether this build can hold a protected item is fixed
+                        // for the launch, so one audit entry says everything a
+                        // repeat would. The create and upgrade events are per
+                        // key and are NOT deduplicated: how many keys ended up
+                        // unprotected is exactly what a reader needs to count.
+                        auditsRepeats: false
+                    )
                 }
                 if let legacy = try lookupLegacyKey(account: account) {
                     if !entitlementBlocked {
@@ -589,9 +650,28 @@ public struct EncryptedContainer {
     /// one, otherwise the error's type name.
     private static func statusDetail(_ error: Error) -> String {
         if case DocumentIOError.keychainError(let status) = error {
-            return "OSStatus \(status)"
+            return describeStatus(status)
         }
         return String(describing: type(of: error))
+    }
+
+    /// A verbatim, PII-free description of a Security framework status: the
+    /// numeric OSStatus AND the system's own message for it.
+    ///
+    /// Why both, and why verbatim: the user-presence path can fail for several
+    /// unrelated reasons (no entitlement, no biometry hardware, a parameter the
+    /// file keychain rejects), the fixes are different, and a bare number sends
+    /// the reader to a table. Recording "OSStatus -34018 (A required
+    /// entitlement isn't present.)" names the cause on sight. Neither half can
+    /// carry a secret: the status is a small integer from a fixed set and the
+    /// message is Apple's own static text, so this is safe to put in the audit
+    /// trail and in front of the user. Key bytes and account names are NOT.
+    static func describeStatus(_ status: OSStatus) -> String {
+        guard let message = SecCopyErrorMessageString(status, nil) as String?,
+              !message.isEmpty else {
+            return "OSStatus \(status)"
+        }
+        return "OSStatus \(status) (\(message))"
     }
 
     /// The original lookup: a silent generic-password item in the login file
@@ -632,6 +712,10 @@ public struct EncryptedContainer {
     /// profile) cannot reliably obtain. The item is distinguished from the
     /// legacy silent item by a distinct account suffix.
     private func lookupProtectedKey(account: String) throws -> SymmetricKey? {
+        if let injected = Self.injectedUserPresenceStatus(for: .lookup) {
+            throw DocumentIOError.keychainError(injected)
+        }
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -683,6 +767,20 @@ public struct EncryptedContainer {
                 // Keep direct Developer ID releases working without weakening
                 // the app sandbox. The generated AES key still stays in the
                 // user's traditional macOS login Keychain.
+                //
+                // It is NOT behind Touch ID, though, and this is the only place
+                // a key is BORN under the policy. Returning quietly here is the
+                // defect that let the app assert a guarantee it does not keep:
+                // migrateToUserPresence records its own failure, but a key
+                // created fresh never goes through it, so on a machine where
+                // every key is new the advisory had nothing to report and the
+                // banner stayed empty. Record it in both places that must never
+                // be quiet.
+                noteUserPresenceFallback(
+                    status: status,
+                    kind: .userPresenceCreateFallback,
+                    account: account
+                )
             }
         }
         try addSilentKey(account: account, keyData: keyData)
@@ -707,6 +805,10 @@ public struct EncryptedContainer {
     /// stale copy is removed first so a re-add after a failed migration
     /// cannot hit errSecDuplicateItem.
     private func addProtectedKey(account: String, keyData: Data) throws {
+        if let injected = Self.injectedUserPresenceStatus(for: .add) {
+            throw DocumentIOError.keychainError(injected)
+        }
+
         var accessControlError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
@@ -714,8 +816,13 @@ public struct EncryptedContainer {
             [.userPresence],
             &accessControlError
         ) else {
-            accessControlError?.release()
-            throw DocumentIOError.keychainError(errSecParam)
+            // Keep the reason the system gave. Flattening every access control
+            // failure to errSecParam threw away the one fact a diagnosis needs,
+            // and errSecParam then read as "we passed bad arguments" when the
+            // real answer could be missing biometry hardware or a policy the
+            // machine refuses.
+            let status = Self.accessControlStatus(accessControlError)
+            throw DocumentIOError.keychainError(status)
         }
 
         let protectedAccount = Self.protectedAccount(account)
@@ -741,6 +848,70 @@ public struct EncryptedContainer {
         }
     }
 
+    /// The OSStatus behind a failed SecAccessControlCreateWithFlags.
+    ///
+    /// The call reports through a CFError, and a Security-framework CFError
+    /// carries the OSStatus as its code. When it is something else, say
+    /// errSecParam rather than inventing a status: the caller only promises a
+    /// status, and a wrong one is worse than a vague one.
+    private static func accessControlStatus(_ error: Unmanaged<CFError>?) -> OSStatus {
+        guard let error else { return errSecParam }
+        // takeRetainedValue consumes the +1 reference the call handed back, so
+        // this both reads the error and balances it. Never pair it with a
+        // separate release().
+        let nsError = error.takeRetainedValue() as Error as NSError
+        guard nsError.domain == NSOSStatusErrorDomain,
+              let status = OSStatus(exactly: nsError.code) else {
+            return errSecParam
+        }
+        return status
+    }
+
+    /// Record a user-presence fallback in BOTH places that must never stay
+    /// quiet: the advisory the UI renders, and the audit trail.
+    ///
+    /// One helper rather than two call-site pairs on purpose. The bug this
+    /// closes was a branch that did one of the two, and another branch that did
+    /// neither; a single entry point makes "recorded" and "rendered" impossible
+    /// to separate by accident.
+    private func noteUserPresenceFallback(
+        status: OSStatus,
+        kind: SecurityEventKind,
+        account: String,
+        auditsRepeats: Bool = true
+    ) {
+        noteUserPresenceFallback(
+            detail: Self.describeStatus(status),
+            kind: kind,
+            account: account,
+            auditsRepeats: auditsRepeats
+        )
+    }
+
+    private func noteUserPresenceFallback(
+        detail: String,
+        kind: SecurityEventKind,
+        account: String,
+        auditsRepeats: Bool = true
+    ) {
+        // Deliberately NOT gated on the audit log being enabled. auditKey is
+        // (a disabled log must not create its digest key), but the advisory is
+        // the user's only notice, and a headless surface that turns auditing
+        // off must not thereby turn the warning off too.
+        let isFirstTime = KeychainProtectionAdvisory.noteFallback(
+            scope: containerDescription,
+            detail: detail
+        )
+        // The ADVISORY is always recorded. Only a repeating AUDIT entry is
+        // suppressed, and only for a fact that cannot change within a launch.
+        // An unreachable protected item is re-discovered every time the key
+        // cache expires, and each failure forces a full re-encrypt of the log
+        // and eats one of its 5000 slots, so restating it would push out the
+        // history someone reads this log to find.
+        guard auditsRepeats || isFirstTime else { return }
+        auditKey(kind, account: account, succeeded: false, detail: detail)
+    }
+
     /// Best-effort upgrade of a legacy silent key to user-presence protection:
     /// write the protected copy, then remove the silent one only after the
     /// protected write succeeds. The key bytes are already safely in hand (and
@@ -755,13 +926,12 @@ public struct EncryptedContainer {
             // The upgrade failed, so this key stays readable with no Touch ID
             // prompt. Previously this returned silently and the user went on
             // believing Touch ID was guarding the store. Record it so the UI
-            // can say otherwise.
-            KeychainProtectionAdvisory.noteFallback(scope: containerDescription)
-            auditKey(
-                .userPresenceUpgradeFailed,
-                account: account,
-                succeeded: false,
-                detail: Self.statusDetail(error)
+            // can say otherwise, and carry the verbatim status so the next
+            // launch names the cause instead of leaving it to be guessed.
+            noteUserPresenceFallback(
+                detail: Self.statusDetail(error),
+                kind: .userPresenceUpgradeFailed,
+                account: account
             )
             return
         }

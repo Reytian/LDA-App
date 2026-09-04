@@ -713,6 +713,7 @@
 "Portfolio index" = "资料集索引";
 "Mapping sidecar" = "映射附属文件";
 "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt." = "无法对 %@ 应用触控 ID。这些密钥仍受登录钥匙串保护，但解锁时不会显示触控 ID 提示。";
+"Keychain reported: %@." = "钥匙串报告：%@。";
 "Document %@, status %@" = "文档 %@，状态 %@";
 "%lld values protected" = "已保护 %lld 个值";
 "Review ready. %lld to redact, %lld will remain visible." = "已可审核。%lld 个值将被隐去，%lld 个值将保持可见。";

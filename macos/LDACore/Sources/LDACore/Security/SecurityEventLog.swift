@@ -66,6 +66,15 @@ public enum SecurityEventKind: String, Codable, Sendable {
     /// remains readable without Touch ID. Pairs with
     /// KeychainProtectionAdvisory.
     case userPresenceUpgradeFailed
+    /// A key was CREATED under the user-presence policy but had to be stored
+    /// as a silent item, so it was never behind Touch ID at all. Distinct from
+    /// userPresenceUpgradeFailed: nothing was upgraded, and a machine whose
+    /// keys are all new produces only this kind.
+    case userPresenceCreateFallback
+    /// The user-presence item could not even be looked up, so this build can
+    /// never hold one. Recorded once per store per launch; the upgrade is not
+    /// retried after it.
+    case userPresenceUnavailable
     /// The in-process key cache was purged (policy change or explicit lock).
     case keyCachePurged
     /// A source document was copied into the staging vault and given a handle.
@@ -546,6 +555,7 @@ public enum KeychainProtectionAdvisory {
     private static let lock = NSLock()
     private static var _didFallBack = false
     private static var _scopes: Set<String> = []
+    private static var _diagnostics: Set<String> = []
 
     /// True once any key has been left unprotected after a failed upgrade.
     public static var didFallBackToUnprotected: Bool {
@@ -558,21 +568,56 @@ public enum KeychainProtectionAdvisory {
         lock.withLock { _scopes.sorted() }
     }
 
+    /// The verbatim Keychain statuses behind the fallback, for example
+    /// "OSStatus -34018 (A required entitlement isn't present.)".
+    ///
+    /// Kept because a failure nobody can name is a failure nobody can fix. The
+    /// advisory told the user their data was less protected than promised but
+    /// not why, which left the cause to be guessed at from the outside. These
+    /// strings are Apple's own status text plus an integer: no key bytes, no
+    /// account name, no path, so they are safe to show and safe to log.
+    public static var diagnostics: [String] {
+        lock.withLock { _diagnostics.sorted() }
+    }
+
     /// A one-line, user-facing advisory, or nil when protection is intact.
     public static var advisory: String? {
         let scopes = affectedScopes
         guard !scopes.isEmpty else { return nil }
-        return "Touch ID could not be applied to "
+        var sentence = "Touch ID could not be applied to "
             + scopes.joined(separator: ", ")
             + ". Those keys are still protected by your login keychain, but they "
             + "unlock without a Touch ID prompt."
+        let details = diagnostics
+        if !details.isEmpty {
+            sentence += " Keychain reported: " + details.joined(separator: "; ") + "."
+        }
+        return sentence
     }
 
-    /// Called by EncryptedContainer when a user-presence upgrade fails.
-    static func noteFallback(scope: String) {
+    /// Called by EncryptedContainer when user-presence protection is asked for
+    /// and not obtained, whether on the create path or the upgrade path.
+    ///
+    /// `detail` is the verbatim status. It is recorded even when the scope has
+    /// been seen before: one store can fail for two different reasons across a
+    /// session, and dropping the second reason would hide the more informative
+    /// one purely because it arrived later.
+    ///
+    /// Returns whether this scope or this reason was new, which lets a caller
+    /// whose failure repeats (an unreachable protected item is re-discovered
+    /// every time the key cache expires) audit it once instead of spending the
+    /// log's bounded budget restating one fact.
+    @discardableResult
+    static func noteFallback(scope: String, detail: String? = nil) -> Bool {
+        // Post when EITHER the scope or the reason is new. Keying the
+        // notification on the scope alone would leave a freshly discovered
+        // reason unrendered until something else happened to redraw, which is
+        // the same class of bug as staying silent in the first place.
         let isNew: Bool = lock.withLock {
             _didFallBack = true
-            return _scopes.insert(scope).inserted
+            let scopeIsNew = _scopes.insert(scope).inserted
+            let detailIsNew = detail.map { _diagnostics.insert($0).inserted } ?? false
+            return scopeIsNew || detailIsNew
         }
         // Post outside the lock: an observer that reads the advisory back would
         // otherwise deadlock on it.
@@ -582,6 +627,7 @@ public enum KeychainProtectionAdvisory {
                 object: nil
             )
         }
+        return isNew
     }
 
     /// Test hook: forget every recorded fallback.
@@ -589,6 +635,7 @@ public enum KeychainProtectionAdvisory {
         lock.withLock {
             _didFallBack = false
             _scopes = []
+            _diagnostics = []
         }
     }
 }

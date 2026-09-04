@@ -160,6 +160,16 @@ public struct AppShell: View {
     /// panels and sheets live in ComplianceReportFlow, not in this file.
     @StateObject private var reportFlow = ComplianceReportFlowModel()
 
+    /// Whether Touch ID protection actually took effect.
+    ///
+    /// Held HERE, not only in the status banner, because the banner is hidden
+    /// whenever it has nothing else to report: idle with no export message and
+    /// no session note renders no strip at all, so the one sentence saying a
+    /// security guarantee is not being kept disappeared with it. An advisory
+    /// row is independent of scan state, which is the same reason the
+    /// missing-model and tracked-changes advisories live here.
+    @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+
     public init(
         session: SessionModel,
         installer: ModelInstaller,
@@ -216,6 +226,9 @@ public struct AppShell: View {
                     count: model.trackedChangeCount
                 ) {
                     trackedChangesAdvisory(advice)
+                }
+                if let advice = keychainAdvisory.advisory {
+                    keychainProtectionAdvisory(advice)
                 }
                 if let completion = handoffCompletion {
                     HandoffCompletionCard(
@@ -540,6 +553,20 @@ public struct AppShell: View {
     /// the user accepts them, so the advice sits under the banner for as long
     /// as the document is open, whatever its scan state.
     private func trackedChangesAdvisory(_ advice: String) -> some View {
+        AdvisoryRow(advice: advice)
+    }
+
+    /// Touch ID was asked for and not obtained, so the keys guarding this
+    /// user's data unlock with no prompt.
+    ///
+    /// Stated as a row rather than only as the banner's compact chip, and not
+    /// dismissible, for the reason AdvisoryRow exists: this is a real
+    /// reduction in what the tool does, and the app's own Settings copy tells
+    /// the user the opposite. A warning that can be hidden, or that only
+    /// appears when some other message happens to be showing, is how this went
+    /// unnoticed. The sentence carries the verbatim Keychain status, which is
+    /// what makes it actionable rather than merely alarming.
+    private func keychainProtectionAdvisory(_ advice: String) -> some View {
         AdvisoryRow(advice: advice)
     }
 

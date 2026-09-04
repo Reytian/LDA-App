@@ -713,6 +713,7 @@
 "Portfolio index" = "Portfolio index";
 "Mapping sidecar" = "Mapping sidecar";
 "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt." = "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt.";
+"Keychain reported: %@." = "Keychain reported: %@.";
 "Document %@, status %@" = "Document %@, status %@";
 "%lld values protected" = "%lld values protected";
 "Review ready. %lld to redact, %lld will remain visible." = "Review ready. %lld to redact, %lld will remain visible.";
