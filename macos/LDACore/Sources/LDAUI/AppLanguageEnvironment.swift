@@ -119,3 +119,122 @@ extension View {
         modifier(L10nHelpModifier(key: key))
     }
 }
+
+// MARK: - The remaining localizing positions
+//
+// L10n.text, L10n.button and .l10nHelp covered three of the twelve forms that
+// reach a localizing position. Label, TextField, SecureField, Toggle, Picker,
+// a Button carrying a role, and the alert / confirmationDialog /
+// navigationTitle / accessibilityLabel modifiers had no sanctioned route at
+// all, so every one of those sites had to stay a raw literal and render in the
+// system language rather than the picked one.
+//
+// Each wrapper below resolves the key first and then hands the finished String
+// to SwiftUI's StringProtocol overload, never the LocalizedStringKey one. That
+// distinction is the whole point: the LocalizedStringKey overload would look
+// the resolved text up a SECOND time against Bundle.main and, on a miss, render
+// the already-translated string as its own key.
+
+extension L10n {
+    /// `Label("x", systemImage:)` routed through the environment language.
+    static func label(_ key: String, systemImage: String) -> some View {
+        L10nLabelView(key: key, systemImage: systemImage)
+    }
+
+    /// `Button("x", role:)`. The roleless overload above stays the common case;
+    /// this one exists because `role` changes the rendering (destructive red,
+    /// cancel bolding) and cannot be dropped to reuse it.
+    static func button(
+        _ key: String,
+        role: ButtonRole?,
+        action: @escaping () -> Void
+    ) -> some View {
+        L10nRoleButtonView(key: key, role: role, action: action)
+    }
+
+    /// `TextField("prompt", text:)`, where the key is the placeholder prompt.
+    static func textField(_ key: String, text: Binding<String>) -> some View {
+        L10nTextFieldView(key: key, text: text)
+    }
+
+    /// The passphrase counterpart of `L10n.textField`.
+    static func secureField(_ key: String, text: Binding<String>) -> some View {
+        L10nSecureFieldView(key: key, text: text)
+    }
+
+    static func toggle(_ key: String, isOn: Binding<Bool>) -> some View {
+        L10nToggleView(key: key, isOn: isOn)
+    }
+
+    static func picker<Selection: Hashable, Content: View>(
+        _ key: String,
+        selection: Binding<Selection>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        L10nPickerView(key: key, selection: selection, content: content)
+    }
+}
+
+private struct L10nLabelView: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let systemImage: String
+
+    var body: some View {
+        Label(L10n.string(key, language: language), systemImage: systemImage)
+    }
+}
+
+private struct L10nRoleButtonView: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let role: ButtonRole?
+    let action: () -> Void
+
+    var body: some View {
+        Button(L10n.string(key, language: language), role: role) { action() }
+    }
+}
+
+private struct L10nTextFieldView: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let text: Binding<String>
+
+    var body: some View {
+        TextField(L10n.string(key, language: language), text: text)
+    }
+}
+
+private struct L10nSecureFieldView: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let text: Binding<String>
+
+    var body: some View {
+        SecureField(L10n.string(key, language: language), text: text)
+    }
+}
+
+private struct L10nToggleView: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let isOn: Binding<Bool>
+
+    var body: some View {
+        Toggle(L10n.string(key, language: language), isOn: isOn)
+    }
+}
+
+private struct L10nPickerView<Selection: Hashable, Content: View>: View {
+    @Environment(\.appLanguage) private var language
+    let key: String
+    let selection: Binding<Selection>
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Picker(L10n.string(key, language: language), selection: selection) {
+            content()
+        }
+    }
+}
