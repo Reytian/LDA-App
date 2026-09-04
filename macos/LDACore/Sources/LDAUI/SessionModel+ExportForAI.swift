@@ -66,10 +66,24 @@ extension SessionModel {
         let markdown = MarkdownHandoffWriter.render(combined: handoff.combined, style: mapping.style)
         try MarkdownHandoffWriter.write(markdown, to: url)
 
-        // The sidecar is keyed by the file's own base name, exactly like a
-        // Save Redacted sidecar, so Restore derives the Keychain account from
-        // the name it finds next to the file. No passphrase prompt: this file
-        // never leaves the Mac, and uploading it by mistake leaks nothing.
+        // THIS sidecar is written unconditionally, unlike the Save Redacted
+        // one, and the difference is deliberate rather than an oversight.
+        //
+        // Save Redacted's sidecar exists to TRAVEL, so it is passphrase sealed
+        // and only written when asked: it would otherwise sit in the folder
+        // the user is about to send from. This one exists to STAY. It is the
+        // only home the hand-to-AI mapping has, because this path keeps no
+        // workspace copy, so declining to write it would make every AI round
+        // trip unrestorable, which is the exact defect the export guard in
+        // ReviewModel.export exists to prevent. Keychain protection is right
+        // for the same reason: the file is not meant to open anywhere else.
+        //
+        // Keyed by the file's own base name, exactly like a Save Redacted
+        // sidecar, so Restore derives the Keychain account from the name it
+        // finds next to the file. No passphrase prompt: the contents are
+        // sealed to this Mac, so uploading it by mistake leaks no values.
+        // The FILE NAME still carries the document's name; see the note on
+        // DefaultWorkspace.fileName for that trade.
         // Written as the related item of the chosen file, which is what the
         // sandbox's save-panel grant covers.
         let sidecarURL = Self.sidecarURL(for: url)

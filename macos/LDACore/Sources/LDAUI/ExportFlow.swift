@@ -3,12 +3,20 @@
 //  LDAUI
 //
 //  The Save Redacted flow, as a view modifier the review shell applies:
-//  a directory picker, then the optional passphrase sheet that protects the
-//  mapping sidecar. Modelled on WorkspaceFlow and ComplianceReportFlow, for
-//  the same reason: AppShell is the largest file in the module and this is
-//  self contained.
+//  a directory picker, then the sheet that says where the mapping is kept and
+//  offers to write one next to the document. Modelled on WorkspaceFlow and
+//  ComplianceReportFlow, for the same reason: AppShell is the largest file in
+//  the module and this is self contained.
 //
-//  The destination is collected BEFORE the passphrase, because the sheet's
+//  WHAT THIS SHEET IS FOR NOW. It used to collect an OPTIONAL passphrase for a
+//  .ldamap that was written on every export. Both halves of that are gone: no
+//  sidecar unless the user asks, and a passphrase whenever they do. The sheet's
+//  job is therefore to state where the key IS being kept (a workspace on this
+//  Mac, named after the document) before it offers the extra file, so a user
+//  who declines is not left wondering whether they can still restore. See
+//  MappingSidecarPresentation for the rule and DefaultWorkspace for the home.
+//
+//  The destination is collected BEFORE the sheet, because the sheet's
 //  iCloud warning depends on which folder was chosen.
 //
 //  The flow reads the active document through the session rather than holding
@@ -29,20 +37,36 @@ import LDACore
 @MainActor
 final class ExportFlowModel: ObservableObject {
 
-    /// True while the passphrase sheet is presented, after a directory is chosen.
+    /// True while the mapping sheet is presented, after a directory is chosen.
     @Published var isPromptingPassphrase = false
 
-    /// The directory chosen for export, held while the passphrase is collected.
+    /// The directory chosen for export, held while the sheet is up.
     @Published var pendingExportDir: URL?
 
-    /// The optional passphrase typed into the sheet. Empty means use the
-    /// Keychain instead of a passphrase.
+    /// Whether the user asked for a .ldamap next to the redacted document.
+    /// Off is the default and the whole point of it: the key is kept in the
+    /// document's workspace either way.
+    @Published var wantsSidecar = false
+
+    /// The passphrase for that sidecar. Only read when `wantsSidecar` is on,
+    /// and then required; a blank one no longer means "use the Keychain".
     @Published var passphrase = ""
+
+    /// Typed a second time, because nothing about it is recoverable from this
+    /// Mac and the file exists to be opened somewhere else.
+    @Published var confirmation = ""
 
     /// Bumped by the toolbar to raise the directory picker.
     @Published var requestToken = 0
 
     func requestExport() { requestToken += 1 }
+
+    /// Clear everything the sheet collected.
+    func resetInput() {
+        wantsSidecar = false
+        passphrase = ""
+        confirmation = ""
+    }
 }
 
 // MARK: - Flow modifier
@@ -62,6 +86,16 @@ struct ExportFlow: ViewModifier {
     /// The active document's review model, read fresh on every access.
     private var model: ReviewModel { session.activeModel }
 
+    /// Why the sidecar the user asked for cannot be written yet, or nil.
+    /// Always nil while the sidecar toggle is off, which is the default.
+    private var sidecarIssue: WorkspacePresentation.PassphraseIssue? {
+        MappingSidecarPresentation.issue(
+            wantsSidecar: flow.wantsSidecar,
+            passphrase: flow.passphrase,
+            confirmation: flow.confirmation
+        )
+    }
+
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $flow.isPromptingPassphrase) {
@@ -78,28 +112,16 @@ struct ExportFlow: ViewModifier {
 
     private var passphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            L10n.text("Protect the mapping")
+            L10n.text("Where the mapping is kept")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            L10n.text("Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.")
+            // Said BEFORE the offer below, because the answer to "can I still
+            // restore this?" must not depend on the user opting into anything.
+            L10n.text("LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            // Confidentiality nudge: the mapping sidecar holds the original
-            // values (encrypted). Exporting into an iCloud-synced folder ships
-            // that file off this Mac.
-            if let dir = flow.pendingExportDir, Self.isUnderICloud(dir) {
-                Label {
-                    L10n.text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
-                } icon: {
-                    Image(systemName: "icloud.and.arrow.up")
-                }
-                .font(.callout)
-                .foregroundStyle(CounselTheme.danger)
-                .fixedSize(horizontal: false, vertical: true)
-            }
 
             // Trust confirmation: what is and is not being redacted. The
             // count is the whole export, headers and footers included, not
@@ -121,9 +143,7 @@ struct ExportFlow: ViewModifier {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            L10n.secureField("Passphrase (optional)", text: $flow.passphrase)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
+            sidecarSection
 
             HStack {
                 Spacer()
@@ -138,11 +158,70 @@ struct ExportFlow: ViewModifier {
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
+                // Disabled only on an INCOMPLETE sidecar passphrase, never on
+                // the save gate: the save gate was already answered before
+                // this sheet appeared, and reading it a second time here is
+                // how the retired Bool gates used to multiply. With the
+                // sidecar toggle off there is no issue and the button is live,
+                // which is the default path.
+                .disabled(sidecarIssue != nil)
             }
         }
         .padding(24)
         .frame(minWidth: 380)
         .background(CounselTheme.raised)
+    }
+
+    /// The one choice left on this sheet: a mapping file the user can carry to
+    /// another Mac, and the passphrase it needs to be worth carrying.
+    @ViewBuilder
+    private var sidecarSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            L10n.toggle(
+                "Also save a mapping file next to the redacted document",
+                isOn: $flow.wantsSidecar
+            )
+
+            if flow.wantsSidecar {
+                L10n.text("Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately.")
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Confidentiality nudge: the mapping sidecar holds the
+                // original values (encrypted). Exporting into an iCloud
+                // synced folder ships that file off this Mac. Shown only
+                // when a sidecar will actually be written, since with no
+                // sidecar nothing carrying the names goes into that folder.
+                if let dir = flow.pendingExportDir, Self.isUnderICloud(dir) {
+                    Label {
+                        L10n.text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
+                    } icon: {
+                        Image(systemName: "icloud.and.arrow.up")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                L10n.secureField("Passphrase", text: $flow.passphrase)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+                L10n.secureField("Confirm passphrase", text: $flow.confirmation)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+
+                // Suppressed until something has been typed, exactly as
+                // WorkspaceSaveSheet does it: nagging an untouched field
+                // reads as an error the user caused.
+                if !flow.passphrase.isEmpty, let issue = sidecarIssue {
+                    Text(verbatim: MappingSidecarPresentation.message(for: issue))
+                        .font(.caption)
+                        .foregroundStyle(CounselTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     // MARK: - Export
@@ -159,13 +238,15 @@ struct ExportFlow: ViewModifier {
             return
         }
         report(nil)
-        flow.passphrase = ""
+        flow.resetInput()
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = L10n.string("Choose a folder for the redacted document and encrypted mapping.")
+        // No longer promises a mapping in this folder: by default nothing but
+        // the redacted document is written here.
+        panel.message = L10n.string("Choose a folder for the redacted document.")
         panel.prompt = L10n.string("Export Here")
         guard panel.runModal() == .OK, let dir = panel.url else { return }
         flow.pendingExportDir = dir
@@ -175,20 +256,24 @@ struct ExportFlow: ViewModifier {
     private func cancelPassphrase() {
         flow.isPromptingPassphrase = false
         flow.pendingExportDir = nil
-        flow.passphrase = ""
+        flow.resetInput()
     }
 
     private func confirmExport() {
         flow.isPromptingPassphrase = false
         guard let dir = flow.pendingExportDir else { return }
 
-        let phrase = flow.passphrase.isEmpty ? nil : flow.passphrase
-        let protection = flow.passphrase.isEmpty
-            ? L10n.string("Mac Keychain")
-            : L10n.string("Passphrase protected")
+        // One function decides whether a sidecar is written and under what.
+        // nil is the default answer and is exactly what export reads as
+        // "write no sidecar".
+        let phrase = MappingSidecarPresentation.sidecarPassphrase(
+            wantsSidecar: flow.wantsSidecar,
+            passphrase: flow.passphrase,
+            confirmation: flow.confirmation
+        )
         let createdAt = ISO8601DateFormatter().string(from: Date())
         flow.pendingExportDir = nil
-        flow.passphrase = ""
+        flow.resetInput()
 
         let needsScope = dir.startAccessingSecurityScopedResource()
         Task {
@@ -196,15 +281,15 @@ struct ExportFlow: ViewModifier {
                 if needsScope { dir.stopAccessingSecurityScopedResource() }
             }
             do {
-                let outcome = try await model.export(
+                // Through the SESSION, not the model: the mapping's home is a
+                // workspace, and only the session knows the matter, the
+                // overrides, and the document's tray identity that go into one.
+                let outcome = try await session.exportRedacted(
                     to: dir,
                     passphrase: phrase,
                     createdAtISO8601: createdAt
                 )
-                complete(.exported(
-                    result: outcome,
-                    protection: protection
-                ))
+                complete(.exported(outcome))
             } catch {
                 report(String(
                     format: L10n.string("Export failed: %@"),

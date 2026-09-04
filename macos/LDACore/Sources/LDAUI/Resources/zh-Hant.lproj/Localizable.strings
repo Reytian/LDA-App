@@ -215,7 +215,6 @@
 "Protect" = "保護";
 "Protect a missed item" = "保護遺漏的項目";
 "Protect the export" = "保護匯出內容";
-"Protect the mapping" = "保護對應表";
 "Protect the profile" = "保護客戶資料";
 "Protect this workspace" = "保護此工作區";
 "Re-extract from Sources" = "從來源重新擷取";
@@ -258,7 +257,6 @@
 "Save Redacted" = "儲存遮蔽版本";
 "Save Redacted Document…" = "儲存遮蔽後的文件…";
 "Save Workspace" = "儲存工作區";
-"Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved." = "以原始格式儲存此文件的遮蔽版本，並附上加密對應表。「還原」會將其還原並保留格式。";
 "Save and leave" = "儲存並離開";
 "Save to Library" = "儲存至資料庫";
 "Scan All" = "全部掃描";
@@ -387,10 +385,8 @@
 "Choose a folder for the filled output document." = "選擇用來儲存填寫後輸出文件的資料夾。";
 "Choose a folder for the processing report." = "選擇用來儲存處理報告的資料夾。";
 "Choose a folder for the readable copies of this report." = "選擇用來儲存此報告可讀取副本的資料夾。";
-"Choose a folder for the redacted document and encrypted mapping." = "選擇用來儲存遮蔽後文件和加密對應表的資料夾。";
 "Choose a shared LDA vocabulary file to merge." = "選擇要合併的共用 LDA 詞彙檔案。";
 "Choose source documents to extract profile fields from." = "選擇要從中擷取客戶資料欄位的來源文件。";
-"Choose the .ldamap mapping that goes with this document." = "選擇與此文件配套的 .ldamap 對應表。";
 "Choose the Word or PDF document to fill." = "選擇要填寫的 Word 或 PDF 文件。";
 "Choose the edited redacted document to restore." = "選擇要還原的已編輯遮蔽文件。";
 "Choose where to keep this matter's workspace file." = "選擇此案件工作區檔案的儲存位置。";
@@ -530,7 +526,6 @@
 "regex" = "正則表示式";
 "LLM" = "大型語言模型";
 "manual" = "手動";
-"Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain." = "可選擇輸入密碼短語以加密對應輔助檔案。留空則使用系統鑰匙圈保護該對應。";
 "PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac." = "支援 PDF、Word (.docx)、純文字或包含這些檔案的 .zip。多個檔案會組成一個工作階段。偵測與遮蔽均在這台 Mac 上執行。";
 "Toggles whether every occurrence of this value is replaced in the exported document or remains visible." = "切換是否替換匯出文件中該值的每個相符項，或保持其可見。";
 "This text stands in for the value in the safe copy. It cannot already appear in the session documents." = "此文字會在安全副本中代替原值。它不得已存在於工作階段的文件中。";
@@ -788,9 +783,8 @@
 "Restore a file" = "還原檔案";
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "選擇或拖入交回的檔案：您匯出供 AI 使用的 Markdown，或您儲存的遮蔽後 Word 文件。對應表會自動從此工作階段或檔案旁的 .ldamap 中找到。若檔案是 Word 文件，格式會保留。";
 "Pick the file that came back, review the restored document, then save it (Cmd+R)" = "選擇交回的檔案，檢查還原後的文件，然後儲存（Cmd+R）";
+"Pick the file that came back and write the restored document (Cmd+R)" = "選擇交回的檔案並輸出還原後的文件（Cmd+R）";
 "Bring the real values back. Restore runs on this Mac." = "還原實際值。還原在此 Mac 上執行。";
-"No mapping was found for this file." = "找不到此檔案的對應表。";
-"Choose the .ldamap that was saved with it." = "請選擇與它一同儲存的 .ldamap 檔案。";
 "Choose Mapping…" = "選擇對應表…";
 "This mapping was protected with a passphrase. Enter it to restore." = "此對應表受密碼短語保護。請輸入密碼短語以還原。";
 "Word output from Markdown carries plain formatting." = "由 Markdown 產生的 Word 文件僅有簡單的格式。";
@@ -940,3 +934,19 @@
 "Plain text" = "純文字";
 "Word document" = "Word 文件";
 "Choose Where to Save…" = "選擇儲存位置…";
+"Where the mapping is kept" = "對應表保存在哪裡";
+"LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it." = "LDA 會把本文件的對應表保存在這台 Mac 上的一個工作區中，並以該文件命名。還原會在那裡找到它，因此您寄出的遮蔽後文件旁邊不帶任何金鑰。";
+"Also save a mapping file next to the redacted document" = "同時在遮蔽後文件旁儲存一個對應表檔案";
+"Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately." = "只有該檔案才能在另一台 Mac 上還原本文件。請只寄給應當能夠還原它的人，並另行告知密碼短語。";
+"Enter a passphrase for this mapping file." = "請為該對應表檔案輸入密碼短語。";
+"Choose a folder for the redacted document." = "為遮蔽後文件選擇一個檔案夾。";
+"Mapping kept in: %@  ·  %@" = "對應表保存於：%@  ·  %@";
+"Restored with the workspace LDA keeps for this document." = "已使用 LDA 為本文件保存的工作區還原。";
+"Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session, from the workspace LDA keeps for the document, or from a .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "選擇或拖入交回的檔案：您匯出供 AI 使用的 Markdown，或您儲存的遮蔽後 Word 文件。對應表會自動從此工作階段、LDA 為該文件保存的工作區，或檔案旁的 .ldamap 中找到。若檔案是 Word 文件，格式會保留。";
+"No single mapping was found for this file." = "未能為該檔案找到唯一的對應表。";
+"Choose the .ldamap saved with it, or the workspace for the document it came from." = "請選擇與它一起儲存的 .ldamap，或該檔案所屬文件的工作區。";
+"Choose the .ldamap or workspace file that goes with this document." = "請選擇與本文件配套的 .ldamap 或工作區檔案。";
+"Workspace passphrase" = "工作區密碼短語";
+"That workspace file holds no mapping yet." = "該工作區檔案中還沒有對應表。";
+"Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved." = "以原始格式儲存本文件的遮蔽後版本。對應表保存在這台 Mac 上的一個工作區中，還原會連同格式一起把文件帶回。";
+"The redacted document was not saved because its mapping had nowhere to go. Nothing can restore a document without its mapping, so the file was removed rather than left in place looking finished. Add a passphrase to save a mapping beside the document, or check that this Mac allows LDA to store keys." = "遮蔽後的文件未儲存，因為其對應關係無處存放。沒有對應關係便無法還原文件，因此該檔案已被刪除，而不是留在原處、看起來像是已完成的成果。請設定密語以在檔案旁儲存對應關係，或檢查本機是否允許 LDA 儲存金鑰。";

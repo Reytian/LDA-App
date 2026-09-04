@@ -74,7 +74,22 @@ extension WorkspaceArchive {
         passphrase: String,
         budget: ArchiveBudget = ArchiveBudget()
     ) throws -> PreparedWorkspace {
-        let zipBytes = try decryptPayload(at: url, passphrase: passphrase)
+        try prepare(from: url, protection: .passphrase(passphrase), budget: budget)
+    }
+
+    /// Decrypt a workspace file under an explicit protection and validate its
+    /// manifest, without unpacking.
+    ///
+    /// The .keychain protection opens the LOCAL default workspace an export
+    /// keeps its mapping in; see WorkspaceArchive's header for why the two
+    /// forms exist. Everything after decryption is the same code path, so a
+    /// default workspace is validated exactly as strictly as a handed-over one.
+    public static func prepare(
+        from url: URL,
+        protection: MappingProtection,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> PreparedWorkspace {
+        let zipBytes = try decryptPayload(at: url, protection: protection)
         let reader = try WorkspaceZipReader(zipBytes: zipBytes, budget: budget)
         return PreparedWorkspace(manifest: try readManifest(from: reader), reader: reader)
     }
@@ -86,6 +101,39 @@ extension WorkspaceArchive {
         budget: ArchiveBudget = ArchiveBudget()
     ) throws -> OpenedWorkspace {
         try prepare(from: url, passphrase: passphrase, budget: budget).unpack()
+    }
+
+    /// Decrypt and unpack a workspace file in one step, under an explicit
+    /// protection.
+    public static func read(
+        from url: URL,
+        protection: MappingProtection,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> OpenedWorkspace {
+        try prepare(from: url, protection: protection, budget: budget).unpack()
+    }
+
+    /// The session mapping a workspace carries, WITHOUT unpacking any
+    /// document.
+    ///
+    /// Restore needs the key and nothing else, and unpacking would write the
+    /// user's original, un-redacted documents into a temporary directory for
+    /// no reason at all. The small JSON members are read into memory only, so
+    /// this path never puts a plaintext original on disk.
+    ///
+    /// Returns nil when the file carries no mapping (a workspace saved before
+    /// any export has none).
+    public static func readMapping(
+        from url: URL,
+        protection: MappingProtection,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> Mapping? {
+        let zipBytes = try decryptPayload(at: url, protection: protection)
+        let reader = try WorkspaceZipReader(zipBytes: zipBytes, budget: budget)
+        // The version check still runs first: a workspace from a newer LDA
+        // must say so rather than read as damaged, exactly as on the open path.
+        _ = try readManifest(from: reader)
+        return try reader.decode(Mapping.self, at: mappingEntryPath)
     }
 
     /// Unpack a prepared workspace. Any failure removes the expansion first.
@@ -119,11 +167,26 @@ extension WorkspaceArchive {
     /// CIPHERTEXT fails authentication exactly as a wrong passphrase does, and
     /// is reported as .wrongPassphrase. Truncation that reaches the container
     /// header is caught structurally and reported as .damagedFile.
-    private static func decryptPayload(at url: URL, passphrase: String) throws -> Data {
+    ///
+    /// A .keychain protected file has no passphrase to be wrong, so the same
+    /// authentication failure is reported as a damaged file naming the real
+    /// cause: this Mac's key no longer opens it. Reusing .wrongPassphrase
+    /// there would tell the user to retype something they never typed.
+    private static func decryptPayload(
+        at url: URL,
+        protection: MappingProtection
+    ) throws -> Data {
         do {
-            return try container.load(from: url, protection: .passphrase(passphrase))
+            return try container.load(from: url, protection: protection)
         } catch DocumentIOError.decryptionFailed {
-            throw WorkspaceArchiveError.wrongPassphrase
+            switch protection {
+            case .passphrase:
+                throw WorkspaceArchiveError.wrongPassphrase
+            case .keychain:
+                throw WorkspaceArchiveError.damagedFile(
+                    "This Mac's key no longer opens it."
+                )
+            }
         } catch let error as DocumentIOError {
             throw WorkspaceArchiveError.damagedFile(
                 error.errorDescription ?? "The file could not be opened."

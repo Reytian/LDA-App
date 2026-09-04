@@ -98,31 +98,45 @@ final class RestoreMappingResolutionTests: XCTestCase {
 
     // MARK: - The order table (pure)
 
-    func testResolutionOrderIsSidecarThenSessionThenClientThenNothing() {
+    /// Every combination of the four candidates, not a hand-picked subset, so
+    /// a new row in the table cannot be added without this test having an
+    /// opinion about all sixteen states it produces.
+    func testResolutionOrderIsSidecarThenSessionThenWorkspaceThenClientThenNothing() {
         let sidecar = URL(fileURLWithPath: "/tmp/reply.ldamap")
         let session = mapping(source: "session")
+        let workspace = mapping(source: "workspace")
         let client = mapping(source: "client")
-        let rows: [(sidecar: URL?, session: Mapping?, client: Mapping?, expected: SessionModel.RestoreMappingSource)] = [
-            (sidecar, session, client, .sidecar(sidecar)),
-            (sidecar, session, nil, .sidecar(sidecar)),
-            (sidecar, nil, client, .sidecar(sidecar)),
-            (sidecar, nil, nil, .sidecar(sidecar)),
-            (nil, session, client, .session(session)),
-            (nil, session, nil, .session(session)),
-            (nil, nil, client, .clientProfile(client)),
-            (nil, nil, nil, .none)
-        ]
 
-        for row in rows {
-            XCTAssertEqual(
-                SessionModel.resolveRestoreMappingSource(
-                    sidecar: row.sidecar,
-                    sessionMapping: row.session,
-                    clientMapping: row.client
-                ),
-                row.expected,
-                "sidecar=\(row.sidecar != nil) session=\(row.session != nil) client=\(row.client != nil)"
-            )
+        for hasSidecar in [true, false] {
+            for hasSession in [true, false] {
+                for hasWorkspace in [true, false] {
+                    for hasClient in [true, false] {
+                        let expected: SessionModel.RestoreMappingSource
+                        if hasSidecar {
+                            expected = .sidecar(sidecar)
+                        } else if hasSession {
+                            expected = .session(session)
+                        } else if hasWorkspace {
+                            expected = .defaultWorkspace(workspace)
+                        } else if hasClient {
+                            expected = .clientProfile(client)
+                        } else {
+                            expected = .none
+                        }
+                        XCTAssertEqual(
+                            SessionModel.resolveRestoreMappingSource(
+                                sidecar: hasSidecar ? sidecar : nil,
+                                sessionMapping: hasSession ? session : nil,
+                                workspaceMapping: hasWorkspace ? workspace : nil,
+                                clientMapping: hasClient ? client : nil
+                            ),
+                            expected,
+                            "sidecar=\(hasSidecar) session=\(hasSession) "
+                                + "workspace=\(hasWorkspace) client=\(hasClient)"
+                        )
+                    }
+                }
+            }
         }
     }
 

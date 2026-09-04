@@ -228,6 +228,35 @@ public final class SessionModel: ObservableObject {
         .keychain(account: "lda-parked-session")
     }
 
+    /// Where the default workspaces an export keeps its mapping in live.
+    ///
+    /// A folder rather than a single file: one workspace per document, named
+    /// after it, so no export can overwrite another document's only key. See
+    /// DefaultWorkspace for the naming rules. Injectable for tests; the
+    /// production default lives under ApplicationSupport/LDA.
+    public var defaultWorkspaceDirectory: () throws -> URL = {
+        let appSupport = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let dir = appSupport
+            .appendingPathComponent("LDA", isDirectory: true)
+            .appendingPathComponent("Workspaces", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// How a default workspace is protected, given its own URL. Injectable for
+    /// tests; production seals it with a Keychain key named after the file,
+    /// the same rule a sidecar uses, so the file found on disk is the whole
+    /// key. Never a passphrase: nobody typed one, and a file this app writes
+    /// unprompted must not need a secret the user was never given.
+    public var defaultWorkspaceProtection: (URL) -> MappingProtection = {
+        .keychain(account: DefaultWorkspace.keychainAccount(for: $0))
+    }
+
     /// Writes encrypted parked state. Injectable so failure paths remain
     /// deterministic in tests.
     public var saveParkedSession: (

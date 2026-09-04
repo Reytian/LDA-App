@@ -153,11 +153,14 @@ final class ReviewModelTests: XCTestCase {
             createdAtISO8601: Self.createdAt
         )
 
-        // The redacted .txt and the .ldamap sidecar both exist on disk.
+        // The redacted .txt and the .ldamap sidecar both exist on disk. The
+        // sidecar is here because this export asked for one and gave it a
+        // passphrase; with no passphrase no file is written beside the output.
+        let sidecarURL = try XCTUnwrap(result.mappingURL)
         XCTAssertEqual(result.redactedURL.pathExtension.lowercased(), "txt")
-        XCTAssertEqual(result.mappingURL.pathExtension.lowercased(), "ldamap")
+        XCTAssertEqual(sidecarURL.pathExtension.lowercased(), "ldamap")
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.redactedURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: result.mappingURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecarURL.path))
 
         // tokenCount equals the number of accepted (and therefore tokenized) entities.
         XCTAssertEqual(result.tokenCount, acceptedCount)
@@ -180,7 +183,7 @@ final class ReviewModelTests: XCTestCase {
         // The sidecar decrypts back to a mapping whose entry count matches tokenCount,
         // and the rejected email surface is absent from it.
         let mapping = try MappingStore.load(
-            from: result.mappingURL,
+            from: sidecarURL,
             protection: .passphrase(passphrase)
         )
         XCTAssertEqual(mapping.entries.count, result.tokenCount)
@@ -277,7 +280,7 @@ final class ReviewModelTests: XCTestCase {
         let restoredURL = workDir.appendingPathComponent("restored.txt")
         let report = try model.restore(
             editedRedacted: exportResult.redactedURL,
-            mapping: exportResult.mappingURL,
+            mapping: try XCTUnwrap(exportResult.mappingURL),
             passphrase: "pw",
             output: restoredURL
         )
@@ -605,9 +608,11 @@ final class ReviewModelTests: XCTestCase {
             to: outDir, passphrase: "pw", createdAtISO8601: Self.createdAt
         )
 
+        let firstMapping = try XCTUnwrap(first.mappingURL)
+        let secondMapping = try XCTUnwrap(second.mappingURL)
         XCTAssertNotEqual(first.redactedURL, second.redactedURL, "second export overwrote the first")
-        XCTAssertNotEqual(first.mappingURL, second.mappingURL, "second export clobbered the first mapping")
-        for fileURL in [first.redactedURL, first.mappingURL, second.redactedURL, second.mappingURL] {
+        XCTAssertNotEqual(firstMapping, secondMapping, "second export clobbered the first mapping")
+        for fileURL in [first.redactedURL, firstMapping, second.redactedURL, secondMapping] {
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: fileURL.path),
                 "missing \(fileURL.lastPathComponent)"

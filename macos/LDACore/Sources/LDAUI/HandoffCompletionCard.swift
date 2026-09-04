@@ -24,15 +24,21 @@ import LDACore
 /// The most recent successful export or save handoff.
 enum HandoffCompletion: Equatable {
     case exportedForAI(SessionModel.ExportForAIResult)
-    case exported(result: ExportResult, protection: String)
+    case exported(ExportResult)
 
     /// The files the Reveal in Finder button selects.
+    ///
+    /// The workspace an export keeps its mapping in is deliberately NOT among
+    /// them. It lives inside the app's own support folder, it opens on no
+    /// other Mac, and putting it in front of the user in Finder would invite
+    /// exactly the two things it cannot survive: being moved, and being sent.
     var revealedFiles: [URL] {
         switch self {
         case .exportedForAI(let result):
             return [result.markdownURL, result.mappingURL]
-        case .exported(let result, _):
-            return [result.redactedURL, result.mappingURL]
+        case .exported(let result):
+            return [result.redactedURL]
+                + (result.mappingURL.map { [$0] } ?? [])
                 + (result.redactedImageURL.map { [$0] } ?? [])
         }
     }
@@ -106,8 +112,8 @@ struct HandoffCompletionCard: View {
                     }
                 }
 
-            case .exported(let result, let protection):
-                exportedCompletionDetails(result: result, protection: protection)
+            case .exported(let result):
+                exportedCompletionDetails(result: result)
             }
 
             Spacer(minLength: 12)
@@ -152,8 +158,7 @@ struct HandoffCompletionCard: View {
     /// the exported image may still show.
     @ViewBuilder
     private func exportedCompletionDetails(
-        result: ExportResult,
-        protection: String
+        result: ExportResult
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             L10n.text("Redacted document saved")
@@ -166,14 +171,31 @@ struct HandoffCompletionCard: View {
                 ),
                 help: result.redactedURL.lastPathComponent
             )
-            completionFileLine(
-                String(
-                    format: L10n.string("Encrypted mapping: %@  \u{00B7}  %@"),
-                    result.mappingURL.lastPathComponent as NSString,
-                    protection as NSString
-                ),
-                help: "\(result.mappingURL.lastPathComponent), \(protection)"
-            )
+            // Where the key is, always named. The user just saved a document
+            // they cannot read without it, and "saved" with no word about the
+            // mapping is how somebody concludes there is nothing to keep.
+            if let workspaceURL = result.workspaceURL {
+                let protection = L10n.string("Mac Keychain")
+                completionFileLine(
+                    String(
+                        format: L10n.string("Mapping kept in: %@  \u{00B7}  %@"),
+                        workspaceURL.lastPathComponent as NSString,
+                        protection as NSString
+                    ),
+                    help: "\(workspaceURL.lastPathComponent), \(protection)"
+                )
+            }
+            if let mappingURL = result.mappingURL {
+                let protection = L10n.string("Passphrase protected")
+                completionFileLine(
+                    String(
+                        format: L10n.string("Encrypted mapping: %@  \u{00B7}  %@"),
+                        mappingURL.lastPathComponent as NSString,
+                        protection as NSString
+                    ),
+                    help: "\(mappingURL.lastPathComponent), \(protection)"
+                )
+            }
             if let imageURL = result.redactedImageURL {
                 completionFileLine(
                     String(

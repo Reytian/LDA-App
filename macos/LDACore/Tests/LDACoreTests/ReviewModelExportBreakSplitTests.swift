@@ -89,7 +89,7 @@ final class ReviewModelExportBreakSplitTests: XCTestCase {
         let restored = workDir.appendingPathComponent("restored.docx")
         let report = try LDAService.restore(
             editedRedacted: outcome.export.redactedURL,
-            mapping: outcome.export.mappingURL,
+            mapping: try XCTUnwrap(outcome.export.mappingURL),
             protection: .passphrase("pw"),
             output: restored
         )

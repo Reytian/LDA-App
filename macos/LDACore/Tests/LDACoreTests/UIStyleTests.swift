@@ -104,7 +104,7 @@ final class ReviewModelStyleTests: XCTestCase {
         XCTAssertEqual(result.tokenBySurface["jane.doe@example.com"], "contact1@example.com")
 
         let mapping = try MappingStore.load(
-            from: result.export.mappingURL,
+            from: try XCTUnwrap(result.export.mappingURL),
             protection: .passphrase("ui-style-pw")
         )
         XCTAssertEqual(mapping.style, .pseudonym)
