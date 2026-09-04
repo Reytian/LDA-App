@@ -6,12 +6,16 @@
 //  document pane: one sentence about something the user needs to know BEFORE
 //  they scan or export, with an optional control to act on it.
 //
-//  Two advisories use it today, and both are conditional on a fact about the
+//  Three advisories use it today, and all are conditional on a fact about the
 //  document or the machine rather than on a preference:
 //    - no detection model for the selected rung, so a scan will not look for
 //      names, companies or addresses;
 //    - the document carries tracked changes, so a value spanning one is
-//      flattened on restore.
+//      flattened on restore;
+//    - Touch ID was asked for and refused, so the keys guarding this user's
+//      data unlock with no prompt. That one is also stated compactly in the
+//      status banner, next to the On-device badge whose implication it
+//      corrects; the row is what makes it visible when the banner is not.
 //
 //  There is deliberately NO dismiss control. Both conditions are real
 //  reductions in what the tool does, and a dismissible row means a lawyer can

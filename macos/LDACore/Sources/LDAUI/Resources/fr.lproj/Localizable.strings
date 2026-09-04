@@ -719,6 +719,7 @@
 "Portfolio index" = "Index des portfolios";
 "Mapping sidecar" = "Fichier de correspondance";
 "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt." = "Touch ID n’a pas pu être appliqué à %@. Ces clés restent protégées par votre Trousseau de session, mais elles se déverrouillent sans demande Touch ID.";
+"Keychain reported: %@." = "Le trousseau a signalé : %@.";
 "Document %@, status %@" = "Document %@, état %@";
 "%lld values protected" = "%lld valeurs protégées";
 "Review ready. %lld to redact, %lld will remain visible." = "Vérification prête. %lld à caviarder, %lld resteront visibles.";

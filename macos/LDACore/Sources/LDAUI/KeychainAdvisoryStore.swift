@@ -64,9 +64,22 @@ final class KeychainAdvisoryStore: ObservableObject {
         let scopes = KeychainProtectionAdvisory.affectedScopes
             .map { L10n.string($0) }
         guard !scopes.isEmpty else { return nil }
-        return String(
+        var sentence = String(
             format: L10n.string("Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt."),
             scopes.joined(separator: ", ") as NSString
         )
+        // The reason, verbatim. The label is translated; the status itself is
+        // not, and must not be: it is what the user quotes into a bug report
+        // and what tells us which errSec this actually is. A localized
+        // paraphrase of "OSStatus -34018" would destroy the only diagnostic
+        // value the sentence carries.
+        let details = KeychainProtectionAdvisory.diagnostics
+        if !details.isEmpty {
+            sentence += " " + String(
+                format: L10n.string("Keychain reported: %@."),
+                details.joined(separator: "; ") as NSString
+            )
+        }
+        return sentence
     }
 }
