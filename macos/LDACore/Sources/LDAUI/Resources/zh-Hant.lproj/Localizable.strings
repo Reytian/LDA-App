@@ -299,7 +299,6 @@
 "Tip: select several extra findings to keep them visible together." = "提示：選取數個其他偵測結果，即可讓它們一起保持可見。";
 "Toggle Redaction" = "切換遮蔽狀態";
 "Token type" = "代碼類型";
-"Touch ID inactive" = "Touch ID 未啟用";
 "Treat the term as a regular expression" = "將詞彙視為規則運算式";
 "Try Again" = "再試一次";
 "Type the exact text as it appears in the document. Every occurrence will be redacted." = "輸入文件中出現的完全相同文字。每次出現都會被遮蔽。";

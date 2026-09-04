@@ -42,10 +42,21 @@ struct AppShellStatusBanner: View {
     /// render, because the shipped ones promise that a scan finds names.
     let hasDetectionModel: Bool
 
-    /// Whether Touch ID protection actually took effect. Shown next to the
-    /// On-device badge when it did not, so the trust claim in the UI matches
-    /// what the Keychain is really doing.
-    @StateObject private var keychainAdvisory = KeychainAdvisoryStore()
+    // NOTE ON THE KEYCHAIN FALLBACK, which is deliberately NOT rendered here.
+    //
+    // It briefly was: a compact chip beside the On-device badge whose only
+    // visible text was "Touch ID inactive", with the real sentence in a .help
+    // tooltip. Two things were wrong with that. It duplicated the AdvisoryRow
+    // AppShell renders a few points below in the same VStack, so a single
+    // fallback read as two separate problems. And it put the substance in a
+    // tooltip, which is the same mistake the Save Redacted availability work
+    // exists to fix: a warning nobody hovers is a warning nobody reads.
+    //
+    // The in-place-correction argument does not hold either. This badge's own
+    // copy claims on-device detection and redaction and says nothing about
+    // Touch ID, so there is no adjacent claim needing a correction. The
+    // fallback is stated as prose in AppShell's advisory stack and again in
+    // Settings, and KeychainAdvisoryRenderingTests pins both.
 
     /// The active document's review model, read fresh on every access.
     private var model: ReviewModel { session.activeModel }
@@ -330,22 +341,6 @@ struct AppShellStatusBanner: View {
             .foregroundStyle(CounselTheme.textSecondary)
             .l10nHelp("Detection and redaction run on this Mac. A detection-model download uses a network connection while it runs.")
             .accessibilityLabel(Text(verbatim: L10n.string("On-device detection and redaction")))
-
-            // When the user-presence upgrade failed, say so here rather than
-            // letting the On-device badge imply a Touch ID gate that is not
-            // there. See KeychainAdvisoryStore.
-            if let advisory = keychainAdvisory.advisory {
-                Label {
-                    L10n.text("Touch ID inactive")
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                }
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-                .foregroundStyle(CounselTheme.danger)
-                .help(advisory)
-                .accessibilityLabel(Text(verbatim: advisory))
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

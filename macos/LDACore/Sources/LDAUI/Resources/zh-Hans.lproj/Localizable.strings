@@ -299,7 +299,6 @@
 "Tip: select several extra findings to keep them visible together." = "提示：选择多个其他检出项，可让它们一起保持可见。";
 "Toggle Redaction" = "切换隐去状态";
 "Token type" = "令牌类型";
-"Touch ID inactive" = "Touch ID 未启用";
 "Treat the term as a regular expression" = "将该词条视为正则表达式";
 "Try Again" = "再试一次";
 "Type the exact text as it appears in the document. Every occurrence will be redacted." = "输入与文档中完全一致的文本。其每次出现都将被隐去。";

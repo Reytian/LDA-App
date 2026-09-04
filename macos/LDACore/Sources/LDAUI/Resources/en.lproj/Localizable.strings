@@ -299,7 +299,6 @@
 "Tip: select several extra findings to keep them visible together." = "Tip: select several extra findings to keep them visible together.";
 "Toggle Redaction" = "Toggle Redaction";
 "Token type" = "Token type";
-"Touch ID inactive" = "Touch ID inactive";
 "Treat the term as a regular expression" = "Treat the term as a regular expression";
 "Try Again" = "Try Again";
 "Type the exact text as it appears in the document. Every occurrence will be redacted." = "Type the exact text as it appears in the document. Every occurrence will be redacted.";

@@ -299,7 +299,6 @@
 "Tip: select several extra findings to keep them visible together." = "Astuce : sélectionnez plusieurs éléments supplémentaires pour les laisser visibles ensemble.";
 "Toggle Redaction" = "Activer ou désactiver le caviardage";
 "Token type" = "Type de jeton";
-"Touch ID inactive" = "Touch ID inactif";
 "Treat the term as a regular expression" = "Traiter le terme comme une expression régulière";
 "Try Again" = "Réessayer";
 "Type the exact text as it appears in the document. Every occurrence will be redacted." = "Saisissez le texte exactement comme il apparaît dans le document. Toutes ses occurrences seront caviardées.";
