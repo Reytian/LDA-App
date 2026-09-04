@@ -115,15 +115,15 @@ final class ReviewModelStyleTests: XCTestCase {
         let entities = [ReviewEntity(span: emailSpan(in: text), accepted: true)]
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities, style: .token),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities, style: .token).text,
             "Mail {EMAIL_1} today."
         )
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities, style: .pseudonym),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities, style: .pseudonym).text,
             "Mail contact1@example.com today."
         )
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities, style: .asterisk),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities, style: .asterisk).text,
             "Mail jane************.com today."
         )
     }

@@ -832,7 +832,9 @@
 "Protect “%@”…" = "Protéger « %@ »…";
 "Protect the selected text" = "Protéger le texte sélectionné";
 "Available when the scan finishes." = "Disponible à la fin de l’analyse.";
-"Switch to Original to select text to protect." = "Passez à Original pour sélectionner le texte à protéger.";
+"“%@” is a stand-in for a value LDA already protects. Switch to Original to work with the value behind it." = "« %@ » est un pseudonyme qui remplace une valeur que LDA protège déjà. Passez à Original pour agir sur la valeur d’origine.";
+"LDA cannot match this preview to your document, so a selection here cannot be protected. Switch to Original and select the text there." = "LDA ne peut pas faire correspondre cet aperçu à votre document, une sélection faite ici ne peut donc pas être protégée. Passez à Original et sélectionnez-y le texte.";
+"Select text LDA missed in this preview. A stand-in cannot be protected: it already covers a value." = "Sélectionnez ici le texte que LDA a manqué. Un pseudonyme ne peut pas être protégé : il couvre déjà une valeur.";
 "Select text in the document, then protect it as a kind. Every occurrence is redacted." = "Sélectionnez du texte dans le document, puis protégez-le sous un type. Toutes ses occurrences sont caviardées.";
 "%lld values · %lld occurrences in this document" = "%lld valeurs · %lld occurrences dans ce document";
 "%@, %lld values, %lld occurrences" = "%@, %lld valeurs, %lld occurrences";

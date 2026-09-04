@@ -496,66 +496,9 @@ enum FillProfilePrimaryAction: Equatable {
     }
 }
 
-extension ReviewModel {
-    /// Build the protected body text shown in Safe Preview. Existing token
-    /// assignments from a client or session handoff are used as a seed so the
-    /// preview stays aligned after Export for AI. Before the first handoff, the
-    /// tokenizer mints deterministic provisional tokens using the same rules as
-    /// export. Rejected entities are omitted from the span list and therefore
-    /// remain visible in the preview.
-    nonisolated static func redactedPreviewText(
-        text: String,
-        entities: [ReviewEntity],
-        style: SubstitutionStyle = .token,
-        language: AppLanguage? = nil
-    ) -> String {
-        let accepted = entities.filter(\.accepted)
-        var seedEntries: [String: MappingEntry] = [:]
-
-        for entity in accepted {
-            guard let token = entity.token else { continue }
-            if var existing = seedEntries[token] {
-                let surface = entity.span.text
-                if surface != existing.value,
-                   surface != existing.surfaceText,
-                   !existing.aliases.contains(surface) {
-                    existing.aliases.append(surface)
-                    seedEntries[token] = existing
-                }
-            } else {
-                seedEntries[token] = MappingEntry(
-                    token: token,
-                    value: entity.span.text,
-                    type: entity.span.type,
-                    surfaceText: entity.span.text,
-                    aliases: []
-                )
-            }
-        }
-
-        let seed = seedEntries.isEmpty
-            ? nil
-            : Mapping(
-                entries: seedEntries,
-                createdAtISO8601: "preview",
-                sourceFile: "preview",
-                style: style
-            )
-
-        let tokenized = Tokenizer.tokenize(
-            text: text,
-            spans: accepted.map(\.span),
-            sourceFile: "preview",
-            createdAtISO8601: "preview",
-            seedMapping: seed,
-            style: style
-        )
-        guard tokenized.unresolvedSeams.isEmpty else {
-            return L10n.string(
-                "Safe Preview unavailable: pseudonym restoration could not be verified.",
-                language: language
-            )
-        }
-        return tokenized.tokenizedText
-    }
-}
+// The Safe Preview rendering used to be built here as bare text. It is built
+// by ReviewModel.redactedPreviewSurface now (SafePreviewSelection.swift),
+// which returns the rendering together with its pairing back to the original,
+// because a caller holding only the text cannot tell which of its offsets are
+// the document's own. There is deliberately no text-only entry point left to
+// reach for.

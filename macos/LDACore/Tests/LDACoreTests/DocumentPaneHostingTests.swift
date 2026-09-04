@@ -148,17 +148,74 @@ final class DocumentPaneHostingTests: XCTestCase {
         XCTAssertNotNil(attributes[.toolTip])
         XCTAssertEqual(textView.selectedRange(), range)
 
-        // Safe Preview shows the tokens, turns selection off, clears the
-        // model's selection, and offers only the way back to Original.
+        // Safe Preview shows the tokens and stays selectable, but the two
+        // surfaces have different offsets, so the Original-mode selection is
+        // dropped on the way in rather than reinterpreted.
         model.previewMode = .safePreview
         settle(host)
-        XCTAssertFalse(textView.isSelectable)
+        XCTAssertTrue(textView.isSelectable)
         XCTAssertNil(model.selectedTextRange)
         XCTAssertFalse(model.canProtectSelection)
         XCTAssertTrue(textView.string.contains("{PERSON_1}"), textView.string)
         XCTAssertFalse(textView.string.contains("张三"))
-        let safeMenu = try XCTUnwrap(textView.menu(for: event))
-        XCTAssertEqual(safeMenu.items.first?.title, L10n.string("Show Original to Select Text"))
+
+        // The pane installs the rendering it is showing together with its
+        // pairing, which is what the selection gate reads.
+        XCTAssertEqual(model.safePreviewSurface.text, textView.string)
+        XCTAssertNotNil(
+            model.safePreviewSurface.pairing,
+            "the rendering on screen must be paired back to the original"
+        )
+
+        // Selecting a stand-in is refused, and the menu says why instead of
+        // offering to protect the token.
+        let preview = textView.string as NSString
+        let tokenRange = preview.range(of: "{PERSON_1}")
+        textView.setSelectedRange(tokenRange)
+        XCTAssertEqual(model.protectableSelection(for: model.selectedTextRange), .standIn("{PERSON_1}"))
+
+        // Right-clicking inside the token: AppKit re-selects under the
+        // pointer while the menu is built, so the assertions below read the
+        // selection the menu actually described.
+        let tokenEvent = try XCTUnwrap(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: try Self.windowPoint(inside: tokenRange, of: textView),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let safeMenu = try XCTUnwrap(textView.menu(for: tokenEvent))
+        let underPointer = textView.selectedRange()
+        guard case .standIn(let shown) = model.protectableSelection(for: underPointer) else {
+            return XCTFail(
+                "the right-click landed outside the stand-in: "
+                    + preview.substring(with: underPointer)
+            )
+        }
+        let refusal = try XCTUnwrap(safeMenu.items.first)
+        XCTAssertFalse(refusal.isEnabled, "a stand-in offers nothing to protect")
+        XCTAssertTrue(refusal.title.contains(shown), refusal.title)
+        XCTAssertEqual(
+            refusal.title,
+            ProtectSelectionPresentation.refusal(for: .standIn(shown)),
+            "the item states the same refusal the notice row would"
+        )
+        XCTAssertEqual(safeMenu.items[1].title, L10n.string("Show Original to Select Text"))
+
+        // Text the rendering carried through is the document's own text, so
+        // it can be protected from here.
+        textView.setSelectedRange(preview.range(of: "zhang.san@example.com"))
+        XCTAssertEqual(
+            model.protectableSelection(for: model.selectedTextRange),
+            .value("zhang.san@example.com")
+        )
+        XCTAssertTrue(model.canProtectSelection)
+        XCTAssertEqual(model.selectedText, "zhang.san@example.com")
+        model.selectedTextRange = nil
 
         model.previewMode = .original
         settle(host)

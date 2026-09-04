@@ -37,6 +37,19 @@ enum ProtectSelectionPresentation {
                 outcome.value as NSString,
                 container as NSString
             )
+        case .standIn(let shown):
+            return String(
+                format: L10n.string(
+                    "“%@” is a stand-in for a value LDA already protects. Switch to Original to work with the value behind it.",
+                    language: language
+                ),
+                shown as NSString
+            )
+        case .undecidableSurface:
+            return L10n.string(
+                "LDA cannot match this preview to your document, so a selection here cannot be protected. Switch to Original and select the text there.",
+                language: language
+            )
         case nil:
             break
         }
@@ -69,6 +82,32 @@ enum ProtectSelectionPresentation {
             sentence += " " + suffix
         }
         return sentence
+    }
+
+    /// The sentence for a selection that cannot be protected, or nil when it
+    /// can (or when nothing is selected, which the entry points show as a
+    /// disabled item rather than an explanation).
+    ///
+    /// The same keys as the notice row, so the context menu and the notice
+    /// cannot drift into saying different things about one selection.
+    static func refusal(
+        for selection: ProtectableSelection,
+        language: AppLanguage? = nil
+    ) -> String? {
+        switch selection {
+        case .value, .nothing:
+            return nil
+        case .standIn(let shown):
+            return message(
+                for: .refused(.standIn(shown: shown), value: shown, type: .person),
+                language: language
+            )
+        case .undecidable:
+            return message(
+                for: .refused(.undecidableSurface, value: "", type: .person),
+                language: language
+            )
+        }
     }
 
     /// The VoiceOver announcement for a successful protection.

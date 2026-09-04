@@ -400,7 +400,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities).text,
             "{PERSON_1} emailed bob@example.com."
         )
     }
@@ -420,7 +420,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities).text,
             "{COMPANY_7} retained {PERSON_1}."
         )
     }
@@ -436,22 +436,22 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(
+            ReviewModel.redactedPreviewSurface(
                 text: text,
                 entities: entities,
                 style: .pseudonym,
                 language: .english
-            ),
+            ).text,
             "Safe Preview unavailable: pseudonym restoration could not be verified."
         )
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(
+            ReviewModel.redactedPreviewSurface(
                 text: text,
                 entities: entities,
                 style: .pseudonym,
                 language: .simplifiedChinese
-            ),
+            ).text,
             "无法显示隐去预览：无法验证化名能否正确恢复。"
         )
     }
@@ -491,7 +491,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            ReviewModel.redactedPreviewText(text: text, entities: entities),
+            ReviewModel.redactedPreviewSurface(text: text, entities: entities).text,
             "{PERSON_4} asked {PERSON_4} to sign."
         )
     }
@@ -550,9 +550,13 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
         )
     }
 
-    func testSafePreviewDisablesDirectTextSelection() {
-        XCTAssertTrue(DocumentPreviewMode.original.allowsTextSelection)
-        XCTAssertFalse(DocumentPreviewMode.safePreview.allowsTextSelection)
+    /// Both surfaces are selectable; what differs is whether a selection is
+    /// already the original document's own text. Safe Preview's is not, so it
+    /// has to be paired back before anything can be protected (see
+    /// SafePreviewProtectTests).
+    func testOnlyTheOriginalSurfaceReportsSelectionsInTheOriginalsOffsets() {
+        XCTAssertTrue(DocumentPreviewMode.original.selectionIsOriginalText)
+        XCTAssertFalse(DocumentPreviewMode.safePreview.selectionIsOriginalText)
     }
 
     func testFillPrimaryActionUsesProgressiveDisclosure() {

@@ -9,7 +9,19 @@
 //  protectSelection applies the rules below, returning a ProtectOutcome the
 //  notice and the tests read.
 //
+//  The reported range is in the offsets of the surface ON SCREEN, so rule 0
+//  below runs before any of the others: protectSelectionSource pairs a Safe
+//  Preview range back to the original text and refuses what it cannot
+//  attribute (see SafePreviewSelection.swift). Only the range it returns is
+//  ever read against documentText.
+//
 //  Rules:
+//  0. The selection must be text the ORIGINAL document holds. In Original
+//     mode it is, by construction. In Safe Preview it is only so where the
+//     pairing says the rendering carried the original through; a selection
+//     touching a stand-in, or made in a surface that could not be paired, is
+//     refused with a sentence. Both refusals exist because the alternative is
+//     a mapping keyed on a replacement, which fails at restore, silently.
 //  1. Trim whitespace, then surrounding punctuation from a fixed set. Periods
 //     are kept ("Inc." keeps its dot). The trimmed value is what every notice
 //     quotes, so the user sees exactly what was protected.
@@ -54,6 +66,13 @@ public struct ProtectOutcome: Equatable {
         case roleLabel
         /// Every occurrence sits strictly inside an already protected span.
         case insideProtected(container: String)
+        /// The Safe Preview selection is (or touches) a stand-in written for
+        /// a value that is already protected, so there is nothing to protect
+        /// and the stand-in must never become a mapping key.
+        case standIn(shown: String)
+        /// The Safe Preview rendering could not be paired with the original
+        /// text, so no selection in it can be attributed to the document.
+        case undecidableSurface
     }
 
     /// The trimmed value the action worked on.
@@ -168,6 +187,14 @@ enum ProtectSelectionRules {
         value.contains(where: \.isNewline)
     }
 
+    /// The trimmed text to quote back to the user, falling back to the raw
+    /// selection when trimming leaves nothing. A refusal still has to name
+    /// what was selected, even when that is only punctuation or a brace.
+    static func trimmedForDisplay(_ raw: String) -> String {
+        let trimmed = trim(raw)
+        return trimmed.isEmpty ? raw : trimmed
+    }
+
     /// Priority above the deterministic maximum so a user decision survives
     /// any later overlap resolution (same value addManualEntity uses).
     static let manualPriority = 110
@@ -190,32 +217,132 @@ extension ReviewModel {
         }
     }
 
-    /// The one gate every Protect Selection entry point reads: Original mode
-    /// is shown, a non-empty selection exists inside the text, and the entity
-    /// list is not being rebuilt.
-    public var canProtectSelection: Bool {
-        guard canProtectText, previewMode == .original else { return false }
-        guard let range = selectedTextRange, range.length > 0,
-              range.location >= 0,
-              NSMaxRange(range) <= (documentText as NSString).length else {
-            return false
+    /// Where a Protect action would take its text from, for one reported
+    /// range. THE decision point: every entry point that turns a selection
+    /// into text goes through here, so the pairing is consulted once and
+    /// cannot be skipped by adding another button.
+    ///
+    /// Only `.original` carries a range, and it is always in the ORIGINAL
+    /// text's offsets, which is the one space the entity list, the mapping,
+    /// and every literal search speak.
+    func protectSelectionSource(for range: NSRange?) -> ProtectSelectionSource {
+        guard let range, range.length > 0, range.location != NSNotFound, range.location >= 0 else {
+            return .nothing
         }
-        return true
+        // Anything that is not the original surface has to be paired back to
+        // it, which is also the right default for a surface added later: an
+        // unpaired one can only answer "undecidable".
+        guard !previewMode.selectionIsOriginalText else {
+            guard NSMaxRange(range) <= (documentText as NSString).length else { return .nothing }
+            return .original(range)
+        }
+
+        let preview = safePreviewSurface.text as NSString
+        guard NSMaxRange(range) <= preview.length else { return .nothing }
+        guard let pairing = safePreviewSurface.pairing else { return .undecidable }
+        switch pairing.resolve(selection: range) {
+        case .replacement:
+            return .standIn(preview.substring(with: range))
+        case .undecidable:
+            return .undecidable
+        case .carriedThrough(let original):
+            // The pairing proves the rendering carried these characters
+            // through, so the two substrings must agree. Reading both and
+            // comparing is what turns a surface built for a document that has
+            // since changed into a refusal instead of text taken from the
+            // wrong place.
+            let text = documentText as NSString
+            guard NSMaxRange(original) <= text.length,
+                  text.substring(with: original) == preview.substring(with: range) else {
+                return .undecidable
+            }
+            return .original(original)
+        }
     }
 
-    /// The raw selected substring, or nil when the selection is empty or stale.
+    /// The same answer as the menus and the footer button need it: trimmed
+    /// text, or the reason there is none.
+    public func protectableSelection(for range: NSRange?) -> ProtectableSelection {
+        switch protectSelectionSource(for: range) {
+        case .nothing:
+            return .nothing
+        case .undecidable:
+            return .undecidable
+        case .standIn(let shown):
+            return .standIn(ProtectSelectionRules.trimmedForDisplay(shown))
+        case .original(let original):
+            let value = ProtectSelectionRules.trim((documentText as NSString).substring(with: original))
+            return value.isEmpty ? .nothing : .value(value)
+        }
+    }
+
+    /// The one gate every Protect Selection entry point reads: the entity
+    /// list is not being rebuilt and a non-empty selection exists inside the
+    /// surface on screen.
+    ///
+    /// This gate is deliberately NOT the safety boundary. It stays open for a
+    /// stand-in and for an unpairable preview so the action can be reached
+    /// and can answer with a sentence; protectSelectionSource is what refuses
+    /// them. A disabled control explains nothing, and silence is what this
+    /// feature must never answer with.
+    public var canProtectSelection: Bool {
+        guard canProtectText else { return false }
+        return protectSelectionSource(for: selectedTextRange) != .nothing
+    }
+
+    /// The selected substring when it is the document's own text, nil in
+    /// every other case (nothing selected, a stale range, a stand-in, or a
+    /// surface that could not be paired). Callers hand this straight to
+    /// protectValue, which searches the original text for it, so it must
+    /// never be text the original does not hold.
     public var selectedText: String? {
-        guard let range = selectedTextRange, range.length > 0 else { return nil }
-        let nsText = documentText as NSString
-        guard range.location >= 0, NSMaxRange(range) <= nsText.length else { return nil }
-        return nsText.substring(with: range)
+        guard case .original(let range) = protectSelectionSource(for: selectedTextRange) else {
+            return nil
+        }
+        return (documentText as NSString).substring(with: range)
     }
 
     /// Ask the pane to open the kind chooser on the current selection. Used by
     /// the Review menu command (Cmd+Shift+P).
+    ///
+    /// A selection the surface cannot attribute to the document gets the
+    /// refusal notice instead of the chooser: opening the chooser would
+    /// quietly fall back to its typed path, which reads as the command having
+    /// done nothing.
     public func requestProtectSelection() {
         guard canProtectSelection else { return }
-        protectSelectionRequestToken += 1
+        let source = protectSelectionSource(for: selectedTextRange)
+        switch source {
+        case .original, .nothing:
+            protectSelectionRequestToken += 1
+        case .standIn, .undecidable:
+            refuseSelection(source, range: selectedTextRange)
+        }
+    }
+
+    /// Post the notice for a selection that cannot be protected at all.
+    /// `.nothing` and `.original` are not refusals and are not accepted here.
+    @discardableResult
+    private func refuseSelection(
+        _ source: ProtectSelectionSource,
+        range: NSRange?,
+        type: EntityType = .person
+    ) -> ProtectOutcome {
+        let refusal: ProtectOutcome.Refusal
+        let value: String
+        switch source {
+        case .standIn(let shown):
+            value = ProtectSelectionRules.trimmedForDisplay(shown)
+            refusal = .standIn(shown: value)
+        case .undecidable:
+            value = ""
+            refusal = .undecidableSurface
+        case .original, .nothing:
+            return .refused(.emptySelection, value: "", type: type)
+        }
+        let outcome = ProtectOutcome.refused(refusal, value: value, type: type)
+        postNotice(for: outcome, range: range)
+        return outcome
     }
 
     /// How often a value occurs literally in the document (non-overlapping).
@@ -236,6 +363,10 @@ extension ReviewModel {
     }
 
     /// Protect the selected text as `type`. See the file header for the rules.
+    ///
+    /// `range` is in the offsets of the surface the pane is showing. Rule 0
+    /// runs first: only a range the pairing attributes to the original text
+    /// reaches the rules below, and it reaches them translated.
     @discardableResult
     public func protectSelection(
         range: NSRange,
@@ -243,12 +374,18 @@ extension ReviewModel {
         undoManager: UndoManager?,
         allowRoleLabel: Bool = false
     ) -> ProtectOutcome {
-        let nsText = documentText as NSString
-        guard range.location != NSNotFound, range.location >= 0, range.length > 0,
-              NSMaxRange(range) <= nsText.length else {
+        let source = protectSelectionSource(for: range)
+        let originalRange: NSRange
+        switch source {
+        case .original(let resolved):
+            originalRange = resolved
+        case .nothing:
             return .refused(.emptySelection, value: "", type: type)
+        case .standIn, .undecidable:
+            return refuseSelection(source, range: range, type: type)
         }
-        let value = ProtectSelectionRules.trim(nsText.substring(with: range))
+        let nsText = documentText as NSString
+        let value = ProtectSelectionRules.trim(nsText.substring(with: originalRange))
         guard !value.isEmpty else {
             return .refused(.emptySelection, value: "", type: type)
         }
