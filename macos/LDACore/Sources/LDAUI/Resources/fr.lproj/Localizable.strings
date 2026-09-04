@@ -787,7 +787,7 @@
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "Enregistrez le fichier Markdown caviardé destiné à l’IA. Conservez sur ce Mac le fichier .ldamap enregistré à côté.";
 "Restore a file" = "Restaurer un fichier";
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choisissez ou déposez le fichier qui vous est revenu : le Markdown exporté pour l’IA, ou un document Word caviardé que vous avez enregistré. La table de correspondance est retrouvée automatiquement dans cette session ou dans le fichier .ldamap enregistré à côté. La mise en forme est conservée lorsque le fichier est un document Word.";
-"Pick the file that came back and write the restored document (Cmd+R)" = "Choisir le fichier revenu et enregistrer le document restauré (Cmd+R)";
+"Pick the file that came back, review the restored document, then save it (Cmd+R)" = "Choisir le fichier revenu, vérifier le document restauré, puis l’enregistrer (Cmd+R)";
 "Bring the real values back. Restore runs on this Mac." = "Rétablissez les valeurs réelles. La restauration s’exécute sur ce Mac.";
 "No mapping was found for this file." = "Aucune table de correspondance n’a été trouvée pour ce fichier.";
 "Choose the .ldamap that was saved with it." = "Choisissez le fichier .ldamap enregistré avec lui.";
@@ -925,3 +925,16 @@
 "Save Redacted needs a finished scan. Click Scan for PII first." = "Enregistrer le document caviardé exige une recherche terminée. Cliquez d’abord sur Rechercher les données personnelles.";
 "This document did not open, so there is nothing to save. Open the file again." = "Ce document ne s’est pas ouvert, il n’y a donc rien à enregistrer. Ouvrez le fichier à nouveau.";
 "Export Report covers an Export for AI handoff. Run one first." = "Exporter le rapport porte sur un transfert Exporter pour l’IA. Effectuez-en un d’abord.";
+"Review the restored document" = "Vérifier le document restauré";
+"Nothing has been written yet. Read the restored text, correct any value that is wrong, then choose where the document goes." = "Rien n’a encore été écrit. Lisez le texte restauré, corrigez toute valeur erronée, puis choisissez où enregistrer le document.";
+"%lld value will be restored." = "%lld valeur sera restaurée.";
+"%lld values will be restored." = "%lld valeurs seront restaurées.";
+"Restored document" = "Document restauré";
+"Values this restore will write" = "Valeurs que cette restauration écrira";
+"Correcting a value here changes the mapping, not the text of the document. The restore writes your correction at every site that placeholder appears." = "Corriger une valeur ici modifie la table de correspondance, pas le texte du document. La restauration écrit votre correction à chaque emplacement où cet espace réservé apparaît.";
+"These cannot be corrected here. A placeholder that is missing from the mapping or damaged by editing is not a recorded value, and a masked form several entities share has no single owner. Settle those by hand in the saved document." = "Ces éléments ne peuvent pas être corrigés ici. Un espace réservé absent de la table de correspondance ou endommagé lors de la modification n’est pas une valeur enregistrée, et une forme masquée partagée par plusieurs entités n’a pas de propriétaire unique. Réglez ces cas à la main dans le document enregistré.";
+"Output format" = "Format de sortie";
+"Markdown" = "Markdown";
+"Plain text" = "Texte brut";
+"Word document" = "Document Word";
+"Choose Where to Save…" = "Choisir l’emplacement d’enregistrement…";

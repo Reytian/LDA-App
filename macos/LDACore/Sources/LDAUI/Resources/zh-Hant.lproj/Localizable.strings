@@ -787,7 +787,7 @@
 "Save the redacted Markdown file for the AI. Keep the .ldamap file that is saved next to it on this Mac." = "儲存要交給 AI 的遮蔽後 Markdown 檔案。與之一同儲存的 .ldamap 檔案請留在這台 Mac 上。";
 "Restore a file" = "還原檔案";
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "選擇或拖入交回的檔案：您匯出供 AI 使用的 Markdown，或您儲存的遮蔽後 Word 文件。對應表會自動從此工作階段或檔案旁的 .ldamap 中找到。若檔案是 Word 文件，格式會保留。";
-"Pick the file that came back and write the restored document (Cmd+R)" = "選擇交回的檔案並輸出還原後的文件（Cmd+R）";
+"Pick the file that came back, review the restored document, then save it (Cmd+R)" = "選擇交回的檔案，檢查還原後的文件，然後儲存（Cmd+R）";
 "Bring the real values back. Restore runs on this Mac." = "還原實際值。還原在此 Mac 上執行。";
 "No mapping was found for this file." = "找不到此檔案的對應表。";
 "Choose the .ldamap that was saved with it." = "請選擇與它一同儲存的 .ldamap 檔案。";
@@ -925,3 +925,16 @@
 "Save Redacted needs a finished scan. Click Scan for PII first." = "「儲存遮蔽版本」需要一次已完成的掃描。請先點選「掃描個人資料」。";
 "This document did not open, so there is nothing to save. Open the file again." = "此文件未能開啟，因此沒有內容可儲存。請重新開啟該檔案。";
 "Export Report covers an Export for AI handoff. Run one first." = "「匯出報告」記錄的是一次「匯出供 AI 使用」交付。請先執行一次。";
+"Review the restored document" = "檢查還原後的文件";
+"Nothing has been written yet. Read the restored text, correct any value that is wrong, then choose where the document goes." = "目前尚未寫入任何檔案。請閱讀還原後的文字，更正有誤的值，然後選擇文件的儲存位置。";
+"%lld value will be restored." = "將還原 %lld 個值。";
+"%lld values will be restored." = "將還原 %lld 個值。";
+"Restored document" = "還原後的文件";
+"Values this restore will write" = "本次還原將寫入的值";
+"Correcting a value here changes the mapping, not the text of the document. The restore writes your correction at every site that placeholder appears." = "在此更正某個值只會修改對應表，不會修改文件正文。還原時，您的更正會寫入該預留位置出現的每一處位置。";
+"These cannot be corrected here. A placeholder that is missing from the mapping or damaged by editing is not a recorded value, and a masked form several entities share has no single owner. Settle those by hand in the saved document." = "這些內容無法在此更正。對應表中缺失或在編輯時受損的預留位置並不是已記錄的值；由多個實體共用的遮罩形式也沒有唯一歸屬。請在儲存後的文件中手動處理這些位置。";
+"Output format" = "輸出格式";
+"Markdown" = "Markdown";
+"Plain text" = "純文字";
+"Word document" = "Word 文件";
+"Choose Where to Save…" = "選擇儲存位置…";

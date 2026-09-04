@@ -13,13 +13,19 @@
 //
 //  Word documents restore through LDAService with their formatting kept.
 //  Markdown and text restore as text, or as a plain regenerated Word file
-//  when the user picks .docx in the save panel; merging AI edits back into
-//  the original Word runs is not offered.
+//  when the reader picks Word in the preview sheet's format control; merging
+//  AI edits back into the original Word runs is not offered.
 //
-//  The heavy lifting stays in SessionModel+RestoreFile / LDAService.restore;
-//  this view is chrome, file pickers, and honest result reporting (orphaned
-//  or damaged placeholders are listed, never guessed at, and the result names
-//  which key opened the file).
+//  ORDER OF OPERATIONS, which changed: resolve the mapping, compute the
+//  restore WITHOUT writing, show it, and only on approval ask where the
+//  document goes and write it. Cancel writes nothing. This flow used to pick
+//  the destination first and write unconditionally, so the reader saw the
+//  result, and every warning about it, only after the file was on disk.
+//
+//  The heavy lifting stays in SessionModel+RestoreFile / LDAService; this view
+//  is chrome, file pickers, and honest result reporting (orphaned or damaged
+//  placeholders are listed, never guessed at, and the result names which key
+//  opened the file).
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -50,6 +56,24 @@ public struct DeanonymizeShell: View {
     /// True while a file is being dragged over the card.
     @State private var isDropTargeted = false
     @State private var windowChromeTopInset: CGFloat = 0
+
+    /// The restore awaiting approval, and the sheet that shows it. Nil means
+    /// no restore is in flight and nothing is pending a write.
+    @State private var pending: PendingRestore?
+
+    /// The sandbox grant a DROPPED file arrived with, held for the whole flow.
+    ///
+    /// This is the hazard the preview sheet introduces. The grant used to be
+    /// released in a `defer` on restore(dropped:), which was correct only
+    /// because the write finished before that function returned. It no longer
+    /// does: the write now happens after the reader approves, on a later run
+    /// loop turn. A `defer` would therefore revoke the grant before the file
+    /// is read or the output written, and only under the App Sandbox, which
+    /// neither XCTest nor the unsandboxed dev binary exercises. So the grant
+    /// is held here for as long as the flow needs it and released in exactly
+    /// two places: the sheet's dismissal, whichever way it ends, and the early
+    /// return in beginRestore(file:) where no sheet will ever appear.
+    @State private var droppedAccess: ScopedFileAccess?
 
     public init(
         session: SessionModel,
@@ -98,6 +122,18 @@ public struct DeanonymizeShell: View {
         .onChange(of: model.restoreRequestToken) { _, _ in
             presentRestore()
         }
+        // onDismiss covers both ways the sheet closes, the reader's Cancel and
+        // the Escape key, so the dropped file's grant is given back on every
+        // path that reaches a sheet at all.
+        .sheet(item: $pending, onDismiss: releaseDroppedAccess) { request in
+            RestorePreviewSheet(
+                request: request,
+                onApprove: { amendments, format in
+                    approve(request, amendments: amendments, format: format)
+                },
+                onCancel: { pending = nil }
+            )
+        }
     }
 
     // MARK: - Header
@@ -125,7 +161,7 @@ public struct DeanonymizeShell: View {
                 + "from this session or from the .ldamap saved next to the file. "
                 + "Formatting is kept when the file is a Word document.",
             buttonTitle: "Choose File & Restore\u{2026}",
-            buttonHelp: "Pick the file that came back and write the restored document (Cmd+R)",
+            buttonHelp: "Pick the file that came back, review the restored document, then save it (Cmd+R)",
             isProminent: true,
             action: presentRestore
         )
@@ -189,7 +225,8 @@ public struct DeanonymizeShell: View {
 
     // MARK: - Restore flow
 
-    /// The button path: pick the file, then run the shared flow.
+    /// The button path: pick the file, then run the shared flow. A file chosen
+    /// in an open panel is granted on its own and needs no held scope.
     private func presentRestore() {
         let openPanel = NSOpenPanel()
         openPanel.canChooseFiles = true
@@ -199,11 +236,12 @@ public struct DeanonymizeShell: View {
         openPanel.message = L10n.string("Choose the edited redacted document to restore.")
         openPanel.prompt = L10n.string("Choose")
         guard openPanel.runModal() == .OK, let file = openPanel.url else { return }
-        restore(file: file)
+        _ = beginRestore(file: file)
     }
 
-    /// The drop path: the same flow, inside the sandbox scope a dropped URL
-    /// needs, after refusing files Restore cannot open.
+    /// The drop path: the same flow, holding the sandbox grant a dropped URL
+    /// needs for as long as the flow needs it, after refusing files Restore
+    /// cannot open.
     private func restore(dropped file: URL) {
         guard Self.supportedExtensions.contains(file.pathExtension.lowercased()) else {
             showFailure(String(
@@ -212,21 +250,80 @@ public struct DeanonymizeShell: View {
             ))
             return
         }
-        let needsScope = file.startAccessingSecurityScopedResource()
-        defer { if needsScope { file.stopAccessingSecurityScopedResource() } }
-        restore(file: file)
+        // Taken BEFORE the mapping and preview work, both of which read the
+        // file and its sibling .ldamap. See droppedAccess for why this is not
+        // a `defer` any more.
+        let access = ScopedFileAccess(file)
+        droppedAccess = access
+        if !beginRestore(file: file) {
+            // No sheet will be presented, so nothing will call onDismiss.
+            // Give the grant back here rather than leaving it to deinit.
+            droppedAccess = nil
+            access.release()
+        }
     }
 
-    /// Resolve the mapping, choose the output, restore, report.
-    private func restore(file: URL) {
-        guard let key = resolveMapping(for: file) else { return }
-        guard let output = chooseOutput(for: file) else { return }
+    /// Resolve the mapping, compute the restore without writing, and present
+    /// it for approval. Returns whether a sheet is now pending, which is what
+    /// tells the drop path whether its grant will be released on dismissal.
+    private func beginRestore(file: URL) -> Bool {
+        guard let key = resolveMapping(for: file) else { return false }
         do {
-            let report = try session.restoreFile(file, mapping: key.mapping, output: output)
-            showRestoreResult(report, keySource: key.source)
+            let preview = try LDAService.restorePreview(
+                editedRedacted: file,
+                mapping: key.mapping
+            )
+            pending = PendingRestore(
+                file: file,
+                mapping: key.mapping,
+                keySource: key.source,
+                preview: preview
+            )
+            resultMessage = nil
+            return true
         } catch {
             showFailure(DocumentErrorPresentation.describeOrFallback(error))
+            return false
         }
+    }
+
+    /// The approved path: apply the amendments, ask where the document goes,
+    /// write it, report. The save panel comes LAST, so a reader who backs out
+    /// of it has written nothing and keeps their amendments on the sheet.
+    private func approve(
+        _ request: PendingRestore,
+        amendments: [String: String],
+        format: RestoreOutputFormat
+    ) {
+        let outcome = RestoreApproval.run(
+            file: request.file,
+            mapping: request.mapping,
+            preview: request.preview,
+            amendments: amendments,
+            format: format,
+            chooseOutput: chooseOutput,
+            write: { file, mapping, output in
+                try session.restoreFile(file, mapping: mapping, output: output)
+            }
+        )
+        switch outcome {
+        case .cancelled:
+            // Deliberately leaves the sheet up: backing out of the save panel
+            // is not backing out of the restore.
+            return
+        case .written(let report):
+            showRestoreResult(report, keySource: request.keySource)
+        case .failed(let error):
+            showFailure(DocumentErrorPresentation.describeOrFallback(error))
+        }
+        pending = nil
+    }
+
+    /// Give back a dropped file's sandbox grant. Called from the sheet's
+    /// dismissal, so it runs for an approval, a Cancel, and an Escape alike.
+    private func releaseDroppedAccess() {
+        droppedAccess?.release()
+        droppedAccess = nil
     }
 
     /// The mapping for this file and which key it is. Nil when the user
@@ -317,21 +414,19 @@ public struct DeanonymizeShell: View {
         return field.stringValue.isEmpty ? nil : field.stringValue
     }
 
-    /// Where the restored document goes. A Word input stays Word; text input
-    /// defaults to its own extension and may become a plain Word file.
-    private func chooseOutput(for file: URL) -> URL? {
+    /// Where the restored document goes, in the container the reader picked on
+    /// the preview sheet.
+    ///
+    /// The panel is now filtered to that ONE type, so the choice reaches
+    /// LDAService (which decides the writer from the output extension) without
+    /// the reader having to retype an extension. It used to be filtered to
+    /// every allowed type at once with no control to pick among them, which is
+    /// why the Markdown to Word restore was unreachable in practice.
+    private func chooseOutput(suggestedName: String, format: RestoreOutputFormat) -> URL? {
         let panel = NSSavePanel()
-        let base = file.deletingPathExtension().lastPathComponent
-        let ext = file.pathExtension.lowercased()
-        if ext == "docx" {
-            panel.message = L10n.string("Save the restored document.")
-            panel.allowedContentTypes = [Self.wordType].compactMap { $0 }
-            panel.nameFieldStringValue = "\(base)_restored.docx"
-        } else {
-            panel.message = L10n.string("Word output from Markdown carries plain formatting.")
-            panel.allowedContentTypes = Self.textOutputTypes(for: ext)
-            panel.nameFieldStringValue = "\(base)_restored.\(ext.isEmpty ? "txt" : ext)"
-        }
+        panel.message = L10n.string("Save the restored document.")
+        panel.allowedContentTypes = [Self.contentType(for: format)].compactMap { $0 }
+        panel.nameFieldStringValue = suggestedName
         guard panel.runModal() == .OK, let output = panel.url else { return nil }
         return output
     }
@@ -383,13 +478,14 @@ public struct DeanonymizeShell: View {
     private static let restoreContentTypes: [UTType] =
         [markdownType, .plainText, .text, wordType].compactMap { $0 }
 
-    /// The save panel's filter for a text input: its own kind first, then
-    /// Word for the plain regenerated document.
-    private static func textOutputTypes(for ext: String) -> [UTType] {
-        var types: [UTType] = []
-        if ext == "md", let markdownType { types.append(markdownType) }
-        types.append(.plainText)
-        if let wordType { types.append(wordType) }
-        return types
+    /// The save panel's filter for one chosen output format. The only place
+    /// the reader's choice is turned into a system type; the format itself
+    /// stays Foundation only so it can be tested without a panel.
+    private static func contentType(for format: RestoreOutputFormat) -> UTType? {
+        switch format {
+        case .markdown: return markdownType
+        case .plainText: return .plainText
+        case .word: return wordType
+        }
     }
 }
