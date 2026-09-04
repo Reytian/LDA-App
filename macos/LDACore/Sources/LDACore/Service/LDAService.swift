@@ -406,6 +406,11 @@ public enum LDAService {
     /// in-memory mapping (DocxRedactor.restore for .docx, Restorer for text),
     /// and write the output.
     ///
+    /// The output is written in the form its own extension promises: a .docx
+    /// input keeps its formatting, and a text input asked to land in .docx
+    /// becomes a plain regenerated Word file instead of text bytes wearing a
+    /// .docx name.
+    ///
     /// The GUI resolves its mapping itself (the session mapping, the parked
     /// round trip, a client profile, or a sidecar it already opened) and hands
     /// the value in here, so no caller has to write a mapping to disk just to
@@ -451,10 +456,22 @@ public enum LDAService {
             return makeRestoreReport(output: output, from: report)
         }
 
-        // Text edit surface: restore the tokens and write the output as UTF-8.
+        // Text edit surface: restore the tokens, then write the output in the
+        // form its extension promises. A .docx output becomes a freshly
+        // regenerated plain Word file (one paragraph per line, the agreed
+        // fidelity floor), never UTF-8 text bytes under a .docx name: Word
+        // refuses to open those, and the restore would report success over a
+        // file the user cannot use. This decision lives here rather than in a
+        // caller so the CLI, the MCP server, and both GUI routes inherit it.
+        // Merging the edits back into an original Word document's runs is a
+        // different feature and is deliberately not offered.
         let imported = try importDocument(editedRedacted, extension: ext)
         let report = Restorer.restore(text: imported.text, mapping: loadedMapping)
-        try TextDocumentIO.exportText(report.text, to: output)
+        if output.pathExtension.lowercased() == "docx" {
+            try SimpleDocxWriter.write(report.text, to: output)
+        } else {
+            try TextDocumentIO.exportText(report.text, to: output)
+        }
         return makeRestoreReport(output: output, from: report)
     }
 

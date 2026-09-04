@@ -125,33 +125,18 @@ extension SessionModel {
     /// Markdown and text restore as text; when the chosen output is .docx they
     /// become a plain regenerated Word file (the agreed fidelity floor), never
     /// a merge into the original document's runs.
+    ///
+    /// LDAService.restore chooses between those forms, so this path adds only
+    /// the session record. That choice used to live here, which left the CLI
+    /// and the MCP server writing text bytes into a .docx name.
     public func restoreFile(_ editedFile: URL, mapping: Mapping, output: URL) throws -> RestoreReport {
-        let report: RestoreReport
-        if editedFile.pathExtension.lowercased() != "docx", output.pathExtension.lowercased() == "docx" {
-            report = try Self.restoreTextIntoPlainWord(editedFile, mapping: mapping, output: output)
-        } else {
-            report = try LDAService.restore(editedRedacted: editedFile, mapping: mapping, output: output)
-        }
+        let report = try LDAService.restore(
+            editedRedacted: editedFile,
+            mapping: mapping,
+            output: output
+        )
         recordRestoreEvent(report)
         return report
-    }
-
-    /// Text in, a fresh minimal Word file out (one paragraph per line).
-    private static func restoreTextIntoPlainWord(
-        _ editedFile: URL,
-        mapping: Mapping,
-        output: URL
-    ) throws -> RestoreReport {
-        let imported = try TextDocumentIO().importDocument(editedFile)
-        let result = Restorer.restore(text: imported.text, mapping: mapping)
-        try SimpleDocxWriter.write(result.text, to: output)
-        return RestoreReport(
-            outputURL: output,
-            restoredCount: result.restoredCount,
-            orphanTokens: result.orphanTokens,
-            suspectPlaceholders: result.suspectPlaceholders,
-            ambiguousReplacements: result.ambiguousReplacements
-        )
     }
 
     // MARK: - Session record (R18)
