@@ -54,10 +54,10 @@ struct ProfileBuilderBody: View {
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.8))
 
             VStack(spacing: 6) {
-                Text("No profile yet")
+                L10n.text("No profile yet")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Add source documents and click Extract, or load a saved .ldaprofile.")
+                L10n.text("Add source documents and click Extract, or load a saved .ldaprofile.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -77,7 +77,7 @@ struct SourceListPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Sources")
+            L10n.text("Sources")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
                 .padding(.horizontal, 12)
@@ -88,7 +88,7 @@ struct SourceListPane: View {
                 }
 
             if sourcePaths.isEmpty {
-                Text("No sources added")
+                L10n.text("No sources added")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(12)
@@ -298,7 +298,7 @@ struct ProfileFieldRow: View {
                     }
                 }
             } label: {
-                Label("Resolve", systemImage: "arrow.triangle.2.circlepath")
+                L10n.label("Resolve", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption)
                     .foregroundStyle(CounselTheme.danger)
             }
@@ -324,7 +324,7 @@ struct ProfileFieldRow: View {
                         format: L10n.string("Verified. Source: %@"),
                         field.sourceSnippet as NSString
                     ))
-                .accessibilityLabel("Verified")
+                .l10nAccessibilityLabel("Verified")
         } else {
             Image(systemName: "questionmark.circle")
                 .font(.caption)
@@ -335,7 +335,7 @@ struct ProfileFieldRow: View {
                         format: L10n.string("Unverified. Extracted from: %@"),
                         field.sourceSnippet as NSString
                     ))
-                .accessibilityLabel("Unverified")
+                .l10nAccessibilityLabel("Unverified")
         }
     }
 }

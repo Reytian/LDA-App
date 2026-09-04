@@ -61,7 +61,7 @@ struct HandoffCompletionCard: View {
             switch completion {
             case .exportedForAI(let result):
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Redacted file saved")
+                    L10n.text("Redacted file saved")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text(verbatim: AnonymizeWorkflowPresentation.exportCompletionDetail(
@@ -112,14 +112,14 @@ struct HandoffCompletionCard: View {
 
             Spacer(minLength: 12)
 
-            Button("Reveal in Finder") {
+            L10n.button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting(completion.revealedFiles)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .fixedSize()
 
-            Button("Go to Restore") {
+            L10n.button("Go to Restore") {
                 onOpenRestore()
             }
             .buttonStyle(.borderedProminent)
@@ -135,8 +135,8 @@ struct HandoffCompletionCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .help("Dismiss")
-            .accessibilityLabel("Dismiss completion")
+            .l10nHelp("Dismiss")
+            .l10nAccessibilityLabel("Dismiss completion")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -156,7 +156,7 @@ struct HandoffCompletionCard: View {
         protection: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Redacted document saved")
+            L10n.text("Redacted document saved")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             completionFileLine(

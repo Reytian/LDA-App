@@ -58,9 +58,9 @@ struct AppShellToolbar: ToolbarContent {
                 Button {
                     onOpen()
                 } label: {
-                    Label("Open", systemImage: "doc.badge.plus")
+                    L10n.label("Open", systemImage: "doc.badge.plus")
                 }
-                .help("Add .txt, .docx, .pdf documents or a .zip to the session")
+                .l10nHelp("Add .txt, .docx, .pdf documents or a .zip to the session")
 
                 ClientMatterMenu(
                     session: session,
@@ -82,7 +82,7 @@ struct AppShellToolbar: ToolbarContent {
                 Button {
                     onExportForAI()
                 } label: {
-                    Label("Export for AI\u{2026}", systemImage: "doc.richtext")
+                    L10n.label("Export for AI\u{2026}", systemImage: "doc.richtext")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.entries.contains { $0.model.canExport })
@@ -91,11 +91,11 @@ struct AppShellToolbar: ToolbarContent {
                 Button {
                     exportFlow.requestExport()
                 } label: {
-                    Label("Save Redacted", systemImage: "square.and.arrow.up")
+                    L10n.label("Save Redacted", systemImage: "square.and.arrow.up")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!model.canExport)
-                .help("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
+                .l10nHelp("Save this document redacted in its original format, plus the encrypted mapping. Restore brings it back with formatting preserved.")
 
                 // Next to Save Redacted, because it is the other thing a user
                 // saves at the end of a sitting: the redacted output goes out,
@@ -103,7 +103,7 @@ struct AppShellToolbar: ToolbarContent {
                 Button {
                     workspaceFlow.requestSave()
                 } label: {
-                    Label("Save Workspace", systemImage: "shippingbox")
+                    L10n.label("Save Workspace", systemImage: "shippingbox")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canSaveWorkspace)
@@ -118,7 +118,7 @@ struct AppShellToolbar: ToolbarContent {
                 Button {
                     reportFlow.requestExport()
                 } label: {
-                    Label("Export Report", systemImage: "list.clipboard")
+                    L10n.label("Export Report", systemImage: "list.clipboard")
                 }
                 .labelStyle(.titleAndIcon)
                 .disabled(!session.canExportComplianceReport)

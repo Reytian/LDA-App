@@ -68,10 +68,10 @@ struct ComplianceReportExportSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { flow.cancel() }
+                L10n.button("Cancel", role: .cancel) { flow.cancel() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Export Report") { onConfirm() }
+                L10n.button("Export Report") { onConfirm() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
@@ -101,11 +101,11 @@ struct ComplianceReportExportSheet: View {
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
-        SecureField("Passphrase", text: $flow.passphrase)
+        L10n.secureField("Passphrase", text: $flow.passphrase)
             .textFieldStyle(.roundedBorder)
             .frame(width: 320)
 
-        SecureField("Confirm passphrase", text: $flow.confirmation)
+        L10n.secureField("Confirm passphrase", text: $flow.confirmation)
             .textFieldStyle(.roundedBorder)
             .frame(width: 320)
 
@@ -144,7 +144,7 @@ struct ComplianceReportOpenSheet: View {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("Passphrase", text: $flow.passphrase)
+            L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
@@ -157,10 +157,10 @@ struct ComplianceReportOpenSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { flow.cancel() }
+                L10n.button("Cancel", role: .cancel) { flow.cancel() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Open") { onConfirm() }
+                L10n.button("Open") { onConfirm() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)

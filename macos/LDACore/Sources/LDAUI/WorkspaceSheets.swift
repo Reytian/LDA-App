@@ -34,20 +34,20 @@ struct WorkspaceSaveSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Protect this workspace")
+            L10n.text("Protect this workspace")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.")
+            L10n.text("The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("Passphrase", text: $flow.passphrase)
+            L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
-            SecureField("Confirm passphrase", text: $flow.confirmation)
+            L10n.secureField("Confirm passphrase", text: $flow.confirmation)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
@@ -68,10 +68,10 @@ struct WorkspaceSaveSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { flow.cancel() }
+                L10n.button("Cancel", role: .cancel) { flow.cancel() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Save Workspace") { onConfirm() }
+                L10n.button("Save Workspace") { onConfirm() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
@@ -93,16 +93,16 @@ struct WorkspaceOpenSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Open workspace")
+            L10n.text("Open workspace")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase.")
+            L10n.text("Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("Passphrase", text: $flow.passphrase)
+            L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
@@ -115,10 +115,10 @@ struct WorkspaceOpenSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { flow.cancel() }
+                L10n.button("Cancel", role: .cancel) { flow.cancel() }
                     .keyboardShortcut(.cancelAction)
 
-                Button("Open") { onConfirm() }
+                L10n.button("Open") { onConfirm() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)

@@ -150,10 +150,10 @@ public struct DocumentPane: View {
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.85))
 
             VStack(spacing: 6) {
-                Text("Drop documents to anonymize")
+                L10n.text("Drop documents to anonymize")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac.")
+                L10n.text("PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
@@ -162,7 +162,7 @@ public struct DocumentPane: View {
             Button {
                 presentOpenPanel()
             } label: {
-                Text("Choose Files")
+                L10n.text("Choose Files")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
@@ -198,7 +198,7 @@ public struct DocumentPane: View {
             return true
         } isTargeted: { isDropTargeted = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Drop documents to anonymize, or choose files")
+        .l10nAccessibilityLabel("Drop documents to anonymize, or choose files")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -267,7 +267,7 @@ public struct DocumentPane: View {
 
     private var previewHeader: some View {
         HStack(spacing: HeaderLayout.spacing) {
-            Picker("Document preview", selection: $model.previewMode) {
+            L10n.picker("Document preview", selection: $model.previewMode) {
                 ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
                     Text(mode.localizedKey).tag(mode)
                 }
@@ -283,14 +283,14 @@ public struct DocumentPane: View {
                         systemImage: "eye.trianglebadge.exclamationmark"
                     )
                     .foregroundStyle(CounselTheme.danger)
-                    .help("Items you rejected remain readable in this preview and in the saved document")
+                    .l10nHelp("Items you rejected remain readable in this preview and in the saved document")
                 } else {
-                    Label("Accepted findings replaced", systemImage: "checkmark.shield")
+                    L10n.label("Accepted findings replaced", systemImage: "checkmark.shield")
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
             } else if model.entities.isEmpty {
                 // The legend replaces this caption as soon as findings exist.
-                Text("Original text with review highlights")
+                L10n.text("Original text with review highlights")
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
@@ -372,7 +372,7 @@ public struct DocumentPane: View {
             Spacer(minLength: 8)
 
             if notice.offersProtectAnyway {
-                Button("Protect Anyway") {
+                L10n.button("Protect Anyway") {
                     model.protectValue(
                         notice.value,
                         type: notice.type,
@@ -384,7 +384,7 @@ public struct DocumentPane: View {
             }
 
             if notice.canUndo, undoManager != nil {
-                Button("Undo") {
+                L10n.button("Undo") {
                     undoManager?.undo()
                 }
                 .buttonStyle(.borderless)
@@ -395,7 +395,7 @@ public struct DocumentPane: View {
             }
 
             if notice.canChangeKind {
-                Button("Change Kind") {
+                L10n.button("Change Kind") {
                     isChangingKind = true
                 }
                 .buttonStyle(.borderless)
@@ -421,7 +421,7 @@ public struct DocumentPane: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(Text("Dismiss"))
+            .l10nAccessibilityLabel("Dismiss")
         }
         .font(.callout)
         .padding(.horizontal, 16)
@@ -476,7 +476,7 @@ public struct DocumentPane: View {
                 .controlSize(.small)
                 .tint(CounselTheme.inkAccent)
 
-            Text("Importing document")
+            L10n.text("Importing document")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)

@@ -67,7 +67,7 @@ struct FillReviewBody: View {
     private var planningPlaceholder: some View {
         VStack(spacing: 12) {
             ProgressView().controlSize(.regular)
-            Text("Planning fill")
+            L10n.text("Planning fill")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
         }
@@ -153,7 +153,7 @@ struct BlankSidebar: View {
     }
 
     private var blankEmptyState: some View {
-        Text("No blanks detected")
+        L10n.text("No blanks detected")
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(12)
@@ -171,8 +171,8 @@ struct BlankSidebar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .help("Settings")
-            .accessibilityLabel(Text("Settings"))
+            .l10nHelp("Settings")
+            .l10nAccessibilityLabel("Settings")
 
             Spacer(minLength: 0)
 
@@ -254,9 +254,9 @@ struct BlankRow: View {
             }
         }
         .contextMenu {
-            Button("Accept") { model.acceptBlank(id: blank.id) }
-            Button("Reject") { model.rejectBlank(id: blank.id) }
-            Button("Choose Field") {
+            L10n.button("Accept") { model.acceptBlank(id: blank.id) }
+            L10n.button("Reject") { model.rejectBlank(id: blank.id) }
+            L10n.button("Choose Field") {
                 pickerOpenForBlankID = blank.id
                 isPickerShowing = true
             }
@@ -353,7 +353,7 @@ struct FieldPickerPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Choose a field")
+            L10n.text("Choose a field")
                 .font(.headline)
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
@@ -400,7 +400,7 @@ struct FieldPickerPopover: View {
                 }
                 .frame(maxHeight: 280)
             } else {
-                Text("No profile fields available")
+                L10n.text("No profile fields available")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(16)
@@ -410,7 +410,7 @@ struct FieldPickerPopover: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { onDismiss() }
+                L10n.button("Cancel") { onDismiss() }
                     .keyboardShortcut(.cancelAction)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -621,10 +621,10 @@ struct BlankDocumentPane: View {
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.7))
 
             VStack(spacing: 6) {
-                Text("PDF target")
+                L10n.text("PDF target")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version.")
+                L10n.text("Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -655,7 +655,7 @@ struct FillReportPane: View {
                         .foregroundStyle(CounselTheme.inkAccent)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Fill complete")
+                        L10n.text("Fill complete")
                             .font(.system(.title2, design: .serif))
                             .foregroundStyle(CounselTheme.textPrimary)
                         Text(verbatim: FillStatusPresentation.completed(
@@ -708,7 +708,7 @@ struct FillReportPane: View {
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
 
-                        Text("The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):")
+                        L10n.text("The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):")
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)

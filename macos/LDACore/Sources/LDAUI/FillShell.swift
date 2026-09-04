@@ -209,7 +209,7 @@ public struct FillShell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
         .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
-        .navigationTitle("Fill from Profile")
+        .l10nNavigationTitle("Fill from Profile")
         .toolbar { toolbarContent }
         .sheet(isPresented: $isSavingWithPassphrase) {
             saveProfilePassphraseSheet
@@ -229,12 +229,12 @@ public struct FillShell: View {
                 portfolioKind: model.profile?.kind ?? .company
             )
         }
-        .confirmationDialog(
+        .l10nConfirmationDialog(
             "Leave editor?",
             isPresented: $isBackToLibraryConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Save and leave") {
+            L10n.button("Save and leave") {
                 Task {
                     await model.saveToLibrary(modifiedAtISO8601: nowISO8601())
                     // saveToLibrary clears profileDirty on success and sets stage
@@ -246,12 +246,12 @@ public struct FillShell: View {
                     }
                 }
             }
-            Button("Discard changes", role: .destructive) {
+            L10n.button("Discard changes", role: .destructive) {
                 model.backToLibrary()
             }
-            Button("Cancel", role: .cancel) {}
+            L10n.button("Cancel", role: .cancel) {}
         } message: {
-            Text("You have unsaved changes to this portfolio.")
+            L10n.text("You have unsaved changes to this portfolio.")
         }
         // Observe pickerRequestID via onReceive so the nil-then-reassign (M2)
         // trick in FillModel.acceptBlank fires even when the id does not change.
@@ -276,16 +276,16 @@ public struct FillShell: View {
                 activateLibraryIfNeeded()
             }
         }
-        .alert("Unlock your portfolio library?", isPresented: $isShowingKeychainNote) {
-            Button("Continue") {
+        .l10nAlert("Unlock your portfolio library?", isPresented: $isShowingKeychainNote) {
+            L10n.button("Continue") {
                 hasSeenLibraryKeychainNote = true
                 Task { await model.refreshLibrary() }
             }
-            Button("Not Now", role: .cancel) {
+            L10n.button("Not Now", role: .cancel) {
                 hasSeenLibraryKeychainNote = true
             }
         } message: {
-            Text("Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once.")
+            L10n.text("Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once.")
         }
     }
 
@@ -360,16 +360,16 @@ public struct FillShell: View {
             Button {
                 requestBackToLibrary()
             } label: {
-                Label("Back to Library", systemImage: "arrow.backward")
+                L10n.label("Back to Library", systemImage: "arrow.backward")
             }
-            .help("Return to the portfolio library")
+            .l10nHelp("Return to the portfolio library")
 
             Button {
                 presentAddSources()
             } label: {
-                Label("Add Sources", systemImage: "doc.badge.plus")
+                L10n.label("Add Sources", systemImage: "doc.badge.plus")
             }
-            .help("Add source documents to extract profile fields from (PDF, Word, or plain text)")
+            .l10nHelp("Add source documents to extract profile fields from (PDF, Word, or plain text)")
         }
 
         // One primary next action plus a More menu keeps the workflow legible
@@ -391,14 +391,14 @@ public struct FillShell: View {
                 Button {
                     isAddingField = true
                 } label: {
-                    Label("Add Field", systemImage: "plus.circle")
+                    L10n.label("Add Field", systemImage: "plus.circle")
                 }
                 .disabled(model.profile == nil)
 
                 Button {
                     Task { await model.saveToLibrary(modifiedAtISO8601: nowISO8601()) }
                 } label: {
-                    Label("Save to Library", systemImage: "checkmark.circle")
+                    L10n.label("Save to Library", systemImage: "checkmark.circle")
                 }
                 .disabled(!canSaveToLibrary)
 
@@ -407,15 +407,15 @@ public struct FillShell: View {
                     needsSave: profileNeedsSave
                 ) {
                     Button(action: presentOpenTarget) {
-                        Label("Choose Target Without Saving", systemImage: "doc.text")
+                        L10n.label("Choose Target Without Saving", systemImage: "doc.text")
                     }
                     .disabled(!canOpenTarget)
-                    .help("Use this profile for the current fill without adding it to the library")
+                    .l10nHelp("Use this profile for the current fill without adding it to the library")
                 }
 
                 if !model.sourcePaths.isEmpty, model.profile != nil {
                     Button(action: extractProfileFromSources) {
-                        Label("Re-extract from Sources", systemImage: "arrow.clockwise")
+                        L10n.label("Re-extract from Sources", systemImage: "arrow.clockwise")
                     }
                     .disabled(!canExtract)
                 }
@@ -423,17 +423,17 @@ public struct FillShell: View {
                 Divider()
 
                 Button(action: beginSaveProfile) {
-                    Label("Export Profile", systemImage: "tray.and.arrow.up")
+                    L10n.label("Export Profile", systemImage: "tray.and.arrow.up")
                 }
                 .disabled(!canSaveProfile)
 
                 Button(action: beginLoadProfile) {
-                    Label("Load Profile", systemImage: "tray.and.arrow.down")
+                    L10n.label("Load Profile", systemImage: "tray.and.arrow.down")
                 }
             } label: {
-                Label("More", systemImage: "ellipsis.circle")
+                L10n.label("More", systemImage: "ellipsis.circle")
             }
-            .help("More profile actions")
+            .l10nHelp("More profile actions")
         }
     }
 
@@ -444,9 +444,9 @@ public struct FillShell: View {
                 model.backToProfile()
                 applyMessage = nil
             } label: {
-                Label("Back to Profile", systemImage: "arrow.backward")
+                L10n.label("Back to Profile", systemImage: "arrow.backward")
             }
-            .help("Return to the profile builder")
+            .l10nHelp("Return to the profile builder")
         }
 
         ToolbarItemGroup(placement: .automatic) {
@@ -454,12 +454,12 @@ public struct FillShell: View {
                 Button {
                     beginApplyFill()
                 } label: {
-                    Label("Apply Fill", systemImage: "square.and.arrow.down")
+                    L10n.label("Apply Fill", systemImage: "square.and.arrow.down")
                 }
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
-                .help("Apply confirmed fills and write the output document")
+                .l10nHelp("Apply confirmed fills and write the output document")
             }
 
             Menu {
@@ -467,18 +467,18 @@ public struct FillShell: View {
                     Button {
                         model.acceptAllProposed()
                     } label: {
-                        Label("Accept All Proposed", systemImage: "checkmark.circle")
+                        L10n.label("Accept All Proposed", systemImage: "checkmark.circle")
                     }
                 }
 
                 Button(action: presentOpenTarget) {
-                    Label("Choose Another Target", systemImage: "doc.text")
+                    L10n.label("Choose Another Target", systemImage: "doc.text")
                 }
                 .disabled(model.stage == .planning || model.stage == .applying)
             } label: {
-                Label("More", systemImage: "ellipsis.circle")
+                L10n.label("More", systemImage: "ellipsis.circle")
             }
-            .help("More fill actions")
+            .l10nHelp("More fill actions")
         }
     }
 
@@ -514,7 +514,7 @@ public struct FillShell: View {
             bannerChrome {
                 ProgressView()
                     .controlSize(.small)
-                Text("Importing source documents")
+                L10n.text("Importing source documents")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
@@ -537,7 +537,7 @@ public struct FillShell: View {
                 bannerChrome {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(CounselTheme.danger)
-                    Text("Extraction could not fully scan all segments. Some fields may be missing.")
+                    L10n.text("Extraction could not fully scan all segments. Some fields may be missing.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.danger)
                     Spacer(minLength: 0)
@@ -549,7 +549,7 @@ public struct FillShell: View {
         } else if model.stage == .idle {
             // Empty state hint (when not booted yet)
             bannerChrome {
-                Text("Add source documents, then click Extract to build a profile.")
+                L10n.text("Add source documents, then click Extract to build a profile.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
@@ -608,7 +608,7 @@ public struct FillShell: View {
             bannerChrome {
                 ProgressView()
                     .controlSize(.small)
-                Text("Planning fill")
+                L10n.text("Planning fill")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
@@ -617,7 +617,7 @@ public struct FillShell: View {
             bannerChrome {
                 ProgressView()
                     .controlSize(.small)
-                Text("Applying fill")
+                L10n.text("Applying fill")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)

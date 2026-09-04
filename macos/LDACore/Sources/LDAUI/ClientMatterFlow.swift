@@ -55,9 +55,9 @@ struct ClientMatterMenu: View {
                 requestClientSelection(nil)
             } label: {
                 if session.clientLabel == nil {
-                    Label("No Matter", systemImage: "checkmark")
+                    L10n.label("No Matter", systemImage: "checkmark")
                 } else {
-                    Text("No Matter")
+                    L10n.text("No Matter")
                 }
             }
 
@@ -65,10 +65,10 @@ struct ClientMatterMenu: View {
             Button {
                 onOpenMatters()
             } label: {
-                Label("Choose Saved Matter\u{2026}", systemImage: "briefcase")
+                L10n.label("Choose Saved Matter\u{2026}", systemImage: "briefcase")
             }
 
-            Button("New Matter\u{2026}") {
+            L10n.button("New Matter\u{2026}") {
                 promptNewClient()
             }
 
@@ -77,7 +77,7 @@ struct ClientMatterMenu: View {
             // matter selected, so the item hides without one.
             if session.clientLabel != nil {
                 Divider()
-                Toggle(
+                L10n.toggle(
                     "Apply learned rules to this matter only",
                     isOn: matterScopeBinding
                 )
@@ -88,7 +88,7 @@ struct ClientMatterMenu: View {
                 systemImage: "person.crop.square"
             )
         }
-        .help("Work under a matter keeps the same placeholders for the same values, every time")
+        .l10nHelp("Work under a matter keeps the same placeholders for the same values, every time")
     }
 
     /// Routes the matter-scope toggle through the session, which persists the
@@ -151,7 +151,7 @@ struct ClientMatterFlow: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog(
+            .l10nConfirmationDialog(
                 "Close current work?",
                 isPresented: Binding(
                     get: { flow.pendingClientSelection != nil },
@@ -160,15 +160,15 @@ struct ClientMatterFlow: ViewModifier {
                 titleVisibility: .visible
             ) {
                 if let pendingClientSelection = flow.pendingClientSelection {
-                    Button("Close Active Work and Switch", role: .destructive) {
+                    L10n.button("Close Active Work and Switch", role: .destructive) {
                         completeClientSelection(pendingClientSelection.label)
                     }
                 }
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     flow.pendingClientSelection = nil
                 }
             } message: {
-                Text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
+                L10n.text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
             }
     }
 

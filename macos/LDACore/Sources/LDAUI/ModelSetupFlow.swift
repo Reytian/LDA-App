@@ -143,7 +143,7 @@ struct ModelSetupFlow: ViewModifier {
                     flow.pendingScan = nil
                     if let request { onScan(request) }
                 }
-                Button("Cancel", role: .cancel) { flow.pendingScan = nil }
+                L10n.button("Cancel", role: .cancel) { flow.pendingScan = nil }
                     .keyboardShortcut(.cancelAction)
             } message: {
                 Text(verbatim: scan.message)
@@ -172,7 +172,7 @@ struct ModelSetupFlow: ViewModifier {
                 // because the safe path has to be the keypress even with no
                 // remedy to offer. Escape reaches a cancel-role button anyway,
                 // so nothing is lost by spending its shortcut here.
-                Button("Cancel", role: .cancel) { flow.pendingExport = nil }
+                L10n.button("Cancel", role: .cancel) { flow.pendingExport = nil }
                     .keyboardShortcut(
                         exportDefault == .cancel ? .defaultAction : .cancelAction
                     )

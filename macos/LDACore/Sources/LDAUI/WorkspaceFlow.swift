@@ -102,7 +102,7 @@ struct WorkspaceFlow: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: sheetBinding) { sheet }
-            .confirmationDialog(
+            .l10nConfirmationDialog(
                 "Open workspace?",
                 isPresented: confirmationBinding,
                 titleVisibility: .visible
@@ -129,17 +129,17 @@ struct WorkspaceFlow: ViewModifier {
             // opening would discard it, but it cannot be written to a
             // workspace, so the button would be dead.
             if session.canSaveWorkspace {
-                Button("Save Current Work First\u{2026}") {
+                L10n.button("Save Current Work First\u{2026}") {
                     flow.pendingOpenAfterSave = url
                     flow.stage = .idle
                     flow.requestSave()
                 }
             }
-            Button("Discard and Open", role: .destructive) {
+            L10n.button("Discard and Open", role: .destructive) {
                 flow.stage = .opening(url)
             }
         }
-        Button("Cancel", role: .cancel) { flow.cancel() }
+        L10n.button("Cancel", role: .cancel) { flow.cancel() }
     }
 
     @ViewBuilder

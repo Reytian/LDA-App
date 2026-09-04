@@ -207,9 +207,9 @@ struct MatterWorkspaceView: View {
                     Button {
                         isNewMatterPresented = true
                     } label: {
-                        Label("New Matter", systemImage: "plus")
+                        L10n.label("New Matter", systemImage: "plus")
                     }
-                    .help("Start a protected workflow for a new client or matter")
+                    .l10nHelp("Start a protected workflow for a new client or matter")
                 }
             }
         }
@@ -223,7 +223,7 @@ struct MatterWorkspaceView: View {
                 try rename(summary, to: newLabel)
             }
         }
-        .confirmationDialog(
+        .l10nConfirmationDialog(
             "Close current work?",
             isPresented: Binding(
                 get: { pendingTransition != nil },
@@ -232,7 +232,7 @@ struct MatterWorkspaceView: View {
             titleVisibility: .visible
         ) {
             if let pendingTransition {
-                Button("Close Active Work and Switch", role: .destructive) {
+                L10n.button("Close Active Work and Switch", role: .destructive) {
                     do {
                         if try session.selectMatter(
                             pendingTransition.label,
@@ -246,11 +246,11 @@ struct MatterWorkspaceView: View {
                     self.pendingTransition = nil
                 }
             }
-            Button("Cancel", role: .cancel) {
+            L10n.button("Cancel", role: .cancel) {
                 pendingTransition = nil
             }
         } message: {
-            Text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
+            L10n.text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
         }
         .confirmationDialog(
             "Archive \(pendingArchive?.summary.label ?? "matter")?",
@@ -272,14 +272,14 @@ struct MatterWorkspaceView: View {
                     archive(pendingArchive)
                 }
             }
-            Button("Cancel", role: .cancel) {
+            L10n.button("Cancel", role: .cancel) {
                 pendingArchive = nil
             }
         } message: {
             if pendingArchive?.discardsActiveWork == true {
-                Text("Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived.")
+                L10n.text("Archiving closes the documents and unfinished restore context in this window. Saved files are not affected, and the matter can be restored from Archived.")
             } else {
-                Text("The matter will move out of Active. Its encrypted identities and history are kept and can be restored later.")
+                L10n.text("The matter will move out of Active. Its encrypted identities and history are kept and can be restored later.")
             }
         }
         .confirmationDialog(
@@ -291,29 +291,29 @@ struct MatterWorkspaceView: View {
             titleVisibility: .visible
         ) {
             if let pendingDelete {
-                Button("Delete Matter", role: .destructive) {
+                L10n.button("Delete Matter", role: .destructive) {
                     delete(pendingDelete)
                 }
             }
-            Button("Cancel", role: .cancel) {
+            L10n.button("Cancel", role: .cancel) {
                 pendingDelete = nil
             }
         } message: {
-            Text("This removes the matter's encrypted identities, local history, and matter-only rules from LDA. Saved or exported workspace, redacted, report, and restored files are not affected.")
+            L10n.text("This removes the matter's encrypted identities, local history, and matter-only rules from LDA. Saved or exported workspace, redacted, report, and restored files are not affected.")
         }
-        .alert(
+        .l10nAlert(
             "Could not update matter",
             isPresented: Binding(
                 get: { workspaceError != nil },
                 set: { if !$0 { workspaceError = nil } }
             )
         ) {
-            Button("OK", role: .cancel) {}
+            L10n.button("OK", role: .cancel) {}
         } message: {
             if let workspaceError {
                 Text(workspaceError)
             } else {
-                Text("Please try again.")
+                L10n.text("Please try again.")
             }
         }
         .onAppear {
@@ -353,7 +353,7 @@ struct MatterWorkspaceView: View {
 
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                    Text("Matters")
+                    L10n.text("Matters")
                         .font(.system(.title3, design: .serif).weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text(
@@ -371,12 +371,12 @@ struct MatterWorkspaceView: View {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.borderless)
-                .help("New Matter")
+                .l10nHelp("New Matter")
             }
             .padding(.horizontal, CounselTheme.Space.lg)
             .padding(.vertical, CounselTheme.Space.md)
 
-            Picker("Matter status", selection: $scope) {
+            L10n.picker("Matter status", selection: $scope) {
                 Text("Active \(activeCount)").tag(MatterWorkspaceScope.active)
                 Text("Archived \(archivedCount)").tag(MatterWorkspaceScope.archived)
             }
@@ -415,7 +415,7 @@ struct MatterWorkspaceView: View {
                             Button {
                                 matterToRename = summary
                             } label: {
-                                Label("Rename Matter", systemImage: "pencil")
+                                L10n.label("Rename Matter", systemImage: "pencil")
                             }
                             .disabled(loadFailed)
 
@@ -442,7 +442,7 @@ struct MatterWorkspaceView: View {
                                 Button(role: .destructive) {
                                     pendingDelete = summary
                                 } label: {
-                                    Label("Delete Matter", systemImage: "trash")
+                                    L10n.label("Delete Matter", systemImage: "trash")
                                 }
                                 .disabled(loadFailed)
                             }
@@ -459,7 +459,7 @@ struct MatterWorkspaceView: View {
                     VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                         Text(LocalizedStringKey(loadFailureTitleKey))
                             .font(.caption.weight(.semibold))
-                        Button("Try Again") { reload() }
+                        L10n.button("Try Again") { reload() }
                             .font(.caption)
                             .buttonStyle(.link)
                     }
@@ -736,12 +736,12 @@ private struct MatterDetailView: View {
             HStack(alignment: .top, spacing: CounselTheme.Space.lg) {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                     HStack(spacing: CounselTheme.Space.sm) {
-                        Text("MATTER WORKSPACE")
+                        L10n.text("MATTER WORKSPACE")
                             .font(.caption.weight(.semibold))
                             .tracking(0.8)
                             .foregroundStyle(CounselTheme.inkAccent)
                         if summary.isArchived {
-                            Label("Archived", systemImage: "archivebox.fill")
+                            L10n.label("Archived", systemImage: "archivebox.fill")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(CounselTheme.textSecondary)
                         }
@@ -754,7 +754,7 @@ private struct MatterDetailView: View {
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                     } else {
-                        Text("No protected handoffs recorded yet.")
+                        L10n.text("No protected handoffs recorded yet.")
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
@@ -762,7 +762,7 @@ private struct MatterDetailView: View {
                 Spacer()
                 Menu {
                     Button(action: onRename) {
-                        Label("Rename Matter", systemImage: "pencil")
+                        L10n.label("Rename Matter", systemImage: "pencil")
                     }
                     Divider()
                     Button(action: onArchiveToggle) {
@@ -780,7 +780,7 @@ private struct MatterDetailView: View {
                     if MatterWorkspacePresentation.canDelete(summary) {
                         Divider()
                         Button(role: .destructive, action: onDelete) {
-                            Label("Delete Matter", systemImage: "trash")
+                            L10n.label("Delete Matter", systemImage: "trash")
                         }
                     }
                 } label: {
@@ -788,30 +788,30 @@ private struct MatterDetailView: View {
                         .font(.title3)
                 }
                 .menuStyle(.borderlessButton)
-                .help("Matter actions")
+                .l10nHelp("Matter actions")
             }
 
             if summary.isArchived {
                 HStack(spacing: CounselTheme.Space.md) {
                     Button(action: onArchiveToggle) {
-                        Label("Restore to Active", systemImage: "arrow.uturn.backward.circle")
+                        L10n.label("Restore to Active", systemImage: "arrow.uturn.backward.circle")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
-                    Text("Restore this matter before starting another protected handoff.")
+                    L10n.text("Restore this matter before starting another protected handoff.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
             } else {
                 HStack(spacing: CounselTheme.Space.md) {
                     Button(action: onAnonymize) {
-                        Label("Anonymize Documents", systemImage: "checkmark.shield")
+                        L10n.label("Anonymize Documents", systemImage: "checkmark.shield")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
 
                     Button(action: onRestore) {
-                        Label("Restore AI Answer", systemImage: "arrow.uturn.backward.circle")
+                        L10n.label("Restore AI Answer", systemImage: "arrow.uturn.backward.circle")
                     }
                     .buttonStyle(.bordered)
                 }
@@ -862,12 +862,12 @@ private struct MatterDetailView: View {
 
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.md) {
-            Text("Recent activity")
+            L10n.text("Recent activity")
                 .font(.system(.title3, design: .serif).weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
 
             if !historyAvailable {
-                Label(
+                L10n.label(
                     "Some recent activity could not be unlocked. Readable handoffs remain below.",
                     systemImage: "exclamationmark.lock"
                 )
@@ -877,10 +877,10 @@ private struct MatterDetailView: View {
 
             if records.isEmpty, historyAvailable {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                    Text("Start with an anonymized handoff")
+                    L10n.text("Start with an anonymized handoff")
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
-                    Text("After Export for AI, this page will show the documents and counts for the handoff.")
+                    L10n.text("After Export for AI, this page will show the documents and counts for the handoff.")
                         .font(.callout)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
@@ -904,7 +904,7 @@ private struct MatterDetailView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Matter names, archive status, counts, and document names are stored in encrypted local records. Protected values and document contents are never stored here.")
+            L10n.text("Matter names, archive status, counts, and document names are stored in encrypted local records. Protected values and document contents are never stored here.")
         } icon: {
             Image(systemName: "lock.laptopcomputer")
         }
@@ -1025,7 +1025,7 @@ private struct MatterWorkspaceEmptyView: View {
             }
             if scope == .active {
                 Button(action: onNewMatter) {
-                    Label("Start a New Matter", systemImage: "plus")
+                    L10n.label("Start a New Matter", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
@@ -1051,21 +1051,21 @@ private struct NewMatterSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.lg) {
             VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                Text("New matter")
+                L10n.text("New matter")
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders.")
+                L10n.text("Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders.")
                     .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            TextField("Client or matter name", text: $label)
+            L10n.textField("Client or matter name", text: $label)
                 .textFieldStyle(.roundedBorder)
                 .focused($isLabelFocused)
                 .onSubmit(create)
 
-            Label(
+            L10n.label(
                 "The matter appears in this workspace after your first Export for AI.",
                 systemImage: "lock.laptopcomputer"
             )
@@ -1074,9 +1074,9 @@ private struct NewMatterSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                L10n.button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Start Anonymizing") { create() }
+                L10n.button("Start Anonymizing") { create() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
@@ -1121,25 +1121,25 @@ private struct RenameMatterSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.lg) {
             VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                Text("Rename matter")
+                L10n.text("Rename matter")
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Prior handoffs will stay together under the new name. Protected identities remain encrypted.")
+                L10n.text("Prior handoffs will stay together under the new name. Protected identities remain encrypted.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            TextField("Client or matter name", text: $label)
+            L10n.textField("Client or matter name", text: $label)
                 .textFieldStyle(.roundedBorder)
                 .focused($isLabelFocused)
                 .onSubmit(rename)
 
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                L10n.button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Rename") { rename() }
+                L10n.button("Rename") { rename() }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
@@ -1150,19 +1150,19 @@ private struct RenameMatterSheet: View {
         .frame(width: 460)
         .background(CounselTheme.appSurface)
         .onAppear { isLabelFocused = true }
-        .alert(
+        .l10nAlert(
             "Could not rename matter",
             isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )
         ) {
-            Button("OK", role: .cancel) {}
+            L10n.button("OK", role: .cancel) {}
         } message: {
             if let errorMessage {
                 Text(errorMessage)
             } else {
-                Text("Please try again.")
+                L10n.text("Please try again.")
             }
         }
     }

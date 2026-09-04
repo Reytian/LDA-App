@@ -104,10 +104,10 @@ public struct DeanonymizeShell: View {
 
     private var header: some View {
         VStack(spacing: 6) {
-            Text("Restore")
+            L10n.text("Restore")
                 .font(CounselTheme.Typography.pageTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text("Bring the real values back. Restore runs on this Mac.")
+            L10n.text("Bring the real values back. Restore runs on this Mac.")
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)

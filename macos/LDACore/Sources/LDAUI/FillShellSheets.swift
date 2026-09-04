@@ -26,29 +26,29 @@ extension FillShell {
 
     var importProfileSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Import portfolio")
+            L10n.text("Import portfolio")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
+            L10n.text("If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("Passphrase (optional)", text: $passphraseInput)
+            L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     isImportingProfile = false
                     pendingImportURL = nil
                     passphraseInput = ""
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Import") {
+                L10n.button("Import") {
                     confirmImportProfile()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -92,17 +92,17 @@ extension FillShell {
 
     var exportProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the export")
+            L10n.text("Protect the export")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain.")
+            L10n.text("Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let url = pendingExportURL, Self.isUnderICloud(url) {
-                Label(
+                L10n.label(
                     "This folder syncs to iCloud. The encrypted file will be uploaded with it.",
                     systemImage: "icloud.and.arrow.up"
                 )
@@ -111,13 +111,13 @@ extension FillShell {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            SecureField("Passphrase (optional)", text: $passphraseInput)
+            L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     isExportingWithPassphrase = false
                     exportingSummary = nil
                     pendingExportURL = nil
@@ -125,7 +125,7 @@ extension FillShell {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Export") {
+                L10n.button("Export") {
                     confirmExportFromLibrary()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -162,17 +162,17 @@ extension FillShell {
 
     var saveProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the profile")
+            L10n.text("Protect the profile")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the profile. Leave it blank to protect it with the system Keychain.")
+            L10n.text("Enter an optional passphrase to encrypt the profile. Leave it blank to protect it with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let url = pendingSaveURL, Self.isUnderICloud(url) {
-                Label(
+                L10n.label(
                     "This folder syncs to iCloud. The encrypted profile will be uploaded with it.",
                     systemImage: "icloud.and.arrow.up"
                 )
@@ -181,20 +181,20 @@ extension FillShell {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            SecureField("Passphrase (optional)", text: $passphraseInput)
+            L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     isSavingWithPassphrase = false
                     pendingSaveURL = nil
                     passphraseInput = ""
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Save") {
+                L10n.button("Save") {
                     confirmSaveProfile()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -234,29 +234,29 @@ extension FillShell {
 
     var loadProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Profile passphrase")
+            L10n.text("Profile passphrase")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
+            L10n.text("If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("Passphrase (optional)", text: $passphraseInput)
+            L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     isLoadingWithPassphrase = false
                     pendingLoadURL = nil
                     passphraseInput = ""
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Load") {
+                L10n.button("Load") {
                     confirmLoadProfile()
                 }
                 .keyboardShortcut(.defaultAction)

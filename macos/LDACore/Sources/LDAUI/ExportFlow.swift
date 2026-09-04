@@ -78,11 +78,11 @@ struct ExportFlow: ViewModifier {
 
     private var passphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Protect the mapping")
+            L10n.text("Protect the mapping")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text("Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.")
+            L10n.text("Enter an optional passphrase to encrypt the mapping sidecar. Leave it blank to protect the mapping with the system Keychain.")
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ struct ExportFlow: ViewModifier {
             // that file off this Mac.
             if let dir = flow.pendingExportDir, Self.isUnderICloud(dir) {
                 Label {
-                    Text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
+                    L10n.text("This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.")
                 } icon: {
                     Image(systemName: "icloud.and.arrow.up")
                 }
@@ -104,11 +104,10 @@ struct ExportFlow: ViewModifier {
             // Trust confirmation: what is and is not being redacted. The
             // count is the whole export, headers and footers included, not
             // the length of the review list.
-            (Text("\(model.totalRedactedCount)").bold() + Text(" entities will be redacted.")
-                + (model.visibleCount > 0
-                    ? Text("  \(model.visibleCount) you rejected will remain visible in the exported file.")
-                        .foregroundColor(CounselTheme.danger)
-                    : Text("")))
+            ExportCoverageSummary(
+                redactedCount: model.totalRedactedCount,
+                visibleCount: model.visibleCount
+            )
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -122,18 +121,18 @@ struct ExportFlow: ViewModifier {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            SecureField("Passphrase (optional)", text: $flow.passphrase)
+            L10n.secureField("Passphrase (optional)", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 320)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     cancelPassphrase()
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button("Export") {
+                L10n.button("Export") {
                     confirmExport()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -223,5 +222,39 @@ extension View {
         complete: @escaping (HandoffCompletion) -> Void
     ) -> some View {
         modifier(ExportFlow(session: session, flow: flow, report: report, complete: complete))
+    }
+}
+
+/// The export sheet's coverage sentence, as concatenated `Text` runs so the
+/// count can be bold and the rejected-count clause can be red.
+///
+/// This is a view rather than a `L10n.text` call because `+` composition
+/// needs real `Text` values, and `L10n.text` returns an opaque `some View`
+/// on purpose so that it cannot be spliced into a sentence by accident.
+/// The count-first shape is not an English accident: all four catalogs
+/// translate " entities will be redacted." as a suffix to a leading number
+/// (zh-Hans " 个实体将被脱敏。", fr " entités seront masquées."), so the
+/// concatenation reads correctly in every language the app ships.
+private struct ExportCoverageSummary: View {
+    @Environment(\.appLanguage) private var language
+    let redactedCount: Int
+    let visibleCount: Int
+
+    var body: some View {
+        let head = Text(verbatim: L10n.formatted("%lld", language: language, [redactedCount]))
+            .bold()
+            + Text(verbatim: L10n.string(" entities will be redacted.", language: language))
+        if visibleCount > 0 {
+            return head
+                + Text(
+                    verbatim: L10n.formatted(
+                        "  %lld you rejected will remain visible in the exported file.",
+                        language: language,
+                        [visibleCount]
+                    )
+                )
+                .foregroundColor(CounselTheme.danger)
+        }
+        return head
     }
 }

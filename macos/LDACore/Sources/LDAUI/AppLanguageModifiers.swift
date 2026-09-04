@@ -38,6 +38,15 @@ private struct L10nAccessibilityLabelModifier: ViewModifier {
     }
 }
 
+private struct L10nAccessibilityHintModifier: ViewModifier {
+    @Environment(\.appLanguage) private var language
+    let key: String
+
+    func body(content: Content) -> some View {
+        content.accessibilityHint(L10n.string(key, language: language))
+    }
+}
+
 private struct L10nAlertModifier<Actions: View, Message: View>: ViewModifier {
     @Environment(\.appLanguage) private var language
     let key: String
@@ -85,6 +94,11 @@ extension View {
     /// visible label does, and it is the half nobody notices going stale.
     func l10nAccessibilityLabel(_ key: String) -> some View {
         modifier(L10nAccessibilityLabelModifier(key: key))
+    }
+
+    /// `.accessibilityHint("literal")` routed through the environment language.
+    func l10nAccessibilityHint(_ key: String) -> some View {
+        modifier(L10nAccessibilityHintModifier(key: key))
     }
 
     func l10nAlert<Actions: View, Message: View>(

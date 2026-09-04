@@ -560,7 +560,7 @@ public struct AppShell: View {
                 // takes back: without it a stored "declined" would survive the
                 // user visibly acting to fix it, and the next launch would
                 // stay quiet about an ask they had actually taken up.
-                Button("Set Up a Model\u{2026}") {
+                L10n.button("Set Up a Model\u{2026}") {
                     AISettings.recordModelSetupAnswer(.accepted)
                     isModelSheetPresented = true
                 }

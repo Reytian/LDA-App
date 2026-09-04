@@ -44,7 +44,7 @@ struct DocumentTrayRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .contextMenu {
-            Button("Remove from Session", role: .destructive) { onRemove() }
+            L10n.button("Remove from Session", role: .destructive) { onRemove() }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: String(
@@ -79,7 +79,7 @@ struct DocumentTrayRow: View {
             Image(systemName: "circle.dotted")
                 .font(.caption2)
                 .foregroundStyle(CounselTheme.textSecondary)
-                .help("Not anonymized yet")
+                .l10nHelp("Not anonymized yet")
         }
     }
 
@@ -176,20 +176,20 @@ struct AddTermPopover: View {
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
             } else {
-                Text("Protect a missed item")
+                L10n.text("Protect a missed item")
                     .font(.headline)
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                Text("Type the exact text as it appears in the document. Every occurrence will be redacted.")
+                L10n.text("Type the exact text as it appears in the document. Every occurrence will be redacted.")
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                TextField("Exact text", text: $text)
+                L10n.textField("Exact text", text: $text)
                     .textFieldStyle(.roundedBorder)
             }
 
-            Text("Kind")
+            L10n.text("Kind")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
 
@@ -204,7 +204,7 @@ struct AddTermPopover: View {
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { isPresented = false }
+                L10n.button("Cancel", role: .cancel) { isPresented = false }
                     .keyboardShortcut(.cancelAction)
                 Button {
                     confirm()
@@ -319,15 +319,15 @@ public struct CompanionMenu: View {
     }
 
     public var body: some View {
-        Button("Redact Clipboard") {
+        L10n.button("Redact Clipboard") {
             redactClipboard()
         }
-        .help("Replace sensitive values in the clipboard text with placeholders")
+        .l10nHelp("Replace sensitive values in the clipboard text with placeholders")
 
-        Button("Restore Clipboard") {
+        L10n.button("Restore Clipboard") {
             restoreClipboard()
         }
-        .help("Restore the real values in the AI output on the clipboard")
+        .l10nHelp("Restore the real values in the AI output on the clipboard")
 
         if let note = session.companionNote {
             Divider()
@@ -342,11 +342,11 @@ public struct CompanionMenu: View {
                 client as NSString
             ))
         }
-        Text("Detection and redaction run on this Mac.")
+        L10n.text("Detection and redaction run on this Mac.")
 
         Divider()
 
-        Button("Open LDA") {
+        L10n.button("Open LDA") {
             openWindow(id: LDAWindowID.main)
             NSApp.activate(ignoringOtherApps: true)
         }

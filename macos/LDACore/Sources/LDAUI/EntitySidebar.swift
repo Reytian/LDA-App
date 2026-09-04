@@ -92,7 +92,7 @@ public struct EntitySidebar: View {
                         Image(systemName: "tray.full")
                             .font(.caption)
                             .foregroundStyle(CounselTheme.textSecondary)
-                        Text("Documents")
+                        L10n.text("Documents")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(CounselTheme.textSecondary)
                         Spacer(minLength: 8)
@@ -197,11 +197,11 @@ public struct EntitySidebar: View {
             if model.selectedGroupIDs.count > 1 {
                 batchSelectionBar
             } else if model.entityGroups.count >= 5 {
-                Text("Tip: Command-click or Shift-click extra findings, then keep them visible together.")
+                L10n.text("Tip: Command-click or Shift-click extra findings, then keep them visible together.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Tip: select several extra findings to keep them visible together.")
+                    .l10nAccessibilityLabel("Tip: select several extra findings to keep them visible together.")
             }
             if isPseudonymEditingAvailable, !model.entities.isEmpty {
                 Text(LocalizedStringKey(PseudonymEditingPresentation.footnote))
@@ -221,8 +221,8 @@ public struct EntitySidebar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Settings")
-                .accessibilityLabel(Text("Settings"))
+                .l10nHelp("Settings")
+                .l10nAccessibilityLabel("Settings")
 
                 Spacer(minLength: 0)
 
@@ -261,7 +261,7 @@ public struct EntitySidebar: View {
             .buttonStyle(.bordered)
             .tint(CounselTheme.inkAccentFill)
             .help(LocalizedStringKey(protectHelpKey))
-            .accessibilityLabel(Text("Protect the selected text"))
+            .l10nAccessibilityLabel("Protect the selected text")
             .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
                 AddTermPopover(
                     model: model,
@@ -274,14 +274,14 @@ public struct EntitySidebar: View {
             Button {
                 isAddingTerm = true
             } label: {
-                Label("Protect a missed item", systemImage: "plus.circle")
+                L10n.label("Protect a missed item", systemImage: "plus.circle")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
             .disabled(model.status == .detecting)
             .help(LocalizedStringKey(protectHelpKey))
-            .accessibilityLabel(Text("Protect a missed item"))
+            .l10nAccessibilityLabel("Protect a missed item")
             .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
                 AddTermPopover(model: model, isPresented: $isAddingTerm, undoManager: undoManager)
             }
@@ -316,18 +316,18 @@ public struct EntitySidebar: View {
 
             Spacer(minLength: 4)
 
-            Button("Redact") {
+            L10n.button("Redact") {
                 model.setSelectedGroupsAccepted(true)
             }
             .buttonStyle(.borderless)
-            .help("Redact every selected finding")
+            .l10nHelp("Redact every selected finding")
 
-            Button("Keep Visible") {
+            L10n.button("Keep Visible") {
                 model.setSelectedGroupsAccepted(false)
             }
             .buttonStyle(.borderless)
             .foregroundStyle(CounselTheme.danger)
-            .help("Keep every selected finding visible in the exported document")
+            .l10nHelp("Keep every selected finding visible in the exported document")
 
             Button {
                 model.selectedGroupIDs = []
@@ -337,8 +337,8 @@ public struct EntitySidebar: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
-            .help("Clear selection")
-            .accessibilityLabel("Clear finding selection")
+            .l10nHelp("Clear selection")
+            .l10nAccessibilityLabel("Clear finding selection")
         }
         .padding(.bottom, 2)
     }
@@ -516,8 +516,8 @@ private struct EntityGroupRow: View {
                 Image(systemName: "eye")
                     .font(.caption)
                     .foregroundStyle(CounselTheme.danger)
-                    .help("Rejected: this will remain visible in the exported document")
-                    .accessibilityLabel("Will remain visible")
+                    .l10nHelp("Rejected: this will remain visible in the exported document")
+                    .l10nAccessibilityLabel("Will remain visible")
             }
 
             Toggle("", isOn: acceptedBinding)
@@ -530,7 +530,7 @@ private struct EntityGroupRow: View {
                     EntityTypePresentation.localizedName(for: group.type) as NSString,
                     group.value as NSString
                 )))
-                .accessibilityHint(Text("Toggles whether every occurrence of this value is replaced in the exported document or remains visible."))
+                .l10nAccessibilityHint("Toggles whether every occurrence of this value is replaced in the exported document or remains visible.")
         }
         .padding(.vertical, 3)
         .opacity(accepted ? 1.0 : 0.55)
@@ -575,7 +575,7 @@ private struct EntityGroupRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Edit the replacement text used for this value")
+                .l10nHelp("Edit the replacement text used for this value")
                 .accessibilityLabel(Text("Edit replacement for \(group.value)"))
                 .popover(isPresented: $isEditingReplacement, arrowEdge: .trailing) {
                     replacementPopover(pseudonymEditing)
@@ -594,12 +594,12 @@ private struct EntityGroupRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text("This text stands in for the value in the safe copy. It cannot already appear in the session documents.")
+            L10n.text("This text stands in for the value in the safe copy. It cannot already appear in the session documents.")
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Replacement text", text: $replacementDraft)
+            L10n.textField("Replacement text", text: $replacementDraft)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { submitReplacement(editing) }
 
@@ -612,16 +612,16 @@ private struct EntityGroupRow: View {
 
             HStack {
                 if editing.hasOverride {
-                    Button("Use Automatic") {
+                    L10n.button("Use Automatic") {
                         replacementError = editing.onSubmit("")
                         if replacementError == nil { isEditingReplacement = false }
                     }
-                    .help("Go back to the automatically chosen pseudonym")
+                    .l10nHelp("Go back to the automatically chosen pseudonym")
                 }
                 Spacer()
-                Button("Cancel", role: .cancel) { isEditingReplacement = false }
+                L10n.button("Cancel", role: .cancel) { isEditingReplacement = false }
                     .keyboardShortcut(.cancelAction)
-                Button("Use This Text") { submitReplacement(editing) }
+                L10n.button("Use This Text") { submitReplacement(editing) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)

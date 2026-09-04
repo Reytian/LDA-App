@@ -153,7 +153,7 @@ public struct RootShell: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Picker("Mode", selection: $modeStore.activeMode) {
+                L10n.picker("Mode", selection: $modeStore.activeMode) {
                     ForEach(AppMode.allCases, id: \.self) { mode in
                         Text(mode.localizedKey).tag(mode)
                     }
@@ -161,7 +161,7 @@ public struct RootShell: View {
                 .pickerStyle(.segmented)
                 .controlSize(.small)
                 .frame(width: 430)
-                .help("Review matters, anonymize documents, restore protected values, or fill a form")
+                .l10nHelp("Review matters, anonymize documents, restore protected values, or fill a form")
             }
             // The On-device privacy indicator lives in the Anonymize status
             // banner (labeled, always visible) and in the Restore copy,

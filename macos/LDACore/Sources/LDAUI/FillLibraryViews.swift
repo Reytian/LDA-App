@@ -89,17 +89,17 @@ struct PortalLibraryBody: View {
             isPresented: $isDeletingConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            L10n.button("Delete", role: .destructive) {
                 if let s = portfolioToDelete {
                     Task { await model.deletePortfolio(id: s.id) }
                 }
                 portfolioToDelete = nil
             }
-            Button("Cancel", role: .cancel) {
+            L10n.button("Cancel", role: .cancel) {
                 portfolioToDelete = nil
             }
         } message: {
-            Text("This action cannot be undone.")
+            L10n.text("This action cannot be undone.")
         }
     }
 
@@ -110,18 +110,18 @@ struct PortalLibraryBody: View {
             Button {
                 isShowingNewPortfolio = true
             } label: {
-                Label("New Portfolio", systemImage: "plus.circle")
+                L10n.label("New Portfolio", systemImage: "plus.circle")
             }
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
-            .help("Create a new client portfolio")
+            .l10nHelp("Create a new client portfolio")
 
             Button {
                 onImport()
             } label: {
-                Label("Import", systemImage: "tray.and.arrow.down")
+                L10n.label("Import", systemImage: "tray.and.arrow.down")
             }
-            .help("Import a portfolio from an .ldaprofile file")
+            .l10nHelp("Import a portfolio from an .ldaprofile file")
 
             Spacer(minLength: 0)
         }
@@ -172,10 +172,10 @@ struct PortalLibraryBody: View {
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.7))
 
             VStack(spacing: 6) {
-                Text("No portfolios yet")
+                L10n.text("No portfolios yet")
                     .font(.system(.title3, design: .serif))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text("Create a new portfolio or import an existing .ldaprofile file.")
+                L10n.text("Create a new portfolio or import an existing .ldaprofile file.")
                     .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -184,7 +184,7 @@ struct PortalLibraryBody: View {
             Button {
                 isShowingNewPortfolio = true
             } label: {
-                Label("New Portfolio", systemImage: "plus.circle")
+                L10n.label("New Portfolio", systemImage: "plus.circle")
             }
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
@@ -205,7 +205,7 @@ struct PortalLibraryBody: View {
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
             Spacer(minLength: 0)
-            Button("Retry") {
+            L10n.button("Retry") {
                 Task { await model.refreshLibrary() }
             }
             .buttonStyle(.bordered)
@@ -236,7 +236,7 @@ struct PortalLibraryBody: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
-            .help("Dismiss notice")
+            .l10nHelp("Dismiss notice")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -368,11 +368,11 @@ struct PortfolioRow: View {
     }
 
     private var conflictBadge: some View {
-        Label("Conflict", systemImage: "exclamationmark.triangle.fill")
+        L10n.label("Conflict", systemImage: "exclamationmark.triangle.fill")
             .font(.caption2.weight(.medium))
             .foregroundStyle(CounselTheme.danger)
             .labelStyle(.iconOnly)
-            .help("This portfolio has unresolved field conflicts")
+            .l10nHelp("This portfolio has unresolved field conflicts")
     }
 
     private func rowActionButton(
@@ -446,17 +446,17 @@ struct NewPortfolioSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("New Portfolio")
+            L10n.text("New Portfolio")
                 .font(CounselTheme.Typography.sectionTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             // Kind picker.
             VStack(alignment: .leading, spacing: 8) {
-                Text("Portfolio type")
+                L10n.text("Portfolio type")
                     .font(CounselTheme.Typography.readingBody.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                Picker("Kind", selection: $selectedKind) {
+                L10n.picker("Kind", selection: $selectedKind) {
                     ForEach(PortfolioKind.allCases, id: \.self) { kind in
                         Text(LocalizedStringKey(kindDisplayName(kind))).tag(kind)
                     }
@@ -471,11 +471,11 @@ struct NewPortfolioSheet: View {
 
             // Label field.
             VStack(alignment: .leading, spacing: 6) {
-                Text("Label")
+                L10n.text("Label")
                     .font(CounselTheme.Typography.readingBody.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                TextField("e.g. Acme Corp, John Smith", text: $label)
+                L10n.textField("e.g. Acme Corp, John Smith", text: $label)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 280)
             }
@@ -511,7 +511,7 @@ struct NewPortfolioSheet: View {
     // MARK: - Helpers
 
     private var cancelButton: some View {
-        Button("Cancel", role: .cancel) {
+        L10n.button("Cancel", role: .cancel) {
             dismiss()
         }
         .keyboardShortcut(.cancelAction)
@@ -521,9 +521,9 @@ struct NewPortfolioSheet: View {
         Button {
             createPortfolio(fromScratch: false)
         } label: {
-            Label("From Documents", systemImage: "doc.badge.plus")
+            L10n.label("From Documents", systemImage: "doc.badge.plus")
         }
-        .help("Create this portfolio then add source documents to extract fields")
+        .l10nHelp("Create this portfolio then add source documents to extract fields")
         .keyboardShortcut(.return, modifiers: [])
     }
 
@@ -531,11 +531,11 @@ struct NewPortfolioSheet: View {
         Button {
             createPortfolio(fromScratch: true)
         } label: {
-            Label("From Scratch", systemImage: "pencil.and.list.clipboard")
+            L10n.label("From Scratch", systemImage: "pencil.and.list.clipboard")
         }
         .buttonStyle(.borderedProminent)
         .tint(CounselTheme.inkAccentFill)
-        .help("Create an empty portfolio and add fields manually")
+        .l10nHelp("Create an empty portfolio and add fields manually")
     }
 
     private func createPortfolio(fromScratch: Bool) {
@@ -628,13 +628,13 @@ struct AddFieldSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Add Field")
+            L10n.text("Add Field")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             // Canonical key list.
             VStack(alignment: .leading, spacing: 6) {
-                Text("Canonical field")
+                L10n.text("Canonical field")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
@@ -644,7 +644,7 @@ struct AddFieldSheet: View {
                             selectedCanonical = nil
                         } label: {
                             HStack {
-                                Text("Custom (enter name below)")
+                                L10n.text("Custom (enter name below)")
                                     .font(.callout)
                                     .foregroundStyle(CounselTheme.textPrimary)
                                 Spacer()
@@ -697,18 +697,18 @@ struct AddFieldSheet: View {
             // Custom name field (enabled only when "Custom" is selected).
             if selectedCanonical == nil {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Field name")
+                    L10n.text("Field name")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(CounselTheme.textPrimary)
 
-                    TextField("e.g. Trustee name", text: $customName)
+                    L10n.textField("e.g. Trustee name", text: $customName)
                         .textFieldStyle(.roundedBorder)
                 }
             }
 
             // Value field.
             VStack(alignment: .leading, spacing: 6) {
-                Text("Value")
+                L10n.text("Value")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
@@ -718,7 +718,7 @@ struct AddFieldSheet: View {
 
             // Live key preview.
             HStack(spacing: 6) {
-                Text("Will save as:")
+                L10n.text("Will save as:")
                     .font(.caption)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Text(resolvedKeyPreview)
@@ -729,14 +729,14 @@ struct AddFieldSheet: View {
             Divider()
 
             HStack {
-                Button("Cancel", role: .cancel) {
+                L10n.button("Cancel", role: .cancel) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
-                Button("Add Field") {
+                L10n.button("Add Field") {
                     model.addField(key: resolvedKey, value: value.trimmingCharacters(in: .whitespaces))
                     dismiss()
                 }
