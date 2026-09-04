@@ -187,17 +187,83 @@ final class RootShellLayoutTests: XCTestCase {
         )
     }
 
-    func testMatterSidebarReservesNativeWindowChromeBeforeItsCustomHeader() throws {
+    func testBothMatterColumnsReserveNativeWindowChromeBeforeTheirOwnContent() throws {
         let source = try String(contentsOf: Self.matterSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("WindowContentTopInsetReader(topInset: $windowChromeTopInset)"))
+        XCTAssertFalse(source.contains(".safeAreaInset(edge: .top"))
+
         let sidebarStart = try XCTUnwrap(source.range(of: "private var sidebar: some View"))
         let headerStart = try XCTUnwrap(
             source.range(of: "Text(\"Matters\")", range: sidebarStart.lowerBound..<source.endIndex)
         )
         let sidebarPrefix = source[sidebarStart.lowerBound..<headerStart.lowerBound]
+        XCTAssertTrue(
+            sidebarPrefix.contains("WindowChromeTopSpacer(height: windowChromeTopInset"),
+            "The Matters sidebar must reserve toolbar clearance before its custom header."
+        )
 
-        XCTAssertTrue(source.contains("WindowContentTopInsetReader(topInset: $windowChromeTopInset)"))
-        XCTAssertTrue(sidebarPrefix.contains("WindowChromeTopSpacer(height: windowChromeTopInset"))
-        XCTAssertFalse(source.contains(".safeAreaInset(edge: .top"))
+        // The mirror of the slice above. Asserting only the sidebar is how this
+        // defect shipped: the detail column reserved nothing, so a restored
+        // matter drew its scrollable metric grid under the floating toolbar.
+        //
+        // The slice stops at the split view's own background modifier rather
+        // than at the routed leaf, because "private var sidebar" is declared
+        // further down this file: a slice running to "MatterDetailView(" would
+        // swallow the sidebar's spacer and pass with no detail clearance at all.
+        let detailRouteStart = try XCTUnwrap(source.range(of: "} detail: {"))
+        let detailRouteEnd = try XCTUnwrap(
+            source.range(
+                of: ".background(CounselTheme.appSurface)",
+                range: detailRouteStart.upperBound..<source.endIndex
+            )
+        )
+        let detailRoute = source[detailRouteStart.upperBound..<detailRouteEnd.lowerBound]
+        XCTAssertTrue(
+            detailRoute.contains("WindowChromeTopSpacer(height: windowChromeTopInset"),
+            "The Matters detail column must reserve toolbar clearance at the route "
+                + "owner, before either routed leaf renders."
+        )
+        XCTAssertTrue(
+            detailRoute.contains("background: CounselTheme.paper"),
+            "The detail strip must paint paper like both routed leaves, not the "
+                + "split view's own appSurface."
+        )
+    }
+
+    func testMatterWindowChromeClearanceIsReservedOnceAndNeverInARoutedLeaf() throws {
+        let source = try String(contentsOf: Self.matterSourceURL, encoding: .utf8)
+
+        // Insets stack, so a second reader would double the reserved strip.
+        XCTAssertEqual(
+            source.components(separatedBy: "WindowContentTopInsetReader(").count - 1,
+            1,
+            "The Matters workspace must read the native content boundary exactly once."
+        )
+
+        // The branch builder and both states it routes to. Clearance belongs to
+        // the route owner above them, so none of the three may reserve its own.
+        for region in [
+            ("private var detail: some View", "private func open("),
+            ("private struct MatterDetailView: View", "private struct MatterMetricCard: View"),
+            ("private struct MatterWorkspaceEmptyView: View", "private struct NewMatterSheet: View")
+        ] {
+            let regionStart = try XCTUnwrap(source.range(of: region.0), "Missing region: \(region.0)")
+            let regionEnd = try XCTUnwrap(
+                source.range(of: region.1, range: regionStart.upperBound..<source.endIndex),
+                "Missing boundary after: \(region.0)"
+            )
+            let regionBody = source[regionStart.lowerBound..<regionEnd.lowerBound]
+            XCTAssertFalse(
+                regionBody.contains("WindowChromeTopSpacer"),
+                "\(region.0) must not reserve its own clearance; the route owner "
+                    + "already does, and a second spacer would stack on top of it."
+            )
+            XCTAssertFalse(
+                regionBody.contains("WindowContentTopInsetReader"),
+                "\(region.0) must not add a second inset reader."
+            )
+        }
     }
 
     func testRestoreReservesNativeWindowChromeBeforeScrollablePageContent() throws {
