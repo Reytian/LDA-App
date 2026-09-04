@@ -36,7 +36,7 @@
 "Add the model file to use this setting." = "添加模型文件以使用此设置。";
 "After Export for AI, this page will show the documents and counts for the handoff." = "执行“导出给 AI”后，此页面将显示交接的文档和数量。";
 "Always redact these" = "始终脱敏这些内容";
-"Anonymize" = "匿名化";
+"Anonymize" = "脱敏";
 "Anonymize Documents" = "脱敏文档";
 "Anonymize workflow, current step %@" = "脱敏工作流程，当前步骤：%@";
 "Appearance" = "外观";
@@ -310,7 +310,7 @@
 "Use AI on confidential documents, safely" = "安全地将 AI 用于机密文档";
 "Use Automatic" = "使用自动模式";
 "Use This Text" = "使用此文本";
-"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "使用您容易识别的客户或事项名称。App 将启动匿名化会话，并始终使用一致的受保护占位符。";
+"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "使用您容易识别的客户或事项名称。App 将启动脱敏会话，并始终使用一致的受保护占位符。";
 "Use this profile for the current fill without adding it to the library" = "使用此档案完成当前填写，但不将其添加到资料库";
 "Value" = "值";
 "Verified" = "已验证";

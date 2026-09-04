@@ -30,8 +30,8 @@ final class LocalizationFeatureTests: XCTestCase {
         let expected: [(AppLanguage, [String])] = [
             (.english, ["Matters", "Anonymize", "Restore", "Fill"]),
             (.french, ["Dossiers", "Anonymiser", "Restaurer", "Remplir"]),
-            (.simplifiedChinese, ["事项", "匿名化", "恢复", "填写"]),
-            (.traditionalChinese, ["案件", "匿名化", "還原", "填寫"])
+            (.simplifiedChinese, ["事项", "脱敏", "恢复", "填写"]),
+            (.traditionalChinese, ["案件", "脫敏", "還原", "填寫"])
         ]
 
         for (language, labels) in expected {

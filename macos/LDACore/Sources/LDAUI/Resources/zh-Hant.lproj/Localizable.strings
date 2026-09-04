@@ -36,7 +36,7 @@
 "Add the model file to use this setting." = "新增模型檔案以使用此設定。";
 "After Export for AI, this page will show the documents and counts for the handoff." = "執行「匯出供 AI 使用」後，此頁面將顯示交接的文件和數量。";
 "Always redact these" = "一律遮蔽這些內容";
-"Anonymize" = "匿名化";
+"Anonymize" = "脫敏";
 "Anonymize Documents" = "脫敏文件";
 "Anonymize workflow, current step %@" = "脫敏工作流程，目前步驟：%@";
 "Appearance" = "外觀";
@@ -310,7 +310,7 @@
 "Use AI on confidential documents, safely" = "安全地使用 AI 處理機密文件";
 "Use Automatic" = "使用自動模式";
 "Use This Text" = "使用此文字";
-"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "使用您能辨識的客戶或案件名稱。App 會開始匿名化工作階段，並使用一致且受保護的預留位置。";
+"Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "使用您能辨識的客戶或案件名稱。App 會開始脫敏工作階段，並使用一致且受保護的預留位置。";
 "Use this profile for the current fill without adding it to the library" = "將此客戶資料用於目前的填寫作業，但不加入資料庫";
 "Value" = "值";
 "Verified" = "已驗證";
