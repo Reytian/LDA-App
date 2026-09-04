@@ -197,7 +197,16 @@ struct MatterWorkspaceView: View {
             sidebar
                 .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
         } detail: {
-            detail
+            // The window-level inset reader below serves both columns, so the
+            // detail column reserves its own clearance here at the route owner.
+            // Doing it in either routed leaf would cover only one of the two
+            // states. The strip paints paper because both leaves paint paper,
+            // unlike the split view's own appSurface background.
+            VStack(spacing: 0) {
+                WindowChromeTopSpacer(height: windowChromeTopInset,
+                                      background: CounselTheme.paper)
+                detail
+            }
         }
         .background(CounselTheme.appSurface)
         .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
