@@ -10,6 +10,33 @@ notarized by Apple. Its one network permission exists solely so the model
 manager can fetch a detection model you pick; documents, placeholders, and
 mappings are processed on-device and are never uploaded.
 
+## Install the macOS app
+
+Download **`LDA-notarized.zip`** from the
+[latest release](https://github.com/Reytian/LDA-App/releases/latest), then:
+
+```bash
+shasum -a 256 -c SHA256SUMS.txt
+ditto -x -k LDA-notarized.zip .
+mv LDA.app /Applications/
+```
+
+The download is about 5 MB because **no detection model ships inside the app**.
+On first run the setup wizard asks for a language, then a model, which it
+downloads or imports from a file you already have. Bundling a model into the
+app is a deliberate non-default build (`BUNDLE_MODEL=1`) for single-file
+deploys; the shipping form is the small one.
+
+Without a model, pattern detection still finds dates, ID numbers, emails, phone
+numbers, amounts and case numbers, but names, company names and addresses are
+not detected at all. That is a difference in what is found, not a difference in
+precision. An air-gapped Mac can carry the model over from the
+[Quick model release](https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b);
+`macos/LDACore/README.md` has the offline steps and the checksum procedure.
+
+Note that the `### Installation` steps further down belong to the legacy Python
+proof of concept, not to the macOS app.
+
 During the Build Week Submission Period, commit `047b30d` added the guided
 workflow, matter rename and archive, interrupted-session recovery, encrypted
 metadata improvements, regression coverage, and hardened packaging. See the
