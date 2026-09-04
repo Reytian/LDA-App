@@ -140,20 +140,20 @@ final class ComplianceReportUITests: XCTestCase {
 
     func testExportGateFollowsTheSessionRecord() async throws {
         let session = makeSession()
-        XCTAssertFalse(session.canExportComplianceReport)
+        XCTAssertFalse(session.complianceReportAvailability.isAvailable)
 
         let doc = try write("a.txt", "Mail john@acme.com please.")
         await session.addDocuments([doc])
         await session.anonymizeAll()
-        XCTAssertFalse(session.canExportComplianceReport, "no record before the handoff")
+        XCTAssertFalse(session.complianceReportAvailability.isAvailable, "no record before the handoff")
 
         XCTAssertNotNil(try session.buildHandToAI(createdAtISO8601: Self.createdAt))
-        XCTAssertTrue(session.canExportComplianceReport)
+        XCTAssertTrue(session.complianceReportAvailability.isAvailable)
 
         // Crossing the matter boundary clears the round-trip context, and the
         // report gate must close with it.
         XCTAssertTrue(try session.selectMatter("Matter B", discardingDocuments: true))
-        XCTAssertFalse(session.canExportComplianceReport)
+        XCTAssertFalse(session.complianceReportAvailability.isAvailable)
     }
 
     func testExportWithoutARecordThrows() throws {

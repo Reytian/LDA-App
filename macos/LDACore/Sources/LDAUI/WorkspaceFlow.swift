@@ -128,7 +128,7 @@ struct WorkspaceFlow: ViewModifier {
             // context without documents still triggers the prompt, because
             // opening would discard it, but it cannot be written to a
             // workspace, so the button would be dead.
-            if session.canSaveWorkspace {
+            if session.workspaceAvailability.isAvailable {
                 L10n.button("Save Current Work First\u{2026}") {
                     flow.pendingOpenAfterSave = url
                     flow.stage = .idle
@@ -171,7 +171,13 @@ struct WorkspaceFlow: ViewModifier {
     // MARK: - Save
 
     private func presentSavePanel() {
-        guard session.canSaveWorkspace else { return }
+        // Same rule as ExportFlow: a save request that cannot run says why
+        // rather than returning silently. See SaveAvailability.swift.
+        let availability = session.workspaceAvailability
+        guard availability.isAvailable else {
+            report(SaveAvailabilityPresentation.notice(availability))
+            return
+        }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = WorkspacePresentation.proposedFileName()
         panel.canCreateDirectories = true

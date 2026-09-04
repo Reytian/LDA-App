@@ -112,7 +112,9 @@ final class ExportForAIFlowTests: XCTestCase {
             createdAtISO8601: Self.createdAt
         )
 
-        XCTAssertEqual(outcome, .nothingReady)
+        // The reason travels with the outcome: the document IS open, it has
+        // just never been scanned, and "add a document" would be wrong advice.
+        XCTAssertEqual(outcome, .nothingReady(.scanNotFinished))
         XCTAssertFalse(panelOpened, "no panel when there is nothing to export")
         try assertSessionUntouched(session)
     }

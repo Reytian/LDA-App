@@ -393,8 +393,8 @@ public struct AppShell: View {
         switch ExportForAIFlow.run(session: session) {
         case .cancelled:
             return
-        case .nothingReady:
-            exportMessage = L10n.string("Scan a document for PII first, then export it for the AI.")
+        case .nothingReady(let reason):
+            exportMessage = SaveAvailabilityPresentation.sentence(for: reason)
         case .exported(let result):
             exportMessage = nil
             handoffCompletion = .exportedForAI(result)
@@ -497,7 +497,7 @@ public struct AppShell: View {
         guard let reason = ModelSetupPresentation.exportGateReason(
             documents: session.entries.map {
                 (
-                    $0.model.canExport,
+                    $0.model.exportAvailability.isAvailable,
                     $0.model.aiActive,
                     $0.model.aiWarning,
                     $0.model.aiRanPartially

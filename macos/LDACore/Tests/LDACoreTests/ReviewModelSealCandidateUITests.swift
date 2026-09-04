@@ -226,7 +226,7 @@ final class ReviewModelSealCandidateUITests: XCTestCase {
         model.useLLM = false
         await model.open(png)
         await model.anonymize()
-        XCTAssertTrue(model.canExport, "fixture: the scan must finish ready to export")
+        XCTAssertTrue(model.exportAvailability.isAvailable, "fixture: the scan must finish ready to export")
 
         let covering = try await model.export(
             to: try outputDir("model-on"),

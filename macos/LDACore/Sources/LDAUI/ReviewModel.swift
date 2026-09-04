@@ -353,15 +353,22 @@ public final class ReviewModel: ObservableObject {
         anonymizeRequestToken += 1
     }
 
-    /// True once a document has been anonymized and is ready to export.
-    public var canExport: Bool {
-        if case .ready = status { return true }
-        return false
+    /// Whether Save Redacted can run for this document, and why not when it
+    /// cannot. Every entry point reads this rather than a bare Bool: a
+    /// disabled toolbar button swallows its own click, so the reason is the
+    /// only thing the app can still say. See SaveAvailability.swift.
+    public var exportAvailability: SaveAvailability {
+        SaveAvailabilityRules.saveRedacted(status: status)
     }
 
     /// Ask the window to begin the export flow. Used by the File menu command.
+    ///
+    /// A blocked request stops here rather than reporting, because this layer
+    /// owns no message channel; the reason is derived from the same status the
+    /// status banner is already rendering, so the answer is on screen before
+    /// the user asks. ExportFlow, which does own a channel, reports it there.
     public func requestExport() {
-        guard canExport else { return }
+        guard exportAvailability.isAvailable else { return }
         exportRequestToken += 1
     }
 

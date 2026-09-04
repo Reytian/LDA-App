@@ -94,7 +94,7 @@ final class ReviewModelWorkspaceTests: XCTestCase {
         XCTAssertEqual(target.entities.first?.token, "{COMPANY_1}")
         // Reviewed state, not merely populated: the receiving Mac may have no
         // detection model, so export must be available without a pass.
-        XCTAssertTrue(target.canExport)
+        XCTAssertTrue(target.exportAvailability.isAvailable)
         XCTAssertNil(target.selectedGroupID)
     }
 
@@ -169,7 +169,7 @@ final class ReviewModelWorkspaceTests: XCTestCase {
         XCTAssertTrue(result.didRelocate)
         XCTAssertEqual(target.status, .imported)
         XCTAssertFalse(
-            target.canExport,
+            target.exportAvailability.isAvailable,
             "a workspace that lost a protected value must require another scan"
         )
     }

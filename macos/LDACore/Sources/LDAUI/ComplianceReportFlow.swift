@@ -115,7 +115,13 @@ struct ComplianceReportFlow: ViewModifier {
     // MARK: - Export
 
     private func presentExportPanel() {
-        guard session.canExportComplianceReport else { return }
+        // Same rule as ExportFlow: an export request that cannot run says why
+        // rather than returning silently. See SaveAvailability.swift.
+        let availability = session.complianceReportAvailability
+        guard availability.isAvailable else {
+            report(SaveAvailabilityPresentation.notice(availability))
+            return
+        }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true

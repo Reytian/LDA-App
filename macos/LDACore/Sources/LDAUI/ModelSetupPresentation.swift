@@ -282,16 +282,16 @@ enum ModelSetupPresentation {
     /// review list the reader will otherwise trust, and its remedy (read the
     /// copy, scan again) covers the never-ran document in the same tray.
     static func exportGateReason(
-        documents: [(canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
+        documents: [(isExportable: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
     ) -> ExportGateReason? {
-        let triggering = documents.filter { !$0.aiRan && $0.aiFailure != nil && $0.canExport }
+        let triggering = documents.filter { !$0.aiRan && $0.aiFailure != nil && $0.isExportable }
         guard !triggering.isEmpty else { return nil }
         return triggering.contains(where: \.aiRanPartially) ? .ranPartially : .didNotRun
     }
 
     /// True when the Export for AI gate must fire at all.
     static func exportNeedsConfirmation(
-        documents: [(canExport: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
+        documents: [(isExportable: Bool, aiRan: Bool, aiFailure: String?, aiRanPartially: Bool)]
     ) -> Bool {
         exportGateReason(documents: documents) != nil
     }

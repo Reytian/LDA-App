@@ -684,7 +684,6 @@
 "Could not restore: %@" = "Could not restore: %@";
 "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back." = "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back.";
 "Could not change the matter scope. %@" = "Could not change the matter scope. %@";
-"Scan a document for PII first, then export it for the AI." = "Scan a document for PII first, then export it for the AI.";
 "Could not export the redacted file. %@" = "Could not export the redacted file. %@";
 "The file could not be read. %@" = "The file could not be read. %@";
 "Unsupported format. %@" = "Unsupported format. %@";
@@ -920,3 +919,9 @@
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protects client information before it reaches an AI tool, and puts it back afterwards.";
 "Re-scan" = "Re-scan";
 "matter" = "matter";
+"Save Redacted and Save Workspace need a document. Click Open to add one." = "Save Redacted and Save Workspace need a document. Click Open to add one.";
+"Save Redacted waits for this document to finish opening." = "Save Redacted waits for this document to finish opening.";
+"Save Redacted waits for this scan to finish." = "Save Redacted waits for this scan to finish.";
+"Save Redacted needs a finished scan. Click Scan for PII first." = "Save Redacted needs a finished scan. Click Scan for PII first.";
+"This document did not open, so there is nothing to save. Open the file again." = "This document did not open, so there is nothing to save. Open the file again.";
+"Export Report covers an Export for AI handoff. Run one first." = "Export Report covers an Export for AI handoff. Run one first.";

@@ -684,7 +684,6 @@
 "Could not restore: %@" = "無法還原：%@";
 "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back." = "已恢復上次工作階段。AI 答覆準備好後，請使用「還原」放回真實值。";
 "Could not change the matter scope. %@" = "無法變更案件範圍。%@";
-"Scan a document for PII first, then export it for the AI." = "請先掃描文件中的個人資料，然後匯出供 AI 使用。";
 "Could not export the redacted file. %@" = "無法匯出遮蔽後的檔案。%@";
 "The file could not be read. %@" = "無法讀取檔案。%@";
 "Unsupported format. %@" = "不支援的格式。%@";
@@ -920,3 +919,9 @@
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA 在文件交付 AI 工具之前對委任人資訊脫敏，事後再行還原。";
 "Re-scan" = "重新掃描";
 "matter" = "該案件";
+"Save Redacted and Save Workspace need a document. Click Open to add one." = "「儲存遮蔽版本」與「儲存工作區」都需要一份文件。請點選「開啟」以加入。";
+"Save Redacted waits for this document to finish opening." = "「儲存遮蔽版本」需等待此文件開啟完成。";
+"Save Redacted waits for this scan to finish." = "「儲存遮蔽版本」需等待本次掃描完成。";
+"Save Redacted needs a finished scan. Click Scan for PII first." = "「儲存遮蔽版本」需要一次已完成的掃描。請先點選「掃描個人資料」。";
+"This document did not open, so there is nothing to save. Open the file again." = "此文件未能開啟，因此沒有內容可儲存。請重新開啟該檔案。";
+"Export Report covers an Export for AI handoff. Run one first." = "「匯出報告」記錄的是一次「匯出供 AI 使用」交付。請先執行一次。";

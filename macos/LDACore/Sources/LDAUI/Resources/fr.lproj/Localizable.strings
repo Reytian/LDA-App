@@ -684,7 +684,6 @@
 "Could not restore: %@" = "Impossible de restaurer : %@";
 "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back." = "Votre dernière session a repris. Quand la réponse de l’IA est prête, utilisez Restaurer pour rétablir les vraies valeurs.";
 "Could not change the matter scope. %@" = "Impossible de modifier la portée du dossier. %@";
-"Scan a document for PII first, then export it for the AI." = "Analysez d’abord un document pour repérer les données personnelles, puis exportez-le pour l’IA.";
 "Could not export the redacted file. %@" = "Impossible d’exporter le fichier caviardé. %@";
 "The file could not be read. %@" = "Le fichier n’a pas pu être lu. %@";
 "Unsupported format. %@" = "Format non pris en charge. %@";
@@ -920,3 +919,9 @@
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protège les informations du client avant qu'elles n'atteignent un outil d'IA, et les rétablit ensuite.";
 "Re-scan" = "Réanalyser";
 "matter" = "ce dossier";
+"Save Redacted and Save Workspace need a document. Click Open to add one." = "Enregistrer le document caviardé et Enregistrer l’espace de travail exigent un document. Cliquez sur Ouvrir pour en ajouter un.";
+"Save Redacted waits for this document to finish opening." = "Enregistrer le document caviardé attend la fin de l’ouverture de ce document.";
+"Save Redacted waits for this scan to finish." = "Enregistrer le document caviardé attend la fin de cette recherche.";
+"Save Redacted needs a finished scan. Click Scan for PII first." = "Enregistrer le document caviardé exige une recherche terminée. Cliquez d’abord sur Rechercher les données personnelles.";
+"This document did not open, so there is nothing to save. Open the file again." = "Ce document ne s’est pas ouvert, il n’y a donc rien à enregistrer. Ouvrez le fichier à nouveau.";
+"Export Report covers an Export for AI handoff. Run one first." = "Exporter le rapport porte sur un transfert Exporter pour l’IA. Effectuez-en un d’abord.";
