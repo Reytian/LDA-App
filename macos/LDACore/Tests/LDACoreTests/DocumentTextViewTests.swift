@@ -25,6 +25,7 @@ final class DocumentTextViewTests: XCTestCase {
         isOriginalVisible: Bool = true,
         canProtect: Bool = true,
         guess: EntityType = .person,
+        resolve: @escaping (NSRange?) -> ProtectableSelection = { _ in .nothing },
         onProtect: @escaping (EntityType) -> Void = { _ in },
         onShowOriginal: @escaping () -> Void = {}
     ) -> DocumentTextMenuContext {
@@ -33,6 +34,7 @@ final class DocumentTextViewTests: XCTestCase {
             canProtect: canProtect,
             assignableTypes: AssignableEntityTypes.manual,
             guess: { _ in guess },
+            resolve: resolve,
             onProtect: onProtect,
             onShowOriginal: onShowOriginal
         )
@@ -51,7 +53,7 @@ final class DocumentTextViewTests: XCTestCase {
     func testOriginalModeMenuLeadsWithTheGuessedKindThenTheSubmenuThenASeparator() {
         var protected: [EntityType] = []
         let items = DocumentTextContextMenu.protectItems(
-            selection: "张三",
+            .value("张三"),
             context: context(guess: .person, onProtect: { protected.append($0) })
         )
 
@@ -80,15 +82,11 @@ final class DocumentTextViewTests: XCTestCase {
         XCTAssertEqual(protected, [.person, .company])
     }
 
-    func testMenuTitlesQuoteTheTrimmedAndMiddleTruncatedValue() {
-        let items = DocumentTextContextMenu.protectItems(
-            selection: " “张三”， ",
-            context: context(guess: .person)
-        )
-        XCTAssertEqual(items[0].title, protectTitle("张三", .person))
-
+    func testMenuTitlesQuoteTheMiddleTruncatedValue() {
+        // The trimming itself belongs to the model's resolver, which is what
+        // hands this builder a value (ProtectSelectionTests pins the set).
         let long = String(repeating: "北京字节跳动科技有限公司", count: 3)
-        let longItems = DocumentTextContextMenu.protectItems(selection: long, context: context(guess: .company))
+        let longItems = DocumentTextContextMenu.protectItems(.value(long), context: context(guess: .company))
         let shown = ProtectSelectionPresentation.menuValue(long)
         XCTAssertEqual(shown.count, 24)
         XCTAssertTrue(shown.contains("\u{2026}"))
@@ -96,30 +94,55 @@ final class DocumentTextViewTests: XCTestCase {
     }
 
     func testMenuItemsAreGrayedWithoutAUsableSelection() {
-        for selection in [nil, "", "   ", "，。"] as [String?] {
-            let items = DocumentTextContextMenu.protectItems(selection: selection, context: context())
-            XCTAssertEqual(items.count, 2, "one disabled item and a separator for \(String(describing: selection))")
-            XCTAssertEqual(items[0].title, L10n.string("Protect Selection…"))
-            XCTAssertFalse(items[0].isEnabled)
-            XCTAssertTrue(items[1].isSeparatorItem)
-        }
+        let items = DocumentTextContextMenu.protectItems(.nothing, context: context())
+        XCTAssertEqual(items.count, 2, "one disabled item and a separator")
+        XCTAssertEqual(items[0].title, L10n.string("Protect Selection…"))
+        XCTAssertFalse(items[0].isEnabled)
+        XCTAssertTrue(items[1].isSeparatorItem)
 
-        let scanning = DocumentTextContextMenu.protectItems(selection: "张三", context: context(canProtect: false))
+        let scanning = DocumentTextContextMenu.protectItems(.value("张三"), context: context(canProtect: false))
         XCTAssertFalse(scanning[0].isEnabled, "disabled while the entity list is being rebuilt")
     }
 
-    func testSafePreviewMenuOffersOnlyTheWayBackToOriginal() {
+    /// The Safe Preview menu is not a dead end any more: a selection that is
+    /// the document's own text can be protected from there, and one that
+    /// cannot says why in the item itself rather than being merely grayed.
+    func testSafePreviewMenuProtectsCarriedThroughTextAndExplainsWhatItRefuses() {
         var shown = 0
-        let items = DocumentTextContextMenu.protectItems(
-            selection: nil,
-            context: context(isOriginalVisible: false, onShowOriginal: { shown += 1 })
-        )
-        XCTAssertEqual(items.count, 2)
-        XCTAssertEqual(items[0].title, L10n.string("Show Original to Select Text"))
-        XCTAssertTrue(items[0].isEnabled)
-        XCTAssertTrue(items[1].isSeparatorItem)
-        DocumentTextContextMenu.perform(items[0])
+        let safePreview = context(isOriginalVisible: false, onShowOriginal: { shown += 1 })
+
+        let protectable = DocumentTextContextMenu.protectItems(.value("张三"), context: safePreview)
+        XCTAssertEqual(protectable.count, 4, "the two Protect items, the way back, a separator")
+        XCTAssertEqual(protectable[0].title, protectTitle("张三", .person))
+        XCTAssertTrue(protectable[0].isEnabled)
+        XCTAssertEqual(protectable[2].title, L10n.string("Show Original to Select Text"))
+        DocumentTextContextMenu.perform(protectable[2])
         XCTAssertEqual(shown, 1)
+
+        let standIn = DocumentTextContextMenu.protectItems(.standIn("{PERSON_1}"), context: safePreview)
+        XCTAssertEqual(standIn.count, 3)
+        XCTAssertFalse(standIn[0].isEnabled)
+        XCTAssertEqual(
+            standIn[0].title,
+            ProtectSelectionPresentation.refusal(for: .standIn("{PERSON_1}")),
+            "the item states the same refusal the notice row would"
+        )
+        XCTAssertTrue(standIn[0].title.contains("{PERSON_1}"))
+        XCTAssertEqual(standIn[1].title, L10n.string("Show Original to Select Text"))
+        XCTAssertTrue(standIn[1].isEnabled)
+
+        let undecidable = DocumentTextContextMenu.protectItems(.undecidable, context: safePreview)
+        XCTAssertEqual(undecidable.count, 3)
+        XCTAssertFalse(undecidable[0].isEnabled)
+        XCTAssertEqual(
+            undecidable[0].title,
+            ProtectSelectionPresentation.refusal(for: .undecidable)
+        )
+        XCTAssertEqual(undecidable[1].title, L10n.string("Show Original to Select Text"))
+
+        let empty = DocumentTextContextMenu.protectItems(.nothing, context: safePreview)
+        XCTAssertEqual(empty.map(\.title).first, L10n.string("Protect Selection…"))
+        XCTAssertEqual(empty.count, 3, "the way back is offered in every Safe Preview menu")
     }
 
     // MARK: - Text view configuration

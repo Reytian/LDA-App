@@ -832,7 +832,9 @@
 "Protect “%@”…" = "Protect “%@”…";
 "Protect the selected text" = "Protect the selected text";
 "Available when the scan finishes." = "Available when the scan finishes.";
-"Switch to Original to select text to protect." = "Switch to Original to select text to protect.";
+"“%@” is a stand-in for a value LDA already protects. Switch to Original to work with the value behind it." = "“%@” is a stand-in for a value LDA already protects. Switch to Original to work with the value behind it.";
+"LDA cannot match this preview to your document, so a selection here cannot be protected. Switch to Original and select the text there." = "LDA cannot match this preview to your document, so a selection here cannot be protected. Switch to Original and select the text there.";
+"Select text LDA missed in this preview. A stand-in cannot be protected: it already covers a value." = "Select text LDA missed in this preview. A stand-in cannot be protected: it already covers a value.";
 "Select text in the document, then protect it as a kind. Every occurrence is redacted." = "Select text in the document, then protect it as a kind. Every occurrence is redacted.";
 "%lld values · %lld occurrences in this document" = "%lld values · %lld occurrences in this document";
 "%@, %lld values, %lld occurrences" = "%@, %lld values, %lld occurrences";

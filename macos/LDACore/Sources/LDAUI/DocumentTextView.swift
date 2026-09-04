@@ -45,16 +45,21 @@ enum DocumentTextLayout {
 
 /// What the text view needs from its host to build the Protect items.
 struct DocumentTextMenuContext {
-    /// False in Safe Preview, where the only item is the way back to Original.
+    /// False in Safe Preview, which adds the way back to Original under
+    /// whatever it can say about the selection.
     let isOriginalVisible: Bool
-    /// The state gate (a document is loaded, no scan is running). The
-    /// selection itself is read at menu time, because a right-click selects
-    /// the word under the pointer before the menu is built.
+    /// The state gate (a document is loaded, no scan is running).
     let canProtect: Bool
     /// The kinds of the submenu, in sidebar order.
     let assignableTypes: [EntityType]
     /// The kind to lead with for a trimmed value.
     let guess: (String) -> EntityType
+    /// What the given selection range can be protected as. The range is read
+    /// at menu time from the text view, because a right-click selects the
+    /// word under the pointer before the menu is built, and it is resolved by
+    /// the model so Safe Preview goes through the pairing (see
+    /// SafePreviewSelection.swift).
+    let resolve: (NSRange?) -> ProtectableSelection
     /// Protect the current selection as the chosen kind.
     let onProtect: (EntityType) -> Void
     /// Flip the pane back to Original.
@@ -65,19 +70,43 @@ struct DocumentTextMenuContext {
 enum DocumentTextContextMenu {
 
     /// The items to insert at the top of the standard menu, ending with a
-    /// separator. Grayed when there is nothing usable to protect.
-    static func protectItems(selection: String?, context: DocumentTextMenuContext) -> [NSMenuItem] {
-        guard context.isOriginalVisible else {
+    /// separator.
+    ///
+    /// A selection that cannot be protected is not merely grayed: a stand-in
+    /// and an unpairable preview each carry their own sentence, followed by
+    /// the way back to Original, so the answer is never silence.
+    static func protectItems(
+        _ selection: ProtectableSelection,
+        context: DocumentTextMenuContext
+    ) -> [NSMenuItem] {
+        guard context.canProtect else {
+            return [disabledItem(L10n.string("Protect Selection\u{2026}")), .separator()]
+        }
+
+        let value: String
+        switch selection {
+        case .value(let selected):
+            value = selected
+        case .nothing:
+            var items = [disabledItem(L10n.string("Protect Selection\u{2026}"))]
+            if !context.isOriginalVisible {
+                items.append(showOriginalItem(context))
+            }
+            items.append(.separator())
+            return items
+        case .standIn(let shown):
+            let quoted = ProtectableSelection.standIn(ProtectSelectionPresentation.menuValue(shown))
             return [
-                ClosureMenuItem(title: L10n.string("Show Original to Select Text"), action: context.onShowOriginal),
+                disabledItem(ProtectSelectionPresentation.refusal(for: quoted) ?? ""),
+                showOriginalItem(context),
                 .separator()
             ]
-        }
-        let value = ProtectSelectionRules.trim(selection ?? "")
-        guard context.canProtect, !value.isEmpty else {
-            let disabled = NSMenuItem(title: L10n.string("Protect Selection\u{2026}"), action: nil, keyEquivalent: "")
-            disabled.isEnabled = false
-            return [disabled, .separator()]
+        case .undecidable:
+            return [
+                disabledItem(ProtectSelectionPresentation.refusal(for: selection) ?? ""),
+                showOriginalItem(context),
+                .separator()
+            ]
         }
 
         let shown = ProtectSelectionPresentation.menuValue(value)
@@ -108,12 +137,33 @@ enum DocumentTextContextMenu {
         }
         submenuItem.submenu = submenu
 
-        return [primary, submenuItem, .separator()]
+        var items: [NSMenuItem] = [primary, submenuItem]
+        if !context.isOriginalVisible {
+            items.append(showOriginalItem(context))
+        }
+        items.append(.separator())
+        return items
     }
 
     /// Run an item's action the way a click would (used by tests).
     static func perform(_ item: NSMenuItem) {
         (item as? ClosureMenuItem)?.fire()
+    }
+
+    /// A grayed item that only states something.
+    private static func disabledItem(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    /// The way back to the surface where every selection is the document's
+    /// own text. Offered in every Safe Preview menu.
+    private static func showOriginalItem(_ context: DocumentTextMenuContext) -> NSMenuItem {
+        ClosureMenuItem(
+            title: L10n.string("Show Original to Select Text"),
+            action: context.onShowOriginal
+        )
     }
 }
 
@@ -252,9 +302,14 @@ final class ProtectableTextView: NSTextView {
         // so the Protect items never accumulate.
         let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
         guard let context = menuContext else { return menu }
+        // super.menu(for:) is what selects the word under the pointer, so the
+        // range is read after it and taken from the view itself, never from a
+        // report that may not have landed yet.
         let selected = selectedRange()
-        let selection = selected.length > 0 ? (string as NSString).substring(with: selected) : nil
-        let items = DocumentTextContextMenu.protectItems(selection: selection, context: context)
+        let items = DocumentTextContextMenu.protectItems(
+            context.resolve(selected.length > 0 ? selected : nil),
+            context: context
+        )
         for (offset, item) in items.enumerated() {
             menu.insertItem(item, at: offset)
         }

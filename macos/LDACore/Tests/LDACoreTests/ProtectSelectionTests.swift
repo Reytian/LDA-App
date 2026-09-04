@@ -368,8 +368,13 @@ final class ProtectSelectionTests: XCTestCase {
         XCTAssertTrue(model.canProtectSelection)
         XCTAssertEqual(model.selectedText, "张三")
 
+        // Safe Preview is selectable, but an Original-mode range means
+        // nothing there and no surface has been built yet, so the gate is
+        // shut rather than reading these offsets against the preview.
+        // SafePreviewProtectTests covers the paired surface in full.
         model.previewMode = .safePreview
-        XCTAssertFalse(model.canProtectSelection, "Safe Preview has no selectable text")
+        XCTAssertFalse(model.canProtectSelection, "no Safe Preview surface to select in")
+        XCTAssertNil(model.selectedText)
         model.previewMode = .original
 
         model.status = .detecting

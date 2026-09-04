@@ -114,11 +114,11 @@ public struct DocumentPane: View {
                 break
             }
         }
-        .onChange(of: model.previewMode) { _, mode in
-            // Safe Preview is not selectable, so no selection can exist there.
-            if !mode.allowsTextSelection {
-                model.selectedTextRange = nil
-            }
+        .onChange(of: model.previewMode) { _, _ in
+            // Both surfaces are selectable and their offsets mean different
+            // things, so a selection never survives the switch: read against
+            // the other surface it would address different characters.
+            model.selectedTextRange = nil
         }
         .onChange(of: model.protectNotice?.id) { _, _ in
             announceNotice()
@@ -126,17 +126,24 @@ public struct DocumentPane: View {
     }
 
     /// Rebuild both styled surfaces from the current text and entities.
+    ///
+    /// The Safe Preview rendering is handed to the model with its pairing
+    /// attached, because that is what decides whether a selection made in it
+    /// can be protected. Styling here and pairing there would let the two
+    /// drift; one call keeps the text on screen and the text the pairing
+    /// describes the same text.
     private func restyle() {
         styledDocument = DocumentTextStyler.styledOriginal(
             text: model.documentText,
             entities: model.entities
         )
-        let preview = ReviewModel.redactedPreviewText(
+        let surface = ReviewModel.redactedPreviewSurface(
             text: model.documentText,
             entities: model.entities,
             style: model.outputStyleProvider()
         )
-        safePreviewDocument = DocumentTextStyler.styledSafePreview(text: preview)
+        model.setSafePreviewSurface(surface)
+        safePreviewDocument = DocumentTextStyler.styledSafePreview(text: surface.text)
     }
 
     // MARK: - Drop zone (empty state)
@@ -255,7 +262,11 @@ public struct DocumentPane: View {
 
             DocumentTextView(
                 content: model.previewMode == .original ? styledDocument : safePreviewDocument,
-                isSelectable: model.previewMode.allowsTextSelection,
+                // Both surfaces are selectable: a missed value is usually
+                // noticed while reading the redacted copy. What a Safe
+                // Preview selection may be protected as is decided by the
+                // pairing, not by turning selection off.
+                isSelectable: true,
                 menuContext: menuContext,
                 chooserRequestToken: model.protectSelectionRequestToken,
                 makeChooser: { dismiss in AnyView(chooser(dismiss: dismiss)) },
@@ -334,6 +345,7 @@ public struct DocumentPane: View {
             canProtect: model.canProtectText,
             assignableTypes: AssignableEntityTypes.manual,
             guess: { ManualTypeGuess.guess(for: $0) },
+            resolve: { range in model.protectableSelection(for: range) },
             onProtect: { type in protectCurrentSelection(as: type) },
             onShowOriginal: { model.previewMode = .original }
         )
@@ -520,5 +532,13 @@ public enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
 
-    var allowsTextSelection: Bool { self == .original }
+    /// Whether a selection reported in this surface is already the original
+    /// document's own text.
+    ///
+    /// Both surfaces are selectable. Original text is protectable as
+    /// selected; the Safe Preview rendering has to be paired back to the
+    /// original first, and part of it stands for values that are already
+    /// protected. This is the branch protectSelectionSource takes, and it is
+    /// the reason a selection never crosses a mode switch.
+    var selectionIsOriginalText: Bool { self == .original }
 }

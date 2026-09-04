@@ -832,7 +832,9 @@
 "Protect “%@”…" = "保護「%@」…";
 "Protect the selected text" = "保護所選文字";
 "Available when the scan finishes." = "掃描完成後即可使用。";
-"Switch to Original to select text to protect." = "切換至「原文」以選取要保護的文字。";
+"“%@” is a stand-in for a value LDA already protects. Switch to Original to work with the value behind it." = "「%@」是 LDA 為已受保護的值寫入的替代名稱。請切換至「原文」，以處理它背後的值。";
+"LDA cannot match this preview to your document, so a selection here cannot be protected. Switch to Original and select the text there." = "LDA 無法將此預覽與你的文件對應，因此無法保護在此處所做的選取。請切換至「原文」，並在那裡選取文字。";
+"Select text LDA missed in this preview. A stand-in cannot be protected: it already covers a value." = "在此預覽中選取 LDA 漏掉的文字。替代名稱無法再次保護：它已經涵蓋了一個值。";
 "Select text in the document, then protect it as a kind. Every occurrence is redacted." = "在文件中選取文字，然後依類型保護。每次出現都會被遮蔽。";
 "%lld values · %lld occurrences in this document" = "%lld 個值 · 本文件中出現 %lld 次";
 "%@, %lld values, %lld occurrences" = "%@，%lld 個值，出現 %lld 次";

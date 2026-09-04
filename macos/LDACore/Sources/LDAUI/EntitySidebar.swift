@@ -301,7 +301,7 @@ public struct EntitySidebar: View {
             return "Available when the scan finishes."
         }
         if model.previewMode == .safePreview {
-            return "Switch to Original to select text to protect."
+            return "Select text LDA missed in this preview. A stand-in cannot be protected: it already covers a value."
         }
         return "Select text in the document, then protect it as a kind. Every occurrence is redacted."
     }

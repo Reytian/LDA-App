@@ -253,16 +253,38 @@ public final class ReviewModel: ObservableObject {
         }
     }
 
-    /// The Original-mode text selection the document pane reports (UTF-16, the
-    /// same convention as Span). nil when nothing is selected or Safe Preview
-    /// is shown. Every Protect Selection entry point reads canProtectSelection,
-    /// which is derived from this.
+    /// The text selection the document pane reports (UTF-16, the same
+    /// convention as Span), in the offsets of the surface ON SCREEN: the
+    /// original text in Original mode, the redacted rendering in Safe
+    /// Preview. nil when nothing is selected. The two spaces are never
+    /// interchangeable, so the pane clears this on every mode switch and
+    /// every Protect entry point goes through protectSelectionSource rather
+    /// than reading it against the original directly.
     @Published public var selectedTextRange: NSRange?
 
     /// Which surface the document pane shows. Owned here (not as pane state)
     /// so the selection gate, the menus, and a tray switch between documents
     /// all agree on it.
     @Published public var previewMode: DocumentPreviewMode = .original
+
+    /// The Safe Preview rendering the pane last built, with the pairing that
+    /// says which of its offsets are the document's own text. Assigned by the
+    /// pane when it rebuilds the surface; read by the selection gate.
+    @Published public private(set) var safePreviewSurface: SafePreviewSurface = .unavailable
+
+    /// Record a freshly built Safe Preview surface.
+    ///
+    /// A new rendering invalidates any selection made in the old one: the
+    /// offsets would address different characters. Clearing here rather than
+    /// at the call site means no future caller can install a surface and
+    /// forget, which is the shape of the bug this guards.
+    public func setSafePreviewSurface(_ surface: SafePreviewSurface) {
+        let changed = surface.text != safePreviewSurface.text
+        safePreviewSurface = surface
+        if changed, previewMode == .safePreview {
+            selectedTextRange = nil
+        }
+    }
 
     /// The transient confirmation (or explanation) after a Protect action; the
     /// pane renders it and clears it after a few seconds or on the next change.
@@ -471,6 +493,9 @@ public final class ReviewModel: ObservableObject {
         entities = []
         selectedGroupIDs = []
         selectedTextRange = nil
+        // A preview of the previous document must not outlive it: its
+        // pairing describes text that is no longer on screen.
+        safePreviewSurface = .unavailable
         protectNotice = nil
         groupToReveal = nil
         previewMode = .original
