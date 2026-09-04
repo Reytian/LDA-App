@@ -21,6 +21,9 @@
 import XCTest
 @testable import LDAUI
 
+// The cancel button is matched as L10n.button("Cancel", not Button("Cancel":
+// the dialog's copy routes through L10n so it follows the language picker.
+// The keypress assertions are unchanged; only the spelling of the anchor is.
 final class ModelSetupDialogSafetyTests: XCTestCase {
 
     private func uiSource(_ name: String) throws -> String {
@@ -137,7 +140,7 @@ final class ModelSetupDialogSafetyTests: XCTestCase {
         ] {
             let start = try XCTUnwrap(block.range(of: proceed))
             let cancel = try XCTUnwrap(
-                block.range(of: "Button(\"Cancel\"", range: start.upperBound..<block.endIndex),
+                block.range(of: "L10n.button(\"Cancel\"", range: start.upperBound..<block.endIndex),
                 "\(name): the cancel button is missing"
             )
             XCTAssertFalse(
@@ -151,7 +154,7 @@ final class ModelSetupDialogSafetyTests: XCTestCase {
         let text = try uiSource("ModelSetupFlow.swift")
         let scan = try scanBlock(text)
         try assertPrecedes(
-            "Button(\"Cancel\"", ".keyboardShortcut(.cancelAction)", in: scan,
+            "L10n.button(\"Cancel\"", ".keyboardShortcut(.cancelAction)", in: scan,
             "escape must reach cancel explicitly, not by inference from the role"
         )
         // The export dialog's cancel takes the Return default too on a Mac
@@ -159,7 +162,7 @@ final class ModelSetupDialogSafetyTests: XCTestCase {
         // fixed.
         let export = try exportBlock(text)
         try assertPrecedes(
-            "Button(\"Cancel\"", "exportDefault == .cancel", in: export,
+            "L10n.button(\"Cancel\"", "exportDefault == .cancel", in: export,
             "the export dialog's cancel must own Return where there is no fix "
                 + "to own it"
         )

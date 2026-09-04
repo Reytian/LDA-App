@@ -4,12 +4,17 @@ import SwiftUI
 import XCTest
 @testable import LDAUI
 
+// The source markers below name L10n.text / L10n.picker / .l10nHelp rather
+// than Text / Picker / .help. That is not a cosmetic rename: those are the
+// only spellings that reach the in-app language override, so a marker naming
+// the bare SwiftUI form would now be pinning a site that renders in the
+// system language instead of the picked one. See LocalizationRoutingTests.
 final class RootShellLayoutTests: XCTestCase {
     func testModePickerUsesCompactControlSize() throws {
         let source = try String(contentsOf: Self.sourceURL, encoding: .utf8)
-        let modePickerStart = try XCTUnwrap(source.range(of: #"Picker("Mode""#))
+        let modePickerStart = try XCTUnwrap(source.range(of: #"L10n.picker("Mode""#))
         let modePickerEnd = try XCTUnwrap(
-            source.range(of: ".help(", range: modePickerStart.lowerBound..<source.endIndex)
+            source.range(of: ".l10nHelp(", range: modePickerStart.lowerBound..<source.endIndex)
         )
         let modePicker = source[modePickerStart.lowerBound..<modePickerEnd.lowerBound]
 
@@ -191,7 +196,7 @@ final class RootShellLayoutTests: XCTestCase {
         let source = try String(contentsOf: Self.matterSourceURL, encoding: .utf8)
         let sidebarStart = try XCTUnwrap(source.range(of: "private var sidebar: some View"))
         let headerStart = try XCTUnwrap(
-            source.range(of: "Text(\"Matters\")", range: sidebarStart.lowerBound..<source.endIndex)
+            source.range(of: "L10n.text(\"Matters\")", range: sidebarStart.lowerBound..<source.endIndex)
         )
         let sidebarPrefix = source[sidebarStart.lowerBound..<headerStart.lowerBound]
 
@@ -315,7 +320,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         try assertFontRole(
             in: Self.entitySidebarSourceURL,
-            after: "Text(\"This text stands in for the value in the safe copy.",
+            after: "L10n.text(\"This text stands in for the value in the safe copy.",
             role: "CounselTheme.Typography.supporting"
         )
         try assertFontRole(
