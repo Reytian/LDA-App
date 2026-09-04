@@ -64,7 +64,7 @@ struct DocumentTrayRow: View {
         case .ready:
             // The whole document's coverage, headers and footers included,
             // so the tray chip and the review banner say the same thing.
-            Text("\(model.totalRedactedCount)")
+            L10n.text("%lld", model.totalRedactedCount)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
                 .help(String(
@@ -235,26 +235,34 @@ struct AddTermPopover: View {
                 Button {
                     type = kind
                 } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: type == kind ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(type == kind ? CounselTheme.inkAccent : CounselTheme.textSecondary)
-                        Circle()
-                            .fill(CounselTheme.color(for: kind))
-                            .frame(width: 8, height: 8)
-                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                        Text(EntityTypePresentation.localizedKey(for: kind))
-                            .font(.callout)
-                            .foregroundStyle(CounselTheme.textPrimary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .contentShape(Rectangle())
+                    typeChoiceRow(kind)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(EntityTypePresentation.localizedKey(for: kind)))
+                .l10nAccessibilityLabel(EntityTypePresentation.key(for: kind))
                 .accessibilityAddTraits(type == kind ? [.isSelected] : [])
             }
         }
+    }
+
+    /// One radio row of the manual type chooser.
+    ///
+    /// Extracted from the ForEach body because inlining it made the whole
+    /// button label a single expression the type checker gave up on.
+    private func typeChoiceRow(_ kind: EntityType) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: type == kind ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(type == kind ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+            Circle()
+                .fill(CounselTheme.color(for: kind))
+                .frame(width: 8, height: 8)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            L10n.text(EntityTypePresentation.key(for: kind))
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textPrimary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .contentShape(Rectangle())
     }
 
     private var primaryTitle: String {

@@ -58,8 +58,9 @@ struct AppShellWorkflowHeader: View {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            "Anonymize workflow, current step \(L10n.string(current.title))"
+        .l10nAccessibilityLabel(
+            "Anonymize workflow, current step %@",
+            L10n.string(current.title)
         )
     }
 
@@ -76,7 +77,7 @@ struct AppShellWorkflowHeader: View {
                 .foregroundStyle(active || completed
                     ? CounselTheme.inkAccent
                     : CounselTheme.textSecondary)
-            Text(step.localizedTitle)
+            L10n.text(step.title)
                 .font(.caption.weight(active ? .semibold : .regular))
                 .foregroundStyle(active
                     ? CounselTheme.textPrimary

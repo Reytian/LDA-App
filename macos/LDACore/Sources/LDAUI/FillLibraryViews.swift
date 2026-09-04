@@ -250,7 +250,7 @@ struct PortalLibraryBody: View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(CounselTheme.danger)
-            Text("Export failed: \(error)")
+            L10n.text("Export failed: %@", error)
                 .font(.callout)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
@@ -358,7 +358,7 @@ struct PortfolioRow: View {
     // MARK: - Subviews
 
     private var kindBadge: some View {
-        Text(LocalizedStringKey(kindLabel))
+        L10n.text(kindLabel)
             .font(.caption2.weight(.medium))
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(.horizontal, 6)
@@ -458,12 +458,12 @@ struct NewPortfolioSheet: View {
 
                 L10n.picker("Kind", selection: $selectedKind) {
                     ForEach(PortfolioKind.allCases, id: \.self) { kind in
-                        Text(LocalizedStringKey(kindDisplayName(kind))).tag(kind)
+                        L10n.text(kindDisplayName(kind)).tag(kind)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                Text(LocalizedStringKey(kindDescription))
+                L10n.text(kindDescription)
                     .font(CounselTheme.Typography.readingBody)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -712,7 +712,7 @@ struct AddFieldSheet: View {
                     .font(.callout.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                TextField("", text: $value)
+                TextField(text: $value) { EmptyView() }
                     .textFieldStyle(.roundedBorder)
             }
 

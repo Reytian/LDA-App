@@ -163,11 +163,11 @@ struct ProfileFieldTable: View {
     }
 
     private func columnHeader(
-        _ text: LocalizedStringKey,
+        _ key: String,
         width: CGFloat? = nil,
         minWidth: CGFloat? = nil
     ) -> some View {
-        Text(text)
+        L10n.text(key)
             .font(.caption.weight(.semibold))
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(.horizontal, 12)
@@ -230,7 +230,7 @@ struct ProfileFieldRow: View {
                     // Conflict: show value + a resolve menu
                     conflictValueCell
                 } else {
-                    TextField("", text: $editedValue)
+                    TextField(text: $editedValue) { EmptyView() }
                         .textFieldStyle(.plain)
                         .font(.callout.monospaced())
                         .foregroundStyle(
@@ -357,7 +357,7 @@ struct ConfidenceBar: View {
             }
         }
         .frame(height: 4)
-        .accessibilityLabel("Confidence \(Int((confidence * 100).rounded()))%")
+        .l10nAccessibilityLabel("Confidence %lld%%", Int((confidence * 100).rounded()))
     }
 
     private var confidenceColor: Color {

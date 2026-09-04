@@ -52,7 +52,7 @@ struct WorkspaceSaveSheet: View {
                 .frame(width: 320)
 
             Label {
-                Text(LocalizedStringKey(WorkspacePresentation.irrecoverabilityNote))
+                L10n.text(WorkspacePresentation.irrecoverabilityNote)
             } icon: {
                 Image(systemName: "key.fill")
             }

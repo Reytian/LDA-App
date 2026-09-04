@@ -919,3 +919,4 @@
 "Installed and in use. Scans will now find the names of people and organisations." = "Installé et actif. Les analyses rechercheront désormais les noms de personnes physiques et les dénominations sociales.";
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protège les informations du client avant qu'elles n'atteignent un outil d'IA, et les rétablit ensuite.";
 "Re-scan" = "Réanalyser";
+"matter" = "affaire";

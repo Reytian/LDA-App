@@ -29,9 +29,6 @@ public enum AppearanceMode: String, CaseIterable, Identifiable {
         }
     }
 
-    public var localizedKey: LocalizedStringKey {
-        LocalizedStringKey(label)
-    }
 
     /// The SwiftUI color scheme to force, or nil to follow the system.
     public var colorScheme: ColorScheme? {

@@ -157,16 +157,24 @@ if [ "$FOUND_BUNDLE" -eq 0 ] || [ ! -f "$APP/Contents/Resources/LDACore_LDAUI.bu
 fi
 
 # Every string in the app now reaches the interface through
-# L10n.text / L10n.button / .l10nHelp / L10n.string, which resolve against
-# LDACore_LDAUI.bundle's own nested .lproj folders directly (see
-# Localization.swift) rather than through Bundle.main's localization-aware
-# initializers. Promoting a copy into Contents/Resources used to be required
-# because those initializers only look in the host app bundle; now that no
-# implicit LocalizedStringKey site is left in a localizing position (enforced
-# by LocalizationRoutingTests), the promotion is dead weight, and leaving it
-# in would mean a future implicit literal renders Chinese in the packaged app
-# and English in `swift run`, hiding a regression from human testing instead
-# of failing it the same way in both.
+# L10n.text / L10n.button / .l10nHelp / L10n.string and their siblings, which
+# resolve against LDACore_LDAUI.bundle's own nested .lproj folders directly
+# (see Localization.swift) rather than through Bundle.main's
+# localization-aware initializers. Promoting a copy into Contents/Resources
+# used to be required because those initializers only look in the host app
+# bundle.
+#
+# When this promotion was removed, the justification written here claimed no
+# implicit LocalizedStringKey site was left in a localizing position. That was
+# not true at the time: LocalizationRoutingTests was a RATCHET that still
+# budgeted 302 literal sites and 47 LocalizedStringKey occurrences, and the
+# app shipped with the drop zone, the mode tabs and the export buttons in
+# English while the picker said 简体中文. The claim is true now because both
+# budgets were driven to zero and the tables are empty, so the test is a real
+# ban rather than a ceiling. Keep it that way: if either table is ever
+# repopulated, this promotion is load-bearing again and its removal has to be
+# revisited, because leaving it out means a budgeted implicit literal renders
+# English in the packaged app instead of the picked language.
 echo "==> Verifying interface localizations"
 CATALOG_BUNDLE="$APP/Contents/Resources/LDACore_LDAUI.bundle"
 for IDENTIFIER in en fr zh-Hans zh-Hant; do

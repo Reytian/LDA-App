@@ -10,14 +10,18 @@
 //  L10n.button and .l10nHelp are the only sanctioned way to render copy in
 //  Sources/LDAUI and Sources/LDAApp.
 //
-//  This is a per-file RATCHET, not a global ban. Hundreds of literal sites
-//  and dozens of LocalizedStringKey occurrences exist across this package
-//  today, so a global empty-match assertion could never be committed and
-//  would enforce nothing. A handful of files are cleaned to a pinned budget
-//  of zero; the rest keep their measured count as a ceiling that can only go
-//  down. A file that reaches zero must be REMOVED from the table, which is
-//  what stops a stale nonzero budget from surviving a cleanup and is checked
-//  by testTheBudgetTableNeverOutlivesItsOwnViolations below.
+//  This STARTED as a per-file ratchet: 302 literal sites and 47
+//  LocalizedStringKey occurrences were budgeted per file, each count a
+//  ceiling that could only go down. Both budgets have now reached zero
+//  across the whole package, so the tables below are empty and the test is
+//  what the ratchet was always converging on: a global ban. Every file that
+//  reached zero was REMOVED from its table rather than pinned at 0, which is
+//  what stops a stale budget from outliving the violations it described, and
+//  is checked by testTheBudgetTableNeverOutlivesItsOwnViolations below.
+//
+//  An empty table is not a weaker assertion than a populated one. The
+//  equality check against the measured violation set means a single new
+//  Text("x") fails this test outright: there is no budget left to absorb it.
 //
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
@@ -32,51 +36,13 @@ final class LocalizationRoutingTests: XCTestCase {
 
     /// Regular-literal violations (Text("x"), .help("x"), and the rest of
     /// LocalizationScanner.family1Names / family2Names) still allowed per
-    /// file, measured against this branch. Pinned at 0 for every file this
-    /// wizard-language change touches directly.
-    private static let literalBudget: [String: Int] = [
-        "MatterWorkspaceView.swift": 58,
-        "FillShell.swift": 37,
-        "FillLibraryViews.swift": 35,
-        "EntitySidebar.swift": 31,
-        "FillShellSheets.swift": 22,
-        "FillReviewViews.swift": 18,
-        "DocumentPane.swift": 14,
-        "SessionViews.swift": 14,
-        "WorkspaceSheets.swift": 11,
-        "ClientMatterFlow.swift": 10,
-        "ExportFlow.swift": 10,
-        "FillShellViews.swift": 9,
-        "ComplianceReportSheets.swift": 8,
-        "AppShellToolbar.swift": 7,
-        "HandoffCompletionCard.swift": 6,
-        "WorkspaceFlow.swift": 4,
-        "RootShell.swift": 2,
-        "ModelSetupFlow.swift": 2,
-        "DeanonymizeShell.swift": 2,
-        "AppShell.swift": 1,
-        "AppShellWorkflowHeader.swift": 1
-    ]
+    /// file. Empty: every one of the 302 sites this table used to budget now
+    /// routes through L10n, so any entry here would be a regression.
+    private static let literalBudget: [String: Int] = [:]
 
     /// `LocalizedStringKey` token occurrences still allowed per file, same
-    /// shape and same pinned-zero files as `literalBudget`.
-    private static let localizedStringKeyBudget: [String: Int] = [
-        "MatterWorkspaceView.swift": 13,
-        "ComplianceReportSheets.swift": 9,
-        "DeanonymizeShell.swift": 4,
-        "EntitySidebar.swift": 3,
-        "FillLibraryViews.swift": 3,
-        "AppearanceMode.swift": 2,
-        "DocumentPane.swift": 2,
-        "EntityTypePresentation.swift": 2,
-        "GuidedWorkflowPresentation.swift": 2,
-        "RootShell.swift": 2,
-        "FillReviewViews.swift": 1,
-        "FillShell.swift": 1,
-        "FillShellViews.swift": 1,
-        "WorkspaceFlow.swift": 1,
-        "WorkspaceSheets.swift": 1
-    ]
+    /// shape as `literalBudget` and, for the same reason, also empty.
+    private static let localizedStringKeyBudget: [String: Int] = [:]
 
     // MARK: - Test A: no literal reaches a localizing position
 

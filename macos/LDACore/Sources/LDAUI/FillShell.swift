@@ -376,8 +376,8 @@ public struct FillShell: View {
         // on narrow windows while retaining every advanced command.
         ToolbarItemGroup(placement: .automatic) {
             Button(action: runProfilePrimaryAction) {
-                Label(
-                    LocalizedStringKey(profilePrimaryActionLabel),
+                L10n.label(
+                    profilePrimaryActionLabel,
                     systemImage: profilePrimaryActionIcon
                 )
             }
@@ -666,7 +666,7 @@ public struct FillShell: View {
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textPrimary)
                 if unmatched > 0 {
-                    Text("\u{00B7}  \(unmatched) unmatched")
+                    L10n.text("\u{00B7}  %lld unmatched", unmatched)
                         .font(.callout)
                         .monospacedDigit()
                         .foregroundStyle(CounselTheme.danger)

@@ -28,9 +28,6 @@ enum AnonymizeWorkflowStep: Int, CaseIterable, Equatable {
         }
     }
 
-    var localizedTitle: LocalizedStringKey {
-        LocalizedStringKey(title)
-    }
 
     var systemImage: String {
         switch self {

@@ -32,9 +32,10 @@ private struct L10nNavigationTitleModifier: ViewModifier {
 private struct L10nAccessibilityLabelModifier: ViewModifier {
     @Environment(\.appLanguage) private var language
     let key: String
+    let arguments: [CVarArg]
 
     func body(content: Content) -> some View {
-        content.accessibilityLabel(L10n.string(key, language: language))
+        content.accessibilityLabel(L10n.formatted(key, language: language, arguments))
     }
 }
 
@@ -67,6 +68,7 @@ private struct L10nAlertModifier<Actions: View, Message: View>: ViewModifier {
 private struct L10nConfirmationDialogModifier<Actions: View, Message: View>: ViewModifier {
     @Environment(\.appLanguage) private var language
     let key: String
+    let arguments: [CVarArg]
     let isPresented: Binding<Bool>
     let titleVisibility: Visibility
     @ViewBuilder let actions: () -> Actions
@@ -74,7 +76,7 @@ private struct L10nConfirmationDialogModifier<Actions: View, Message: View>: Vie
 
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            L10n.string(key, language: language),
+            L10n.formatted(key, language: language, arguments),
             isPresented: isPresented,
             titleVisibility: titleVisibility,
             actions: actions,
@@ -92,8 +94,8 @@ extension View {
     /// `.accessibilityLabel("literal")` routed through the environment language.
     /// VoiceOver copy is copy: it needs translating for the same reason the
     /// visible label does, and it is the half nobody notices going stale.
-    func l10nAccessibilityLabel(_ key: String) -> some View {
-        modifier(L10nAccessibilityLabelModifier(key: key))
+    func l10nAccessibilityLabel(_ key: String, _ arguments: CVarArg...) -> some View {
+        modifier(L10nAccessibilityLabelModifier(key: key, arguments: arguments))
     }
 
     /// `.accessibilityHint("literal")` routed through the environment language.
@@ -134,6 +136,7 @@ extension View {
 
     func l10nConfirmationDialog<Actions: View, Message: View>(
         _ key: String,
+        arguments: [CVarArg] = [],
         isPresented: Binding<Bool>,
         titleVisibility: Visibility = .automatic,
         @ViewBuilder actions: @escaping () -> Actions,
@@ -142,6 +145,7 @@ extension View {
         modifier(
             L10nConfirmationDialogModifier(
                 key: key,
+                arguments: arguments,
                 isPresented: isPresented,
                 titleVisibility: titleVisibility,
                 actions: actions,
@@ -152,6 +156,7 @@ extension View {
 
     func l10nConfirmationDialog<Actions: View>(
         _ key: String,
+        arguments: [CVarArg] = [],
         isPresented: Binding<Bool>,
         titleVisibility: Visibility = .automatic,
         @ViewBuilder actions: @escaping () -> Actions
@@ -159,6 +164,7 @@ extension View {
         modifier(
             L10nConfirmationDialogModifier(
                 key: key,
+                arguments: arguments,
                 isPresented: isPresented,
                 titleVisibility: titleVisibility,
                 actions: actions,

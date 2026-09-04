@@ -120,12 +120,10 @@ public struct DeanonymizeShell: View {
         card(
             icon: "doc.badge.arrow.up",
             title: "Restore a file",
-            body: LocalizedStringKey(
-                "Choose or drop the file that came back: the Markdown you exported for the AI, "
-                    + "or a redacted Word document you saved. The mapping is found automatically "
-                    + "from this session or from the .ldamap saved next to the file. "
-                    + "Formatting is kept when the file is a Word document."
-            ),
+            body: "Choose or drop the file that came back: the Markdown you exported for the AI, "
+                + "or a redacted Word document you saved. The mapping is found automatically "
+                + "from this session or from the .ldamap saved next to the file. "
+                + "Formatting is kept when the file is a Word document.",
             buttonTitle: "Choose File & Restore\u{2026}",
             buttonHelp: "Pick the file that came back and write the restored document (Cmd+R)",
             isProminent: true,
@@ -145,18 +143,18 @@ public struct DeanonymizeShell: View {
 
     private func card(
         icon: String,
-        title: LocalizedStringKey,
-        body: LocalizedStringKey,
-        buttonTitle: LocalizedStringKey,
+        title: String,
+        body: String,
+        buttonTitle: String,
         buttonHelp: String,
         isProminent: Bool,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(title, systemImage: icon)
+            L10n.label(title, systemImage: icon)
                 .font(CounselTheme.Typography.sectionTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text(body)
+            L10n.text(body)
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .lineSpacing(2)
@@ -166,13 +164,13 @@ public struct DeanonymizeShell: View {
             Group {
                 if isProminent {
                     Button(action: action) {
-                        Text(buttonTitle).frame(maxWidth: .infinity)
+                        L10n.text(buttonTitle).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
                 } else {
                     Button(action: action) {
-                        Text(buttonTitle).frame(maxWidth: .infinity)
+                        L10n.text(buttonTitle).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                 }

@@ -137,8 +137,12 @@ extension View {
 
 extension L10n {
     /// `Label("x", systemImage:)` routed through the environment language.
-    static func label(_ key: String, systemImage: String) -> some View {
-        L10nLabelView(key: key, systemImage: systemImage)
+    static func label(
+        _ key: String,
+        systemImage: String,
+        _ arguments: CVarArg...
+    ) -> some View {
+        L10nLabelView(key: key, systemImage: systemImage, arguments: arguments)
     }
 
     /// `Button("x", role:)`. The roleless overload above stays the common case;
@@ -179,9 +183,13 @@ private struct L10nLabelView: View {
     @Environment(\.appLanguage) private var language
     let key: String
     let systemImage: String
+    let arguments: [CVarArg]
 
     var body: some View {
-        Label(L10n.string(key, language: language), systemImage: systemImage)
+        Label(
+            L10n.formatted(key, language: language, arguments),
+            systemImage: systemImage
+        )
     }
 }
 

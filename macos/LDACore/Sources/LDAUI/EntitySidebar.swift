@@ -96,7 +96,7 @@ public struct EntitySidebar: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(CounselTheme.textSecondary)
                         Spacer(minLength: 8)
-                        Text("\(session.entries.count)")
+                        L10n.text("%lld", session.entries.count)
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
@@ -204,7 +204,7 @@ public struct EntitySidebar: View {
                     .l10nAccessibilityLabel("Tip: select several extra findings to keep them visible together.")
             }
             if isPseudonymEditingAvailable, !model.entities.isEmpty {
-                Text(LocalizedStringKey(PseudonymEditingPresentation.footnote))
+                L10n.text(PseudonymEditingPresentation.footnote)
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -260,7 +260,7 @@ public struct EntitySidebar: View {
             }
             .buttonStyle(.bordered)
             .tint(CounselTheme.inkAccentFill)
-            .help(LocalizedStringKey(protectHelpKey))
+            .l10nHelp(protectHelpKey)
             .l10nAccessibilityLabel("Protect the selected text")
             .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
                 AddTermPopover(
@@ -280,7 +280,7 @@ public struct EntitySidebar: View {
             }
             .buttonStyle(.borderless)
             .disabled(model.status == .detecting)
-            .help(LocalizedStringKey(protectHelpKey))
+            .l10nHelp(protectHelpKey)
             .l10nAccessibilityLabel("Protect a missed item")
             .popover(isPresented: $isAddingTerm, arrowEdge: .bottom) {
                 AddTermPopover(model: model, isPresented: $isAddingTerm, undoManager: undoManager)
@@ -310,7 +310,7 @@ public struct EntitySidebar: View {
     /// after either action, which makes the decision easy to reverse.
     private var batchSelectionBar: some View {
         HStack(spacing: 8) {
-            Text("\(model.selectedGroupIDs.count) selected")
+            L10n.text("%lld selected", model.selectedGroupIDs.count)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
 
@@ -426,11 +426,11 @@ private struct SectionHeader: View {
             Circle()
                 .fill(CounselTheme.color(for: type))
                 .frame(width: 7, height: 7)
-            Text(EntityTypePresentation.localizedKey(for: type))
+            L10n.text(EntityTypePresentation.key(for: type))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
             Spacer(minLength: 8)
-            Text("\(count)")
+            L10n.text("%lld", count)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
 
@@ -520,7 +520,7 @@ private struct EntityGroupRow: View {
                     .l10nAccessibilityLabel("Will remain visible")
             }
 
-            Toggle("", isOn: acceptedBinding)
+            Toggle(isOn: acceptedBinding) { EmptyView() }
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -548,7 +548,7 @@ private struct EntityGroupRow: View {
                 .truncationMode(.middle)
 
             if group.occurrences > 1 {
-                Text("\u{00D7}\(group.occurrences)")
+                L10n.text("\u{00D7}%lld", group.occurrences)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(.horizontal, 5)
@@ -576,7 +576,7 @@ private struct EntityGroupRow: View {
                 }
                 .buttonStyle(.borderless)
                 .l10nHelp("Edit the replacement text used for this value")
-                .accessibilityLabel(Text("Edit replacement for \(group.value)"))
+                .l10nAccessibilityLabel("Edit replacement for %@", group.value)
                 .popover(isPresented: $isEditingReplacement, arrowEdge: .trailing) {
                     replacementPopover(pseudonymEditing)
                 }
@@ -588,7 +588,7 @@ private struct EntityGroupRow: View {
     /// back to the automatic pseudonym.
     private func replacementPopover(_ editing: PseudonymEditingContext) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Replacement for \"\(group.value)\"")
+            L10n.text("Replacement for \"%@\"", group.value)
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)

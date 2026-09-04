@@ -31,9 +31,6 @@ enum EntityTypePresentation {
         }
     }
 
-    static func localizedKey(for type: EntityType) -> LocalizedStringKey {
-        LocalizedStringKey(key(for: type))
-    }
 
     static func localizedName(
         for type: EntityType,

@@ -178,7 +178,7 @@ struct BlankSidebar: View {
 
             if !model.blanks.isEmpty {
                 let confirmedCount = model.blanks.filter { $0.status == .confirmed }.count
-                Text("\(confirmedCount)/\(model.blanks.count)")
+                L10n.text("%lld/%lld", confirmedCount, model.blanks.count)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(.trailing, 4)
@@ -300,7 +300,7 @@ struct BlankRow: View {
                         .font(.caption.monospaced())
                         .foregroundStyle(CounselTheme.inkAccent)
                         .lineLimit(1)
-                    Text("(from \(verbatim))")
+                    L10n.text("(from %@)", verbatim)
                         .font(.caption2)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .lineLimit(1)
@@ -317,9 +317,9 @@ struct BlankRow: View {
                     .truncationMode(.middle)
             }
         } else {
-            Text(LocalizedStringKey(
+            L10n.text(
                 blank.status == .unmatched ? "No match" : "Tap to choose"
-            ))
+            )
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary.opacity(0.7))
         }
@@ -671,7 +671,7 @@ struct FillReportPane: View {
                 // Skipped blanks
                 if !report.skipped.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Skipped (\(report.skipped.count))")
+                        L10n.text("Skipped (%lld)", report.skipped.count)
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(CounselTheme.textSecondary)
 
@@ -704,7 +704,7 @@ struct FillReportPane: View {
                 // Manual widgets
                 if !manualWidgetNames.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Manual input required (\(manualWidgetNames.count))")
+                        L10n.text("Manual input required (%lld)", manualWidgetNames.count)
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
 

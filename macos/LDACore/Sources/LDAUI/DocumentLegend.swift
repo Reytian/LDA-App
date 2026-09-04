@@ -217,7 +217,7 @@ struct DocumentLegend: View {
                     .fill(CounselTheme.color(for: item.type))
                     .frame(width: 8, height: 8)
                 if labeled {
-                    Text(EntityTypePresentation.localizedKey(for: item.type))
+                    L10n.text(EntityTypePresentation.key(for: item.type))
                         .font(.caption)
                         .foregroundStyle(CounselTheme.textPrimary)
                         .lineLimit(1)

@@ -252,8 +252,9 @@ struct MatterWorkspaceView: View {
         } message: {
             L10n.text("Switching matters closes the documents and any unfinished restore context in this window. Saved files are not affected.")
         }
-        .confirmationDialog(
-            "Archive \(pendingArchive?.summary.label ?? "matter")?",
+        .l10nConfirmationDialog(
+            "Archive %@?",
+            arguments: [pendingArchive?.summary.label ?? L10n.string("matter")],
             isPresented: Binding(
                 get: { pendingArchive != nil },
                 set: { if !$0 { pendingArchive = nil } }
@@ -261,11 +262,9 @@ struct MatterWorkspaceView: View {
             titleVisibility: .visible
         ) {
             if let pendingArchive {
-                Button(
-                    LocalizedStringKey(
-                        MatterWorkspaceLocalization.archiveConfirmationActionKey(
-                            discardsActiveWork: pendingArchive.discardsActiveWork
-                        )
+                L10n.button(
+                    MatterWorkspaceLocalization.archiveConfirmationActionKey(
+                        discardsActiveWork: pendingArchive.discardsActiveWork
                     ),
                     role: pendingArchive.discardsActiveWork ? .destructive : nil
                 ) {
@@ -282,8 +281,9 @@ struct MatterWorkspaceView: View {
                 L10n.text("The matter will move out of Active. Its encrypted identities and history are kept and can be restored later.")
             }
         }
-        .confirmationDialog(
-            "Delete \(pendingDelete?.label ?? "matter") permanently?",
+        .l10nConfirmationDialog(
+            "Delete %@ permanently?",
+            arguments: [pendingDelete?.label ?? L10n.string("matter")],
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
@@ -377,8 +377,8 @@ struct MatterWorkspaceView: View {
             .padding(.vertical, CounselTheme.Space.md)
 
             L10n.picker("Matter status", selection: $scope) {
-                Text("Active \(activeCount)").tag(MatterWorkspaceScope.active)
-                Text("Archived \(archivedCount)").tag(MatterWorkspaceScope.archived)
+                L10n.text("Active %lld", activeCount).tag(MatterWorkspaceScope.active)
+                L10n.text("Archived %lld", archivedCount).tag(MatterWorkspaceScope.archived)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -393,11 +393,11 @@ struct MatterWorkspaceView: View {
                     Image(systemName: emptySidebarIcon)
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(CounselTheme.textSecondary)
-                    Text(LocalizedStringKey(emptySidebarTitleKey))
+                    L10n.text(emptySidebarTitleKey)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     if searchText.isEmpty {
-                        Text(LocalizedStringKey(emptySidebarMessageKey))
+                        L10n.text(emptySidebarMessageKey)
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -424,11 +424,9 @@ struct MatterWorkspaceView: View {
                             Button {
                                 requestArchiveToggle(summary)
                             } label: {
-                                Label(
-                                    LocalizedStringKey(
-                                        MatterWorkspaceLocalization.archiveActionKey(
-                                            isArchived: summary.isArchived
-                                        )
+                                L10n.label(
+                                    MatterWorkspaceLocalization.archiveActionKey(
+                                        isArchived: summary.isArchived
                                     ),
                                     systemImage: summary.isArchived
                                         ? "arrow.uturn.backward.circle"
@@ -457,7 +455,7 @@ struct MatterWorkspaceView: View {
                     Image(systemName: "exclamationmark.lock")
                         .foregroundStyle(CounselTheme.textSecondary)
                     VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
-                        Text(LocalizedStringKey(loadFailureTitleKey))
+                        L10n.text(loadFailureTitleKey)
                             .font(.caption.weight(.semibold))
                         L10n.button("Try Again") { reload() }
                             .font(.caption)
@@ -750,7 +748,7 @@ private struct MatterDetailView: View {
                         .font(.system(size: 30, weight: .semibold, design: .serif))
                         .foregroundStyle(CounselTheme.textPrimary)
                     if let stamp = summary.lastActivityISO8601 {
-                        Text("Last activity \(MatterDateFormatter.full(stamp))")
+                        L10n.text("Last activity %@", MatterDateFormatter.full(stamp))
                             .font(.callout)
                             .foregroundStyle(CounselTheme.textSecondary)
                     } else {
@@ -766,11 +764,9 @@ private struct MatterDetailView: View {
                     }
                     Divider()
                     Button(action: onArchiveToggle) {
-                        Label(
-                            LocalizedStringKey(
-                                MatterWorkspaceLocalization.archiveActionKey(
-                                    isArchived: summary.isArchived
-                                )
+                        L10n.label(
+                            MatterWorkspaceLocalization.archiveActionKey(
+                                isArchived: summary.isArchived
                             ),
                             systemImage: summary.isArchived
                                 ? "arrow.uturn.backward.circle"
@@ -823,37 +819,29 @@ private struct MatterDetailView: View {
         HStack(spacing: CounselTheme.Space.md) {
             MatterMetricCard(
                 value: summary.sessionCount,
-                label: LocalizedStringKey(
-                    MatterWorkspaceLocalization.handoffLabelKey(
-                        count: summary.sessionCount
-                    )
+                label: MatterWorkspaceLocalization.handoffLabelKey(
+                    count: summary.sessionCount
                 ),
                 systemImage: "arrow.right.doc.on.clipboard"
             )
             MatterMetricCard(
                 value: summary.documentCount,
-                label: LocalizedStringKey(
-                    MatterWorkspaceLocalization.documentLabelKey(
-                        count: summary.documentCount
-                    )
+                label: MatterWorkspaceLocalization.documentLabelKey(
+                    count: summary.documentCount
                 ),
                 systemImage: "doc.on.doc"
             )
             MatterMetricCard(
                 value: summary.protectedValueCount,
-                label: LocalizedStringKey(
-                    MatterWorkspaceLocalization.identityLabelKey(
-                        count: summary.protectedValueCount
-                    )
+                label: MatterWorkspaceLocalization.identityLabelKey(
+                    count: summary.protectedValueCount
                 ),
                 systemImage: "person.badge.shield.checkmark"
             )
             MatterMetricCard(
                 value: summary.restoreCount,
-                label: LocalizedStringKey(
-                    MatterWorkspaceLocalization.restoreLabelKey(
-                        count: summary.restoreCount
-                    )
+                label: MatterWorkspaceLocalization.restoreLabelKey(
+                    count: summary.restoreCount
                 ),
                 systemImage: "arrow.uturn.backward"
             )
@@ -916,17 +904,17 @@ private struct MatterDetailView: View {
 
 private struct MatterMetricCard: View {
     let value: Int
-    let label: LocalizedStringKey
+    let label: String
     let systemImage: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.sm) {
             Image(systemName: systemImage)
                 .foregroundStyle(CounselTheme.inkAccent)
-            Text("\(value)")
+            L10n.text("%lld", value)
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .foregroundStyle(CounselTheme.textPrimary)
-            Text(label)
+            L10n.text(label)
                 .font(.caption)
                 .foregroundStyle(CounselTheme.textSecondary)
         }
@@ -956,7 +944,7 @@ private struct MatterActivityRow: View {
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Spacer()
-                    Text("\(record.protectedValueCount) protected")
+                    L10n.text("%lld protected", record.protectedValueCount)
                         .font(.caption)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
@@ -1010,14 +998,12 @@ private struct MatterWorkspaceEmptyView: View {
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(CounselTheme.inkAccent)
             VStack(spacing: CounselTheme.Space.sm) {
-                Text(
-                    LocalizedStringKey(
-                        MatterWorkspaceLocalization.emptyDetailTitleKey(scope: scope)
-                    )
+                L10n.text(
+                    MatterWorkspaceLocalization.emptyDetailTitleKey(scope: scope)
                 )
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
-                Text(LocalizedStringKey(emptyMessageKey))
+                L10n.text(emptyMessageKey)
                     .font(.callout)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)

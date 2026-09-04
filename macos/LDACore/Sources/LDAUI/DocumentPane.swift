@@ -269,7 +269,7 @@ public struct DocumentPane: View {
         HStack(spacing: HeaderLayout.spacing) {
             L10n.picker("Document preview", selection: $model.previewMode) {
                 ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
-                    Text(mode.localizedKey).tag(mode)
+                    L10n.text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
@@ -278,9 +278,10 @@ public struct DocumentPane: View {
 
             if model.previewMode == .safePreview {
                 if model.visibleCount > 0 {
-                    Label(
-                        "\(model.visibleCount) kept visible",
-                        systemImage: "eye.trianglebadge.exclamationmark"
+                    L10n.label(
+                        "%lld kept visible",
+                        systemImage: "eye.trianglebadge.exclamationmark",
+                        model.visibleCount
                     )
                     .foregroundStyle(CounselTheme.danger)
                     .l10nHelp("Items you rejected remain readable in this preview and in the saved document")
@@ -519,7 +520,6 @@ public enum DocumentPreviewMode: String, CaseIterable {
     case original = "Original"
     case safePreview = "Safe Preview"
 
-    var localizedKey: LocalizedStringKey { LocalizedStringKey(rawValue) }
 
     var allowsTextSelection: Bool { self == .original }
 }

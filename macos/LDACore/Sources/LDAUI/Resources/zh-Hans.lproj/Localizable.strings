@@ -919,3 +919,4 @@
 "Installed and in use. Scans will now find the names of people and organisations." = "已安装并启用；此后扫描将检测自然人姓名与单位名称。";
 "LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA 在文档交付 AI 工具之前对委托人信息脱敏，事后再行还原。";
 "Re-scan" = "重新扫描";
+"matter" = "该事项";

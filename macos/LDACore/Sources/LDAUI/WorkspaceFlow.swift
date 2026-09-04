@@ -109,7 +109,7 @@ struct WorkspaceFlow: ViewModifier {
             ) {
                 confirmationButtons
             } message: {
-                Text(LocalizedStringKey(WorkspacePresentation.replacementPrompt))
+                L10n.text(WorkspacePresentation.replacementPrompt)
             }
             .onChange(of: flow.saveRequestToken) { _, _ in presentSavePanel() }
             .onChange(of: session.pendingWorkspaceURL) { _, url in

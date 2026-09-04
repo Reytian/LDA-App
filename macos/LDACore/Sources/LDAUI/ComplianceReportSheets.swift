@@ -42,11 +42,11 @@ struct ComplianceReportExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(LocalizedStringKey(ComplianceReportPresentation.exportHeadline))
+            L10n.text(ComplianceReportPresentation.exportHeadline)
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text(LocalizedStringKey(ComplianceReportPresentation.exportExplanation))
+            L10n.text(ComplianceReportPresentation.exportExplanation)
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -57,7 +57,7 @@ struct ComplianceReportExportSheet: View {
                 passphraseFields
             } else {
                 Label {
-                    Text(LocalizedStringKey(ComplianceReportPresentation.readableWarning))
+                    L10n.text(ComplianceReportPresentation.readableWarning)
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
@@ -84,11 +84,16 @@ struct ComplianceReportExportSheet: View {
     }
 
     private var shapePicker: some View {
-        Picker("", selection: $flow.shape) {
-            Text(LocalizedStringKey(ComplianceReportPresentation.encryptedOptionTitle))
+        // The label is empty because .labelsHidden() removes it anyway; the
+        // label-closure form is used so no literal sits in a localizing
+        // position for the scanner to have to forgive.
+        Picker(selection: $flow.shape) {
+            L10n.text(ComplianceReportPresentation.encryptedOptionTitle)
                 .tag(ComplianceReportPresentation.Shape.encrypted)
-            Text(LocalizedStringKey(ComplianceReportPresentation.readableOptionTitle))
+            L10n.text(ComplianceReportPresentation.readableOptionTitle)
                 .tag(ComplianceReportPresentation.Shape.readable)
+        } label: {
+            EmptyView()
         }
         .pickerStyle(.radioGroup)
         .labelsHidden()
@@ -96,7 +101,7 @@ struct ComplianceReportExportSheet: View {
 
     @ViewBuilder
     private var passphraseFields: some View {
-        Text(LocalizedStringKey(ComplianceReportPresentation.encryptedOptionNote))
+        L10n.text(ComplianceReportPresentation.encryptedOptionNote)
             .font(.callout)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -110,7 +115,7 @@ struct ComplianceReportExportSheet: View {
             .frame(width: 320)
 
         Label {
-            Text(LocalizedStringKey(ComplianceReportPresentation.irrecoverabilityNote))
+            L10n.text(ComplianceReportPresentation.irrecoverabilityNote)
         } icon: {
             Image(systemName: "key.fill")
         }
@@ -135,11 +140,11 @@ struct ComplianceReportOpenSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(LocalizedStringKey(ComplianceReportPresentation.openHeadline))
+            L10n.text(ComplianceReportPresentation.openHeadline)
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
 
-            Text(LocalizedStringKey(ComplianceReportPresentation.openExplanation))
+            L10n.text(ComplianceReportPresentation.openExplanation)
                 .font(.callout)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
