@@ -239,6 +239,75 @@ final class DeterministicEngineTests: XCTestCase {
         XCTAssertFalse(DeterministicEngine.isValidChineseID("12345"))
     }
 
+    // MARK: - NATIONAL_ID (US Social Security number)
+
+    func testValidUSSSNIsEmittedAsNationalID() {
+        let text = "Employee SSN: 123-45-6789 on file."
+        let spans = engine.detect(text)
+
+        let span = assertHasSpan(spans, type: .nationalID, text: "123-45-6789")
+        XCTAssertEqual(span.priority, 92, "an SSN has no checksum, so it sits below 身份证 (100) and USCC (95)")
+        XCTAssertEqual(span.confidence, 0.9, accuracy: 1e-9, "structure only, never 1.0")
+        XCTAssertEqual(span.source, .deterministic)
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testStructurallyInvalidSSNsAreNotEmitted() {
+        // Each violates exactly one SSA rule: area 000, area 666, area 900+,
+        // group 00, serial 0000. None may be emitted as NATIONAL_ID.
+        for bad in ["000-45-6789", "666-45-6789", "900-45-6789", "123-00-6789", "123-45-0000"] {
+            let spans = engine.detect("Ref \(bad) noted.")
+            XCTAssertFalse(
+                spans.contains { $0.type == .nationalID && $0.text == bad },
+                "\(bad) breaks an SSA structural rule and must not be emitted"
+            )
+        }
+    }
+
+    func testUSSSNValidatorUnit() {
+        XCTAssertTrue(DeterministicEngine.isValidUSSSN("123-45-6789"))
+        XCTAssertTrue(DeterministicEngine.isValidUSSSN("899-99-9999"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("000-45-6789"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("666-45-6789"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("900-45-6789"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("123-00-6789"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("123-45-0000"))
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("123456789"), "the unhyphenated form is deliberately out of scope")
+        XCTAssertFalse(DeterministicEngine.isValidUSSSN("12-345-6789"))
+    }
+
+    func testUSSSNIsNotCarvedOutOfALongerHyphenatedRun() {
+        // A phone number written with an SSN-shaped tail must not yield a
+        // NATIONAL_ID from its last nine digits.
+        let text = "Call 555-123-45-6789 today."
+        let spans = engine.detect(text)
+        XCTAssertFalse(
+            spans.contains { $0.type == .nationalID },
+            "an SSN must be delimited on both sides; a hyphen-adjacent match is a fragment"
+        )
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testUSSSNWinsOverPhoneAndDate() {
+        let text = "SSN 123-45-6789 issued."
+        let spans = engine.detect(text)
+        let ssn = assertHasSpan(spans, type: .nationalID, text: "123-45-6789")
+        let rivals = spans.filter {
+            ($0.type == .phone || $0.type == .date) && $0.start < ssn.end && $0.end > ssn.start
+        }
+        for rival in rivals {
+            XCTAssertGreaterThan(ssn.priority, rival.priority, "NATIONAL_ID must beat an overlapping \(rival.type)")
+        }
+    }
+
+    func testChineseIDAndUSSSNCoexistInOneDocument() {
+        let text = "身份证 110101199003071233; SSN 123-45-6789."
+        let spans = engine.detect(text).filter { $0.type == .nationalID }
+        XCTAssertEqual(Set(spans.map(\.text)), ["110101199003071233", "123-45-6789"])
+        XCTAssertEqual(spans.first { $0.text.hasPrefix("1101") }?.priority, 100)
+        XCTAssertEqual(spans.first { $0.text.contains("-") }?.priority, 92)
+    }
+
     func testNationalIDWinsOverDate() {
         // The valid ID contains the substring 19900307 which the DATE engine could
         // otherwise read as a slashed or ISO-ish date. The ID span at priority 100
