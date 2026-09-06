@@ -245,6 +245,26 @@ public final class ReviewModel: ObservableObject {
     /// reads as a finished job when it is not.
     @Published public var aiRanPartially: Bool = false
 
+    /// The three coverage fields as one value. Every path that moves a scan
+    /// result somewhere else (a cancelled retry putting the previous result
+    /// back, a workspace capturing and re-applying it) reads and writes this
+    /// rather than the fields, so it cannot move two of them and drop the
+    /// third. The fields stay published because the window binds to each.
+    public var aiCoverage: AIScanCoverage {
+        get {
+            AIScanCoverage(
+                aiActive: aiActive,
+                aiWarning: aiWarning,
+                aiRanPartially: aiRanPartially
+            )
+        }
+        set {
+            aiActive = newValue.aiActive
+            aiWarning = newValue.aiWarning
+            aiRanPartially = newValue.aiRanPartially
+        }
+    }
+
     /// The selected group rows in the sidebar. A Set gives the macOS List its
     /// native Command-click and Shift-click range selection, so a noisy first
     /// scan can be triaged in batches without weakening detection. Keyboard
@@ -563,8 +583,15 @@ public final class ReviewModel: ObservableObject {
         let expectsLLM = shouldUseLLM && path.map { FileManager.default.fileExists(atPath: $0) } == true
 
         // Remember where we came from so a user stop can put the UI back
-        // exactly as it was, entities untouched.
+        // exactly as it was, entities untouched. The coverage and the
+        // learning note are part of the previous result, not decoration on
+        // it: a retry of a failed or partial scan that is then stopped must
+        // hand back the previous result WITH the warning that gated its
+        // export, or stopping a retry becomes a way to export an unwarned
+        // copy of a scan the AI never finished.
         let statusBeforeDetecting = status
+        let coverageBeforeDetecting = aiCoverage
+        let learningNoteBeforeDetecting = learningNote
         let cancelToken = ExtractionCancelToken()
         activeCancelToken = cancelToken
 
@@ -616,11 +643,15 @@ public final class ReviewModel: ObservableObject {
         activeCancelToken = nil
 
         // The user stopped the pass: restore the prior state and present no
-        // partial detection as if it were a completed one.
+        // partial detection as if it were a completed one. The previous
+        // result comes back whole: its status, its entities (never touched),
+        // its coverage, and its learning note.
         if outcome.cancelled {
             progress = 0
             etaText = nil
             status = statusBeforeDetecting
+            aiCoverage = coverageBeforeDetecting
+            learningNote = learningNoteBeforeDetecting
             return
         }
 
