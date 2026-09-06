@@ -385,13 +385,44 @@ final class EntityJSONParserTests: XCTestCase {
         XCTAssertFalse(result.truncated, "genuine emptiness is not truncation")
     }
 
-    func testParseDetailedOnGarbageIsNotTruncated() {
-        // Non-JSON prose with no entities array is genuine failure-to-find, not a
-        // mid-array cut. It must not falsely claim truncation (no leading entities
-        // exist to lose).
+    func testParseDetailedOnGarbageIsInvalidNotTruncatedAndNotEmpty() {
+        // Non-JSON prose with no entities array is not a mid-array cut, so it must
+        // not claim truncation (no leading entities exist to lose). It is also not
+        // genuine emptiness: the model never answered about the text, and the
+        // extractor must treat the segment as unscanned, not as clean.
         let result = EntityJSONParser.parseDetailed("this is not json at all")
 
         XCTAssertEqual(result.entities, [])
         XCTAssertFalse(result.truncated)
+        XCTAssertTrue(result.invalid, "prose is a non-answer, not an empty entities array")
+        XCTAssertFalse(result.isComplete)
+    }
+
+    func testParseDetailedDistinguishesTheThreeStates() {
+        let refusal = EntityJSONParser.parseDetailed("I cannot process this text.")
+        XCTAssertTrue(refusal.invalid)
+        XCTAssertFalse(refusal.truncated)
+
+        let empty = EntityJSONParser.parseDetailed("")
+        XCTAssertTrue(empty.invalid, "an empty completion is not an empty entities array")
+
+        let otherShape = EntityJSONParser.parseDetailed(#"{"error":"context window exceeded"}"#)
+        XCTAssertTrue(otherShape.invalid, "valid JSON without an entities array is a schema failure")
+
+        let bareStrings = EntityJSONParser.parseDetailed(#"["no entities"]"#)
+        XCTAssertTrue(bareStrings.invalid, "a bare array must consist of entity objects")
+
+        let cut = EntityJSONParser.parseDetailed(#"{"entities":[{"value":"Jane Roe","type":"PERSON"},{"value":"Ac"#)
+        XCTAssertTrue(cut.truncated)
+        XCTAssertFalse(cut.invalid)
+
+        let none = EntityJSONParser.parseDetailed(#"{"entities":[],"redacted_text":"x"}"#)
+        XCTAssertTrue(none.isComplete, "an empty entities array is a complete, clean answer")
+
+        let bareEmpty = EntityJSONParser.parseDetailed("[]")
+        XCTAssertTrue(bareEmpty.isComplete)
+
+        let fenced = EntityJSONParser.parseDetailed("```json\n{\"entities\":[]}\n```")
+        XCTAssertTrue(fenced.isComplete, "a fenced empty array is still a complete answer")
     }
 }

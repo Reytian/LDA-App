@@ -605,7 +605,7 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
         case DocumentIOError.keychainError(let status):
             return "Keychain operation failed with status \(status)."
         case LDAServiceError.incompleteExtraction(let count):
-            return "The document could not be fully scanned: \(count) segment(s) were truncated. Nothing was written, because an unscanned segment may still contain names, companies, or addresses."
+            return "The document could not be fully scanned: the model gave no usable answer for \(count) segment(s) (the reply was cut off, failed, or was not an entity list). Nothing was written, because an unscanned segment may still contain names, companies, or addresses."
         case LDAServiceError.unanchoredEntities(let count):
             return "\(count) detected value(s) are present in the document in a form that could not be matched exactly, so they could not be removed. Nothing was written, because the output would still contain them."
         case LDAServiceError.staleTarget(let detail):

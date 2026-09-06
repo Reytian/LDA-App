@@ -29,14 +29,19 @@ import Foundation
 /// whole document was fully scanned.
 ///
 /// A segment whose model completion was cut off at the token cap (and could not
-/// be recovered by a larger-cap retry or by splitting) is counted as incomplete.
-/// When `incompleteSegmentCount > 0` the spans are still the best salvage, but
-/// the document MUST NOT be presented as cleanly anonymized: an un-scanned
-/// segment may still contain un-redacted PERSON/COMPANY/ADDRESS (LJE-001).
+/// be recovered by a larger-cap retry or by splitting) is counted as incomplete,
+/// and so is a segment the model never answered for: the backend threw, or the
+/// reply carried no entities array (prose, an empty string, JSON of another
+/// shape). When `incompleteSegmentCount > 0` the spans are still the best
+/// salvage, but the document MUST NOT be presented as cleanly anonymized: an
+/// un-scanned segment may still contain un-redacted PERSON/COMPANY/ADDRESS
+/// (LJE-001). Only a well-formed entities array, empty included, is a scan.
 public struct ExtractionResult: Sendable {
     /// The located spans (PERSON, COMPANY, ADDRESS) suitable for SpanMerger.
     public let spans: [Span]
-    /// How many segments could not be fully scanned even after retry/splitting.
+    /// How many segments could not be fully scanned: still truncated after
+    /// retry/splitting, failed at the backend, or answered without an entities
+    /// array.
     public let incompleteSegmentCount: Int
     /// How many distinct reported values are present in the source but could not
     /// be anchored there, even after repairing CJK script-boundary space drift.
@@ -65,7 +70,8 @@ public struct ExtractionResult: Sendable {
     }
 
     /// True when every segment was fully scanned. False means at least one
-    /// segment was truncated and the document is not guaranteed PII-free.
+    /// segment was truncated, failed, or answered without an entities array,
+    /// and the document is not guaranteed PII-free.
     public var fullyCovered: Bool { incompleteSegmentCount == 0 }
 
     /// True when no value that the source actually contains was left unanchored.
@@ -189,16 +195,17 @@ public final class LLMExtractor {
         //    through the engine's parallel slots in ONE call: the shared
         //    prompt prefix is prefilled once, and a finished window's slot is
         //    immediately refilled with the next one (continuous batching).
-        //    A segment that fails to complete or returns unparseable JSON is
-        //    skipped, never failing the whole extraction. EntityLocator always
-        //    searches the full source text, so entity values found in any
-        //    segment are correctly anchored across the whole document. A
-        //    truncated segment is retried with a larger cap and, if still cut
-        //    off, split into smaller sub-segments; complete entities are
-        //    always salvaged and a still-incomplete segment is counted (not
-        //    silently dropped). A cancellation throws ExtractionCancelled
-        //    (and the engine aborts mid-generation), so a stop is
-        //    near-immediate.
+        //    A segment that fails to complete or answers without an entities
+        //    array never fails the whole extraction, but it is counted as
+        //    unscanned so the caller's coverage gate refuses to call the
+        //    document clean. EntityLocator always searches the full source
+        //    text, so entity values found in any segment are correctly
+        //    anchored across the whole document. A truncated segment is
+        //    retried with a larger cap and, if still cut off, split into
+        //    smaller sub-segments; complete entities are always salvaged and
+        //    a still-incomplete segment is counted (not silently dropped). A
+        //    cancellation throws ExtractionCancelled (and the engine aborts
+        //    mid-generation), so a stop is near-immediate.
         let total = segmentsToProcess.count
         onProgress?(0, total)
 
@@ -382,19 +389,31 @@ public final class LLMExtractor {
     /// truncation, retry once at a larger cap; if it still truncates, split
     /// the segment into smaller sub-segments and scan each. The entities
     /// recovered before any cut are always kept. The segment is reported
-    /// incomplete only if a leaf attempt still truncates with no possibility
-    /// of finer splitting.
+    /// incomplete when a leaf attempt still truncates with no possibility of
+    /// finer splitting, and also when the model never answered for it: the
+    /// completer threw, or the reply carried no entities array (prose, an
+    /// empty string, JSON of another shape). Neither of those is a scan, and
+    /// neither is recoverable by a larger cap, so they are reported rather
+    /// than passed off as an empty clean result (LJE-001).
     private func scanSegment(_ segment: String, systemPrompt: String, firstAttempt: String? = nil) -> SegmentOutcome {
         // First attempt at the default cap, unless the batched group pass
         // already produced it.
         let firstCompletion = firstAttempt
             ?? complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.maxCompletionTokens)
         guard let first = firstCompletion else {
-            // The completer threw. Skip this segment as before; a backend failure
-            // is not a truncation we can recover by retrying with a larger cap.
-            return SegmentOutcome(entities: [], incomplete: false)
+            // The completer threw, so this segment was never read by the model.
+            // A backend failure is not a truncation a larger cap can fix; it is
+            // an unscanned segment, and the coverage gate must see it as one.
+            return SegmentOutcome(entities: [], incomplete: true)
         }
         let firstParse = EntityJSONParser.parseDetailed(first)
+        if firstParse.invalid {
+            // The model replied with something other than an entities array.
+            // Greedy decoding returns the same reply for the same prompt and a
+            // larger cap does not change its shape, so there is no recovery to
+            // attempt: keep anything salvaged and report the segment unscanned.
+            return SegmentOutcome(entities: firstParse.entities, incomplete: true)
+        }
         if !firstParse.truncated {
             return SegmentOutcome(entities: firstParse.entities, incomplete: false)
         }
@@ -403,7 +422,7 @@ public final class LLMExtractor {
         // budget, which a bigger cap fixes outright.
         if let retry = complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.retryCompletionTokens) {
             let retryParse = EntityJSONParser.parseDetailed(retry)
-            if !retryParse.truncated {
+            if retryParse.isComplete {
                 return SegmentOutcome(entities: retryParse.entities, incomplete: false)
             }
         }

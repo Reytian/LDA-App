@@ -359,7 +359,8 @@ public struct MCPServer {
     private func describe(_ error: LDAServiceError) -> String {
         switch error {
         case .incompleteExtraction(let count):
-            return "The document could not be fully scanned: \(count) segment(s) were truncated. " +
+            return "The document could not be fully scanned: the model gave no usable answer for " +
+                   "\(count) segment(s) (the reply was cut off, failed, or was not an entity list). " +
                    "The output has NOT been written to avoid presenting a partial result as clean."
         case .unanchoredEntities(let count):
             return "The document was fully scanned, but \(count) detected " +
