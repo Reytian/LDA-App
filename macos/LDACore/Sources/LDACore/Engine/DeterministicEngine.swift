@@ -62,6 +62,7 @@ public struct DeterministicEngine: Sendable {
         // Order is by descending priority for readability only. The engine keeps
         // every valid match regardless of order; SpanMerger applies priority.
         spans.append(contentsOf: detectNationalID(ns, fullRange))
+        spans.append(contentsOf: detectUSSocialSecurityNumber(ns, fullRange))
         spans.append(contentsOf: detectUSCC(ns, fullRange))
         spans.append(contentsOf: detectCaseNumber(ns, fullRange))
         spans.append(contentsOf: detectLicensePlate(ns, fullRange))
@@ -91,6 +92,12 @@ public struct DeterministicEngine: Sendable {
     enum Pri {
         static let nationalID = 100
         static let uscc = 95
+        // US SSN sits below the two CHECKSUMMED identifiers and above
+        // CASE_NUMBER: its nine digits have structural rules but no check
+        // digit, so it must not outrank a value the engine can actually
+        // verify, yet it must beat PHONE and DATE, which would otherwise
+        // swallow "123-45-6789" as a phone-shaped run.
+        static let usSSN = 92
         static let caseNumber = 90
         static let licensePlate = 85
         static let email = 80
@@ -112,6 +119,8 @@ public struct DeterministicEngine: Sendable {
     enum Conf {
         static let nationalID = 1.0
         static let uscc = 0.98
+        // Structure only, no checksum: never 1.0.
+        static let usSSN = 0.9
         static let caseNumber = 0.99
         static let licensePlate = 0.95
         static let email = 0.99
@@ -269,6 +278,61 @@ public struct DeterministicEngine: Sendable {
             }
         }
         return out
+    }
+
+    // MARK: - NATIONAL_ID (US Social Security number, 9 digits)
+
+    /// United States Social Security number in its canonical hyphenated form,
+    /// AAA-GG-SSSS. Emitted as NATIONAL_ID, the same type as 身份证, because
+    /// that is what it is to a reviewer: a government identifier that must
+    /// never leave the document. Added when the product owner brought US
+    /// documents into scope; LLMExtractor.keptTypes stops discarding
+    /// model-reported NATIONAL_ID values in the same change.
+    ///
+    /// There is no check digit, so the filter is the SSA's own structural
+    /// rules and nothing more: an area of 000 or 666 or 900 and above is never
+    /// issued, a group of 00 is never issued, a serial of 0000 is never
+    /// issued. Anything passing those is emitted; the reviewer sees it as a
+    /// typed candidate and can reject it. The unhyphenated nine-digit form is
+    /// deliberately NOT matched: without the hyphens it is indistinguishable
+    /// from a bank account fragment or a case number, and a false NATIONAL_ID
+    /// at priority 92 would outrank the correct BANK_ACCOUNT.
+    ///
+    /// The lookbehind and lookahead exclude a hyphen as well as alphanumerics,
+    /// so a longer hyphenated run such as a phone number written 555-123-45-6789
+    /// cannot yield an SSN from its tail. Every quantifier is bounded.
+    private func detectUSSocialSecurityNumber(_ ns: NSString, _ range: NSRange) -> [Span] {
+        let pattern = #"(?<![0-9A-Za-z-])\d{3}-\d{2}-\d{4}(?![0-9A-Za-z-])"#
+        var out: [Span] = []
+        enumerate(pattern, in: ns, range: range) { match in
+            let candidate = ns.substring(with: match.range)
+            if Self.isValidUSSSN(candidate) {
+                out.append(
+                    self.makeSpan(
+                        ns,
+                        range: match.range,
+                        type: .nationalID,
+                        confidence: Conf.usSSN,
+                        priority: Pri.usSSN
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /// The SSA structural rules for a hyphenated SSN. Pure, so the tests can
+    /// pin each rule on its own.
+    static func isValidUSSSN(_ candidate: String) -> Bool {
+        let parts = candidate.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0].count == 3, parts[1].count == 2, parts[2].count == 4,
+              let area = Int(parts[0]), let group = Int(parts[1]), let serial = Int(parts[2])
+        else { return false }
+        if area == 0 || area == 666 || area >= 900 { return false }
+        if group == 0 { return false }
+        if serial == 0 { return false }
+        return true
     }
 
     /// ISO-7064 mod-11-2 validation for an 18-character Chinese ID.

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- DISTRIBUTION entitlements: LDA.entitlements plus the three RESTRICTED
+       keys that Touch ID protection of the keychain keys needs.
+
+       Why a second file, and why these three are NOT in LDA.entitlements:
+       a restricted entitlement is honoured only when an embedded Developer ID
+       provisioning profile grants it. A binary that CLAIMS one without the
+       profile is killed at exec (SIGKILL, exit 137) before it prints a line;
+       measured three runs, control run fine. The ad hoc dev build has no
+       profile, so it must never carry these, and package-app.sh only signs
+       with this file when CODESIGN_IDENTITY and PROVISIONING_PROFILE are both
+       set and the profile has been copied into the bundle first.
+
+       Why Touch ID needs them: a keychain item with a user-presence access
+       control lives in the data-protection keychain, and macOS builds that
+       keychain's list of access groups from the app's code-signing
+       entitlements (TN3137). Without an application identifier there is no
+       group, SecItemAdd returns errSecMissingEntitlement (-34018), and the app
+       silently falls back to an unprotected key. That is what shipped for
+       every release before this file existed.
+
+       The profile (portal name "LDA Developer ID", App ID
+       B53GT262L4.com.haotianyi.LDA) allowlists keychain-access-groups as
+       B53GT262L4.*, so the specific group claimed below is within it.
+       PackagingEntitlementsTests pins this file as the base file plus exactly
+       these three keys, with values derived from Info.plist and the team, so
+       neither file can drift from the other unnoticed. -->
+
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <key>com.apple.application-identifier</key>
+  <string>B53GT262L4.com.haotianyi.LDA</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>B53GT262L4</string>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>B53GT262L4.com.haotianyi.LDA</string>
+  </array>
+</dict>
+</plist>

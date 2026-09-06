@@ -15,6 +15,13 @@
 # Optional (set to enable):
 #   CODESIGN_IDENTITY  optional Developer ID identity for distribution, e.g.
 #                      "Developer ID Application: Your Name (TEAMID)"
+#   PROVISIONING_PROFILE
+#                      path to the Developer ID provisioning profile
+#                      ("LDA Developer ID" in the portal). REQUIRED whenever
+#                      CODESIGN_IDENTITY is set: the distribution entitlements
+#                      carry restricted keys that macOS honours only when the
+#                      profile is embedded, and a build that claims them
+#                      without it is killed at exec. Ignored for ad hoc builds.
 #   NOTARY_PROFILE     a notarytool keychain profile name created with:
 #                        xcrun notarytool store-credentials NOTARY_PROFILE \
 #                          --apple-id you@example.com --team-id TEAMID \
@@ -251,22 +258,86 @@ xattr -cr "$APP"
 
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 TIMESTAMP_ARGS=(--timestamp=none)
+ENTITLEMENTS="$PKG/packaging/LDA.entitlements"
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
   echo "==> Developer ID signing with hardened runtime"
   TIMESTAMP_ARGS=(--timestamp)
+  # A Developer ID build carries the RESTRICTED entitlements Touch ID needs
+  # (application identifier, keychain access group). macOS honours those only
+  # when the granting provisioning profile is embedded in the bundle; a binary
+  # that claims them without it is SIGKILLed at exec before its first line.
+  # So a signed build without a profile is refused here rather than produced.
+  if [ -z "${PROVISIONING_PROFILE:-}" ]; then
+    echo "!! CODESIGN_IDENTITY is set but PROVISIONING_PROFILE is not."
+    echo "!! The distribution entitlements include com.apple.application-identifier and"
+    echo "!! keychain-access-groups, which are honoured only with an embedded Developer ID"
+    echo "!! provisioning profile. Without one the app is killed at launch."
+    echo "!! Set PROVISIONING_PROFILE=/path/to/LDA_Developer_ID.provisionprofile"
+    echo "!! (portal profile \"LDA Developer ID\"; see packaging/README.md), or unset"
+    echo "!! CODESIGN_IDENTITY for an ad hoc build."
+    exit 1
+  fi
+  if [ ! -f "$PROVISIONING_PROFILE" ]; then
+    echo "!! PROVISIONING_PROFILE points at a file that does not exist: $PROVISIONING_PROFILE"
+    exit 1
+  fi
+  # Inside the seal: codesign hashes Contents/, so the profile must be in place
+  # BEFORE signing or the signature does not cover it and the grant is void.
+  cp "$PROVISIONING_PROFILE" "$APP/Contents/embedded.provisionprofile"
+  ENTITLEMENTS="$PKG/packaging/LDA-distribution.entitlements"
 else
   echo "==> Ad hoc signing for local use with App Sandbox enabled"
 fi
 
-# Sign the executable first, then the bundle, with the offline entitlements.
+# Sign the executable first, then the bundle, with the chosen entitlements.
 codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
-  --entitlements "$PKG/packaging/LDA.entitlements" \
+  --entitlements "$ENTITLEMENTS" \
   --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/LDAApp"
 codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
-  --entitlements "$PKG/packaging/LDA.entitlements" \
+  --entitlements "$ENTITLEMENTS" \
   --sign "$SIGN_IDENTITY" "$APP"
 echo "==> Verifying signature and sandbox entitlements"
 codesign --verify --strict --verbose=2 "$APP"
+
+if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+  # Read the entitlements back OUT of the sealed bundle and check them against
+  # the embedded profile. Trusting the file that went in is how the previous
+  # releases shipped a Touch ID promise nothing enforced. plistlib rather than
+  # `plutil -extract`, which treats the dots in these key names as a key path.
+  echo "==> Verifying restricted entitlements against the embedded profile"
+  codesign -d --entitlements - --xml "$APP" > "$DIST/.entitlements.plist" 2>/dev/null
+  security cms -D -i "$APP/Contents/embedded.provisionprofile" > "$DIST/.profile.plist"
+  /usr/bin/python3 - "$DIST/.entitlements.plist" "$DIST/.profile.plist" <<'PYCHECK'
+import plistlib, sys
+ents = plistlib.load(open(sys.argv[1], 'rb'))
+prof = plistlib.load(open(sys.argv[2], 'rb'))
+grants = prof.get('Entitlements', {})
+fail = []
+app_id = ents.get('com.apple.application-identifier')
+team = ents.get('com.apple.developer.team-identifier')
+groups = ents.get('keychain-access-groups') or []
+if not app_id: fail.append('signed bundle carries no com.apple.application-identifier')
+if not team: fail.append('signed bundle carries no com.apple.developer.team-identifier')
+if not groups: fail.append('signed bundle carries no keychain-access-groups')
+if app_id and grants.get('com.apple.application-identifier') != app_id:
+    fail.append(f"profile grants application-identifier {grants.get('com.apple.application-identifier')!r}, bundle claims {app_id!r}")
+allowed = grants.get('keychain-access-groups') or []
+def covered(g):
+    return any(g == a or (a.endswith('.*') and g.startswith(a[:-1])) for a in allowed)
+for g in groups:
+    if not covered(g):
+        fail.append(f"keychain group {g!r} is not within the profile allowlist {allowed!r}")
+if not ents.get('com.apple.security.app-sandbox'):
+    fail.append('app-sandbox is no longer set on the signed bundle')
+if fail:
+    for f in fail: print('!! ' + f)
+    sys.exit(1)
+print(f"    application-identifier: {app_id}")
+print(f"    keychain-access-groups: {groups}  (profile allows {allowed})")
+print(f"    profile: {prof.get('Name')}  expires {prof.get('ExpirationDate')}")
+PYCHECK
+  rm -f "$DIST/.entitlements.plist" "$DIST/.profile.plist"
+fi
 
 if [ -n "${NOTARY_PROFILE:-}" ] && [ -n "${CODESIGN_IDENTITY:-}" ]; then
   echo "==> Notarizing"

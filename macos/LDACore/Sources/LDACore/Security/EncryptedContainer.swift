@@ -11,6 +11,10 @@
 //  format and the security properties identical.
 //
 //  Two protection modes:
+//   - .keychain under KeychainAccessPolicy.requireUserPresence: the key is a
+//     user-presence (Touch ID) item in the DATA-PROTECTION keychain, selected
+//     with kSecUseDataProtectionKeychain on every protected call. Legacy silent
+//     keys stay in the login file keychain and are migrated on first read.
 //   - .passphrase: derive a 256-bit AES key with PBKDF2-HMAC-SHA256 (CommonCrypto)
 //     over a random 16-byte salt stored in the container. The iteration count is
 //     recorded in the container (version 2 onward) so it can be raised over time
@@ -166,7 +170,7 @@ public struct EncryptedContainer {
             // Iterations are meaningless for a Keychain key; the field is
             // written as zero so the layout stays fixed-width.
             header = makeHeader(tag: .keychain, salt: [], iterations: 0)
-            key = try fetchOrCreateKeychainKey(account: account)
+            key = try fetchOrCreateKeychainKey(account: account, sealing: url)
         }
 
         let sealed = try Self.seal(plaintext, with: key, authenticating: header)
@@ -247,13 +251,34 @@ public struct EncryptedContainer {
         // Remove both the legacy silent item and the user-presence-protected
         // copy (kept under the ".userpresence" account).
         for storedAccount in [account, Self.protectedAccount(account)] {
-            let query: [String: Any] = [
+            var query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: storedAccount
             ]
+            // The two copies live in DIFFERENT keychains. The silent item is
+            // in the login file keychain; the user-presence copy is in the
+            // data-protection keychain, which SecItem does not search unless
+            // asked. Without the flag the protected delete quietly misses and
+            // a "deleted" key keeps a Touch ID item behind.
+            let isProtectedCopy = storedAccount != account
+            if isProtectedCopy {
+                query[kSecUseDataProtectionKeychain as String] = true
+            }
             let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
+            switch status {
+            case errSecSuccess, errSecItemNotFound:
+                continue
+            case errSecMissingEntitlement where isProtectedCopy:
+                // A process with no keychain access group cannot hold a
+                // protected item, so there is nothing of ours in that keychain
+                // to remove. The CLI, the MCP server, the dev binary and every
+                // test run here; treating this as a failure would make a
+                // routine cleanup throw in all of them. The legacy delete above
+                // keeps strict semantics: that keychain is reachable and a
+                // refusal there is real.
+                continue
+            default:
                 throw DocumentIOError.keychainError(status)
             }
         }
@@ -532,9 +557,47 @@ public struct EncryptedContainer {
     }
 
     /// Fetches an existing Keychain key, or creates and stores a fresh one.
-    private func fetchOrCreateKeychainKey(account: String) throws -> SymmetricKey {
+    ///
+    /// `sealing` is the container the key is about to protect. It decides
+    /// whether a lookup MISS means "no key yet" or "a key this process cannot
+    /// see", and those two demand opposite responses.
+    private func fetchOrCreateKeychainKey(account: String, sealing url: URL) throws -> SymmetricKey {
         if let existing = try lookupKeychainKey(account: account) {
             return existing
+        }
+
+        // A miss with the container ALREADY on disk, in a process that runs
+        // without the user-presence policy, is not an absent key. It is a key
+        // this process cannot reach: once the packaged app migrates a key into
+        // the data-protection keychain and removes the silent original, the
+        // CLI, the MCP server and the unsandboxed dev binary read only the
+        // login keychain and see nothing. Minting here would seal this write
+        // under a NEW key, and from then on the app could not open what the
+        // CLI wrote nor the CLI what the app wrote: one account, two keys,
+        // every later restore a coin toss. Refusing is the only safe answer.
+        // A container that does not exist yet is a genuine first use, and
+        // minting is correct.
+        //
+        // The packaged app never takes this branch: under the policy the
+        // protected lookup above CAN see the migrated key, so a miss there is
+        // a real absence. Anything that must cross surfaces travels as a
+        // passphrase-protected sidecar, which needs no keychain at all.
+        if !KeychainAccessPolicy.requireUserPresence,
+           FileManager.default.fileExists(atPath: url.path) {
+            auditKey(
+                .keychainAccessDenied,
+                account: account,
+                succeeded: false,
+                detail: "existingContainerKeyNotVisible"
+            )
+            throw DocumentIOError.unreadable(
+                "This \(containerDescription) already exists but its key is not "
+                    + "in this process's keychain. It was most likely sealed by the "
+                    + "LDA app under Touch ID protection, which command-line and "
+                    + "server processes cannot read. Open it in LDA, or export a "
+                    + "passphrase-protected copy to use it here. Nothing was "
+                    + "written, so the existing file is unchanged."
+            )
         }
 
         let keyData = Self.randomBytes(count: Self.keyLength)
@@ -720,6 +783,12 @@ public struct EncryptedContainer {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: Self.protectedAccount(account),
+            // Biometry-protected items live ONLY in the data-protection
+            // keychain (TN3137). SecItem defaults to the file keychain on
+            // macOS, so without this flag the lookup can never find a key
+            // that addProtectedKey stored, and the app would mint a second
+            // key on the next launch and lock the user out of the first.
+            kSecUseDataProtectionKeychain as String: true,
             kSecUseAuthenticationContext as String: KeychainAccessPolicy.sharedAuthenticationContext,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -829,7 +898,8 @@ public struct EncryptedContainer {
         SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: protectedAccount
+            kSecAttrAccount as String: protectedAccount,
+            kSecUseDataProtectionKeychain as String: true
         ] as CFDictionary)
 
         let attributes: [String: Any] = [
@@ -838,6 +908,13 @@ public struct EncryptedContainer {
             kSecAttrAccount as String: protectedAccount,
             kSecValueData as String: keyData,
             kSecAttrAccessControl as String: accessControl,
+            // The access control REQUIRES the data-protection keychain; on
+            // macOS this flag is what selects it. This is the half the
+            // entitlement alone does not fix: with the profile in place but no
+            // flag, the add and the lookup would target different keychains,
+            // every launch would mint afresh, and the second launch would be
+            // unable to open what the first one sealed.
+            kSecUseDataProtectionKeychain as String: true,
             // Do not prompt while merely writing the item; the prompt belongs
             // on retrieval, driven by the shared LAContext.
             kSecUseAuthenticationContext as String: KeychainAccessPolicy.sharedAuthenticationContext

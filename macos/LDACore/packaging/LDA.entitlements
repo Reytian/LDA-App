@@ -2,6 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- AD HOC / BASE entitlements. This file deliberately carries NONE of
+       com.apple.application-identifier, com.apple.developer.team-identifier
+       or keychain-access-groups. Those are RESTRICTED: macOS honours them only
+       when an embedded Developer ID provisioning profile grants them, and a
+       binary that claims them without the profile is killed at exec (SIGKILL,
+       exit 137). The ad hoc dev build has no profile, so adding them here
+       would make every local build die at launch.
+
+       They live in LDA-distribution.entitlements, which package-app.sh uses
+       only when CODESIGN_IDENTITY and PROVISIONING_PROFILE are both set and the
+       profile has been copied into the bundle. PackagingEntitlementsTests
+       pins both facts: this file has none of the three, and the distribution
+       file is exactly this file plus those three. -->
+
   <!-- App Sandbox on. -->
   <key>com.apple.security.app-sandbox</key>
   <true/>
