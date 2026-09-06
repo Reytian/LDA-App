@@ -374,7 +374,10 @@ final class WorkspaceArchiveTests: XCTestCase {
         ) { error in
             XCTAssertEqual(
                 error as? WorkspaceArchiveError,
-                .createdByNewerVersion(found: 2, supported: WorkspaceArchive.currentFormatVersion)
+                .createdByNewerVersion(
+                    found: WorkspaceArchive.currentFormatVersion + 1,
+                    supported: WorkspaceArchive.currentFormatVersion
+                )
             )
             XCTAssertEqual(
                 (error as? WorkspaceArchiveError)?.errorDescription?
@@ -403,6 +406,62 @@ final class WorkspaceArchiveTests: XCTestCase {
                 .createdByNewerVersion(found: 9, supported: WorkspaceArchive.currentFormatVersion)
             )
         }
+    }
+
+    // MARK: - Format version 2: coverage travels with the review snapshot
+
+    /// A workspace written by format version 1 still opens, and its review
+    /// snapshot decodes with NO coverage record. The review model reads that
+    /// absence as a pass that did not run, so an old file reopens warned
+    /// rather than clean; this test pins the decoding half of that contract.
+    func testAVersionOneSnapshotDecodesWithNoCoverageRecord() throws {
+        let documentID = UUID()
+        let record = makeDocumentRecord(id: documentID, name: "notice.txt")
+        var manifest = makeManifest(documents: [record])
+        manifest.formatVersion = 1
+        let text = "Acme filed the notice."
+        // Exactly what the version 1 writer emitted: three fields, no more.
+        let snapshotJSON = "{\"documentID\":\"\(documentID.uuidString)\","
+            + "\"textDigest\":\"\(WorkspaceReviewSnapshot.digest(of: text))\","
+            + "\"entities\":[]}"
+        let fileURL = workDir.appendingPathComponent("version-one.ldawork")
+        try writeRawArchive(
+            members: [
+                WorkspaceArchive.manifestEntryPath: try JSONEncoder().encode(manifest),
+                record.archivePath: Data(text.utf8),
+                WorkspaceArchive.reviewPrefix + documentID.uuidString + ".json": Data(snapshotJSON.utf8)
+            ],
+            to: fileURL
+        )
+
+        let opened = try WorkspaceArchive.read(from: fileURL, passphrase: Self.passphrase)
+        defer { opened.expansion.cleanUp() }
+
+        XCTAssertEqual(opened.manifest.formatVersion, 1, "an older file keeps its own version")
+        let snapshot = try XCTUnwrap(opened.snapshots[documentID])
+        XCTAssertNil(snapshot.aiCoverage, "version 1 recorded no coverage; nothing may be invented")
+        XCTAssertEqual(snapshot.textDigest, WorkspaceReviewSnapshot.digest(of: text))
+    }
+
+    /// The current writer records the coverage and the reader returns it
+    /// unchanged, for the shape that carries the most information.
+    func testTheCurrentFormatRoundTripsTheCoverageRecord() throws {
+        let document = makeDocumentRecord(name: "notice.txt")
+        let snapshot = WorkspaceReviewSnapshot(
+            documentID: document.id,
+            textDigest: WorkspaceReviewSnapshot.digest(of: "document \(document.id.uuidString)"),
+            entities: [],
+            aiCoverage: .ranPartially
+        )
+        let payload = try makePayload(documents: [document], snapshots: [snapshot])
+        let fileURL = workDir.appendingPathComponent("coverage.ldawork")
+
+        try WorkspaceArchive.write(payload, to: fileURL, passphrase: Self.passphrase)
+        let opened = try WorkspaceArchive.read(from: fileURL, passphrase: Self.passphrase)
+        defer { opened.expansion.cleanUp() }
+
+        XCTAssertEqual(opened.manifest.formatVersion, 2)
+        XCTAssertEqual(opened.snapshots[document.id]?.aiCoverage, .ranPartially)
     }
 
     func testAnArchiveWithoutAManifestIsDamaged() throws {

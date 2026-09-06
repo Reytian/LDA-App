@@ -57,7 +57,17 @@ public enum WorkspaceArchive {
 
     /// The payload schema version this build WRITES and is the highest it can
     /// read. Bump only when the inner layout changes.
-    public static let currentFormatVersion = 1
+    ///
+    /// History:
+    ///  1: the original layout.
+    ///  2: review snapshots record the AI coverage of their result
+    ///     (WorkspaceReviewSnapshot.aiCoverage). A version 1 snapshot decodes
+    ///     with no record, which the review model reads as a pass that did
+    ///     not run, so a workspace saved before the field existed reopens
+    ///     warned rather than clean. An older build refuses a version 2 file
+    ///     outright, which is the right answer too: it would have dropped
+    ///     the record and shown the review list as clean.
+    public static let currentFormatVersion = 2
 
     /// Maximum documents in one workspace manifest. At two possible archive
     /// entries per document plus five fixed entries, 497 stays within the
