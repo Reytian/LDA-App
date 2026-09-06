@@ -14,8 +14,23 @@
 //
 //  When false (the default: CLI, MCP server, and unit tests), behavior is the
 //  original silent file-keychain item. This matters beyond UX: biometry items
-//  need the data-protection keychain, which requires a signed app with an
-//  application identifier; unsigned headless binaries cannot create them.
+//  need the data-protection keychain, which requires a KEYCHAIN ACCESS GROUP.
+//  For Developer ID distribution that group comes only from an embedded
+//  provisioning profile granting com.apple.application-identifier; a signature
+//  without one gets errSecMissingEntitlement (-34018) on every protected add,
+//  and a restricted entitlement WITHOUT the profile is SIGKILLed at exec. The
+//  measured history is in UserPresenceKeychainAddMatrixTests.
+//
+//  Two consequences the protected paths must respect:
+//  - kSecUseDataProtectionKeychain must be set on the protected add, lookup and
+//    delete, and NOT on the legacy silent paths. The entitlement alone is not
+//    the fix: without the flag the add and the lookup target different
+//    keychains and the second launch cannot open what the first sealed.
+//  - Data-protection items are INVISIBLE to processes without the group. Once
+//    the app migrates a key and removes the silent original, the CLI, the MCP
+//    server and the unsandboxed dev binary miss. They must never mint over a
+//    container that already exists; EncryptedContainer refuses instead, and
+//    anything that crosses surfaces travels as a passphrase sidecar.
 //
 //  Migration: keys created before this policy existed live in the login file
 //  keychain without access control. Lookup searches the protected item first,

@@ -109,6 +109,80 @@ final class PackagingEntitlementsTests: XCTestCase {
         )
     }
 
+    // MARK: - The two entitlements files, pinned against each other
+
+    private static let restrictedKeys = [
+        "com.apple.application-identifier",
+        "com.apple.developer.team-identifier",
+        "keychain-access-groups"
+    ]
+
+    private func packagingPlist(_ name: String) throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("packaging")
+            .appendingPathComponent(name)
+        let data = try Data(contentsOf: url)
+        return try XCTUnwrap(
+            try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+            "\(name) must be a dictionary plist"
+        )
+    }
+
+    /// A restricted entitlement is honoured only with an embedded Developer ID
+    /// provisioning profile. The ad hoc build has none, and a binary that
+    /// claims one without it is SIGKILLed at exec (measured, three runs). So
+    /// these keys must never appear in the file the ad hoc path signs with.
+    func testTheAdHocEntitlementsCarryNoRestrictedKey() throws {
+        let base = try packagingPlist("LDA.entitlements")
+        for key in Self.restrictedKeys {
+            XCTAssertNil(
+                base[key],
+                "\(key) in LDA.entitlements would make every ad hoc dev build die at "
+                    + "launch. It belongs only in LDA-distribution.entitlements."
+            )
+        }
+    }
+
+    /// The distribution file is the base file plus exactly the three restricted
+    /// keys, with values DERIVED from Info.plist and the team rather than
+    /// restated, so the two files cannot drift apart unnoticed and the bundle
+    /// id cannot be renamed without this test saying so.
+    func testTheDistributionEntitlementsAreTheBasePlusExactlyThreeRestrictedKeys() throws {
+        let base = try packagingPlist("LDA.entitlements")
+        let dist = try packagingPlist("LDA-distribution.entitlements")
+        let info = try packagingPlist("Info.plist")
+        let bundleID = try XCTUnwrap(info["CFBundleIdentifier"] as? String)
+
+        // Every base key is present with the same value.
+        for (key, value) in base {
+            XCTAssertEqual(
+                dist[key] as? Bool, value as? Bool,
+                "distribution must carry base key \(key) with the same value"
+            )
+        }
+        // And exactly the three restricted keys on top, no others.
+        let extra = Set(dist.keys).subtracting(base.keys)
+        XCTAssertEqual(
+            extra, Set(Self.restrictedKeys),
+            "the distribution file may add exactly the three Touch ID keys and nothing else"
+        )
+
+        let team = try XCTUnwrap(dist["com.apple.developer.team-identifier"] as? String)
+        XCTAssertFalse(team.isEmpty)
+        XCTAssertEqual(
+            dist["com.apple.application-identifier"] as? String, "\(team).\(bundleID)",
+            "the application identifier is <team>.<CFBundleIdentifier>, derived, never typed twice"
+        )
+        XCTAssertEqual(
+            dist["keychain-access-groups"] as? [String], ["\(team).\(bundleID)"],
+            "the one keychain group is the app's own identifier; it must sit inside the "
+                + "profile's <team>.* allowlist, which package-app.sh verifies at build time"
+        )
+    }
+
     func testSandboxEntitlementsAreExactlyWhatWeIntend() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let packageRoot = testFileURL

@@ -22,13 +22,87 @@ You need an Apple Developer account.
      --password APP_SPECIFIC_PASSWORD
    ```
 
-2. Build, sign, notarize, and staple:
+2. Create the Developer ID provisioning profile once. This is what lets Touch
+   ID protect the app's keychain keys; see "Why the profile" below.
+
+   In [developer.apple.com](https://developer.apple.com/account) > Certificates,
+   Identifiers & Profiles:
+
+   - **Identifiers > + > App IDs > App**: register an *explicit* macOS App ID
+     for the bundle identifier in `packaging/Info.plist` (`com.haotianyi.LDA`).
+     No capability toggles are needed; keychain access is implicit in every
+     profile.
+   - **Profiles > + > Distribution > Developer ID** (macOS): select that App
+     ID, then select your **existing** Developer ID Application certificate.
+     Do not create a new certificate: the profile pins one, and notarization
+     already trusts the one you have.
+   - Download the `.provisionprofile`. Keep it somewhere stable and outside
+     iCloud (this project uses `~/Developer/lda-signing/`), and back it up in
+     your password manager as a document. Do not double-click it; that installs
+     it into Xcode's store, which this script does not use.
+
+   Sanity-check what you downloaded before using it:
+
+   ```bash
+   security cms -D -i ~/Developer/lda-signing/LDA_Developer_ID.provisionprofile \
+     | plutil -p - | grep -E "application-identifier|keychain-access-groups|ExpirationDate"
+   ```
+
+   You should see `com.apple.application-identifier` = `YOURTEAMID.com.haotianyi.LDA`
+   and `keychain-access-groups` containing `YOURTEAMID.*`.
+
+3. Build, sign, notarize, and staple:
 
    ```bash
    CODESIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)" \
+   PROVISIONING_PROFILE=~/Developer/lda-signing/LDA_Developer_ID.provisionprofile \
    NOTARY_PROFILE=LDA_NOTARY \
    ./packaging/package-app.sh
    ```
+
+   `PROVISIONING_PROFILE` is required whenever `CODESIGN_IDENTITY` is set; the
+   script refuses to sign without it rather than produce a build that dies at
+   launch. The profile is copied to `LDA.app/Contents/embedded.provisionprofile`
+   BEFORE signing so it sits inside the seal, and the signature uses
+   `packaging/LDA-distribution.entitlements`, which is `LDA.entitlements` plus the
+   three restricted keys. Ad hoc builds (no `CODESIGN_IDENTITY`) ignore the
+   profile and use `LDA.entitlements` unchanged.
+
+   After signing, the script reads the entitlements back OUT of the sealed
+   bundle and checks them against the embedded profile: the application
+   identifier must match, every claimed keychain group must sit inside the
+   profile's allowlist, and the sandbox must still be on. Trusting the file
+   that went in is how earlier releases shipped a Touch ID promise nothing
+   enforced.
+
+### Why the profile
+
+The app protects its keychain keys with Touch ID by storing them behind a
+user-presence access control. Items with an access control live only in the
+data-protection keychain, and macOS builds that keychain's list of access
+groups from the app's code-signing entitlements. A plain Developer ID
+signature carries no application identifier, so it has no group: the protected
+`SecItemAdd` returns `errSecMissingEntitlement` (-34018) and the app falls back
+to an unprotected key, silently. Every release before the profile existed did
+exactly that.
+
+For Developer ID distribution the only thing that grants those entitlements is
+an embedded provisioning profile. Claiming them in the signature without the
+profile is worse than omitting them: the binary is killed at exec (SIGKILL,
+exit 137) before it prints a line. That is why the restricted keys live in a
+separate `LDA-distribution.entitlements`, why the script only uses that file
+when a profile is present, and why `PackagingEntitlementsTests` pins the ad hoc
+file as carrying none of them.
+
+### Renewal
+
+The profile document itself is valid until 2044, but it pins the Developer ID
+Application certificate it was generated against, and that certificate expires
+(currently 2027-02-01). Already-shipped notarized builds keep launching after
+that date; their signatures are timestamped. **New** builds after the
+certificate is renewed need a regenerated profile: Profiles > select "LDA
+Developer ID" > Edit > pick the new certificate > Save, download, replace the
+file. The script's verify step will otherwise fail on the certificate check.
 
 ## What is in the bundle
 
