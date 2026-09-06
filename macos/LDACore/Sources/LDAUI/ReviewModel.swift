@@ -410,7 +410,10 @@ public final class ReviewModel: ObservableObject {
     /// disabled toolbar button swallows its own click, so the reason is the
     /// only thing the app can still say. See SaveAvailability.swift.
     public var exportAvailability: SaveAvailability {
-        SaveAvailabilityRules.saveRedacted(status: status)
+        SaveAvailabilityRules.saveRedacted(
+            status: status,
+            sourceChangedSinceScan: sourceChangedSinceScan
+        )
     }
 
     /// Ask the window to begin the export flow. Used by the File menu command.
@@ -442,6 +445,19 @@ public final class ReviewModel: ObservableObject {
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
     private var sourceURL: URL?
+
+    /// The source file's bytes as imported, fingerprinted. An export that
+    /// reads the file (DOCX, image) checks this immediately before reading,
+    /// so an edit made in Word after the scan cannot be copied into the
+    /// redacted document unreviewed. See SourceFingerprint.swift.
+    private var sourceFingerprint: SourceFingerprint?
+
+    /// True once an export found the file on disk no longer matching the
+    /// imported bytes. Read by exportAvailability, so the banner renders the
+    /// reason and Save Redacted stays dark until the file is opened again;
+    /// open(_:) clears it, a re-scan does not, because a re-scan would still
+    /// be scanning the old text.
+    @Published public private(set) var sourceChangedSinceScan: Bool = false
 
     /// When the current anonymize pass started, used to estimate time remaining.
     private var anonymizeStart: Date?
@@ -520,6 +536,10 @@ public final class ReviewModel: ObservableObject {
 
         status = .importing
         sourceURL = url
+        // The fingerprint belongs to the bytes this import reads; a stale one
+        // would refuse the new document, a stale flag would keep refusing it.
+        sourceFingerprint = nil
+        sourceChangedSinceScan = false
         entities = []
         selectedGroupIDs = []
         selectedTextRange = nil
@@ -543,12 +563,17 @@ public final class ReviewModel: ObservableObject {
 
         do {
             let imported = try await Task.detached(priority: .userInitiated) {
-                try Self.importDocument(from: url)
+                let document = try Self.importDocument(from: url)
+                // Fingerprinted in the same pass as the import, so what the
+                // export later checks against is the file the text came from.
+                let fingerprint = try SourceFingerprint.of(url)
+                return (document: document, fingerprint: fingerprint)
             }.value
 
             guard generation == sessionGeneration else { return }
-            documentText = imported.text
-            trackedChangeCount = imported.trackedChangeCount
+            sourceFingerprint = imported.fingerprint
+            documentText = imported.document.text
+            trackedChangeCount = imported.document.trackedChangeCount
             status = .imported
         } catch {
             guard generation == sessionGeneration else { return }
@@ -994,23 +1019,47 @@ public final class ReviewModel: ObservableObject {
         let learningLayer = learningStore
         let learningTarget = learningWriteTarget()
         let wantsSealCandidates = includeSealCandidates
+        let expectedFingerprint = sourceFingerprint
+        let generation = sessionGeneration
 
-        let result = try await Task.detached(priority: .userInitiated) {
-            try Self.performExport(
-                text: text,
-                acceptedSpans: acceptedSpans,
-                source: source,
-                custom: custom,
-                useLLM: shouldUseLLM,
-                modelPath: path,
-                outputDir: outputDir,
-                passphrase: passphrase,
-                createdAtISO8601: createdAtISO8601,
-                style: style,
-                includeSealCandidates: wantsSealCandidates,
-                seedMapping: seedMapping
-            )
-        }.value
+        let result: (export: ExportResult, mapping: Mapping, tokenBySurface: [String: String])
+        do {
+            result = try await Task.detached(priority: .userInitiated) {
+                // A DOCX or image export rebuilds its deliverable from the
+                // FILE, not from the reviewed text. Check that the file is
+                // still the one that was scanned immediately before it is
+                // read, or an edit made in Word since the scan is copied into
+                // the "redacted" document without ever having been reviewed.
+                // Nothing has been written yet, so refusing here leaves no
+                // half-finished export behind.
+                if let source, let expectedFingerprint, Self.exportReadsSource(source) {
+                    try SourceFingerprint.verify(source, matches: expectedFingerprint)
+                }
+                return try Self.performExport(
+                    text: text,
+                    acceptedSpans: acceptedSpans,
+                    source: source,
+                    custom: custom,
+                    useLLM: shouldUseLLM,
+                    modelPath: path,
+                    outputDir: outputDir,
+                    passphrase: passphrase,
+                    createdAtISO8601: createdAtISO8601,
+                    style: style,
+                    includeSealCandidates: wantsSealCandidates,
+                    seedMapping: seedMapping
+                )
+            }.value
+        } catch let changed as SourceChangedSinceScanError {
+            // Make the refusal standing, not just spoken: the banner renders
+            // the reason off exportAvailability until the file is opened
+            // again. Only for the document this export was started on; a
+            // newer open() has its own fingerprint and must not inherit this.
+            if generation == sessionGeneration {
+                sourceChangedSinceScan = true
+            }
+            throw changed
+        }
 
         // Keep the key BEFORE anything cosmetic, and fail CLOSED when it
         // cannot be kept.
