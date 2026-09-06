@@ -20,6 +20,13 @@
 //  order-independent. The only shared contract with the rest of the system is the
 //  placeholder pattern, reused from TokenGrammar so emit and restore never drift.
 //
+//  The same rule governs a token-style mapping that carries pseudonym entries
+//  from another style: both replacement shapes are located in the INPUT text
+//  and emitted in one pass (tokenStyleRestoreDecision), never one shape after
+//  the other over the other's output, so a carried pseudonym cannot match
+//  inside a value a brace token just restored. The DOCX run walker runs the
+//  same decision over each part's whole text.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -66,35 +73,65 @@ public enum Restorer {
         }
     }
 
-    /// Token-style restore, plus a literal supplement for entries carried
-    /// across styles. A client mapping seeded under the pseudonym style and
-    /// extended under the token style holds both replacement shapes; the
-    /// grammar scan cannot see the non-brace ones, so an old pseudonym
-    /// intermediate used to restore to zero replacements with no warning.
-    /// The supplement scans ONLY the carried literal entries, and their
-    /// absence is not an orphan: a token-style document is expected to carry
-    /// braces, not the other style's replacements.
+    /// Token-style restore, plus the entries carried across styles. A client
+    /// mapping seeded under the pseudonym style and extended under the token
+    /// style holds both replacement shapes; the grammar scan cannot see the
+    /// non-brace ones, so an old pseudonym intermediate used to restore to
+    /// zero replacements with no warning.
+    ///
+    /// Both shapes are decided against the RETURNED text in ONE pass (see
+    /// tokenStyleRestoreDecision). The carried entries used to be a second
+    /// pass over the OUTPUT of the token pass, and a carried pseudonym could
+    /// then match inside an original value the first pass had just put back:
+    /// with "Person A" carried for Alice, {COMPANY_1} restored to "Person A
+    /// Holdings" and the second pass rewrote it to "Alice Holdings", reported
+    /// as two restorations. A value this restore writes is never searched.
+    ///
+    /// Report semantics: orphans and suspects are the token scan's, and the
+    /// absence of a carried literal is not an orphan (a token-style document
+    /// is expected to carry braces, not the other style's replacements).
+    /// ambiguousReplacements lists the carried replacements refused under the
+    /// literal rules: shared by two entities, or a forced pseudonym returned
+    /// more times than it was emitted.
     private static func restoreTokenStyleWithCarriedLiterals(
         text: String,
         mapping: Mapping
     ) -> RestoreResult {
-        let tokenPass = restoreTokenStyle(text: text, mapping: mapping)
-
-        let carried = mapping.entries.filter { _, entry in
-            !entry.token.isEmpty && !TokenGrammar.isPlaceholderShaped(entry.token)
+        let plan = tokenStyleRestorePlan(for: mapping)
+        guard !plan.carriedLiterals.allReplacements.isEmpty else {
+            // Byte-identical to the historical token-only restore.
+            return restoreTokenStyle(text: text, mapping: mapping)
         }
-        guard !carried.isEmpty else { return tokenPass }
 
-        var literalOnly = mapping
-        literalOnly.entries = carried
-        let literalPass = restoreLiteralStyle(text: tokenPass.text, mapping: literalOnly)
+        // Decoded exactly as the token-only restore decodes, so a Markdown
+        // round trip restores the same sites on both paths.
+        let decoded = PlaceholderForensics.decodeMarkdownEscapedTokens(in: text)
 
+        // A forced pseudonym returned more often than it was emitted is
+        // refused everywhere, as under the literal styles. The count reads
+        // the sites the first decision accepted; the decision is then taken
+        // again with those replacements refused, still over the input text.
+        var decision = tokenStyleRestoreDecision(in: decoded, plan: plan)
+        let overReturned = userOverridesExceedingEmissionCount(
+            returned: decision.sites
+                .map(\.replacement)
+                .filter { plan.carriedLiterals.allReplacements.contains($0) },
+            mapping: mapping
+        )
+        if !overReturned.isEmpty {
+            decision = tokenStyleRestoreDecision(
+                in: decoded,
+                plan: tokenStyleRestorePlan(for: mapping, refusingReplacements: overReturned)
+            )
+        }
+
+        let pass = emitDecidedSites(text: decoded, sites: decision.sites)
         return RestoreResult(
-            text: literalPass.text,
-            restoredCount: tokenPass.restoredCount + literalPass.restoredCount,
-            orphanTokens: tokenPass.orphanTokens,
-            suspectPlaceholders: tokenPass.suspectPlaceholders,
-            ambiguousReplacements: literalPass.ambiguousReplacements
+            text: pass.text,
+            restoredCount: pass.restoredCount,
+            orphanTokens: decision.unmappedTokens,
+            suspectPlaceholders: PlaceholderForensics.suspects(in: decoded, mapping: mapping),
+            ambiguousReplacements: pass.refused
         )
     }
 
@@ -180,7 +217,7 @@ public enum Restorer {
             replacements: Array(valuesByReplacement.keys)
         )
         let overReturnedUserOverrides = userOverridesExceedingEmissionCount(
-            in: accepted,
+            returned: accepted.map(\.replacement),
             mapping: mapping
         )
         let pass = emitLiteralRestore(
@@ -227,12 +264,12 @@ public enum Restorer {
     /// the AI may have moved or rewritten the sentence, so even the first N
     /// sites are uncertain. Refuse that replacement everywhere.
     private static func userOverridesExceedingEmissionCount(
-        in accepted: [AcceptedLiteralMatch],
+        returned: [String],
         mapping: Mapping
     ) -> Set<String> {
         var returnedCounts: [String: Int] = [:]
-        for match in accepted {
-            returnedCounts[match.replacement, default: 0] += 1
+        for replacement in returned {
+            returnedCounts[replacement, default: 0] += 1
         }
 
         var refused: Set<String> = []
@@ -520,25 +557,193 @@ public enum Restorer {
         in text: String,
         plan: LiteralRestorePlan
     ) -> String {
-        let sites = literalRestoreSites(in: text, plan: plan)
-        guard !sites.isEmpty else { return text }
+        emitDecidedSites(text: text, sites: literalRestoreSites(in: text, plan: plan)).text
+    }
 
+    /// What one emit over decided sites produced.
+    private struct DecidedSitesPass {
+        var text = ""
+        var restoredCount = 0
+        /// The refused replacements in first-seen order, for the report.
+        var refused: [String] = []
+    }
+
+    /// Emit `text` with every decided site applied: a site carrying a value
+    /// is substituted, a refused site keeps its bytes and is recorded once.
+    /// The cursor only ever advances over offsets of `text`, so an emitted
+    /// value is never re-scanned. Sites must be in document order and
+    /// non-overlapping, which is what every decision function here returns.
+    private static func emitDecidedSites(
+        text: String,
+        sites: [LiteralRestoreSite]
+    ) -> DecidedSitesPass {
         let nsText = text as NSString
-        var result = ""
+        var pass = DecidedSitesPass()
+        var refusedSeen: Set<String> = []
         var cursor = 0
         for site in sites {
             if site.range.location > cursor {
-                result += nsText.substring(
+                pass.text += nsText.substring(
                     with: NSRange(location: cursor, length: site.range.location - cursor)
                 )
             }
-            result += site.value ?? nsText.substring(with: site.range)
+            if let value = site.value {
+                pass.text += value
+                pass.restoredCount += 1
+            } else {
+                pass.text += nsText.substring(with: site.range)
+                if refusedSeen.insert(site.replacement).inserted {
+                    pass.refused.append(site.replacement)
+                }
+            }
             cursor = site.range.location + site.range.length
         }
         if cursor < nsText.length {
-            result += nsText.substring(from: cursor)
+            pass.text += nsText.substring(from: cursor)
         }
-        return result
+        return pass
+    }
+
+    // MARK: - Token style on another surface
+
+    /// What a token-style surface that substitutes on its own (the DOCX run
+    /// walker) needs to reach the same sites as the text restore.
+    public struct TokenStyleRestorePlan: Sendable {
+        /// Brace token -> value for every grammar-shaped entry of the mapping.
+        public let tokenToValue: [String: String]
+        /// The entries carried in from another style (a pseudonym seed under
+        /// a token-style run), decided under the literal rules. Empty for a
+        /// pure token mapping.
+        public let carriedLiterals: LiteralRestorePlan
+    }
+
+    /// Build the token-style restore plan for a mapping. A caller that already
+    /// scanned the whole return surface passes its reported ambiguous
+    /// replacements so package writers leave those sites verbatim too.
+    public static func tokenStyleRestorePlan(
+        for mapping: Mapping,
+        refusingReplacements: Set<String> = []
+    ) -> TokenStyleRestorePlan {
+        var tokenToValue: [String: String] = [:]
+        var carried = mapping
+        carried.entries = [:]
+        for (key, entry) in mapping.entries where !entry.token.isEmpty {
+            if TokenGrammar.isPlaceholderShaped(entry.token) {
+                tokenToValue[entry.token] = entry.value
+            } else {
+                carried.entries[key] = entry
+            }
+        }
+        return TokenStyleRestorePlan(
+            tokenToValue: tokenToValue,
+            carriedLiterals: literalRestorePlan(
+                for: carried,
+                refusingReplacements: refusingReplacements
+            )
+        )
+    }
+
+    /// The plan for a bare token -> value table with nothing carried.
+    public static func tokenStyleRestorePlan(
+        tokenToValue: [String: String]
+    ) -> TokenStyleRestorePlan {
+        TokenStyleRestorePlan(
+            tokenToValue: tokenToValue.filter { TokenGrammar.isPlaceholderShaped($0.key) },
+            carriedLiterals: LiteralRestorePlan(
+                replacementToValue: [:],
+                allReplacements: [],
+                refusesPrefixConflicts: false
+            )
+        )
+    }
+
+    /// Everything the token-style decision knows about one text.
+    internal struct TokenStyleRestoreDecision {
+        /// Every site restore substitutes or refuses, in document order.
+        let sites: [LiteralRestoreSite]
+        /// Token-shaped strings no entry resolves, first seen first, once each.
+        let unmappedTokens: [String]
+    }
+
+    /// Decide every token-style restore site in `text` under `plan`, in ONE
+    /// pass over the input text.
+    ///
+    /// Brace tokens come from the grammar scan; a mapped one is a site, an
+    /// unmapped one is reported and left alone. The carried literals are
+    /// decided over the SAME text under the literal rules, and a literal
+    /// match that overlaps any token-shaped string is dropped: a token is
+    /// grammar, never a pseudonym site, so the token wins. Because both
+    /// shapes are located in the input, no site can ever sit inside a value
+    /// another site restores. The text restore and the DOCX run walker both
+    /// run this over the whole surface they hold, so one site cannot be
+    /// substituted on one surface and left alone on the other.
+    internal static func tokenStyleRestoreDecision(
+        in text: String,
+        plan: TokenStyleRestorePlan
+    ) -> TokenStyleRestoreDecision {
+        guard let regex = try? NSRegularExpression(
+            pattern: TokenGrammar.placeholderPattern
+        ) else {
+            return TokenStyleRestoreDecision(sites: [], unmappedTokens: [])
+        }
+        let nsText = text as NSString
+        let tokenRanges = regex.matches(
+            in: text,
+            options: [],
+            range: NSRange(location: 0, length: nsText.length)
+        ).map(\.range)
+
+        var tokenSites: [LiteralRestoreSite] = []
+        var unmapped: [String] = []
+        var seenUnmapped = Set<String>()
+        for range in tokenRanges {
+            let token = nsText.substring(with: range)
+            if let value = plan.tokenToValue[token] {
+                tokenSites.append(
+                    LiteralRestoreSite(range: range, replacement: token, value: value)
+                )
+            } else if seenUnmapped.insert(token).inserted {
+                unmapped.append(token)
+            }
+        }
+        guard !plan.carriedLiterals.allReplacements.isEmpty else {
+            return TokenStyleRestoreDecision(sites: tokenSites, unmappedTokens: unmapped)
+        }
+
+        let literalSites = literalRestoreSites(in: text, plan: plan.carriedLiterals)
+        let sites = (tokenSites + dropOverlapping(literalSites, tokenRanges))
+            .sorted { $0.range.location < $1.range.location }
+        return TokenStyleRestoreDecision(sites: sites, unmappedTokens: unmapped)
+    }
+
+    /// The token-style sites alone, for a surface that substitutes on its own.
+    internal static func tokenStyleRestoreSites(
+        in text: String,
+        plan: TokenStyleRestorePlan
+    ) -> [LiteralRestoreSite] {
+        tokenStyleRestoreDecision(in: text, plan: plan).sites
+    }
+
+    /// Drop every site that intersects one of `ranges`. Both lists are in
+    /// document order and internally non-overlapping, so one sweep decides.
+    private static func dropOverlapping(
+        _ sites: [LiteralRestoreSite],
+        _ ranges: [NSRange]
+    ) -> [LiteralRestoreSite] {
+        var kept: [LiteralRestoreSite] = []
+        var index = 0
+        for site in sites {
+            let siteEnd = site.range.location + site.range.length
+            while index < ranges.count,
+                  ranges[index].location + ranges[index].length <= site.range.location {
+                index += 1
+            }
+            if index < ranges.count, ranges[index].location < siteEnd {
+                continue
+            }
+            kept.append(site)
+        }
+        return kept
     }
 
     /// Whether this mapping's style refuses a prefix conflict at a match site
