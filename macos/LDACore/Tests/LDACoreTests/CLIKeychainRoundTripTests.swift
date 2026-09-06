@@ -185,6 +185,15 @@ final class CLIKeychainRoundTripTests: XCTestCase {
             protection: .passphrase("temporary")
         )
         let legacyAccount = LDACLI.keychainAccount(forMappingBaseName: legacyBase)
+        // A previous build wrote its sidecar as a FRESH file under the old
+        // account, so that is how it has to be simulated. Re-saving over the
+        // existing sidecar would be an overwrite of a container whose key this
+        // process cannot see, which EncryptedContainer.fetchOrCreateKeychainKey
+        // now refuses on purpose (one account must never hold two keys). The
+        // refusal is the product behaviour under test elsewhere; this test is
+        // about the restore-side account fallback and must not depend on the
+        // overwrite it used to get for free.
+        try FileManager.default.removeItem(at: anonymized.mappingFileURL)
         do {
             try MappingStore.save(
                 mapping,
