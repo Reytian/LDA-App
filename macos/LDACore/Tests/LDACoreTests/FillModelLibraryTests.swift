@@ -418,6 +418,61 @@ final class FillModelLibraryTests: XCTestCase {
         XCTAssertNil(model.pickerRequestID, "backToLibrary must clear pickerRequestID")
     }
 
+    // MARK: - A stale extraction cannot overwrite another portfolio
+
+    /// The review finding end to end, through the real library: extraction A
+    /// is in flight, the user goes back to the library and opens B, then A
+    /// finishes. The editor must still hold B, and the Save that follows must
+    /// write B's own data under B's id, never A's.
+    func testAStaleExtractionCannotBeSavedOverThePortfolioOpenedAfterIt() async throws {
+        let lib = try makeLibrarySeam()
+        let bID = try lib.create(makeCompanyPortfolio(label: "Portfolio B"))
+        let portfolioA = makeCompanyPortfolio(label: "Portfolio A")
+        let blocker = DispatchSemaphore(value: 0)
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            blocker.wait()
+            return ExtractProfileResult(profile: portfolioA, failedSources: [])
+        }
+
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        await model.createPortfolio(
+            kind: .company,
+            label: "Portfolio A",
+            fromScratch: false,
+            createdAtISO8601: "2026-09-06T00:00:00Z"
+        )
+        let extracting = Task {
+            await model.extractProfile(
+                sources: [URL(fileURLWithPath: "/tmp/synthetic-source.txt")],
+                label: "Portfolio A",
+                createdAtISO8601: "2026-09-06T00:00:00Z"
+            )
+        }
+        var waited = 0
+        while model.stage != .importingSources && waited < 500 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            waited += 1
+        }
+        XCTAssertEqual(model.stage, .importingSources, "the extraction never started")
+
+        model.backToLibrary()
+        await model.openForEdit(id: bID)
+        XCTAssertEqual(model.profile?.label, "Portfolio B", "fixture: B is open")
+
+        blocker.signal()
+        await extracting.value
+
+        XCTAssertEqual(model.profile?.label, "Portfolio B", "A's profile landed in B's editor")
+        XCTAssertEqual(model.currentPortfolioID, bID)
+        XCTAssertFalse(model.profileDirty, "B was opened clean and nothing the user did changed it")
+
+        await model.saveToLibrary(modifiedAtISO8601: "2026-09-06T00:01:00Z")
+        XCTAssertEqual(
+            try lib.load(id: bID).label, "Portfolio B",
+            "portfolio B was overwritten with the stale extraction"
+        )
+    }
+
     // MARK: - External "Load Profile" clears currentPortfolioID (fix 4c)
 
     /// When an external .ldaprofile file is loaded via confirmLoadProfile, the shell

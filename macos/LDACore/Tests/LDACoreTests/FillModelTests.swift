@@ -559,6 +559,128 @@ final class FillModelTests: XCTestCase {
             "profileDirty must be true after extraction so the Back-to-Library discard dialog is shown")
     }
 
+    // MARK: - A stale extraction cannot land on another portfolio
+
+    /// Blocks the extraction seam until the test releases it, so the test
+    /// can change what the editor holds while the extraction is in flight.
+    private func installBlockedExtraction(
+        returning profile: ClientPortfolio
+    ) -> DispatchSemaphore {
+        let blocker = DispatchSemaphore(value: 0)
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            blocker.wait()
+            return ExtractProfileResult(profile: profile, failedSources: [])
+        }
+        return blocker
+    }
+
+    /// Start an extraction and wait until the model has actually entered it.
+    private func startExtraction(on model: FillModel, label: String) async throws -> Task<Void, Never> {
+        let extracting = Task {
+            await model.extractProfile(
+                sources: [URL(fileURLWithPath: "/tmp/synthetic-source.txt")],
+                label: label,
+                createdAtISO8601: "2026-09-06T00:00:00Z"
+            )
+        }
+        var waited = 0
+        while model.stage != .importingSources && waited < 500 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            waited += 1
+        }
+        XCTAssertEqual(model.stage, .importingSources, "the extraction never started")
+        return extracting
+    }
+
+    private func makePortfolioB() -> ClientPortfolio {
+        ClientPortfolio(
+            label: "Synthetic Portfolio B",
+            fields: [],
+            sourceDocuments: ["B.txt"],
+            createdAtISO8601: "2026-09-06T00:00:00Z",
+            incomplete: false
+        )
+    }
+
+    /// The review probe: extraction A is running, the user goes back to the
+    /// library and opens portfolio B, then A finishes. A's profile must not
+    /// land in B's editor under B's id, where the next Save would write A's
+    /// data over B. The open here is the exact state transition openForEdit
+    /// makes after its library read; FillModelLibraryTests drives the real
+    /// openForEdit through a library.
+    func testAStaleExtractionDoesNotReplaceThePortfolioOpenedAfterIt() async throws {
+        let portfolioA = makeProfile(companyName: "Synthetic Alpha Holdings")
+        let portfolioB = makePortfolioB()
+        let portfolioBID = UUID()
+        let blocker = installBlockedExtraction(returning: portfolioA)
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let extracting = try await startExtraction(on: model, label: portfolioA.label)
+
+        model.backToLibrary()
+        model.currentPortfolioID = portfolioBID
+        model.loadProfile(portfolioB)
+
+        blocker.signal()
+        await extracting.value
+
+        XCTAssertEqual(model.profile?.label, portfolioB.label, "A's profile landed in B's editor")
+        XCTAssertEqual(model.currentPortfolioID, portfolioBID, "B's identity must be untouched")
+        XCTAssertFalse(model.profileDirty, "a stale extraction must not mark B's clean profile as unsaved work")
+        XCTAssertEqual(model.stage, .profileReady)
+    }
+
+    /// The failure branch of the same race: a stale extraction that fails
+    /// must not put B's editor into the failed state either.
+    func testAStaleExtractionFailureDoesNotDisturbThePortfolioOpenedAfterIt() async throws {
+        struct SyntheticFailure: Error {}
+        let blocker = DispatchSemaphore(value: 0)
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            blocker.wait()
+            throw SyntheticFailure()
+        }
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let extracting = try await startExtraction(on: model, label: "Portfolio A")
+
+        model.backToLibrary()
+        model.currentPortfolioID = UUID()
+        model.loadProfile(makePortfolioB())
+
+        blocker.signal()
+        await extracting.value
+
+        XCTAssertEqual(model.stage, .profileReady, "a stale failure must not fail the editor that replaced it")
+        XCTAssertEqual(model.profile?.label, "Synthetic Portfolio B")
+    }
+
+    /// A second extraction started for the same editor supersedes the first:
+    /// only the later result may land.
+    func testALaterExtractionSupersedesAnEarlierOneStillInFlight() async throws {
+        let first = makeProfile(companyName: "First Result")
+        let second = makeProfile(companyName: "Second Result")
+        let blocker = installBlockedExtraction(returning: first)
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        let earlier = try await startExtraction(on: model, label: "Portfolio")
+
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            ExtractProfileResult(profile: second, failedSources: [])
+        }
+        await model.extractProfile(
+            sources: [URL(fileURLWithPath: "/tmp/synthetic-source.txt")],
+            label: "Portfolio",
+            createdAtISO8601: "2026-09-06T00:00:00Z"
+        )
+        XCTAssertEqual(model.profile?.fields.first?.value, "Second Result")
+
+        blocker.signal()
+        await earlier.value
+
+        XCTAssertEqual(
+            model.profile?.fields.first?.value, "Second Result",
+            "the earlier extraction must not overwrite the later one"
+        )
+        XCTAssertEqual(model.stage, .profileReady)
+    }
+
     // MARK: - planFill async
 
     func testPlanFillSuccessPublishesBlanksAndStageReviewing() async throws {

@@ -131,11 +131,18 @@ extension FillModel {
     /// currentPortfolioID to id, and dirty to false. On failure, stage becomes
     /// .failed.
     public func openForEdit(id: UUID) async {
+        // Opening retires whatever was in flight for the previous occupant,
+        // and binds this load to its own generation so that a second open
+        // requested while this one reads supersedes it rather than losing to
+        // it.
+        invalidateInFlightEditorWork()
+        let generation = editorGeneration
         do {
             let lib = try await resolveLibrary()
             let loaded = try await Task.detached(priority: .userInitiated) {
                 try lib.load(id: id)
             }.value
+            guard generation == editorGeneration else { return }
 
             profile = loaded
             currentPortfolioID = id
@@ -143,6 +150,7 @@ extension FillModel {
             stage = .profileReady
 
         } catch {
+            guard generation == editorGeneration else { return }
             publishFailure(error, context: .library)
         }
     }

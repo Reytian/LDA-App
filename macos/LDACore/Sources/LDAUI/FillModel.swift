@@ -95,6 +95,10 @@ public final class FillModel: ObservableObject {
     /// The current stage of the fill session.
     @Published public var stage: FillStage = .idle {
         didSet {
+            // Leaving for the library, by any route (Back to Library, a
+            // delete, an import, a refresh), abandons whatever the editor
+            // held, so any extraction still running for it is now stale.
+            if case .library = stage { invalidateInFlightEditorWork() }
             if case .failed = stage { return }
             failureContext = nil
         }
@@ -164,7 +168,39 @@ public final class FillModel: ObservableObject {
     /// has been opened from the library (new portfolios start nil until first save;
     /// portfolios loaded from an external file also start nil so Save creates a new
     /// library entry rather than overwriting an unrelated open portfolio).
-    @Published public var currentPortfolioID: UUID?
+    ///
+    /// Assigning it changes WHOSE data a Save writes, so it retires every
+    /// asynchronous result still in flight for the previous occupant.
+    @Published public var currentPortfolioID: UUID? {
+        didSet { invalidateInFlightEditorWork() }
+    }
+
+    // MARK: - Editor generation
+
+    /// Monotonic generation of what the editor holds: which portfolio, under
+    /// which id, or none because the user is back in the library.
+    ///
+    /// Every asynchronous piece of work for the editor captures the value it
+    /// started under and checks it again when it completes, BEFORE touching
+    /// the profile, the dirty flag, the stage, or the identity. The failure
+    /// this prevents is concrete: extraction A is running, the user goes
+    /// back to the library and opens portfolio B, A finishes and loads its
+    /// profile into B's editor under B's id, and the next Save writes A's
+    /// data over B. Binding the completion to the generation makes A's
+    /// result land nowhere.
+    ///
+    /// Bumped by: any transition to .library (stage didSet), any assignment
+    /// of currentPortfolioID, loadProfile, and the start of every extraction
+    /// and library open, so a later request always supersedes an earlier one
+    /// still in flight.
+    // internal(set) for FillModelLibrary.swift
+    var editorGeneration = 0
+
+    /// Retire every asynchronous result still in flight for the editor's
+    /// previous occupant.
+    func invalidateInFlightEditorWork() {
+        editorGeneration += 1
+    }
 
     /// A one-time advisory string built from lastListReconciled /
     /// lastIndexPersistFailed on the most recent refreshLibrary call. Non-nil only
@@ -386,7 +422,10 @@ public final class FillModel: ObservableObject {
 
     /// Set the profile, advance stage to .profileReady, and clear the dirty flag.
     /// Used by extractProfile on success and by tests to seed a clean profile.
+    /// A new occupant for the editor: anything still running for the old one
+    /// is retired first.
     public func loadProfile(_ profile: ClientPortfolio) {
+        invalidateInFlightEditorWork()
         self.profile = profile
         profileDirty = false
         stage = .profileReady
@@ -551,6 +590,12 @@ public final class FillModel: ObservableObject {
         createdAtISO8601: String,
         kind: PortfolioKind = .company
     ) async {
+        // This extraction is now the editor's pending work; an earlier one
+        // still running is superseded. Its result is bound to this generation
+        // and lands only if the editor still holds what it was started for.
+        invalidateInFlightEditorWork()
+        let generation = editorGeneration
+
         // Stage starts at .importingSources (documents are being staged before the
         // LLM begins). The facade emits onProgress(0, total) when extraction actually
         // begins (after all imports succeed); we flip to .extracting on that first
@@ -564,7 +609,7 @@ public final class FillModel: ObservableObject {
 
         let progressCallback: @Sendable (Int, Int) -> Void = { [weak self] done, total in
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.editorGeneration == generation else { return }
                 // Flip to .extracting on the first progress event (done == 0 and
                 // total > 0 is the "extraction started" signal from the facade).
                 if case .importingSources = self.stage { self.stage = .extracting }
@@ -591,6 +636,12 @@ public final class FillModel: ObservableObject {
                 }
             }.value
 
+            // The editor moved on while this ran (back to the library, another
+            // portfolio opened or created, a later extraction started): this
+            // result belongs to nobody on screen. Drop it BEFORE it touches
+            // the profile, the dirty flag, or the identity a Save would use.
+            guard generation == editorGeneration else { return }
+
             // Keep service values raw; the banner localizes known reasons when rendered.
             sourceFailures = result.failedSources.map {
                 FillSourceFailure(name: $0.name, reason: $0.reason)
@@ -607,6 +658,9 @@ public final class FillModel: ObservableObject {
             }
 
         } catch {
+            // A stale failure is as wrong to publish as a stale result: it
+            // would put the editor the user has since opened into .failed.
+            guard generation == editorGeneration else { return }
             publishFailure(error, context: .profile)
         }
     }
