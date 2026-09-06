@@ -342,7 +342,8 @@ private struct PackagingFixture {
     func run(
         scratchPath: URL? = nil,
         bundleModel: Bool = false,
-        modelURL: URL? = nil
+        modelURL: URL? = nil,
+        extraEnvironment: [String: String] = [:]
     ) throws -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -357,6 +358,15 @@ private struct PackagingFixture {
         environment.removeValue(forKey: "SCRATCH_PATH")
         environment.removeValue(forKey: "MODEL_PATH")
         environment.removeValue(forKey: "BUNDLE_MODEL")
+        // Never inherit a real signing identity or profile from the developer's
+        // shell: the fixture must exercise the ad hoc path unless a test says
+        // otherwise, or a stray CODESIGN_IDENTITY would make it sign for real.
+        environment.removeValue(forKey: "CODESIGN_IDENTITY")
+        environment.removeValue(forKey: "PROVISIONING_PROFILE")
+        environment.removeValue(forKey: "NOTARY_PROFILE")
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
         if let modelURL {
             environment["MODEL_PATH"] = modelURL.path
         }
@@ -375,6 +385,45 @@ private struct PackagingFixture {
         process.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    // MARK: - Distribution signing needs the provisioning profile
+
+    /// The distribution entitlements carry restricted keys that macOS honours
+    /// only with an embedded Developer ID provisioning profile; a binary that
+    /// claims them without one is killed at exec. The script must refuse to
+    /// produce that build, and it must refuse BEFORE reaching codesign, which
+    /// is why a dummy identity is safe here: nothing is ever signed.
+    func testASignedBuildWithoutAProvisioningProfileIsRefused() throws {
+        let result = try run(extraEnvironment: [
+            "CODESIGN_IDENTITY": "Developer ID Application: Fixture (FIXTURE00)"
+        ])
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(
+            result.output.contains("PROVISIONING_PROFILE is not"),
+            "the refusal must name the missing variable: \(result.output)"
+        )
+        XCTAssertTrue(
+            result.output.contains("killed at launch"),
+            "the refusal must say WHY a profile-less signed build is unsafe: \(result.output)"
+        )
+        XCTAssertFalse(
+            result.output.contains("Developer ID signing with hardened runtime")
+                && result.output.contains("Verifying signature"),
+            "refusal must happen before any signing step runs"
+        )
+    }
+
+    func testASignedBuildWithAMissingProfileFileIsRefused() throws {
+        let result = try run(extraEnvironment: [
+            "CODESIGN_IDENTITY": "Developer ID Application: Fixture (FIXTURE00)",
+            "PROVISIONING_PROFILE": distURL.appendingPathComponent("does-not-exist.provisionprofile").path
+        ])
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(
+            result.output.contains("does not exist"),
+            "a dangling profile path must be refused, not silently skipped: \(result.output)"
+        )
     }
 
     /// GGUF files sitting in the packaged bundle's Resources directory.
