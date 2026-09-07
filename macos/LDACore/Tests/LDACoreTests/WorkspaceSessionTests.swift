@@ -450,6 +450,53 @@ final class WorkspaceSessionTests: XCTestCase {
         XCTAssertTrue(fixture.session.workspaceAvailability.isAvailable)
     }
 
+    /// A workspace archives each document's FILE as the original its review
+    /// describes. If the file changed after the scan, that pair is a lie the
+    /// reopening Mac cannot see through: the decisions relocate by value onto
+    /// text nobody reviewed. So the save refuses and names the document; the
+    /// remedy is the export's, open the file again and scan it. Every format
+    /// counts here, unlike the export, because the archive copies the file
+    /// rather than the reviewed text.
+    func testSaveWorkspaceRefusesADocumentWhoseFileChangedAfterItsScan() async throws {
+        let fixture = makeFixture("origin")
+        let session = fixture.session
+        let notice = try write("notice.txt", "Mail john@acme.com before Friday.")
+        await session.addDocuments([notice])
+        await session.anonymizeAll()
+        XCTAssertTrue(session.entries[0].model.exportAvailability.isAvailable, "fixture: scanned")
+
+        // The edit: an unreviewed address appears in the file after the scan.
+        try Data("Mail john@acme.com before Friday. Bank contact: added@example.invalid".utf8)
+            .write(to: notice)
+
+        let fileURL = workDir.appendingPathComponent("changed.ldawork")
+        XCTAssertThrowsError(
+            try session.saveWorkspace(
+                to: fileURL,
+                passphrase: Self.passphrase,
+                createdAtISO8601: Self.createdAt
+            )
+        ) { error in
+            XCTAssertEqual(
+                (error as? WorkspaceSourceChangedError)?.documentName, "notice.txt",
+                "unexpected error: \(error)"
+            )
+            XCTAssertTrue(
+                error.localizedDescription.contains("notice.txt"),
+                "the refusal names the document: \(error.localizedDescription)"
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "a refused save writes nothing")
+
+        // The remedy works: opened again and scanned, the document saves.
+        session.removeDocument(id: session.entries[0].id)
+        await session.addDocuments([notice])
+        await session.anonymizeAll()
+        XCTAssertEqual(session.entries[0].model.entities.count, 2, "the reopened file's new address is found")
+        try session.saveWorkspace(to: fileURL, passphrase: Self.passphrase, createdAtISO8601: Self.createdAt)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     func testEmptyingTheTrayRemovesTheUnpackedOriginals() async throws {
         let (origin, _, _) = try await makeReviewedSession()
         let fileURL = workDir.appendingPathComponent("matter.ldawork")

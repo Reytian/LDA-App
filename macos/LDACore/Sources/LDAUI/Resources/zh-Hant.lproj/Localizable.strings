@@ -955,3 +955,4 @@
 "This workspace was saved before LDA recorded whether the AI pass ran, so this document is treated as if it did not. Scan it again, or read the copy before you hand it to an AI tool." = "此工作區儲存於 LDA 開始記錄 AI 是否執行之前，因此這份文件按 AI 未執行處理。請重新掃描，或者在把副本交給 AI 工具之前先通讀它。";
 "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving." = "「儲存遮蔽版本」發現此檔案在掃描之後已被更改，掃描結果不再與之對應。請重新開啟該檔案並再次掃描，然後再儲存。";
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "這份文件的文字與儲存此工作區時已不相同，因此所記錄的掃描結果並不描述目前開啟的文字。請重新掃描，或者在把副本交給 AI 工具之前先通讀它。";
+"Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "「儲存工作區」發現「%@」在掃描之後已被更改，其審閱結果不再與之對應。請重新開啟該檔案並再次掃描，然後再儲存工作區。";

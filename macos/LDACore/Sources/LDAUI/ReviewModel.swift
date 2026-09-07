@@ -444,13 +444,14 @@ public final class ReviewModel: ObservableObject {
 
     /// The source URL of the currently open document, used to pick the right
     /// edit-surface writer on export (docx vs text/pdf companion).
-    private var sourceURL: URL?
+    // private(set) so SourceFingerprint.swift can compare the file against its fingerprint.
+    private(set) var sourceURL: URL?
 
     /// The source file's bytes as imported, fingerprinted. An export that
     /// reads the file (DOCX, image) checks this immediately before reading,
     /// so an edit made in Word after the scan cannot be copied into the
     /// redacted document unreviewed. See SourceFingerprint.swift.
-    private var sourceFingerprint: SourceFingerprint?
+    private(set) var sourceFingerprint: SourceFingerprint?
 
     /// True once an export found the file on disk no longer matching the
     /// imported bytes. Read by exportAvailability, so the banner renders the

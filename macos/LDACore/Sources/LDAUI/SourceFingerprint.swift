@@ -72,6 +72,20 @@ public struct SourceChangedSinceScanError: LocalizedError, Equatable {
 
 extension ReviewModel {
 
+    /// Throw SourceChangedSinceScanError when the file on disk is no longer
+    /// the file that was scanned.
+    ///
+    /// Run by Save Workspace before it archives the file as this review's
+    /// original. Every format counts there, unlike the export: the archive
+    /// copies the FILE, not the reviewed text, so a changed .txt would travel
+    /// with decisions that describe an older text. A document that was never
+    /// opened from a file has nothing to compare and passes. The document's
+    /// own Save Redacted gate is not touched here; the export keeps its check.
+    func requireSourceUnchangedSinceScan() throws {
+        guard let sourceURL, let sourceFingerprint else { return }
+        try SourceFingerprint.verify(sourceURL, matches: sourceFingerprint)
+    }
+
     /// True for the source kinds whose export reads the FILE rather than only
     /// the reviewed text: a DOCX (the redactor rewrites the original package)
     /// and a standalone image (the PNG is boxed over a re-read of the
