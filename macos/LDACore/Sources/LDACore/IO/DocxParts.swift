@@ -314,23 +314,22 @@ enum DocxParts {
 
     // MARK: - Restore of text-bearing parts
 
-    /// Re-substitute token -> value across every non-body text part of a redacted
-    /// package, returning the rewritten bytes per path. The docProps and .rels
-    /// scrubs are destructive and are not reversed (there is nothing to restore).
-    static func restoreNonBodyParts(
+    /// Re-substitute a token-style mapping's sites across every non-body text
+    /// part of a redacted package, returning the rewritten bytes per path. The
+    /// plan decides the brace tokens and any entries carried from another
+    /// style together over each part's whole text (see
+    /// Restorer.tokenStyleRestoreSites). The docProps and .rels scrubs are
+    /// destructive and are not reversed (there is nothing to restore).
+    static func restoreNonBodyPartsTokenStyle(
         url: URL,
-        tokenToValue: [String: String]
+        plan: Restorer.TokenStyleRestorePlan
     ) throws -> [String: Data] {
         var replacements: [String: Data] = [:]
         for part in try loadRequiredTextBearingParts(from: url) {
             var layout = part.layout
-            let restoredCount = try DocxRedactor.restoreTokensInLayout(
-                &layout,
-                tokenToValue: tokenToValue
-            )
-            if restoredCount > 0 {
-                replacements[part.path] = DocxDocumentXML.serialize(layout)
-            }
+            let outcome = try DocxRedactor.restoreTokenStyleInLayout(&layout, plan: plan)
+            guard outcome.restoredCount > 0 else { continue }
+            replacements[part.path] = DocxDocumentXML.serialize(layout)
         }
         return replacements
     }

@@ -222,17 +222,40 @@ public enum SessionTokenizer {
                 forbiddenReplacements: forbidden
             )
 
-            // Only the pseudonym style restores by scanning the redacted text
-            // for replacement strings, so only it has seams. Token style
-            // restores through the brace grammar. Asterisk masks are a pure
-            // function of the surface, so there is no second candidate to
-            // remint to and no lever here at all; that residue is a restore
-            // side decision (see RestorerPrefixAdjacencyTests).
-            guard style == .pseudonym else {
+            switch style {
+            case .asterisk:
+                // Asterisk masks are a pure function of the surface, so there
+                // is no second candidate to remint to and no lever here at
+                // all; that residue is a restore side decision (see
+                // RestorerPrefixAdjacencyTests).
                 return SessionTokenizeResult(
                     documents: folded.documents,
                     mapping: folded.mapping
                 )
+            case .token:
+                // Token style restores through the brace grammar, and minting
+                // keeps every minted token clear of every literal in the
+                // session, so nothing here is repairable by reminting. What
+                // CAN go wrong is a replacement the session did not mint: a
+                // seed token that a document spells literally, or a pseudonym
+                // carried from another style that occurs naturally. The seed
+                // entry cannot be dropped (earlier documents restore through
+                // it), so the audit runs once against the FINAL union mapping
+                // and reports; the caller decides.
+                let audit = tokenStyleSeamAudit(in: folded, documents: documents)
+                return SessionTokenizeResult(
+                    documents: folded.documents,
+                    mapping: folded.mapping,
+                    seamIssues: uncheckedIssues(
+                        of: audit.uncheckedDocumentIndices,
+                        documents: documents
+                    ) + issues(of: audit.violations, documents: documents)
+                )
+            case .pseudonym:
+                // The literal scan restores by searching the redacted text for
+                // replacement strings, so this is the style with repairable
+                // seams; the audit and repair loop below handle it.
+                break
             }
 
             let audit = seamAudit(in: folded, documents: documents)
@@ -383,7 +406,8 @@ public enum SessionTokenizer {
         var uncheckedDocumentIndices: [Int]
     }
 
-    /// Run the seam pass over every document of a completed fold.
+    /// Run the pseudonym-style seam pass over every document of a completed
+    /// fold.
     private static func seamAudit(
         in folded: Folded,
         documents: [SessionDocument]
@@ -393,10 +417,8 @@ public enum SessionTokenizer {
         let replacements = Array(
             Set(folded.mapping.entries.values.map { $0.token }).filter { !$0.isEmpty }
         )
-        var found: [SessionSeamVerifier.Violation] = []
-        var unchecked: [Int] = []
-        for index in documents.indices {
-            let report = SessionSeamVerifier.report(
+        return audit(documents: documents) { index in
+            SessionSeamVerifier.report(
                 documentIndex: index,
                 tokenizedText: folded.documents[index].tokenizedText,
                 originalText: documents[index].text,
@@ -404,12 +426,76 @@ public enum SessionTokenizer {
                 replacementBySurface: folded.replacementBySurface[index],
                 replacements: replacements
             )
-            if report.couldNotVerify {
+        }
+    }
+
+    /// Run the token-style seam pass over every document of a completed fold,
+    /// against the FINAL shared mapping: the sites the token-style restore
+    /// would substitute in each document must be exactly the sites the fold
+    /// emitted there.
+    private static func tokenStyleSeamAudit(
+        in folded: Folded,
+        documents: [SessionDocument]
+    ) -> SeamAudit {
+        let plan = Restorer.tokenStyleRestorePlan(for: folded.mapping)
+        return audit(documents: documents) { index in
+            SessionSeamVerifier.reportTokenStyle(
+                documentIndex: index,
+                tokenizedText: folded.documents[index].tokenizedText,
+                originalText: documents[index].text,
+                acceptedSpans: folded.acceptedSpans[index],
+                replacementBySurface: folded.replacementBySurface[index],
+                plan: plan
+            )
+        }
+    }
+
+    /// Collect one verifier report per document into an audit.
+    private static func audit(
+        documents: [SessionDocument],
+        report: (Int) -> SessionSeamVerifier.Report
+    ) -> SeamAudit {
+        var found: [SessionSeamVerifier.Violation] = []
+        var unchecked: [Int] = []
+        for index in documents.indices {
+            let documentReport = report(index)
+            if documentReport.couldNotVerify {
                 unchecked.append(index)
             }
-            found += report.violations
+            found += documentReport.violations
         }
         return SeamAudit(violations: found, uncheckedDocumentIndices: unchecked)
+    }
+
+    /// The token-style seam issues for ONE directly tokenized document,
+    /// against its own result mapping.
+    ///
+    /// Tokenizer's direct path calls this so a seed token the document spells
+    /// literally is reported there too, not only inside a session: the seed
+    /// entry restores that literal to the seed's value, and minting a fresh
+    /// token for the entity does not remove it.
+    static func tokenStyleSeamIssues(
+        documentName: String,
+        originalText: String,
+        detailed: DetailedTokenizeResult
+    ) -> [SessionSeamIssue] {
+        let documents = [
+            SessionDocument(name: documentName, text: originalText, spans: detailed.acceptedSpans)
+        ]
+        let folded = Folded(
+            documents: [
+                SessionTokenizedDocument(
+                    name: documentName,
+                    tokenizedText: detailed.result.tokenizedText
+                )
+            ],
+            mapping: detailed.result.mapping,
+            replacementBySurface: [detailed.replacementBySurface],
+            acceptedSpans: [detailed.acceptedSpans]
+        )
+        let audit = tokenStyleSeamAudit(in: folded, documents: documents)
+        return uncheckedIssues(of: audit.uncheckedDocumentIndices, documents: documents)
+            + issues(of: audit.violations, documents: documents)
     }
 
     /// Readable lines for documents the pass could not check.

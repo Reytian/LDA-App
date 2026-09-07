@@ -40,14 +40,14 @@ struct DetailedTokenizeResult {
     let requiresWholeAssignmentRepair: Bool
 }
 
-/// A direct tokenization result failed its literal-restore safety audit.
+/// A direct tokenization result failed its restore safety audit.
 public enum TokenizationSafetyError: LocalizedError, Equatable, Sendable {
     case unresolvedSeams([String])
 
     public var errorDescription: String? {
         switch self {
         case .unresolvedSeams(let seams):
-            return "The pseudonym output could not be verified for safe restoration. "
+            return "The redacted output could not be verified for safe restoration. "
                 + "Do not release it until these conflicts are resolved: "
                 + seams.joined(separator: " ")
         }
@@ -61,8 +61,10 @@ public enum TokenizationSafetyError: LocalizedError, Equatable, Sendable {
 /// name so that the result is deterministic and testable.
 public enum Tokenizer {
     /// Refuse a direct tokenization result whose whole-assignment verifier
-    /// reported unresolved literal seams. Release paths call this before any
-    /// file, clipboard, CLI, GUI, or MCP output is produced.
+    /// reported unresolved seams: a literal-style seam it could not remint,
+    /// or a token-style site a carried entry would overwrite. Release paths
+    /// call this before any file, clipboard, CLI, GUI, or MCP output is
+    /// produced.
     @discardableResult
     public static func requireSafeForRelease(
         _ result: TokenizeResult
@@ -112,7 +114,11 @@ public enum Tokenizer {
     ///   - style: how replacements are rendered. The default .token preserves
     ///     the historical "{TYPE_N}" output byte for byte.
     ///   - uniquenessCorpus: additional texts (the other documents of a
-    ///     session) a pseudonym must not occur in. Ignored by other styles.
+    ///     session) a pseudonym must not occur in, and whose token-shaped
+    ///     literals a minted token must not spell: the session restores every
+    ///     document through ONE shared mapping, so a companion's template
+    ///     literal collides with a token minted here exactly as a literal in
+    ///     this text does.
     /// - Returns: The tokenized text plus the mapping needed to restore it.
     public static func tokenize(
         text: String,
@@ -209,6 +215,25 @@ public enum Tokenizer {
             overrides: overrides,
             forbiddenReplacements: [:]
         )
+        if style == .token {
+            // Minting keeps every minted token clear of the literals in this
+            // text and its companions, so what is left to check is a
+            // replacement this run did NOT mint. A seed token the document
+            // spells literally cannot be reminted away: the seed entry stays
+            // in the union for the earlier documents it restores, and restoring
+            // this document with that union would overwrite the literal with
+            // the seed's value. The verifier names the site, and
+            // requireSafeForRelease refuses on the report.
+            return TokenizeResult(
+                tokenizedText: detailed.result.tokenizedText,
+                mapping: detailed.result.mapping,
+                seamIssues: SessionTokenizer.tokenStyleSeamIssues(
+                    documentName: sourceFile,
+                    originalText: text,
+                    detailed: detailed
+                )
+            )
+        }
         guard style == .pseudonym, detailed.requiresWholeAssignmentRepair else {
             return detailed.result
         }
@@ -308,7 +333,17 @@ public enum Tokenizer {
         // copied-through literal and the minted token would be byte-identical, so
         // Restorer's substitution would overwrite the user's literal with the
         // entity value and the round-trip would silently corrupt the document.
-        let reservedLiterals = sourceTokenLiterals(in: text)
+        //
+        // The companion documents of the session are scanned too, BEFORE any
+        // token is minted. Restore reads every document through the one shared
+        // mapping, so a token minted here for document 1 and a literal
+        // "{PERSON_1}" sitting in document 2 are the same collision as within
+        // one text: document 2 restored its template field to the entity value
+        // with no orphan, no ambiguity, and a passing release gate.
+        var reservedLiterals = sourceTokenLiterals(in: text)
+        for companion in uniquenessCorpus {
+            reservedLiterals.formUnion(sourceTokenLiterals(in: companion))
+        }
 
         // Step 3: mint tokens. One token per DISTINCT surface text, with a
         // per-type counter starting at 1. The first span that registers a given

@@ -140,4 +140,35 @@ final class LDAServiceSessionTests: XCTestCase {
         XCTAssertEqual(report.orphanTokens, ["{EMAIL_9}"])
         XCTAssertEqual(report.suspectPlaceholders, ["[EMAIL_1]"])
     }
+
+    /// Review finding 11 (2026-09-06): the reservation of token-shaped
+    /// literals reads every document of the session before any token is
+    /// minted, all the way through the facade the CLI and MCP call. A
+    /// template literal in one document is never spelled by a token minted
+    /// for another, so it survives the round trip as an orphan instead of
+    /// restoring to a value it never held.
+    func testAnonymizeSessionReservesTemplateLiteralsOfEveryDocumentBeforeMinting() throws {
+        let contract = try write("a.txt", "Contact john@acme.com today.")
+        let template = try write("b.txt", "Fill in {EMAIL_1} before sending.")
+
+        let session = try LDAService.anonymizeSession(
+            inputs: [contract, template],
+            createdAtISO8601: stamp
+        )
+
+        XCTAssertEqual(session.documents[0].redactedMarkdown, "Contact {EMAIL_2} today.")
+        XCTAssertEqual(session.documents[1].redactedMarkdown, "Fill in {EMAIL_1} before sending.")
+        XCTAssertTrue(session.seamIssues.isEmpty, "\(session.unresolvedSeams)")
+
+        let mappingURL = workDir.appendingPathComponent("session.ldamap")
+        try MappingStore.save(session.mapping, to: mappingURL, protection: .passphrase("pw"))
+        let restored = try LDAService.restoreText(
+            session.documents[1].redactedMarkdown,
+            mapping: mappingURL,
+            protection: .passphrase("pw")
+        )
+        XCTAssertEqual(restored.text, "Fill in {EMAIL_1} before sending.")
+        XCTAssertEqual(restored.restoredCount, 0)
+        XCTAssertEqual(restored.orphanTokens, ["{EMAIL_1}"])
+    }
 }

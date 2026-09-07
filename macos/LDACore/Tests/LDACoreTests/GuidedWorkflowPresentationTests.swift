@@ -442,7 +442,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
                 style: .pseudonym,
                 language: .english
             ).text,
-            "Safe Preview unavailable: pseudonym restoration could not be verified."
+            "Safe Preview unavailable: restoration could not be verified."
         )
 
         XCTAssertEqual(
@@ -452,7 +452,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
                 style: .pseudonym,
                 language: .simplifiedChinese
             ).text,
-            "无法显示隐去预览：无法验证化名能否正确恢复。"
+            "无法显示隐去预览：无法验证能否正确恢复。"
         )
     }
 
