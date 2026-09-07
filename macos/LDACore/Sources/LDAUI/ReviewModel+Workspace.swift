@@ -82,7 +82,8 @@ extension ReviewModel {
     /// is re-applied with the decisions, so a result whose AI pass failed or
     /// stopped short is gated here exactly as it was before it was saved; a
     /// snapshot from before coverage was recorded is gated as if the pass
-    /// did not run.
+    /// did not run, and a snapshot whose text no longer matches is gated
+    /// whatever it recorded, because that pass ran over different text.
     @discardableResult
     func applyWorkspaceSnapshot(
         _ snapshot: WorkspaceReviewSnapshot
@@ -93,7 +94,12 @@ extension ReviewModel {
             : relocated(snapshot.entities)
 
         entities = outcome.restored
-        aiCoverage = AIScanCoverage.restored(from: snapshot.aiCoverage)
+        // A relocated review is one whose text is no longer the text that was
+        // scanned. Whatever the record says about that scan, it ran over other
+        // text, so this text re-applies warned; see AIScanCoverage.
+        aiCoverage = matches
+            ? AIScanCoverage.restored(from: snapshot.aiCoverage)
+            : AIScanCoverage.textChangedSinceScan()
         selectedGroupID = nil
         // A dropped record is a protected value that this build could not
         // locate. Keep the document out of the export gate until the user

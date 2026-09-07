@@ -100,4 +100,17 @@ extension AIScanCoverage {
             )
         }
     }
+
+    /// The coverage of a snapshot whose text is no longer the text that was
+    /// scanned: the digest did not match and the decisions were relocated by
+    /// value. Whatever the record says, the pass it describes ran over other
+    /// text, and the coverage of THIS text is unknown. Warned, never clean:
+    /// readiness must not imply an AI scan of the text that is actually open.
+    static func textChangedSinceScan(language: AppLanguage? = nil) -> AIScanCoverage {
+        AIScanCoverage(
+            aiActive: false,
+            aiWarning: L10n.string("This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool.", language: language),
+            aiRanPartially: false
+        )
+    }
 }

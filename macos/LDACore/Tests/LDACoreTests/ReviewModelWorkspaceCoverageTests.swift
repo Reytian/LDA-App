@@ -164,6 +164,33 @@ final class ReviewModelWorkspaceCoverageTests: XCTestCase {
         XCTAssertEqual(gate(model), .didNotRun)
     }
 
+    /// A snapshot whose text digest no longer matches: the decisions are
+    /// relocated by value and stay usable, but the scan they came from ran
+    /// over different text. Even a complete AI pass must re-apply warned,
+    /// because readiness must not imply an AI scan of the text that is open.
+    func testARelocatedSnapshotReappliesWarnedWhateverItsRecordSaid() {
+        let scannedText = "Acme filed the notice."
+        let editedText = "Acme filed the notice. Bank contact: added@example.invalid."
+        let records: [WorkspaceAICoverage?] = [.complete, .notRequested, .didNotRun, .ranPartially, nil]
+        for record in records {
+            let model = ReviewModel(modelPath: nil)
+            model.documentText = editedText
+            let applied = model.applyWorkspaceSnapshot(WorkspaceReviewSnapshot(
+                documentID: UUID(),
+                textDigest: WorkspaceReviewSnapshot.digest(of: scannedText),
+                entities: [],
+                aiCoverage: record
+            ))
+            XCTAssertTrue(applied.didRelocate, "fixture: the text changed")
+            XCTAssertEqual(model.status, .ready, "nothing was dropped, so the decisions stay usable")
+            XCTAssertFalse(model.aiActive, "\(String(describing: record)): a pass over other text is not a pass over this one")
+            let warning = model.aiWarning
+            XCTAssertNotNil(warning, "\(String(describing: record)): relocated text must warn")
+            XCTAssertTrue(warning?.contains("no longer reads") == true, "the warning says why: \(warning ?? "nil")")
+            XCTAssertEqual(gate(model), .didNotRun, "\(String(describing: record))")
+        }
+    }
+
     /// The warning is regenerated in the reader's language rather than copied
     /// from the saving Mac, so a colleague in another language reads it in
     /// theirs.
