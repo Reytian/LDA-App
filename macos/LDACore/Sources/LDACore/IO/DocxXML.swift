@@ -276,6 +276,19 @@ enum DocxDocumentXML {
             let tagInfo = try readTagName(scalars, from: i)
             let name = tagInfo.name
 
+            // Every element match below is on a LITERAL "w:" name, so a part
+            // that binds the Word namespace to another prefix would parse as
+            // empty text while keeping its markup. Refuse instead; see
+            // DocxNamespaceGuard. Named start tags only: a comment or a CDATA
+            // section declares nothing, and character data is not a tag.
+            if !tagInfo.isClosing, !name.isEmpty {
+                try DocxNamespaceGuard.enforceSupportedBindings(
+                    scalars,
+                    from: i,
+                    to: tagInfo.tagEnd
+                )
+            }
+
             if !tagInfo.isClosing && DocxRunText.trackedChangeElementNames.contains(name) {
                 trackedChangeCount += 1
             }

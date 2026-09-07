@@ -186,6 +186,24 @@ public enum DocumentIOError: Error, LocalizedError, Sendable {
             return "The file is too large to import: \(detail)"
         }
     }
+
+    /// The same failure with `context` prepended to its detail, so a wrapper
+    /// can say WHERE without downgrading WHAT.
+    ///
+    /// Flattening every wrapped failure into .corrupt is a silent
+    /// mislabelling: a size ceiling reads as file damage, and an XML layout
+    /// this reader cannot honor reads as a broken file, sending a lawyer to
+    /// look for corruption that is not there. Cases that carry no detail are
+    /// returned unchanged.
+    public func detailed(with context: String) -> DocumentIOError {
+        switch self {
+        case .unreadable(let detail): return .unreadable("\(context): \(detail)")
+        case .unsupportedFormat(let detail): return .unsupportedFormat("\(context): \(detail)")
+        case .corrupt(let detail): return .corrupt("\(context): \(detail)")
+        case .tooLarge(let detail): return .tooLarge("\(context): \(detail)")
+        case .ocrUnavailable, .decryptionFailed, .keychainError: return self
+        }
+    }
 }
 
 // MARK: - Importer protocol

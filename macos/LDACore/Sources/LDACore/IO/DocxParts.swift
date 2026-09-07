@@ -142,6 +142,11 @@ enum DocxParts {
         let data = try DocxZip.readEntry(path, from: url)
         do {
             return LoadedPart(path: path, layout: try DocxDocumentXML.parse(data), data: data)
+        } catch let error as DocumentIOError {
+            // Name the part, keep the KIND. A size limit or an unreadable
+            // namespace layout restated as "corrupt" would send a lawyer
+            // looking for file damage that is not there.
+            throw error.detailed(with: "cannot parse \(path)")
         } catch {
             throw DocumentIOError.corrupt(
                 "cannot parse \(path): \(error.localizedDescription)"
