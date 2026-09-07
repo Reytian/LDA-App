@@ -503,9 +503,12 @@ final class ReviewModelTests: XCTestCase {
         struct ReportsUnanchorableValue: TextCompleter {
             func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
                 // Well-formed and complete: nothing is truncated. The company is
-                // really in the document, but the reported form has reflowed
-                // whitespace, so it cannot be anchored and would survive.
-                return #"{"entities":[{"value":"Acme  Corp","type":"COMPANY"}],"redacted_text":""}"#
+                // really in the document, but the reported form dropped the
+                // Latin space. A space inside Latin text is real, so the
+                // whitespace-variant locator refuses to claim "Acme Corp" for
+                // "AcmeCorp" (a doubled space, by contrast, now anchors: that
+                // is finding 13), and the value would survive unredacted.
+                return #"{"entities":[{"value":"AcmeCorp","type":"COMPANY"}],"redacted_text":""}"#
             }
         }
         ReviewModel.llmExtractorFactoryForTesting = { _, _ in
