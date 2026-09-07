@@ -87,14 +87,22 @@ public struct ExtractionResult: Sendable {
 
 /// Drives the on-device LLM to produce fuzzy spans for SpanMerger's llm input.
 public final class LLMExtractor {
-    /// The fuzzy types LDA keeps from the LLM. The DeterministicEngine owns the
-    /// structured types (EMAIL/PHONE/DATE/AMOUNT/BANK_ACCOUNT/USCC/NATIONAL_ID
-    /// plus CASE_NUMBER/LICENSE_PLATE/WECHAT_ID/URL) and wins conflicts via
-    /// SpanMerger priority, so they are dropped here.
+    /// The types LDA keeps from the LLM. The DeterministicEngine owns the
+    /// structured types it can recognise outright (EMAIL/PHONE/DATE/AMOUNT/
+    /// BANK_ACCOUNT/USCC plus CASE_NUMBER/LICENSE_PLATE/WECHAT_ID/URL) and wins
+    /// conflicts via SpanMerger priority, so those are dropped here.
     /// ADDRESS stays kept even though the DeterministicEngine also emits the
     /// Chinese street-address shape: the LLM owns every other address form, and
     /// SpanMerger resolves the overlap when both engines find the same one.
-    public static let keptTypes: Set<EntityType> = [.person, .company, .address]
+    /// NATIONAL_ID is kept for the same reason since US documents came into
+    /// scope: the engine knows the Chinese 18-character ID and the hyphenated
+    /// US SSN, and a model-reported value in either of those forms loses the
+    /// overlap to the deterministic span (priority 92 or 100 against 30), so
+    /// nothing is redacted twice; a national identifier in a format the
+    /// patterns do not know (a passport number, a NINO, a HKID) used to be
+    /// discarded here and left in the document, and now anchors as the model
+    /// reported it.
+    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID]
 
     private let completer: TextCompleter
     private let prompts: PromptStore

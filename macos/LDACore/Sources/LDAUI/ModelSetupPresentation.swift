@@ -9,9 +9,12 @@
 //  the one kind of copy that must be testable without a rendered SwiftUI body.
 //
 //  Why the copy never says "accuracy decreases". Precision is untouched by a
-//  missing model. What disappears is three categories from the search space:
-//  LLMExtractor.keptTypes is exactly [.person, .company, .address], and with no
-//  model the LLM span list is empty, so SpanMerger.merge is a pass-through.
+//  missing model. What disappears is whole categories from the search space:
+//  LLMExtractor.keptTypes is [.person, .company, .address, .nationalID], and
+//  with no model the LLM span list is empty, so SpanMerger.merge is a
+//  pass-through. The patterns still find the Chinese ID and the US SSN on
+//  their own; every person, every company, every non-Chinese address form,
+//  and any national identifier in a format the patterns do not know are gone.
 //  "Accuracy decreases" invites the reading "somewhat worse but working". So
 //  every sentence here enumerates what is matched, names PERSON and COMPANY as
 //  not looked for, and states that an address is matched only in the Chinese
