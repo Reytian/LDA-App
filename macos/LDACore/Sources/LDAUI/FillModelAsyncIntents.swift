@@ -11,11 +11,17 @@
 //
 //  Two things make a completion stale. The editor's occupant changed (the
 //  user went back to the library, opened or created another portfolio, loaded
-//  a file): FillModel.editorGeneration. Or a later request of the same kind
-//  superseded it for the same occupant: FillModel.extractionSerial for
-//  extractions, the current targetURL for plans. The failure this prevents is
-//  concrete: extraction A finishes into portfolio B's editor under B's id,
-//  and the next Save writes A's data over B.
+//  a file): FillModel.editorGeneration. Or the request was superseded for the
+//  same occupant: FillModel.extractionSerial for extractions,
+//  FillModel.planSerial plus the current targetURL for plans. The failure
+//  this prevents is concrete: extraction A finishes into portfolio B's editor
+//  under B's id, and the next Save writes A's data over B.
+//
+//  A plan needs BOTH of its own counters. The target URL alone cannot tell
+//  two passes over ONE target apart, so returning to the profile, editing it
+//  and re-selecting the same target left two requests both reading as
+//  current; releasing them out of order let the older plan replace the newer
+//  suggestions and every review decision made on them.
 //
 //  Stored properties (published state, the counters, the test seams) stay in
 //  FillModel.swift because extensions cannot hold them. The methods here use
@@ -156,14 +162,7 @@ extension FillModel {
     /// meanwhile never sees it, and a later target supersedes it.
     public func planFill(target: URL) async {
         guard let profile else { return }
-        let generation = editorGeneration
-        // I3: Reset progress at the start of each new planning pass.
-        progress = 0
-        stage = .planning
-        targetURL = target
-        // Clear any previously published targetText so a stale document is never
-        // displayed while a new plan is in flight.
-        targetText = nil
+        let ticket = beginPlan(target: target)
 
         // Sandbox: start the security scope for the new target. Any previously
         // held scope for an older target is released first by startTargetScope.
@@ -184,19 +183,19 @@ extension FillModel {
                 return try LDAService.planFill(target: target, profile: profile, modelPath: path)
             }.value
 
-            guard isCurrentPlan(generation: generation, target: target) else { return }
+            guard isCurrentPlan(ticket) else { return }
             blanks = plan.blanks
             manualWidgetNames = plan.manualWidgetNames
             selectedBlankID = plan.blanks.first?.id
             stage = .reviewing
-            await publishTargetTextForDisplay(target, generation: generation)
+            await publishTargetTextForDisplay(target, ticket: ticket)
             // Do NOT stop the scope here: applyFill still needs to read the target.
 
         } catch {
             // A stale failure lands nowhere either, and leaves the scope alone:
             // a newer target holds the scope now, released from this one by
             // startTargetScope when it opened.
-            guard isCurrentPlan(generation: generation, target: target) else { return }
+            guard isCurrentPlan(ticket) else { return }
             targetText = nil
             // Planning failed: release the scope; there is nothing to apply.
             stopTargetScope()
@@ -204,10 +203,46 @@ extension FillModel {
         }
     }
 
+    /// What one planning pass was started for: the editor's occupant, this
+    /// pass's own place in the sequence of plans, and the target it was made
+    /// for.
+    struct PlanTicket: Equatable, Sendable {
+        let generation: Int
+        let serial: Int
+        let target: URL
+    }
+
+    /// Mark the start of a planning pass; a later one, or Back to Profile,
+    /// supersedes it.
+    ///
+    /// I3: progress resets at the start of each new pass. targetText is
+    /// cleared too, so a stale document is never displayed while a new plan
+    /// is in flight.
+    private func beginPlan(target: URL) -> PlanTicket {
+        planSerial += 1
+        progress = 0
+        stage = .planning
+        targetURL = target
+        targetText = nil
+        return PlanTicket(
+            generation: editorGeneration,
+            serial: planSerial,
+            target: target
+        )
+    }
+
     /// True while the editor still holds the occupant the plan was matched
-    /// against and `target` is still the target the user wants filled.
-    private func isCurrentPlan(generation: Int, target: URL) -> Bool {
-        generation == editorGeneration && targetURL == target
+    /// against, no later plan or Back to Profile has retired it, and its
+    /// target is still the target the user wants filled.
+    ///
+    /// All three are load bearing. The generation catches another portfolio
+    /// opened meanwhile. The serial catches a second pass over the SAME
+    /// target and a plan the user walked away from, neither of which changes
+    /// the other two. The target catches a different target opened since.
+    private func isCurrentPlan(_ ticket: PlanTicket) -> Bool {
+        ticket.generation == editorGeneration
+            && ticket.serial == planSerial
+            && targetURL == ticket.target
     }
 
     /// Import the target's text for display in BlankDocumentPane.
@@ -217,12 +252,12 @@ extension FillModel {
     /// supported in BlankDocumentPane V1). The seam path also attempts a real
     /// import when the file exists on disk, so seam-driven tests with fake
     /// URLs stay green (the import throws and leaves targetText nil).
-    private func publishTargetTextForDisplay(_ target: URL, generation: Int) async {
+    private func publishTargetTextForDisplay(_ target: URL, ticket: PlanTicket) async {
         guard target.pathExtension.lowercased() == "docx" else { return }
         let importedText: String? = await Task.detached(priority: .userInitiated) {
             (try? DocxImporter().importDocument(target))?.text
         }.value
-        guard isCurrentPlan(generation: generation, target: target) else { return }
+        guard isCurrentPlan(ticket) else { return }
         targetText = importedText
     }
 

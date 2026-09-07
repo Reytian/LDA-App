@@ -211,6 +211,28 @@ public final class FillModel: ObservableObject {
     // internal(set) for FillModelAsyncIntents.swift
     var extractionSerial = 0
 
+    /// Count of planning passes started or abandoned, so a plan lands only
+    /// while it is still the plan the user is waiting for.
+    ///
+    /// extractionSerial's counterpart, and needed for the same reason it is.
+    /// Planning freshness used to be the editor generation plus the target
+    /// URL, and neither distinguishes two passes over ONE target: Back to
+    /// Profile changes neither, and selecting the same target again rewrites
+    /// targetURL with the value it already had. Both requests then read as
+    /// current, and releasing them out of order let the older plan replace
+    /// the newer suggestions and every review decision made on them.
+    // internal(set) for FillModelAsyncIntents.swift
+    var planSerial = 0
+
+    /// Retire any planning pass still in flight, because the user left the
+    /// surface its blanks would land on.
+    ///
+    /// Called by Back to Profile. Back to LIBRARY needs no call: that
+    /// transition bumps editorGeneration, which retires the plan already.
+    func abandonPlanInFlight() {
+        planSerial += 1
+    }
+
     /// A one-time advisory string built from lastListReconciled /
     /// lastIndexPersistFailed on the most recent refreshLibrary call. Non-nil only
     /// when the library had to reconcile its index on the last refresh. The shell
@@ -541,7 +563,13 @@ public final class FillModel: ObservableObject {
     /// return to fill-review by opening the same target again; if they open a new
     /// target, startTargetScope will release the old scope before starting the new
     /// one.
+    ///
+    /// It DOES abandon any plan still in flight. Leaving fill review is the
+    /// user saying they no longer want that plan; landing it afterwards would
+    /// put the editor back into review over a profile they have since
+    /// changed, or overwrite the plan they made instead. See planSerial.
     public func backToProfile() {
+        abandonPlanInFlight()
         pickerRequestID = nil
         stage = .profileReady
     }
