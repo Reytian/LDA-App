@@ -41,13 +41,29 @@ struct SourceFingerprint: Equatable, Sendable {
     /// first comparison.
     let byteCount: Int
 
-    /// Read the file and fingerprint it. Mapped where the system allows, so a
+    /// Bytes hashed per read. One megabyte keeps a tens-of-megabytes document
+    /// from ever being held whole in memory a second time.
+    private static let chunkLength = 1 << 20
+
+    /// Read the file and fingerprint it, streaming through a file handle so a
     /// large document is hashed without a second full copy in memory.
+    ///
+    /// A FileHandle, not Data(contentsOf:): that initializer accepts any URL,
+    /// and NetworkChokepointTests keeps every such reader out of the app so
+    /// ModelInstaller.swift stays the only file that can touch the network.
+    /// This fingerprint only ever reads a local file the user opened.
     static func of(_ url: URL) throws -> SourceFingerprint {
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var byteCount = 0
+        while let chunk = try handle.read(upToCount: chunkLength), !chunk.isEmpty {
+            hasher.update(data: chunk)
+            byteCount += chunk.count
+        }
         return SourceFingerprint(
-            sha256Hex: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
-            byteCount: data.count
+            sha256Hex: hasher.finalize().map { String(format: "%02x", $0) }.joined(),
+            byteCount: byteCount
         )
     }
 
