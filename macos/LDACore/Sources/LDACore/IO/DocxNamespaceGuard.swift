@@ -48,8 +48,17 @@ enum DocxNamespaceGuard {
     /// group 3 are the double- and single-quoted URI. The name is anchored to
     /// a preceding space so it is a whole attribute name, never the tail of
     /// one.
+    ///
+    /// The prefix class is everything a quoted attribute name can hold rather
+    /// than the XML NCName production spelled out. An XML Name accepts letters
+    /// far outside ASCII, so a class of [A-Za-z_] did not merely mis-read a
+    /// Unicode prefix, it failed to see the DECLARATION at all: <文:document
+    /// xmlns:文="...main"> passed the guard, every literal "w:" match then
+    /// missed, and the part imported as empty text with its PII preserved.
+    /// Erring wide here can only refuse more, never less, which is the safe
+    /// direction for a guard whose job is to refuse what it cannot read.
     private static let declarationRegex = try? NSRegularExpression(
-        pattern: #"(?<=\s)xmlns(?::([A-Za-z_][A-Za-z0-9_.\-]*))?\s*=\s*(?:"([^"]*)"|'([^']*)')"#
+        pattern: #"(?<=\s)xmlns(?::([^\s=/>"']+))?\s*=\s*(?:"([^"]*)"|'([^']*)')"#
     )
 
     /// Refuse the start tag occupying [start, end) of `scalars` when it
@@ -76,9 +85,16 @@ enum DocxNamespaceGuard {
         let full = NSRange(location: 0, length: ns.length)
         for match in declarationRegex.matches(in: tag, range: full) {
             let prefix = capture(match, at: 1, in: ns)
-            guard let uri = capture(match, at: 2, in: ns) ?? capture(match, at: 3, in: ns) else {
+            guard let raw = capture(match, at: 2, in: ns) ?? capture(match, at: 3, in: ns) else {
                 continue
             }
+            // The namespace name is the DECODED attribute value. XML expands
+            // character references and the five predefined entities before an
+            // attribute value is a namespace name, so ".../ma&#105;n" IS the
+            // Word namespace and Word reads it as such. Comparing the raw text
+            // let that spelling bypass the refusal: the export reported zero
+            // entities and copied the document's own address into the output.
+            let uri = xmlDecode(raw)
             if uri == wordprocessingMLNamespace, prefix != supportedPrefix {
                 throw unsupportedBinding(
                     "the Word text namespace is bound to "
