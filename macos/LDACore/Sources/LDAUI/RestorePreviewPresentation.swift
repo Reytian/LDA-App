@@ -76,4 +76,18 @@ enum RestorePreviewPresentation {
             language: language
         )
     }
+
+    /// The refusal when the file changed between the preview and the write.
+    ///
+    /// States that nothing was written, because the reader chose a
+    /// destination and will otherwise go looking for a file that is not
+    /// there, and names the only remedy: preview it again. See
+    /// RestoreSourceGuard.swift.
+    static func sourceChangedRefusal(language: AppLanguage? = nil) -> String {
+        // One unbroken literal on purpose; see refusalNote above.
+        L10n.string(
+            "This file changed after the preview was computed, so the document that would be written is not the one you approved. Nothing was written. Open the file again to preview it as it is now.",
+            language: language
+        )
+    }
 }

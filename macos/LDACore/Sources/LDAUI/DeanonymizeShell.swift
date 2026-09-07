@@ -275,11 +275,16 @@ public struct DeanonymizeShell: View {
                 editedRedacted: file,
                 mapping: key.mapping
             )
+            // Fingerprinted here, next to the read the preview is computed
+            // from, so the approval can refuse a file that changed while the
+            // sheet was up. See RestoreSourceGuard.swift.
+            let previewedSource = try SourceFingerprint.of(file)
             pending = PendingRestore(
                 file: file,
                 mapping: key.mapping,
                 keySource: key.source,
-                preview: preview
+                preview: preview,
+                previewedSource: previewedSource
             )
             resultMessage = nil
             return true
@@ -301,6 +306,7 @@ public struct DeanonymizeShell: View {
             file: request.file,
             mapping: request.mapping,
             preview: request.preview,
+            previewedSource: request.previewedSource,
             amendments: amendments,
             format: format,
             chooseOutput: chooseOutput,

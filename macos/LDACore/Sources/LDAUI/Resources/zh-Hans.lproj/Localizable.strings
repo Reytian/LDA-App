@@ -942,6 +942,7 @@
 "Enter a passphrase for this mapping file." = "请为该映射文件输入密码短语。";
 "Choose a folder for the redacted document." = "为已隐去文档选择一个文件夹。";
 "An export finished after you switched matters. Its mapping was kept in \"%@\" for the matter it was started in, and was not loaded into this session. Open that workspace to restore that document." = "导出在你切换案件之后才完成。它的映射已保存在 \"%@\" 中，归属于开始导出时的案件，未载入当前会话。请打开那个工作区以复原该文档。";
+"This file changed after the preview was computed, so the document that would be written is not the one you approved. Nothing was written. Open the file again to preview it as it is now." = "此文件在生成预览之后发生了改动，将要写出的文档并不是你批准的那一份。没有写出任何内容。请重新打开该文件，按它当前的内容重新预览。";
 "Mapping kept in: %@  ·  %@" = "映射保存于：%@  ·  %@";
 "Restored with the workspace LDA keeps for this document." = "已使用 LDA 为本文档保存的工作区恢复。";
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session, from the workspace LDA keeps for the document, or from a .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "选择或拖入返回的文件：您导出给 AI 的 Markdown，或您保存的已隐去 Word 文档。映射会自动从本次会话、LDA 为该文档保存的工作区，或文件旁的 .ldamap 中找到。若文件是 Word 文档，格式将得到保留。";

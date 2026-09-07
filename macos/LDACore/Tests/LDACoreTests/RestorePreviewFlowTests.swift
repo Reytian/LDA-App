@@ -71,6 +71,10 @@ final class RestorePreviewFlowTests: XCTestCase {
         let edited: URL
         let mapping: Mapping
         let preview: RestorePreview
+        /// The edited file's fingerprint at preview time, which the approval
+        /// now requires as evidence the write reads the previewed file. See
+        /// RestoreSourceGuard.swift.
+        let previewedSource: SourceFingerprint
     }
 
     /// One anonymized round trip whose redacted text sits in a .md file, plus
@@ -94,7 +98,12 @@ final class RestorePreviewFlowTests: XCTestCase {
             protection: .passphrase(Self.passphrase)
         )
         let preview = try LDAService.restorePreview(editedRedacted: edited, mapping: mapping)
-        return Fixture(edited: edited, mapping: mapping, preview: preview)
+        return Fixture(
+            edited: edited,
+            mapping: mapping,
+            preview: preview,
+            previewedSource: try SourceFingerprint.of(edited)
+        )
     }
 
     /// The real writer, so "nothing was written" and "exactly one file was
@@ -130,6 +139,7 @@ final class RestorePreviewFlowTests: XCTestCase {
             file: fixture.edited,
             mapping: fixture.mapping,
             preview: fixture.preview,
+            previewedSource: fixture.previewedSource,
             amendments: [:],
             format: .markdown,
             chooseOutput: { _, _ in nil },
@@ -157,6 +167,7 @@ final class RestorePreviewFlowTests: XCTestCase {
             file: fixture.edited,
             mapping: fixture.mapping,
             preview: fixture.preview,
+            previewedSource: fixture.previewedSource,
             amendments: [:],
             format: .markdown,
             chooseOutput: { name, _ in
@@ -191,6 +202,7 @@ final class RestorePreviewFlowTests: XCTestCase {
             file: fixture.edited,
             mapping: fixture.mapping,
             preview: fixture.preview,
+            previewedSource: fixture.previewedSource,
             amendments: [key: corrected],
             format: .markdown,
             chooseOutput: { _, _ in chosen },
@@ -390,6 +402,7 @@ final class RestorePreviewFlowTests: XCTestCase {
                 file: fixture.edited,
                 mapping: fixture.mapping,
                 preview: fixture.preview,
+                previewedSource: fixture.previewedSource,
                 amendments: [:],
                 format: format,
                 chooseOutput: { _, _ in chosen },

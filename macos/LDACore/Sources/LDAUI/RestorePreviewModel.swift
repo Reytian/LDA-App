@@ -225,10 +225,19 @@ enum RestoreApproval {
     /// The destination is asked for LAST, which is the whole point of the new
     /// order: the reader has already seen what they are saving, so the save
     /// panel is the final step rather than the first.
+    ///
+    /// - Parameter previewedSource: the fingerprint of `file` taken when
+    ///   `preview` was computed. Required, not optional: the whole claim this
+    ///   step makes is that the written document is the previewed one, and a
+    ///   caller that could omit the evidence could omit the claim. It is
+    ///   checked immediately before the write, after the save panel, so the
+    ///   modal's own duration is inside the window that is checked. See
+    ///   RestoreSourceGuard.swift.
     static func run(
         file: URL,
         mapping: Mapping,
         preview: RestorePreview,
+        previewedSource: SourceFingerprint,
         amendments: [String: String],
         format: RestoreOutputFormat,
         chooseOutput: (_ suggestedName: String, _ format: RestoreOutputFormat) -> URL?,
@@ -243,6 +252,7 @@ enum RestoreApproval {
             return .cancelled
         }
         do {
+            try RestoreSourceGuard.requireUnchanged(file, matches: previewedSource)
             return .written(try write(file, amendedMapping, output))
         } catch {
             return .failed(error)

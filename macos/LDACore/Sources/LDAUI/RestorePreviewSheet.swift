@@ -43,6 +43,11 @@ struct PendingRestore: Identifiable {
     /// What the restore would produce, computed without writing.
     let preview: RestorePreview
 
+    /// The file's fingerprint at the moment `preview` was computed, so the
+    /// approval can prove the write reads that same file. See
+    /// RestoreSourceGuard.swift.
+    let previewedSource: SourceFingerprint
+
     /// The edit surface's extension, which decides the offered formats.
     var inputExtension: String { file.pathExtension.lowercased() }
 }
