@@ -430,18 +430,27 @@ public enum EntityJSONParser {
     /// objects. Returns nil for any other shape (a dictionary without the key,
     /// a string, a number, an array of non-objects), because such a value
     /// decodes cleanly yet says nothing about whether the text was scanned.
+    ///
+    /// An array that holds objects but yields no usable entity at all is also
+    /// nil: {"text": ..., "label": ...} is another schema, not an empty
+    /// finding, and reading it as "the model found nothing" would pass a
+    /// document the model may have filled with names. A mixed list keeps its
+    /// usable entries; only a list with none is a schema failure.
     private static func schemaEntities(from object: Any) -> [ExtractedEntity]? {
+        let rawEntities: [Any]
         if let dict = object as? [String: Any] {
-            guard let rawEntities = dict["entities"] as? [Any] else { return nil }
-            return entities(fromArray: rawEntities)
-        }
-
-        if let array = object as? [Any] {
+            guard let array = dict["entities"] as? [Any] else { return nil }
+            rawEntities = array
+        } else if let array = object as? [Any] {
             guard array.allSatisfy({ $0 is [String: Any] }) else { return nil }
-            return entities(fromArray: array)
+            rawEntities = array
+        } else {
+            return nil
         }
 
-        return nil
+        let decoded = entities(fromArray: rawEntities)
+        guard rawEntities.isEmpty || !decoded.isEmpty else { return nil }
+        return decoded
     }
 
     /// Map an array of raw entity dictionaries to typed entities, skipping any

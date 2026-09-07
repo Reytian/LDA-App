@@ -94,6 +94,20 @@ final class LLMExtractorFailureCoverageTests: XCTestCase {
         )
     }
 
+    func testEntitiesArrayInAnotherSchemaMarksTheSegmentUnscanned() throws {
+        // The array is there and non-empty, but no object carries a value: the
+        // model answered in a schema the parser does not read. Nothing usable
+        // was scanned, so the gate must not call the document clean.
+        let completer = FixedCompleter(
+            output: #"{"entities":[{"text":"Alice Smith","label":"PERSON"}],"redacted_text":""}"#
+        )
+
+        let result = try LLMExtractor(completer: completer).extractDetailed(from: Self.text)
+
+        XCTAssertFalse(result.fullyCovered, "objects without a value are a schema failure, not an empty finding")
+        XCTAssertEqual(result.incompleteSegmentCount, 1)
+    }
+
     func testWellFormedEmptyEntitiesArrayIsAFullyCoveredScan() throws {
         let completer = FixedCompleter(output: #"{"entities":[],"redacted_text":""}"#)
 

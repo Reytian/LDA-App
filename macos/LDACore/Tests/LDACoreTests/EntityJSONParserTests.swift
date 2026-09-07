@@ -425,4 +425,26 @@ final class EntityJSONParserTests: XCTestCase {
         let fenced = EntityJSONParser.parseDetailed("```json\n{\"entities\":[]}\n```")
         XCTAssertTrue(fenced.isComplete, "a fenced empty array is still a complete answer")
     }
+
+    func testEntitiesArrayWhoseObjectsCarryAnotherSchemaIsInvalid() {
+        // Every object has content but none has a value: the model answered in
+        // a different schema. That is not "found nothing", and treating it as
+        // an empty finding would pass a document full of names as clean.
+        let wrapped = EntityJSONParser.parseDetailed(
+            #"{"entities":[{"text":"Jane Roe","label":"PERSON"},{"text":"Acme","label":"COMPANY"}]}"#
+        )
+        XCTAssertTrue(wrapped.invalid, "objects without a value are another schema, not an empty finding")
+        XCTAssertEqual(wrapped.entities, [])
+
+        let bare = EntityJSONParser.parseDetailed(#"[{"text":"Jane Roe","label":"PERSON"}]"#)
+        XCTAssertTrue(bare.invalid)
+
+        // A mixed list keeps the usable entries and stays a complete answer:
+        // one malformed entry is model noise, not a change of schema.
+        let mixed = EntityJSONParser.parseDetailed(
+            #"{"entities":[{"value":"Jane Roe","type":"PERSON"},{"text":"Acme","label":"COMPANY"}]}"#
+        )
+        XCTAssertTrue(mixed.isComplete)
+        XCTAssertEqual(mixed.entities, [ExtractedEntity(value: "Jane Roe", type: .person)])
+    }
 }
