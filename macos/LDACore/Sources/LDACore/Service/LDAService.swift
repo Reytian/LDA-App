@@ -451,12 +451,18 @@ public enum LDAService {
 
         if ext == "docx" {
             if loadedMapping.style == .token {
-                let tokenToValue = Dictionary(
-                    uniqueKeysWithValues: loadedMapping.entries.values.map { ($0.token, $0.value) }
-                )
-                try DocxRedactor.restore(
+                // The plan decides the brace tokens and any pseudonym entries
+                // the mapping carries from another style in ONE pass over each
+                // part's text, the same decision the report took over the
+                // package text, so a carried literal is never written inside
+                // a value the tokens restored and the writer refuses exactly
+                // what the report flagged.
+                try DocxRedactor.restoreTokenStyle(
                     redactedDocx: editedRedacted,
-                    tokenToValue: tokenToValue,
+                    plan: Restorer.tokenStyleRestorePlan(
+                        for: loadedMapping,
+                        refusingReplacements: Set(preview.ambiguousReplacements)
+                    ),
                     to: output
                 )
                 return makeRestoreReport(output: output, from: preview)

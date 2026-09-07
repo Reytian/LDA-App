@@ -241,7 +241,7 @@ final class SafePreviewProtectTests: XCTestCase {
     /// pairing and nothing in it is protectable.
     func testTheSeamFailureSurfaceCarriesNoPairing() {
         let surface = SafePreviewSurface(
-            text: L10n.string("Safe Preview unavailable: pseudonym restoration could not be verified."),
+            text: L10n.string("Safe Preview unavailable: restoration could not be verified."),
             pairing: nil
         )
         XCTAssertNil(surface.pairing)

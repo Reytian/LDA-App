@@ -32,6 +32,12 @@
 //  a site (the prefix shape) or a replacement spelled across a piece boundary
 //  (the adjacency shape), and both restore the wrong entity.
 //
+//  The token style is held to the same invariant against the FINAL shared
+//  mapping (reportTokenStyle). Its sites are the ones the token-style restore
+//  would substitute, and a site nobody emitted is a template literal that a
+//  seed token would overwrite, or a carried pseudonym occurring naturally.
+//  Neither can be reminted away, so the caller reports rather than repairs.
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -104,6 +110,70 @@ enum SessionSeamVerifier {
         replacementBySurface: [String: String],
         replacements: [String]
     ) -> Report {
+        compare(
+            documentIndex: documentIndex,
+            tokenizedText: tokenizedText,
+            originalText: originalText,
+            acceptedSpans: acceptedSpans,
+            replacementBySurface: replacementBySurface,
+            restoreSites: Restorer.acceptedLiteralMatches(
+                in: tokenizedText,
+                replacements: replacements
+            ).map { RestoreSite(range: $0.range, replacement: $0.replacement) }
+        )
+    }
+
+    /// Verify one TOKEN-STYLE document against the final shared mapping.
+    ///
+    /// The token style restores through the brace grammar plus any entries
+    /// carried from another style, decided in one pass over the redacted
+    /// text (Restorer.tokenStyleRestoreDecision). The invariant is the same
+    /// one: every site that decision would substitute must be a site
+    /// tokenization emitted. Minting keeps a minted token clear of every
+    /// literal in the session, so a violation here is a replacement the
+    /// session did NOT mint: a seed token a document spells literally (a
+    /// template field the seed's value would overwrite), or a carried
+    /// pseudonym occurring naturally. Sites are compared by position and
+    /// replacement, never by value, so alias normalization (an alias surface
+    /// reusing its canonical entry's token) is not a violation.
+    static func reportTokenStyle(
+        documentIndex: Int,
+        tokenizedText: String,
+        originalText: String,
+        acceptedSpans: [Span],
+        replacementBySurface: [String: String],
+        plan: Restorer.TokenStyleRestorePlan
+    ) -> Report {
+        compare(
+            documentIndex: documentIndex,
+            tokenizedText: tokenizedText,
+            originalText: originalText,
+            acceptedSpans: acceptedSpans,
+            replacementBySurface: replacementBySurface,
+            restoreSites: Restorer.tokenStyleRestoreSites(
+                in: tokenizedText,
+                plan: plan
+            ).map { RestoreSite(range: $0.range, replacement: $0.replacement) }
+        )
+    }
+
+    /// One site the restore scan would act on: where, and which replacement
+    /// it spells there.
+    private struct RestoreSite {
+        let range: NSRange
+        let replacement: String
+    }
+
+    /// The comparison both styles share: every restore site must be an
+    /// emitted piece, same start, same length, same replacement.
+    private static func compare(
+        documentIndex: Int,
+        tokenizedText: String,
+        originalText: String,
+        acceptedSpans: [Span],
+        replacementBySurface: [String: String],
+        restoreSites: [RestoreSite]
+    ) -> Report {
 #if DEBUG
         if unverifiableSeam.value == true {
             return .unverifiable
@@ -145,16 +215,11 @@ enum SessionSeamVerifier {
         }
         let inOrder = emitted.values.sorted { $0.range.location < $1.range.location }
 
-        let accepted = Restorer.acceptedLiteralMatches(
-            in: tokenizedText,
-            replacements: replacements
-        )
-
         var found: [Violation] = []
-        for match in accepted {
-            if let piece = emitted[match.range.location],
-               piece.range.length == match.range.length,
-               piece.replacement == match.replacement {
+        for site in restoreSites {
+            if let piece = emitted[site.range.location],
+               piece.range.length == site.range.length,
+               piece.replacement == site.replacement {
                 // The scan will restore this site to the entity that was
                 // substituted here. Agreement.
                 continue
@@ -162,8 +227,8 @@ enum SessionSeamVerifier {
             found.append(
                 Violation(
                     documentIndex: documentIndex,
-                    matchedReplacement: match.replacement,
-                    shadowedReplacement: firstOverlapping(with: match.range, in: inOrder)
+                    matchedReplacement: site.replacement,
+                    shadowedReplacement: firstOverlapping(with: site.range, in: inOrder)
                 )
             )
         }

@@ -732,7 +732,7 @@
 "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue." = "Le nom du dossier n’a pas pu être modifié en toute sécurité. Vos données restent chiffrées, mais le changement de nom nécessite votre attention avant de continuer.";
 "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue." = "Le dossier n’a pas pu être archivé en toute sécurité. Vos données restent chiffrées, mais l’état d’archivage nécessite votre attention avant de continuer.";
 "This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it." = "Ce dossier se synchronise avec iCloud. La table de correspondance chiffrée, qui contient les noms d’origine, sera également envoyée.";
-"Safe Preview unavailable: pseudonym restoration could not be verified." = "Aperçu protégé indisponible : la restauration des pseudonymes n’a pas pu être vérifiée.";
+"Safe Preview unavailable: restoration could not be verified." = "Aperçu protégé indisponible : la restauration n’a pas pu être vérifiée.";
 "Custom replacement text is available only with Pseudonyms. Current setting: %@." = "Le texte de remplacement personnalisé est disponible uniquement avec le réglage Pseudonymes. Réglage actuel : %@.";
 "A custom replacement needs non-empty original text." = "Un remplacement personnalisé nécessite un texte d’origine non vide.";
 "The custom replacement for \"%@\" must not be empty." = "Le remplacement personnalisé de « %@ » ne doit pas être vide.";
