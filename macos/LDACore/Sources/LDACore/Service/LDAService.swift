@@ -295,67 +295,25 @@ public enum LDAService {
             redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
             try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
 
-            // Pairs come from text-layer entries only; image-origin regions are boxed
-            // separately by the image-PII channel below, not via text search.
-            let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
-            var boxes: [RedactionBox]
-            // Occurrence level coverage of the text layer. Stays empty for a
-            // fully scanned PDF, whose boxes come from OCR rather than search.
-            var textCoverage = PdfRedactionCoverage()
-            if imported.isScanned {
-                boxes = PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
-            } else {
-                textCoverage = PdfImporter.redactionCoverage(in: input, surfaceTexts: pairs)
-                boxes = textCoverage.boxes
-                // Hybrid PDFs: the scanned pages have no text layer for the
-                // selection search, so their PII is boxed via page-scoped OCR.
-                if !imported.scannedPageIndexes.isEmpty {
-                    boxes += PdfOCRImporter.ocrBoxes(
-                        in: input,
-                        matching: pairs,
-                        pages: imported.scannedPageIndexes
-                    )
-                }
-            }
-
-            // Image-PII channel: a non-scanned PDF can still embed raster images
-            // (signatures, stamps) the text layer cannot see. OCR those regions,
-            // conservatively box them, and record classified PII in the mapping.
-            // Fully scanned pages are excluded: their whole text already entered
-            // the document text via per-page OCR and is boxed above.
-            if !imported.isScanned {
-                let scannedSet = Set(imported.scannedPageIndexes)
-                let imagePages = PdfImageInventory.pagesWithImages(input)
-                    .filter { !scannedSet.contains($0) }
-                if !imagePages.isEmpty {
-                    let observations = PdfOCRImporter().imageOriginObservations(in: input, pages: imagePages)
-                    let resolved = ImageRedactionResolver.resolve(
-                        mapping: tokenized.mapping,
-                        observations: observations,
-                        detect: detectSupplementary
-                    )
-                    boxes += resolved.boxes
-                    // Merge image-origin entries into the mapping before it is saved
-                    // below. This mutation requires `tokenized` to be declared `var`.
-                    for entry in resolved.newEntries {
-                        tokenized.mapping.entries[entry.token] = entry
-                    }
-                    imageRedactionCount = resolved.imageRedactionCount
-                }
-            }
-
-            // Any replaced OCCURRENCE with no box is reported, not papered
-            // over. Per occurrence and never per unique token: asking only
-            // whether SOME box carried the token called a value covered while
-            // a second, wrapped occurrence of it kept the original pixels.
-            unboxedTokenCount = PdfRedactionCoverage.unboxedOccurrenceCount(
-                surfaceTexts: pairs,
-                textCoverage: textCoverage,
-                boxedTokens: Set(boxes.map(\.token))
+            // Every PII channel a page can carry (text layer, page OCR,
+            // embedded-image OCR), and the occurrences none of them covered.
+            let surface = PdfReviewSurface.locate(
+                in: input,
+                imported: imported,
+                mapping: tokenized.mapping,
+                detect: detectSupplementary
             )
+            imageRedactionCount = surface.imageRedactionCount
+            unboxedTokenCount = surface.unboxedOccurrenceCount
+            // Image-origin entries have to reach the mapping before it is saved
+            // below, or the sidecar will not carry them and their restore
+            // fails. This mutation requires `tokenized` to be declared `var`.
+            for entry in surface.newEntries {
+                tokenized.mapping.entries[entry.token] = entry
+            }
 
             let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
-            try PdfRedactor.renderRedactedPDF(original: input, boxes: boxes, to: reviewURL)
+            try PdfRedactor.renderRedactedPDF(original: input, boxes: surface.boxes, to: reviewURL)
             visualPdfURL = reviewURL
 
         default:
@@ -800,12 +758,6 @@ public enum LDAService {
         }
     }
 
-    /// The (surfaceText, token) pairs used to locate visual redaction boxes.
-    private static func surfaceTokenPairs(
-        mapping: Mapping
-    ) -> [(text: String, token: String)] {
-        mapping.entries.values.map { (text: $0.surfaceText, token: $0.token) }
-    }
 }
 
 // MARK: - Dictionary helper
