@@ -12,6 +12,8 @@
 //  addField, saveToLibrary, deletePortfolio, exportPortfolio, importPortfolio,
 //  backToLibrary, resolveFieldName, cached instance, export failure) live in
 //  FillModelLibraryTests.swift to respect the 800-line file cap.
+//  The stale-completion races (an extraction, plan, or apply finishing after
+//  the editor moved on) live in FillModelStaleCompletionTests.swift.
 //
 //  FillModel is @MainActor isolated; the suite is annotated @MainActor to match.
 //  Fake service runners are wired via FillModel's static test-seam vars and

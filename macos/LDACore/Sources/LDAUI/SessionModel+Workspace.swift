@@ -61,11 +61,28 @@ extension SessionModel {
         passphrase: String,
         createdAtISO8601: String
     ) throws {
+        try requireArchivedReviewsDescribeTheirFiles()
         try WorkspaceArchive.write(
             buildWorkspacePayload(createdAtISO8601: createdAtISO8601),
             to: url,
             passphrase: passphrase
         )
+    }
+
+    /// A snapshot travels with the file it describes, and the archive copies
+    /// the FILE as it is now. If a file changed after its scan, the pair would
+    /// hand a colleague an "original" nobody reviewed, with decisions that
+    /// relocate by value onto it and read as a finished review. Refuse, and
+    /// name the document, because a workspace holds several and only one
+    /// needs opening again; the remedy is the export's.
+    private func requireArchivedReviewsDescribeTheirFiles() throws {
+        for entry in entries where entry.model.exportAvailability.isAvailable {
+            do {
+                try entry.model.requireSourceUnchangedSinceScan()
+            } catch is SourceChangedSinceScanError {
+                throw WorkspaceSourceChangedError(documentName: entry.name)
+            }
+        }
     }
 
     /// Everything the archive needs from this session.

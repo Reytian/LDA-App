@@ -15,6 +15,26 @@
 import Foundation
 import LDACore
 
+/// Save Workspace found a document's file changed after its scan, so the
+/// review it would archive no longer describes the file it would archive it
+/// with. Names the document: a workspace holds several, and only this one
+/// needs opening again. Its description is the sentence the flow reports.
+public struct WorkspaceSourceChangedError: LocalizedError, Equatable {
+    public let documentName: String
+
+    public init(documentName: String) {
+        self.documentName = documentName
+    }
+
+    public var errorDescription: String? {
+        // One literal, deliberately not a concatenation; see ReviewModel.export.
+        String(
+            format: L10n.string("Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace."),
+            documentName as NSString
+        )
+    }
+}
+
 enum WorkspacePresentation {
 
     // MARK: - Save gating

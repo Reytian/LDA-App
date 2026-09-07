@@ -271,6 +271,23 @@ public struct WorkspaceEntityRecord: Codable, Equatable, Sendable {
     }
 }
 
+/// What the AI pass did for the review list a snapshot carries.
+///
+/// Recorded as state rather than as the warning sentence, so the Mac that
+/// reopens the workspace can say it in its own language. Format version 1
+/// snapshots carry no record at all; the review model reads an absent record
+/// as a pass that did not run, the conservative choice.
+public enum WorkspaceAICoverage: String, Codable, Equatable, Sendable {
+    /// The AI pass ran to full coverage.
+    case complete
+    /// AI was switched off for the scan: a pattern-only pass by choice.
+    case notRequested
+    /// AI was expected and never examined the document.
+    case didNotRun
+    /// AI examined the document and stopped short of finishing it.
+    case ranPartially
+}
+
 /// One document's review state.
 public struct WorkspaceReviewSnapshot: Codable, Equatable, Sendable {
 
@@ -286,10 +303,22 @@ public struct WorkspaceReviewSnapshot: Codable, Equatable, Sendable {
     /// Entities in the order the review list held them.
     public let entities: [WorkspaceEntityRecord]
 
-    public init(documentID: UUID, textDigest: String, entities: [WorkspaceEntityRecord]) {
+    /// What the AI pass did for this review list. Decisions alone do not say
+    /// whether names were ever looked for, and a review list re-applied
+    /// without this read as a clean pass. nil only when decoded from a format
+    /// version 1 snapshot, which did not record it.
+    public let aiCoverage: WorkspaceAICoverage?
+
+    public init(
+        documentID: UUID,
+        textDigest: String,
+        entities: [WorkspaceEntityRecord],
+        aiCoverage: WorkspaceAICoverage? = nil
+    ) {
         self.documentID = documentID
         self.textDigest = textDigest
         self.entities = entities
+        self.aiCoverage = aiCoverage
     }
 
     /// SHA-256 (hex) of a document's imported text.

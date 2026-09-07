@@ -95,6 +95,10 @@ public final class FillModel: ObservableObject {
     /// The current stage of the fill session.
     @Published public var stage: FillStage = .idle {
         didSet {
+            // Leaving for the library, by any route (Back to Library, a
+            // delete, an import, a refresh), abandons whatever the editor
+            // held, so any extraction still running for it is now stale.
+            if case .library = stage { invalidateInFlightEditorWork() }
             if case .failed = stage { return }
             failureContext = nil
         }
@@ -164,7 +168,48 @@ public final class FillModel: ObservableObject {
     /// has been opened from the library (new portfolios start nil until first save;
     /// portfolios loaded from an external file also start nil so Save creates a new
     /// library entry rather than overwriting an unrelated open portfolio).
+    ///
+    /// Assigning it is not by itself an occupant change: a Save that gives a
+    /// new portfolio its first id leaves the same portfolio in the editor. The
+    /// sites that DO change the occupant bump editorGeneration explicitly.
     @Published public var currentPortfolioID: UUID?
+
+    // MARK: - Editor generation
+
+    /// Monotonic generation of what the editor holds: which portfolio, under
+    /// which id, or none because the user is back in the library.
+    ///
+    /// Every asynchronous piece of work for the editor captures the value it
+    /// started under and checks it again when it completes, BEFORE touching
+    /// the profile, the dirty flag, the stage, or the identity. The failure
+    /// this prevents is concrete: extraction A is running, the user goes
+    /// back to the library and opens portfolio B, A finishes and loads its
+    /// profile into B's editor under B's id, and the next Save writes A's
+    /// data over B. Binding the completion to the generation makes A's
+    /// result land nowhere.
+    ///
+    /// Bumped by every occupant change: any transition to .library (stage
+    /// didSet), createPortfolio, loadProfile, and the start of a library open,
+    /// so a later open supersedes an earlier one still reading. Supersession
+    /// within one occupant is tracked apart from this: extractionSerial for
+    /// extractions, targetURL for plans. A Save that gives a new portfolio
+    /// its first id does not bump it, because the portfolio in the editor is
+    /// still the one that was saved and an extraction running for it must
+    /// still land.
+    // internal(set) for FillModelAsyncIntents.swift and FillModelLibrary.swift
+    var editorGeneration = 0
+
+    /// Retire every asynchronous result still in flight for the editor's
+    /// previous occupant.
+    func invalidateInFlightEditorWork() {
+        editorGeneration += 1
+    }
+
+    /// Count of extractions started, so a later extraction supersedes an
+    /// earlier one still running for the SAME occupant. See
+    /// FillModelAsyncIntents.swift.
+    // internal(set) for FillModelAsyncIntents.swift
+    var extractionSerial = 0
 
     /// A one-time advisory string built from lastListReconciled /
     /// lastIndexPersistFailed on the most recent refreshLibrary call. Non-nil only
@@ -219,7 +264,8 @@ public final class FillModel: ObservableObject {
 
     /// Start the security scope for a new target URL. Releases any previously
     /// held scope first so there is never more than one open scope at a time.
-    private func startTargetScope(_ url: URL) {
+    /// internal for FillModelAsyncIntents.swift
+    func startTargetScope(_ url: URL) {
         stopTargetScope()
         let active = url.startAccessingSecurityScopedResource()
         scopedTargetURL = url
@@ -227,7 +273,8 @@ public final class FillModel: ObservableObject {
     }
 
     /// Stop the currently held security scope, if any. Safe to call repeatedly.
-    private func stopTargetScope() {
+    /// internal for FillModelAsyncIntents.swift
+    func stopTargetScope() {
         if targetScopeActive, let url = scopedTargetURL {
             url.stopAccessingSecurityScopedResource()
         }
@@ -386,7 +433,10 @@ public final class FillModel: ObservableObject {
 
     /// Set the profile, advance stage to .profileReady, and clear the dirty flag.
     /// Used by extractProfile on success and by tests to seed a clean profile.
+    /// A new occupant for the editor: anything still running for the old one
+    /// is retired first.
     public func loadProfile(_ profile: ClientPortfolio) {
+        invalidateInFlightEditorWork()
         self.profile = profile
         profileDirty = false
         stage = .profileReady
@@ -533,204 +583,6 @@ public final class FillModel: ObservableObject {
             return
         }
         selectedBlankID = blanks[(idx + blanks.count - 1) % blanks.count].id
-    }
-
-    // MARK: - Async intents
-
-    /// Extract a ClientPortfolio from source documents.
-    ///
-    /// Stage transitions: .importingSources -> .extracting -> .profileReady
-    /// (or .failed on error). Progress is reported via onProgress from the
-    /// LDAService facade.
-    ///
-    /// createdAtISO8601 is supplied by the caller; the model never reads the clock.
-    /// kind defaults to .company; the portal UI (Task 6) will thread real kinds here.
-    public func extractProfile(
-        sources: [URL],
-        label: String,
-        createdAtISO8601: String,
-        kind: PortfolioKind = .company
-    ) async {
-        // Stage starts at .importingSources (documents are being staged before the
-        // LLM begins). The facade emits onProgress(0, total) when extraction actually
-        // begins (after all imports succeed); we flip to .extracting on that first
-        // callback so the stage honestly reflects what the engine is doing.
-        stage = .importingSources
-        progress = 0
-        sourceFailures = []
-
-        let path = modelPath ?? ""
-        let seam = Self.effectiveExtractProfileOverride
-
-        let progressCallback: @Sendable (Int, Int) -> Void = { [weak self] done, total in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                // Flip to .extracting on the first progress event (done == 0 and
-                // total > 0 is the "extraction started" signal from the facade).
-                if case .importingSources = self.stage { self.stage = .extracting }
-                if total > 0 { self.progress = Double(done) / Double(total) }
-            }
-        }
-
-        // Do NOT set .extracting here; let the first onProgress callback do it
-        // so the stage reflects real engine state rather than a premature guess.
-
-        do {
-            let result = try await Task.detached(priority: .userInitiated) {
-                if let seam {
-                    return try seam(sources, label, kind, createdAtISO8601, progressCallback)
-                } else {
-                    return try LDAService.extractProfile(
-                        sources: sources,
-                        label: label,
-                        kind: kind,
-                        modelPath: path,
-                        createdAtISO8601: createdAtISO8601,
-                        onProgress: progressCallback
-                    )
-                }
-            }.value
-
-            // Keep service values raw; the banner localizes known reasons when rendered.
-            sourceFailures = result.failedSources.map {
-                FillSourceFailure(name: $0.name, reason: $0.reason)
-            }
-            progress = 1
-            loadProfile(result.profile)
-            // An extracted-but-unsaved portfolio is unsaved work: mark dirty so
-            // "Save to library" is enabled and "Back to Library" shows the discard
-            // confirmation. loadProfile intentionally clears dirty (it is also used
-            // to load a clean saved copy); we restore dirty here whenever extraction
-            // produced any fields (an empty extraction adds nothing new to save).
-            if !result.profile.fields.isEmpty {
-                profileDirty = true
-            }
-
-        } catch {
-            publishFailure(error, context: .profile)
-        }
-    }
-
-    /// Detect blanks in the target document and match them against the profile.
-    ///
-    /// Requires a profile to be loaded (stage .profileReady or later). Stage
-    /// transitions: .planning -> .reviewing with blanks + manualWidgetNames.
-    /// selectedBlankID is set to the first blank after planning succeeds.
-    public func planFill(target: URL) async {
-        guard let profile else { return }
-        // I3: Reset progress at the start of each new planning pass.
-        progress = 0
-        stage = .planning
-        targetURL = target
-        // Clear any previously published targetText so a stale document is never
-        // displayed while a new plan is in flight.
-        targetText = nil
-
-        // Sandbox: start the security scope for the new target. Any previously
-        // held scope for an older target is released first by startTargetScope.
-        // The scope must remain open through applyFill so the engine can read
-        // the file in a second detached Task (closing it here would cause EPERM
-        // when applyFill runs inside the sandboxed .app).
-        startTargetScope(target)
-
-        let seam = Self.effectivePlanFillOverride
-        let path = modelPath
-        let isDocx = target.pathExtension.lowercased() == "docx"
-
-        do {
-            let plan = try await Task.detached(priority: .userInitiated) {
-                if let seam {
-                    // I1: Pass the live profile so tests can assert the hand-off.
-                    return try seam(target, profile)
-                } else {
-                    return try LDAService.planFill(
-                        target: target,
-                        profile: profile,
-                        modelPath: path
-                    )
-                }
-            }.value
-
-            blanks = plan.blanks
-            manualWidgetNames = plan.manualWidgetNames
-            selectedBlankID = plan.blanks.first?.id
-            stage = .reviewing
-
-            // Import the document text for display in BlankDocumentPane. This is a
-            // display-only, best-effort step: a failure here does not affect the
-            // fill plan already computed above. Only attempted for DOCX targets
-            // (PDF rendering is not yet supported in BlankDocumentPane V1).
-            // The seam path also attempts a real import when the file exists on
-            // disk so that seam-driven tests with fake URLs remain green (the
-            // import will simply throw and leave targetText nil).
-            if isDocx {
-                let importedText: String? = await Task.detached(priority: .userInitiated) {
-                    (try? DocxImporter().importDocument(target))?.text
-                }.value
-                targetText = importedText
-            }
-
-            // Do NOT stop the scope here: applyFill still needs to read the target.
-
-        } catch {
-            targetText = nil
-            // Planning failed: release the scope; there is nothing to apply.
-            stopTargetScope()
-            publishFailure(error, context: .review)
-        }
-    }
-
-    /// Apply the confirmed blanks to the target document, writing the output
-    /// into outputDir.
-    ///
-    /// The model passes ALL current blanks to the facade; the facade performs
-    /// its own filtering (confirmed-with-value only, dedupe). This ensures the
-    /// FillReport's skipped list is complete.
-    ///
-    /// Stage transitions: .applying -> .done(FillReport) or .failed.
-    public func applyFill(outputDir: URL) async {
-        // I2: Only proceed from the reviewing stage. This prevents re-entry from
-        // .done overwriting a completed report, and guards against calls from any
-        // other stage where a FillPlan has not yet been constructed.
-        guard case .reviewing = stage else { return }
-        guard let profile, let targetURL else { return }
-        // I3: Reset progress at the start of each apply pass.
-        progress = 0
-        stage = .applying
-
-        let plan = FillPlan(
-            targetFormat: targetURL.pathExtension.lowercased() == "docx" ? .docx : .pdf,
-            blanks: blanks,
-            manualWidgetNames: manualWidgetNames
-        )
-
-        let seam = Self.effectiveApplyFillOverride
-
-        do {
-            let report = try await Task.detached(priority: .userInitiated) {
-                if let seam {
-                    return try seam(plan, targetURL, outputDir)
-                } else {
-                    return try LDAService.applyFill(
-                        plan: plan,
-                        target: targetURL,
-                        profile: profile,
-                        outputDir: outputDir
-                    )
-                }
-            }.value
-
-            // Apply succeeded: the engine no longer needs access to the source
-            // file, so we can release the security scope.
-            stopTargetScope()
-            stage = .done(report)
-
-        } catch {
-            // Apply failed: release the scope so subsequent attempts can re-open
-            // it cleanly via a new Open Target flow.
-            stopTargetScope()
-            publishFailure(error, context: .review)
-        }
     }
 
     // MARK: - Error rendering
