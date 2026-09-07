@@ -167,4 +167,30 @@ final class RestorerMixedStyleOnePassTests: XCTestCase {
         XCTAssertEqual(report.restoredCount, preview.restoredCount)
         XCTAssertEqual(report.restoredCount, 2)
     }
+
+    /// The paste path (the MCP restore of pasted text, the menu-bar Restore
+    /// Clipboard) loads the mapping back from its encrypted sidecar and runs
+    /// the same engine as the file path. The carried pseudonym entry and the
+    /// token style must survive that round trip, or the two paths would take
+    /// different decisions over the same reply.
+    func testPastedTextRestoreAgreesWithTheEngineForAMixedMapping() throws {
+        let mixed = tokenizeHoldings()
+        let mappingURL = tempURL("mixed.ldamap")
+        try MappingStore.save(mixed.mapping, to: mappingURL, protection: .passphrase("pw"))
+        let returned = "{COMPANY_1} and Person A."
+
+        let pasted = try LDAService.restoreText(
+            returned,
+            mapping: mappingURL,
+            protection: .passphrase("pw")
+        )
+        let engine = Restorer.restore(text: returned, mapping: mixed.mapping)
+
+        XCTAssertEqual(pasted.text, "Person A Holdings and Alice.")
+        XCTAssertEqual(pasted.text, engine.text)
+        XCTAssertEqual(pasted.restoredCount, 2)
+        XCTAssertEqual(pasted.restoredCount, engine.restoredCount)
+        XCTAssertEqual(pasted.orphanTokens, engine.orphanTokens)
+        XCTAssertEqual(pasted.ambiguousReplacements, engine.ambiguousReplacements)
+    }
 }
