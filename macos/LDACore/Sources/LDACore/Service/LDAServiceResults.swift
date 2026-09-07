@@ -77,8 +77,13 @@ public struct AnonymizeResult: Sendable {
     /// and stamps live there; a non-zero count must be surfaced to the user as
     /// a warning. Always 0 for non-DOCX input.
     public var embeddedMediaCount: Int
-    /// How many tokenized values could not be given a redaction box in the
-    /// review PDF. Always 0 for non-PDF input.
+    /// How many tokenized OCCURRENCES could not be given a redaction box in
+    /// the review PDF (or, for image input, in the redacted PNG). Always 0 for
+    /// non-PDF, non-image input.
+    ///
+    /// Occurrences, not unique values: a value boxed where it is printed
+    /// normally and unboxed where it wraps across two lines is incompletely
+    /// covered, and a per-value count would call it covered.
     ///
     /// A non-zero count MUST be surfaced to the user as a warning, for the same
     /// reason as embeddedMediaCount: the value IS tokenized in the edit surface

@@ -35,11 +35,23 @@ public struct DocxImporter: DocumentImporter {
         try importDocxLayout(url).0
     }
 
+    /// Import against a caller-owned ledger, so one user gesture that reads
+    /// several documents spends one allowance.
+    public func importDocument(_ url: URL, budget: ArchiveBudget) throws -> ImportedDocument {
+        try importDocxLayout(url, budget: budget).0
+    }
+
     /// Import the document and also return the internal DocxLayout, which holds
     /// the parsed runs and the offset map needed by DocxRedactor.
-    func importDocxLayout(_ url: URL) throws -> (ImportedDocument, DocxLayout) {
+    /// budget meters the bytes this import INFLATES. The document-size
+    /// ceiling above checks the compressed file, so it alone let a package of
+    /// a few hundred bytes expand without limit; see ArchiveBudget.
+    func importDocxLayout(
+        _ url: URL,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> (ImportedDocument, DocxLayout) {
         try ImportLimits.enforceDocumentSize(at: url)
-        let data = try DocxZip.readEntry(docxMainPartPath, from: url)
+        let data = try DocxZip.readEntry(docxMainPartPath, from: url, budget: budget)
         let layout = try DocxDocumentXML.parse(data)
         let imported = ImportedDocument(
             text: layout.text,

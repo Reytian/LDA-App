@@ -82,8 +82,25 @@ struct DocxLayout: Sendable {
 // MARK: - Zip helpers
 
 enum DocxZip {
-    /// Read a single entry's bytes from a zip archive at url.
-    static func readEntry(_ path: String, from url: URL) throws -> Data {
+    /// Read a single entry's bytes from a zip archive at url, charging the
+    /// bytes the inflater ACTUALLY produced to `budget`.
+    ///
+    /// A .docx IS a zip archive, and the document-size ceiling checks the
+    /// COMPRESSED file, so a package of a few hundred bytes could inflate to
+    /// whatever the deflate ratio allowed. The ledger is the only place that
+    /// can be stopped, and only mid-stream: ZIPFoundation inflates to
+    /// end-of-stream without consulting a declared size (see ZipExtraction and
+    /// ArchiveBudget).
+    ///
+    /// The default mints a fresh ledger, which is right for a caller reading
+    /// one part. Every pass that reads SEVERAL parts of one package passes one
+    /// ledger, or the ceiling multiplies by the number of parts, which is the
+    /// non-compounding bug ArchiveBudget exists to prevent.
+    static func readEntry(
+        _ path: String,
+        from url: URL,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> Data {
         let archive: Archive
         do {
             archive = try Archive(url: url, accessMode: .read)
@@ -94,10 +111,16 @@ enum DocxZip {
             throw DocumentIOError.corrupt("missing \(path)")
         }
         var collected = Data()
+        let refusal = budget.refusalMessage(for: url.lastPathComponent)
         do {
             _ = try archive.extract(entry) { chunk in
+                try budget.charge(chunk.count, message: refusal)
                 collected.append(chunk)
             }
+        } catch let error as DocumentIOError {
+            // The ceiling surfaces as the size error it is. Restating it as
+            // "cannot extract" told the user their document was damaged.
+            throw error
         } catch {
             throw DocumentIOError.corrupt("cannot extract \(path)")
         }
@@ -138,14 +161,26 @@ enum DocxZip {
         }
     }
 
-    /// Copy every entry from source into a brand new archive at out, but replace
-    /// the bytes of replacements[path] when present. out is overwritten if it
-    /// already exists. Entry order and per-entry metadata are reproduced as
-    /// faithfully as ZIPFoundation allows.
+    /// Copy every entry from source into a brand new archive at out, but
+    /// replace the bytes of replacements[path] when present and OMIT every
+    /// path in removals. out is overwritten if it already exists. Entry order
+    /// and per-entry metadata are reproduced as faithfully as ZIPFoundation
+    /// allows.
+    ///
+    /// removals is how a member leaves the package: a copy-everything rewriter
+    /// is exactly what let the custom XML data store keep the original value
+    /// after the body was redacted (see DocxPackagePolicy). Callers that
+    /// remove a member are responsible for the references to it.
+    ///
+    /// budget meters the bytes this pass inflates to COPY the members it was
+    /// not given replacements for. Replacement bytes are not charged: they
+    /// were produced from input the same pass already charged for.
     static func rewrite(
         source: URL,
         replacing replacements: [String: Data],
-        to out: URL
+        removing removals: Set<String> = [],
+        to out: URL,
+        budget: ArchiveBudget = ArchiveBudget()
     ) throws {
         let reader: Archive
         do {
@@ -165,21 +200,30 @@ enum DocxZip {
             throw DocumentIOError.unreadable("cannot create zip at \(out.lastPathComponent)")
         }
 
+        let refusal = budget.refusalMessage(for: source.lastPathComponent)
         for entry in reader {
             // Only files carry data; directories and symlinks are skipped because
             // a .docx never relies on explicit directory entries for validity.
             guard entry.type == .file else { continue }
 
             let path = entry.path
+            if removals.contains(path) { continue }
             let data: Data
             if let replacement = replacements[path] {
+                // Bytes this pass produced from input it already charged for.
                 data = replacement
             } else {
+                // An untouched member is INFLATED to be copied, so the copy
+                // is metered exactly like a read. Skipping it here is how the
+                // export reproduced the import's own hole.
                 var collected = Data()
                 do {
                     _ = try reader.extract(entry) { chunk in
+                        try budget.charge(chunk.count, message: refusal)
                         collected.append(chunk)
                     }
+                } catch let error as DocumentIOError {
+                    throw error
                 } catch {
                     throw DocumentIOError.corrupt("cannot extract \(path)")
                 }
@@ -267,6 +311,19 @@ enum DocxDocumentXML {
             // We are at a "<". Read the tag name to decide handling.
             let tagInfo = try readTagName(scalars, from: i)
             let name = tagInfo.name
+
+            // Every element match below is on a LITERAL "w:" name, so a part
+            // that binds the Word namespace to another prefix would parse as
+            // empty text while keeping its markup. Refuse instead; see
+            // DocxNamespaceGuard. Named start tags only: a comment or a CDATA
+            // section declares nothing, and character data is not a tag.
+            if !tagInfo.isClosing, !name.isEmpty {
+                try DocxNamespaceGuard.enforceSupportedBindings(
+                    scalars,
+                    from: i,
+                    to: tagInfo.tagEnd
+                )
+            }
 
             if !tagInfo.isClosing && DocxRunText.trackedChangeElementNames.contains(name) {
                 trackedChangeCount += 1
