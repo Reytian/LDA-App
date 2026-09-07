@@ -731,7 +731,7 @@
 "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue." = "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue.";
 "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue." = "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue.";
 "This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it." = "This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it.";
-"Safe Preview unavailable: pseudonym restoration could not be verified." = "Safe Preview unavailable: pseudonym restoration could not be verified.";
+"Safe Preview unavailable: restoration could not be verified." = "Safe Preview unavailable: restoration could not be verified.";
 "Custom replacement text is available only with Pseudonyms. Current setting: %@." = "Custom replacement text is available only with Pseudonyms. Current setting: %@.";
 "A custom replacement needs non-empty original text." = "A custom replacement needs non-empty original text.";
 "The custom replacement for \"%@\" must not be empty." = "The custom replacement for \"%@\" must not be empty.";

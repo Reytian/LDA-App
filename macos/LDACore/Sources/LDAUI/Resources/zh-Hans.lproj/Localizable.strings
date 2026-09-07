@@ -731,7 +731,7 @@
 "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue." = "无法安全更改事项名称。您的数据仍然加密，但继续之前需要处理重命名问题。";
 "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue." = "无法安全归档事项。您的数据仍然加密，但继续之前需要处理归档状态问题。";
 "This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it." = "此文件夹会同步到 iCloud。包含原始姓名的加密映射文件也会随之上传。";
-"Safe Preview unavailable: pseudonym restoration could not be verified." = "无法显示隐去预览：无法验证化名能否正确恢复。";
+"Safe Preview unavailable: restoration could not be verified." = "无法显示隐去预览：无法验证能否正确恢复。";
 "Custom replacement text is available only with Pseudonyms. Current setting: %@." = "自定义替换文本仅适用于“化名”设置。当前设置：%@。";
 "A custom replacement needs non-empty original text." = "自定义替换需要非空的原文。";
 "The custom replacement for \"%@\" must not be empty." = "“%@”的自定义替换不得为空。";
