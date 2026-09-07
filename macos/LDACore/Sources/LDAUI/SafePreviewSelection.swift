@@ -153,7 +153,7 @@ extension ReviewModel {
         guard tokenized.unresolvedSeams.isEmpty else {
             return SafePreviewSurface(
                 text: L10n.string(
-                    "Safe Preview unavailable: pseudonym restoration could not be verified.",
+                    "Safe Preview unavailable: restoration could not be verified.",
                     language: language
                 ),
                 pairing: nil

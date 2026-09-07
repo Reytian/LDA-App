@@ -350,21 +350,47 @@ public enum DocxRedactor {
     /// (headers, footers, footnotes, endnotes, comments), so a value redacted in a
     /// header round-trips back. The docProps metadata scrub and external-link
     /// neutralization done at redact time are destructive and are not reversed.
+    ///
+    /// A bare token table carries nothing from another style; a mapping that
+    /// does goes through restoreTokenStyle(redactedDocx:plan:to:).
     public static func restore(
         redactedDocx: URL,
         tokenToValue: [String: String],
         to out: URL
     ) throws {
+        try restoreTokenStyle(
+            redactedDocx: redactedDocx,
+            plan: Restorer.tokenStyleRestorePlan(tokenToValue: tokenToValue),
+            to: out
+        )
+    }
+
+    /// Replace every site of a token-style mapping in a redacted .docx and
+    /// write to out: the brace tokens and, for a mapping that carries
+    /// pseudonym entries from another style, those literals too.
+    ///
+    /// Every part is decided over its whole text in ONE pass by
+    /// Restorer.tokenStyleRestoreSites, the decision the text report takes,
+    /// so a carried literal is never written inside a value the tokens
+    /// restored and the writer reaches the sites the report counted.
+    ///
+    /// Returns what the body part did; LDAService reports over the
+    /// package-wide pre-restore text independently.
+    @discardableResult
+    public static func restoreTokenStyle(
+        redactedDocx: URL,
+        plan: Restorer.TokenStyleRestorePlan,
+        to out: URL
+    ) throws -> LiteralRestoreOutcome {
         let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
         var layout = try DocxDocumentXML.parse(data)
-
-        _ = try restoreTokensInLayout(&layout, tokenToValue: tokenToValue)
+        let outcome = try restoreTokenStyleInLayout(&layout, plan: plan)
 
         var rewriteParts: [String: Data] = [docxMainPartPath: DocxDocumentXML.serialize(layout)]
-        // Restore tokens in the non-body text parts too.
-        let nonBody = try DocxParts.restoreNonBodyParts(
+        // Restore the same sites in the non-body text parts too.
+        let nonBody = try DocxParts.restoreNonBodyPartsTokenStyle(
             url: redactedDocx,
-            tokenToValue: tokenToValue
+            plan: plan
         )
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
@@ -375,6 +401,7 @@ public enum DocxRedactor {
             replacing: rewriteParts,
             to: out
         )
+        return outcome
     }
 
     /// What a literal restore did to one part, in the same terms the
@@ -450,7 +477,36 @@ public enum DocxRedactor {
         _ layout: inout DocxLayout,
         plan: Restorer.LiteralRestorePlan
     ) throws -> LiteralRestoreOutcome {
-        let sites = Restorer.literalRestoreSites(in: layout.text, plan: plan)
+        try applyRestoreSites(
+            Restorer.literalRestoreSites(in: layout.text, plan: plan),
+            to: &layout
+        )
+    }
+
+    /// Restore a token-style mapping across one whole parsed part: the mapped
+    /// brace tokens plus any entries carried from another style, decided
+    /// together over the part's concatenated text (the string the report
+    /// scans) so a carried literal is never written inside a value a token
+    /// restores. Exposed at internal access so DocxParts restores the
+    /// non-body parts the same way.
+    static func restoreTokenStyleInLayout(
+        _ layout: inout DocxLayout,
+        plan: Restorer.TokenStyleRestorePlan
+    ) throws -> LiteralRestoreOutcome {
+        try applyRestoreSites(
+            Restorer.tokenStyleRestoreSites(in: layout.text, plan: plan),
+            to: &layout
+        )
+    }
+
+    /// Write already decided sites back into the runs they cover. A site
+    /// carrying a value is substituted; a refused site (no single entity owns
+    /// it) keeps its bytes and is reported. Every mapped site the report
+    /// counts must be writable through the run coverage below.
+    private static func applyRestoreSites(
+        _ sites: [Restorer.LiteralRestoreSite],
+        to layout: inout DocxLayout
+    ) throws -> LiteralRestoreOutcome {
         guard !sites.isEmpty else { return .unchanged }
 
         var edits: [TextEdit] = []
@@ -488,46 +544,6 @@ public enum DocxRedactor {
             restoredCount: restoredCount,
             ambiguousReplacements: refused
         )
-    }
-
-    /// Restore mapped brace tokens across one whole parsed part. The report
-    /// scans this same concatenated text, so every mapped site it counts must
-    /// be writable through the run coverage below.
-    @discardableResult
-    static func restoreTokensInLayout(
-        _ layout: inout DocxLayout,
-        tokenToValue: [String: String]
-    ) throws -> Int {
-        let regex = try NSRegularExpression(pattern: TokenGrammar.placeholderPattern)
-        let text = layout.text as NSString
-        let matches = regex.matches(
-            in: layout.text,
-            range: NSRange(location: 0, length: text.length)
-        )
-        var edits: [TextEdit] = []
-        for match in matches {
-            let token = text.substring(with: match.range)
-            guard let value = tokenToValue[token],
-                  runsCover(match.range, runs: layout.runs) else {
-                continue
-            }
-            edits.append(
-                TextEdit(
-                    start: match.range.location,
-                    end: match.range.location + match.range.length,
-                    insertText: value
-                )
-            )
-        }
-
-        for (segmentIndex, segmentEdits) in try planRunEdits(
-            edits,
-            runs: layout.runs,
-            segments: layout.segments
-        ) {
-            try applyRunEdits(segmentEdits, atSegment: segmentIndex, in: &layout)
-        }
-        return edits.count
     }
 
     /// Whether run text covers `range` end to end with no gap.

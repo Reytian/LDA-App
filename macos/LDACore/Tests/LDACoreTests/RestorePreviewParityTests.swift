@@ -18,8 +18,8 @@
 //
 //  WHAT IS NOT ASSERTED, on purpose: byte parity between preview.restoredText
 //  and a written .docx. Under the token output style the Word write goes
-//  through DocxRedactor.restore(tokenToValue:), which rewrites runs inside the
-//  original package. The preview reports over DocxParts.restoreReportText,
+//  through DocxRedactor.restoreTokenStyle(plan:), which rewrites runs inside
+//  the original package. The preview reports over DocxParts.restoreReportText,
 //  which joins every visible text part for reporting. Those are two different
 //  mechanisms over two different surfaces: the counts and the lists are
 //  assertable and asserted below, the output bytes are not, and claiming

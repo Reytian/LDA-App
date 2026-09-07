@@ -731,7 +731,7 @@
 "The matter name could not be changed safely. Your data remains encrypted, but the rename needs attention before you continue." = "無法安全變更案件名稱。您的資料仍然加密，但繼續之前需要處理重新命名問題。";
 "The matter could not be archived safely. Your data remains encrypted, but the archive state needs attention before you continue." = "無法安全封存案件。您的資料仍然加密，但繼續之前需要處理封存狀態問題。";
 "This folder syncs to iCloud. The encrypted mapping (which contains the original names) will be uploaded with it." = "此資料夾會同步至 iCloud。包含原始姓名的加密對照檔也會隨之上傳。";
-"Safe Preview unavailable: pseudonym restoration could not be verified." = "無法顯示遮蔽預覽：無法驗證化名能否正確還原。";
+"Safe Preview unavailable: restoration could not be verified." = "無法顯示遮蔽預覽：無法驗證能否正確還原。";
 "Custom replacement text is available only with Pseudonyms. Current setting: %@." = "自訂替換文字僅適用於「化名」設定。目前設定：%@。";
 "A custom replacement needs non-empty original text." = "自訂替換需要非空白的原文。";
 "The custom replacement for \"%@\" must not be empty." = "「%@」的自訂替換不得為空白。";

@@ -212,7 +212,7 @@ public struct Mapping: Equatable, Sendable, Codable {
 
 // MARK: - Engine results
 
-/// A literal-restore seam the session verifier could not repair.
+/// A restore seam the session verifier could not repair.
 ///
 /// The engine carries semantic values instead of a preformatted warning so
 /// app presentation can localize the message without parsing English. The
@@ -274,9 +274,9 @@ public struct TokenizeResult: Sendable {
     public var tokenizedText: String
     /// The token map built during tokenization.
     public var mapping: Mapping
-    /// Literal-restore seams the direct whole-assignment verifier could not
-    /// repair. A non-empty list means this output must not be released without
-    /// an explicit warning or refusal.
+    /// Restore seams the direct whole-assignment verifier could not repair,
+    /// under any output style. A non-empty list means this output must not
+    /// be released without an explicit warning or refusal.
     public var seamIssues: [SessionSeamIssue]
     /// Compatibility lines for command-line callers and safety errors.
     public var unresolvedSeams: [String] {
