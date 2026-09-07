@@ -17,6 +17,12 @@
 //  scanned", never as "scanned and clean": a prose refusal and a genuinely
 //  empty entities array look identical as a span list and mean opposite things.
 //
+//  Every ROW is validated the same way: a row is usable only with a nonempty
+//  value and a type that decodes to a supported EntityType. One unreadable row
+//  flags the whole completion `invalid` while its readable rows are kept as
+//  salvage, because the extractor discards what it cannot classify and would
+//  otherwise report full coverage over names it never looked at (R1).
+//
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
 //
@@ -50,10 +56,13 @@ public struct ExtractedEntity: Equatable, Sendable {
 /// - truncated: the entities array was cut off before it closed (the model hit
 ///   its token cap). `entities` holds the complete objects salvaged before the
 ///   cut; the caller retries or reports the segment unscanned.
-/// - invalid: the completion carries no entities array anywhere. Prose ("I
-///   cannot process this text."), an empty reply, or JSON of another shape all
-///   land here. The model did not scan this segment, so the empty `entities`
-///   here is not a clean result and must never be presented as one (LJE-001).
+/// - invalid: the completion carries no entities array anywhere, or the array
+///   it carries holds a row this parser cannot read. Prose ("I cannot process
+///   this text."), an empty reply, JSON of another shape, a row with no
+///   supported type, and a mixed array with one row in another schema all
+///   land here. The model did not scan this segment, or scanned only part of
+///   it, so `entities` here is salvage and must never be presented as a clean
+///   result (LJE-001, R1).
 public struct EntityParse: Equatable, Sendable {
     /// The entities recovered from the completion.
     public let entities: [ExtractedEntity]
@@ -124,6 +133,7 @@ public enum EntityJSONParser {
         // path; a brace-matching scan supplies the candidates when the raw
         // string is not itself valid JSON.
         var decodedEntitiesSchema = false
+        var malformedRows: EntityParse?
         for candidate in candidates {
             guard let data = candidate.data(using: .utf8) else { continue }
             guard
@@ -137,11 +147,32 @@ public enum EntityJSONParser {
             // carries the entities schema is an answer about the text. An
             // {"error": ...} object, a bare string, or a number decode just as
             // cleanly and say nothing about whether the segment was scanned.
-            guard let entities = schemaEntities(from: object) else { continue }
+            guard let schema = schemaEntities(from: object) else { continue }
             decodedEntitiesSchema = true
-            if !entities.isEmpty {
-                return EntityParse(entities: entities, truncated: false)
+            if !schema.allRowsValid {
+                // A row this parser cannot read makes the whole completion an
+                // incomplete answer for its segment (R1). Remember the
+                // largest such region's salvage and keep scanning: a smaller
+                // region may carry the same payload in a readable form.
+                if malformedRows == nil {
+                    malformedRows = EntityParse(
+                        entities: schema.entities,
+                        truncated: false,
+                        invalid: true
+                    )
+                }
+                continue
             }
+            if !schema.entities.isEmpty {
+                return EntityParse(entities: schema.entities, truncated: false)
+            }
+        }
+
+        // Every readable region was empty, and some region carried a row that
+        // could not be read: the segment was only partly classified, so its
+        // salvage must not be presented as the complete answer.
+        if let malformedRows {
+            return malformedRows
         }
 
         // At least one region decoded with an entities array and none carried
@@ -425,18 +456,34 @@ public enum EntityJSONParser {
 
     // MARK: - Decoding
 
+    /// The rows of one entities array, and whether EVERY row was readable.
+    ///
+    /// The two fields are not redundant. `entities` is the salvage: the rows
+    /// that did decode, worth locating and redacting. `allRowsValid` says
+    /// whether the completion as a whole can be read as the answer for its
+    /// segment. Collapsing them would hand a partly uninterpretable
+    /// completion back as a complete answer, which is the R1 defect: the
+    /// extractor drops the rows it cannot use and reports full coverage over
+    /// a document whose other names were never classified.
+    private struct SchemaRows {
+        let entities: [ExtractedEntity]
+        let allRowsValid: Bool
+    }
+
     /// Extract entities from a decoded JSON value that carries the entities
     /// schema: a dictionary with an "entities" array, or a bare array of entity
     /// objects. Returns nil for any other shape (a dictionary without the key,
     /// a string, a number, an array of non-objects), because such a value
     /// decodes cleanly yet says nothing about whether the text was scanned.
     ///
-    /// An array that holds objects but yields no usable entity at all is also
-    /// nil: {"text": ..., "label": ...} is another schema, not an empty
-    /// finding, and reading it as "the model found nothing" would pass a
-    /// document the model may have filled with names. A mixed list keeps its
-    /// usable entries; only a list with none is a schema failure.
-    private static func schemaEntities(from object: Any) -> [ExtractedEntity]? {
+    /// An array that holds objects but yields no usable entity at all reports
+    /// `allRowsValid` false with no salvage: {"text": ..., "label": ...} is
+    /// another schema, not an empty finding, and reading it as "the model
+    /// found nothing" would pass a document the model may have filled with
+    /// names. A MIXED list is the same failure with something to salvage: the
+    /// usable rows are kept and the array still does not answer for its
+    /// segment (R1).
+    private static func schemaEntities(from object: Any) -> SchemaRows? {
         let rawEntities: [Any]
         if let dict = object as? [String: Any] {
             guard let array = dict["entities"] as? [Any] else { return nil }
@@ -448,32 +495,60 @@ public enum EntityJSONParser {
             return nil
         }
 
-        let decoded = entities(fromArray: rawEntities)
-        guard rawEntities.isEmpty || !decoded.isEmpty else { return nil }
-        return decoded
+        return rows(fromArray: rawEntities)
     }
 
-    /// Map an array of raw entity dictionaries to typed entities, skipping any
-    /// entry that lacks a non-empty value.
-    private static func entities(fromArray array: [Any]) -> [ExtractedEntity] {
+    /// Map an array of raw entity dictionaries to typed entities, reporting
+    /// whether every row was valid.
+    ///
+    /// A row is valid only with a nonempty value AND a type that decodes to a
+    /// supported EntityType. A recognized type the extractor does not keep
+    /// (EMAIL, DATE: the DeterministicEngine owns those) is still a valid row.
+    /// A missing type, a spelling outside EntityType's raw values, an explicit
+    /// UNKNOWN, an empty value, or another schema entirely (text/label) is an
+    /// invalid row: nothing downstream can act on it, so the completion must
+    /// not be presented as the segment's complete answer.
+    ///
+    /// Invalid rows that still carry a value are kept in `entities` as
+    /// salvage, so a value the model did report can still be located and
+    /// redacted while the segment counts as unscanned.
+    private static func rows(fromArray array: [Any]) -> SchemaRows {
         var result: [ExtractedEntity] = []
+        var allRowsValid = true
 
         for element in array {
-            guard let entry = element as? [String: Any] else { continue }
-            guard let rawValue = entry["value"] as? String else { continue }
+            guard let entry = element as? [String: Any] else {
+                allRowsValid = false
+                continue
+            }
+            guard let rawValue = entry["value"] as? String else {
+                allRowsValid = false
+                continue
+            }
 
             let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if value.isEmpty {
+                allRowsValid = false
                 continue
             }
 
             let rawType = (entry["type"] as? String) ?? ""
             let type = mapType(rawType)
+            if type == .unknown {
+                allRowsValid = false
+            }
 
             result.append(ExtractedEntity(value: value, type: type))
         }
 
-        return result
+        return SchemaRows(entities: result, allRowsValid: allRowsValid)
+    }
+
+    /// Map an array of raw entity dictionaries to typed entities, keeping only
+    /// the rows that carry a nonempty value. Used by the truncation salvage,
+    /// which reports its own incompleteness through `truncated`.
+    private static func entities(fromArray array: [Any]) -> [ExtractedEntity] {
+        return rows(fromArray: array).entities
     }
 
     /// Map a wire type string to an EntityType case-insensitively. Recognizes the

@@ -439,12 +439,14 @@ final class EntityJSONParserTests: XCTestCase {
         let bare = EntityJSONParser.parseDetailed(#"[{"text":"Jane Roe","label":"PERSON"}]"#)
         XCTAssertTrue(bare.invalid)
 
-        // A mixed list keeps the usable entries and stays a complete answer:
-        // one malformed entry is model noise, not a change of schema.
+        // A mixed list keeps the usable entries as SALVAGE but is not a
+        // complete answer (R1). Calling it complete exported "Acme" in the
+        // clear: the row was silently skipped and coverage still read full.
         let mixed = EntityJSONParser.parseDetailed(
             #"{"entities":[{"value":"Jane Roe","type":"PERSON"},{"text":"Acme","label":"COMPANY"}]}"#
         )
-        XCTAssertTrue(mixed.isComplete)
+        XCTAssertFalse(mixed.isComplete, "one unreadable row leaves the segment partly classified")
+        XCTAssertTrue(mixed.invalid)
         XCTAssertEqual(mixed.entities, [ExtractedEntity(value: "Jane Roe", type: .person)])
     }
 }
