@@ -212,11 +212,14 @@ final class MCPHardeningTests: XCTestCase {
         }
     }
 
-    /// A model path inside the roots is NOT rejected by the policy: detection
-    /// proceeds (deterministic-only when the file is absent, per makeDetector's
-    /// documented fallback), which proves the gate lets legitimate paths
-    /// through rather than being an accidental blanket.
-    func testAModelPathInsideTheRootsPassesThePolicy() throws {
+    /// A model path inside the roots is NOT rejected by the policy, which proves
+    /// the gate lets legitimate paths through rather than being an accidental
+    /// blanket. The request then reaches the model gate, which refuses a file
+    /// that is absent: a requested model that cannot run is never downgraded to
+    /// pattern-only detection (it used to be, and the old version of this test
+    /// pinned that fallback). The refusal names the model, not the policy, and
+    /// the boundary-safe surface still does not echo the path.
+    func testAModelPathInsideTheRootsPassesThePolicyAndIsRefusedByTheModelGate() throws {
         let handle = try stageFixture()
         let missingButAllowed = workDir.appendingPathComponent("missing.gguf").path
 
@@ -225,10 +228,18 @@ final class MCPHardeningTests: XCTestCase {
             "modelPath": missingButAllowed
         ])
 
-        XCTAssertFalse(response.isError, "an in-root model path must pass, got: \(response.text)")
+        XCTAssertTrue(response.isError, "a model that cannot run must be refused, got: \(response.text)")
         XCTAssertFalse(
             response.text.contains("allowed directories for GGUF models"),
             "an in-root model path must not trip the policy, got: \(response.text)"
+        )
+        XCTAssertTrue(
+            response.text.contains("model_unavailable"),
+            "the refusal must come from the model gate, got: \(response.text)"
+        )
+        XCTAssertFalse(
+            response.text.contains(missingButAllowed),
+            "the boundary-safe message must not echo the path, got: \(response.text)"
         )
     }
 }

@@ -12,7 +12,10 @@
 //  prose, fenced in triple-backtick code blocks, or carry trailing chatter. The
 //  parser locates the largest balanced JSON region, decodes it tolerantly, and
 //  accepts either an object with an "entities" array plus "redacted_text", or a
-//  bare array of {value,type}. It never throws; unparseable input yields [].
+//  bare array of {value,type}. It never throws. Input that carries no entities
+//  array at all yields [] flagged `invalid`, which callers must treat as "not
+//  scanned", never as "scanned and clean": a prose refusal and a genuinely
+//  empty entities array look identical as a span list and mean opposite things.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -36,6 +39,41 @@ public struct ExtractedEntity: Equatable, Sendable {
     }
 }
 
+// MARK: - EntityParse
+
+/// The outcome of parsing one model completion.
+///
+/// Three states matter downstream and they are not interchangeable:
+/// - complete: an entities array was found, possibly empty. `entities` is the
+///   whole answer for this segment, and an empty list means the model looked
+///   and found nothing.
+/// - truncated: the entities array was cut off before it closed (the model hit
+///   its token cap). `entities` holds the complete objects salvaged before the
+///   cut; the caller retries or reports the segment unscanned.
+/// - invalid: the completion carries no entities array anywhere. Prose ("I
+///   cannot process this text."), an empty reply, or JSON of another shape all
+///   land here. The model did not scan this segment, so the empty `entities`
+///   here is not a clean result and must never be presented as one (LJE-001).
+public struct EntityParse: Equatable, Sendable {
+    /// The entities recovered from the completion.
+    public let entities: [ExtractedEntity]
+    /// True when the entities array never closed: a mid-array cut.
+    public let truncated: Bool
+    /// True when the completion carries no entities array at all: a backend or
+    /// schema failure rather than a scan that found nothing.
+    public let invalid: Bool
+
+    public init(entities: [ExtractedEntity], truncated: Bool, invalid: Bool = false) {
+        self.entities = entities
+        self.truncated = truncated
+        self.invalid = invalid
+    }
+
+    /// True when the completion was a complete, well-formed answer for its
+    /// segment, empty or not.
+    public var isComplete: Bool { !truncated && !invalid }
+}
+
 // MARK: - EntityJSONParser
 
 /// Parses raw v2 model output into extracted entities.
@@ -53,20 +91,21 @@ public enum EntityJSONParser {
     }
 
     /// Parse the model's JSON output into entities, reporting whether the output
-    /// appears to have been truncated mid-array (the model hit its generation
-    /// token cap before closing the JSON).
+    /// was truncated mid-array (the model hit its generation token cap before
+    /// closing the JSON) or carries no entities array at all.
     ///
-    /// A truncated completion is NOT genuine emptiness: complete entity objects
-    /// emitted before the cut are salvaged and returned, and `truncated` is set
-    /// so the caller can retry or flag the segment as not fully scanned rather
-    /// than silently presenting zero spans as a clean result (LJE-001).
+    /// Neither failure is genuine emptiness. A truncated completion has its
+    /// complete entity objects salvaged and `truncated` set so the caller can
+    /// retry or flag the segment as not fully scanned. A completion with no
+    /// entities array anywhere (prose, an empty reply, JSON of another shape)
+    /// has `invalid` set so the caller reports the segment unscanned instead
+    /// of presenting zero spans as a clean result (LJE-001).
     ///
     /// - Parameter modelOutput: the raw decoded text returned by the model.
-    /// - Returns: the recovered entities plus a truncation flag. For well-formed
-    ///   JSON (including a genuinely empty entities array) `truncated` is false.
-    public static func parseDetailed(
-        _ modelOutput: String
-    ) -> (entities: [ExtractedEntity], truncated: Bool) {
+    /// - Returns: the recovered entities plus the truncation and validity
+    ///   flags. For a well-formed entities array, empty included, both flags
+    ///   are false.
+    public static func parseDetailed(_ modelOutput: String) -> EntityParse {
         // Try the RAW (trimmed) output and its balanced regions BEFORE stripping
         // code fences, so a "```" sequence inside a JSON string value never
         // mangles otherwise-valid JSON (LJE-003). Fence-stripping runs only as a
@@ -84,7 +123,7 @@ public enum EntityJSONParser {
         // first that yields a usable decode. JSONSerialization is the primary
         // path; a brace-matching scan supplies the candidates when the raw
         // string is not itself valid JSON.
-        var decodedSomeRegion = false
+        var decodedEntitiesSchema = false
         for candidate in candidates {
             guard let data = candidate.data(using: .utf8) else { continue }
             guard
@@ -94,46 +133,51 @@ public enum EntityJSONParser {
                 )
             else { continue }
 
-            // A fully decodable region is, by definition, not truncated.
-            decodedSomeRegion = true
-            let entities = extractEntities(from: object)
+            // A region that decodes is not truncated, but only a region that
+            // carries the entities schema is an answer about the text. An
+            // {"error": ...} object, a bare string, or a number decode just as
+            // cleanly and say nothing about whether the segment was scanned.
+            guard let entities = schemaEntities(from: object) else { continue }
+            decodedEntitiesSchema = true
             if !entities.isEmpty {
-                return (entities, false)
+                return EntityParse(entities: entities, truncated: false)
             }
         }
 
-        // At least one region decoded cleanly but none carried entities: this is
-        // genuine emptiness (the model found no PII), not a cut-off completion.
-        if decodedSomeRegion {
-            return ([], false)
+        // At least one region decoded with an entities array and none carried
+        // entities: this is genuine emptiness (the model found no PII), not a
+        // cut-off completion and not a refusal.
+        if decodedEntitiesSchema {
+            return EntityParse(entities: [], truncated: false)
         }
 
-        // No candidate region decoded. Either the output is genuine garbage with
-        // no entities, or it is a completion that was cut off mid-array. Salvage
-        // every complete {value,type} object before the cut and report truncation
-        // so the caller does not treat a partial scan as a clean one.
+        // No entities array decoded. Either the completion was cut off mid-array,
+        // or it never contained one. Salvage every complete {value,type} object
+        // before a cut and report which failure this is, so the caller treats
+        // neither a partial scan nor a non-answer as a clean one.
         return salvageTruncatedEntities(from: stripped != modelOutput ? stripped : modelOutput)
     }
 
     // MARK: - Truncation salvage
 
-    /// Recover the complete entity objects emitted before a truncation point.
+    /// Recover the complete entity objects emitted before a truncation point,
+    /// and say which kind of failure the completion is.
     ///
     /// Locates the entities array (after an "entities" key, or a leading bare
     /// "["), walks it object by object with the same string-aware brace matcher
     /// used elsewhere, collects each fully-balanced {...}, and stops at the first
-    /// object that does not close. Returns the recovered entities plus whether
-    /// the array tail was left unbalanced (the truncation signal). When no
-    /// entities array can be located at all, returns ([], false): that is genuine
-    /// non-JSON input, not a mid-array cut, so there is nothing to salvage and no
-    /// truncation to report.
-    private static func salvageTruncatedEntities(
-        from text: String
-    ) -> (entities: [ExtractedEntity], truncated: Bool) {
+    /// object that does not close. An array that never closes is the truncation
+    /// signal. When no entities array can be located at all, the completion is
+    /// `invalid`: prose or an empty reply, not a mid-array cut, with nothing to
+    /// salvage and nothing scanned. An array that closes but whose region never
+    /// decoded (this path only runs when no candidate region decoded with the
+    /// schema) is also `invalid`: its body is not well-formed JSON, so whatever
+    /// was salvaged cannot be taken as the complete answer.
+    private static func salvageTruncatedEntities(from text: String) -> EntityParse {
         let scalars = Array(text)
 
         guard let arrayStart = entitiesArrayStart(in: scalars) else {
-            return ([], false)
+            return EntityParse(entities: [], truncated: false, invalid: true)
         }
 
         var entities: [ExtractedEntity] = []
@@ -164,7 +208,7 @@ public enum EntityJSONParser {
             let objectText = String(scalars[index...objectEnd])
             if let data = objectText.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
-                entities.append(contentsOf: extractEntities(from: [object]))
+                entities.append(contentsOf: Self.entities(fromArray: [object]))
             }
             index = objectEnd + 1
         }
@@ -173,7 +217,15 @@ public enum EntityJSONParser {
         // the tail object was cut mid-way or the input simply ended right after a
         // complete object but before the closing bracket. Either way the caller
         // must not treat the recovered set as the full, fully-scanned result.
-        return (entities, !arrayClosed)
+        if !arrayClosed {
+            return EntityParse(entities: entities, truncated: true)
+        }
+
+        // The array closed, yet no candidate region decoded with the schema, so
+        // its body is not well-formed JSON (a syntax error between objects, or a
+        // bracketed aside in prose that was never an array). Keep the salvage,
+        // but this is not a complete answer for the segment.
+        return EntityParse(entities: entities, truncated: false, invalid: true)
     }
 
     /// Find the scalar index just inside the entities array. Prefers the "["
@@ -373,21 +425,32 @@ public enum EntityJSONParser {
 
     // MARK: - Decoding
 
-    /// Extract entities from a decoded JSON object. Accepts either a dictionary
-    /// carrying an "entities" array, or a bare array of entity objects.
-    private static func extractEntities(from object: Any) -> [ExtractedEntity] {
+    /// Extract entities from a decoded JSON value that carries the entities
+    /// schema: a dictionary with an "entities" array, or a bare array of entity
+    /// objects. Returns nil for any other shape (a dictionary without the key,
+    /// a string, a number, an array of non-objects), because such a value
+    /// decodes cleanly yet says nothing about whether the text was scanned.
+    ///
+    /// An array that holds objects but yields no usable entity at all is also
+    /// nil: {"text": ..., "label": ...} is another schema, not an empty
+    /// finding, and reading it as "the model found nothing" would pass a
+    /// document the model may have filled with names. A mixed list keeps its
+    /// usable entries; only a list with none is a schema failure.
+    private static func schemaEntities(from object: Any) -> [ExtractedEntity]? {
+        let rawEntities: [Any]
         if let dict = object as? [String: Any] {
-            if let rawEntities = dict["entities"] as? [Any] {
-                return entities(fromArray: rawEntities)
-            }
-            return []
+            guard let array = dict["entities"] as? [Any] else { return nil }
+            rawEntities = array
+        } else if let array = object as? [Any] {
+            guard array.allSatisfy({ $0 is [String: Any] }) else { return nil }
+            rawEntities = array
+        } else {
+            return nil
         }
 
-        if let array = object as? [Any] {
-            return entities(fromArray: array)
-        }
-
-        return []
+        let decoded = entities(fromArray: rawEntities)
+        guard rawEntities.isEmpty || !decoded.isEmpty else { return nil }
+        return decoded
     }
 
     /// Map an array of raw entity dictionaries to typed entities, skipping any

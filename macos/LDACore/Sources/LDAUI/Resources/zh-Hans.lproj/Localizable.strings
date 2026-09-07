@@ -691,6 +691,7 @@
 "The output path must differ from the source path." = "输出路径必须与源路径不同。";
 "Extraction could not fully scan %lld segment; some fields may be missing." = "提取未能完整扫描 %lld 个片段，部分字段可能缺失。";
 "Extraction could not fully scan %lld segments; some fields may be missing." = "提取未能完整扫描 %lld 个片段，部分字段可能缺失。";
+"The requested detection model could not be run, so nothing was written." = "无法运行所请求的检测模型，因此未写入任何内容。";
 "%lld detected value could not be matched exactly in the document, so it could not be removed." = "%lld 个检测值无法在文档中精确匹配，因此无法移除。";
 "%lld detected values could not be matched exactly in the document, so they could not be removed." = "%lld 个检测值无法在文档中精确匹配，因此无法移除。";
 "The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "资料集索引已重建，列表也已根据资料集文件重建。";
@@ -950,3 +951,9 @@
 "That workspace file holds no mapping yet." = "该工作区文件中还没有映射。";
 "Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved." = "以原始格式保存本文档的已隐去版本。映射保存在这台 Mac 上的一个工作区中，恢复会连同格式一起把文档带回。";
 "The redacted document was not saved because its mapping had nowhere to go. Nothing can restore a document without its mapping, so the file was removed rather than left in place looking finished. Add a passphrase to save a mapping beside the document, or check that this Mac allows LDA to store keys." = "脱敏文档未保存，因为其映射无处存放。没有映射便无法还原文档，因此该文件已被删除，而不是留在原处、看起来像是已完成的成果。请设置口令以在文档旁保存映射，或检查本机是否允许 LDA 存储密钥。";
+"When this workspace was saved, the AI pass had not run on this document, so people's names and company names were not looked for. Scan it again with a detection model, or read the copy before you hand it to an AI tool." = "存储此工作区时，AI 尚未在这份文档上运行，因此其中的人名和公司名未被查找。请使用检测模型重新扫描，或者在把副本交给 AI 工具之前先通读它。";
+"When this workspace was saved, the AI pass had not covered all of this document, so some people's names and company names were found and others were not. Scan it again, or read the copy before you hand it to an AI tool." = "存储此工作区时，AI 扫描尚未覆盖这份文档的全文：其中一些人名和公司名被找了出来，另一些没有。请重新扫描，或者在把副本交给 AI 工具之前先通读它。";
+"This workspace was saved before LDA recorded whether the AI pass ran, so this document is treated as if it did not. Scan it again, or read the copy before you hand it to an AI tool." = "此工作区存储于 LDA 开始记录 AI 是否运行之前，因此这份文档按 AI 未运行处理。请重新扫描，或者在把副本交给 AI 工具之前先通读它。";
+"Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving." = "“存储已隐去文档”发现此文件在扫描之后已被更改，扫描结果不再与之对应。请重新打开该文件并再次扫描，然后再存储。";
+"This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "这份文档的文本与存储此工作区时已不相同，因此所记录的扫描结果并不描述当前打开的文本。请重新扫描，或者在把副本交给 AI 工具之前先通读它。";
+"Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "“存储工作区”发现“%@”在扫描之后已被更改，其审阅结果不再与之对应。请重新打开该文件并再次扫描，然后再存储工作区。";

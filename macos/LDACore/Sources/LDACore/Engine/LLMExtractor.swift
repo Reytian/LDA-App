@@ -8,7 +8,8 @@
 //  the v2 single-shot extraction prompt (PromptStore + a TextCompleter), parses
 //  the JSON (EntityJSONParser), keeps only the fuzzy types LDA owns from the
 //  LLM minus legal boilerplate (LegalBoilerplate), and re-anchors values to
-//  word-boundary-valid spans (EntityLocator).
+//  word-boundary-valid spans, exact occurrences and whitespace variants alike
+//  (EntityLocator).
 //
 //  The completer is injected via the TextCompleter protocol so this orchestrator
 //  is unit-testable without loading the 2.7 GB GGUF model. In production the
@@ -29,18 +30,23 @@ import Foundation
 /// whole document was fully scanned.
 ///
 /// A segment whose model completion was cut off at the token cap (and could not
-/// be recovered by a larger-cap retry or by splitting) is counted as incomplete.
-/// When `incompleteSegmentCount > 0` the spans are still the best salvage, but
-/// the document MUST NOT be presented as cleanly anonymized: an un-scanned
-/// segment may still contain un-redacted PERSON/COMPANY/ADDRESS (LJE-001).
+/// be recovered by a larger-cap retry or by splitting) is counted as incomplete,
+/// and so is a segment the model never answered for: the backend threw, or the
+/// reply carried no entities array (prose, an empty string, JSON of another
+/// shape). When `incompleteSegmentCount > 0` the spans are still the best
+/// salvage, but the document MUST NOT be presented as cleanly anonymized: an
+/// un-scanned segment may still contain un-redacted PERSON/COMPANY/ADDRESS
+/// (LJE-001). Only a well-formed entities array, empty included, is a scan.
 public struct ExtractionResult: Sendable {
     /// The located spans (PERSON, COMPANY, ADDRESS) suitable for SpanMerger.
     public let spans: [Span]
-    /// How many segments could not be fully scanned even after retry/splitting.
+    /// How many segments could not be fully scanned: still truncated after
+    /// retry/splitting, failed at the backend, or answered without an entities
+    /// array.
     public let incompleteSegmentCount: Int
     /// How many distinct reported values are present in the source but could not
-    /// be anchored there, even after repairing CJK script-boundary space drift.
-    /// This is the leak: the text really does contain the value, in a surface
+    /// be anchored there, in the reported form or in any whitespace variant of
+    /// it. This is the leak: the text really does contain the value, in a surface
     /// form the literal locator cannot match, so it is detected and survives
     /// into the output. A non-zero count means the document is not guaranteed
     /// PII-free.
@@ -65,7 +71,8 @@ public struct ExtractionResult: Sendable {
     }
 
     /// True when every segment was fully scanned. False means at least one
-    /// segment was truncated and the document is not guaranteed PII-free.
+    /// segment was truncated, failed, or answered without an entities array,
+    /// and the document is not guaranteed PII-free.
     public var fullyCovered: Bool { incompleteSegmentCount == 0 }
 
     /// True when no value that the source actually contains was left unanchored.
@@ -80,14 +87,22 @@ public struct ExtractionResult: Sendable {
 
 /// Drives the on-device LLM to produce fuzzy spans for SpanMerger's llm input.
 public final class LLMExtractor {
-    /// The fuzzy types LDA keeps from the LLM. The DeterministicEngine owns the
-    /// structured types (EMAIL/PHONE/DATE/AMOUNT/BANK_ACCOUNT/USCC/NATIONAL_ID
-    /// plus CASE_NUMBER/LICENSE_PLATE/WECHAT_ID/URL) and wins conflicts via
-    /// SpanMerger priority, so they are dropped here.
+    /// The types LDA keeps from the LLM. The DeterministicEngine owns the
+    /// structured types it can recognise outright (EMAIL/PHONE/DATE/AMOUNT/
+    /// BANK_ACCOUNT/USCC plus CASE_NUMBER/LICENSE_PLATE/WECHAT_ID/URL) and wins
+    /// conflicts via SpanMerger priority, so those are dropped here.
     /// ADDRESS stays kept even though the DeterministicEngine also emits the
     /// Chinese street-address shape: the LLM owns every other address form, and
     /// SpanMerger resolves the overlap when both engines find the same one.
-    public static let keptTypes: Set<EntityType> = [.person, .company, .address]
+    /// NATIONAL_ID is kept for the same reason since US documents came into
+    /// scope: the engine knows the Chinese 18-character ID and the hyphenated
+    /// US SSN, and a model-reported value in either of those forms loses the
+    /// overlap to the deterministic span (priority 92 or 100 against 30), so
+    /// nothing is redacted twice; a national identifier in a format the
+    /// patterns do not know (a passport number, a NINO, a HKID) used to be
+    /// discarded here and left in the document, and now anchors as the model
+    /// reported it.
+    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID]
 
     private let completer: TextCompleter
     private let prompts: PromptStore
@@ -189,16 +204,17 @@ public final class LLMExtractor {
         //    through the engine's parallel slots in ONE call: the shared
         //    prompt prefix is prefilled once, and a finished window's slot is
         //    immediately refilled with the next one (continuous batching).
-        //    A segment that fails to complete or returns unparseable JSON is
-        //    skipped, never failing the whole extraction. EntityLocator always
-        //    searches the full source text, so entity values found in any
-        //    segment are correctly anchored across the whole document. A
-        //    truncated segment is retried with a larger cap and, if still cut
-        //    off, split into smaller sub-segments; complete entities are
-        //    always salvaged and a still-incomplete segment is counted (not
-        //    silently dropped). A cancellation throws ExtractionCancelled
-        //    (and the engine aborts mid-generation), so a stop is
-        //    near-immediate.
+        //    A segment that fails to complete or answers without an entities
+        //    array never fails the whole extraction, but it is counted as
+        //    unscanned so the caller's coverage gate refuses to call the
+        //    document clean. EntityLocator always searches the full source
+        //    text, so entity values found in any segment are correctly
+        //    anchored across the whole document. A truncated segment is
+        //    retried with a larger cap and, if still cut off, split into
+        //    smaller sub-segments; complete entities are always salvaged and
+        //    a still-incomplete segment is counted (not silently dropped). A
+        //    cancellation throws ExtractionCancelled (and the engine aborts
+        //    mid-generation), so a stop is near-immediate.
         let total = segmentsToProcess.count
         onProgress?(0, total)
 
@@ -255,25 +271,16 @@ public final class LLMExtractor {
             )
             guard seenEntities.insert(key).inserted else { continue }
 
-            // Anchor the value as reported. If that fails and the value carries
-            // CJK script-boundary space drift, retry once with the tightened
-            // form. The fallback ordering matters: a source that genuinely
-            // spaces its digits still matches on the first, faithful attempt.
-            var located = EntityLocator.spans(
+            // Anchor the value. EntityLocator finds every exact occurrence and
+            // every whitespace variant of it in one pass (a line wrap, a page
+            // break, CJK script-boundary space drift in either direction), so
+            // one exact hit never hides a wrapped repeat mention, and there is
+            // no second mechanism to fall back to.
+            let located = EntityLocator.spans(
                 forValue: entity.value,
                 type: entity.type,
                 in: text
             )
-            if located.isEmpty {
-                let tightened = CJKSpacing.tightenScriptBoundaries(entity.value)
-                if tightened != entity.value {
-                    located = EntityLocator.spans(
-                        forValue: tightened,
-                        type: entity.type,
-                        in: text
-                    )
-                }
-            }
             if located.isEmpty {
                 // Two very different failures look identical here, and only one
                 // is a privacy problem. If the document really does contain this
@@ -382,19 +389,31 @@ public final class LLMExtractor {
     /// truncation, retry once at a larger cap; if it still truncates, split
     /// the segment into smaller sub-segments and scan each. The entities
     /// recovered before any cut are always kept. The segment is reported
-    /// incomplete only if a leaf attempt still truncates with no possibility
-    /// of finer splitting.
+    /// incomplete when a leaf attempt still truncates with no possibility of
+    /// finer splitting, and also when the model never answered for it: the
+    /// completer threw, or the reply carried no entities array (prose, an
+    /// empty string, JSON of another shape). Neither of those is a scan, and
+    /// neither is recoverable by a larger cap, so they are reported rather
+    /// than passed off as an empty clean result (LJE-001).
     private func scanSegment(_ segment: String, systemPrompt: String, firstAttempt: String? = nil) -> SegmentOutcome {
         // First attempt at the default cap, unless the batched group pass
         // already produced it.
         let firstCompletion = firstAttempt
             ?? complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.maxCompletionTokens)
         guard let first = firstCompletion else {
-            // The completer threw. Skip this segment as before; a backend failure
-            // is not a truncation we can recover by retrying with a larger cap.
-            return SegmentOutcome(entities: [], incomplete: false)
+            // The completer threw, so this segment was never read by the model.
+            // A backend failure is not a truncation a larger cap can fix; it is
+            // an unscanned segment, and the coverage gate must see it as one.
+            return SegmentOutcome(entities: [], incomplete: true)
         }
         let firstParse = EntityJSONParser.parseDetailed(first)
+        if firstParse.invalid {
+            // The model replied with something other than an entities array.
+            // Greedy decoding returns the same reply for the same prompt and a
+            // larger cap does not change its shape, so there is no recovery to
+            // attempt: keep anything salvaged and report the segment unscanned.
+            return SegmentOutcome(entities: firstParse.entities, incomplete: true)
+        }
         if !firstParse.truncated {
             return SegmentOutcome(entities: firstParse.entities, incomplete: false)
         }
@@ -403,7 +422,7 @@ public final class LLMExtractor {
         // budget, which a bigger cap fixes outright.
         if let retry = complete(segment: segment, systemPrompt: systemPrompt, maxTokens: LLMExtractor.retryCompletionTokens) {
             let retryParse = EntityJSONParser.parseDetailed(retry)
-            if !retryParse.truncated {
+            if retryParse.isComplete {
                 return SegmentOutcome(entities: retryParse.entities, incomplete: false)
             }
         }

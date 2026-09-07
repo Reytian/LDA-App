@@ -54,6 +54,11 @@ public enum SaveBlockReason: String, CaseIterable, Equatable, Sendable {
     case documentFailedToOpen
     /// Export Report describes an Export for AI handoff and none has happened.
     case noHandoffToReportOn
+    /// The file on disk no longer matches the file that was scanned, so an
+    /// export that reads it would copy unreviewed content. Blocks Save
+    /// Redacted until the file is opened again; a re-scan alone would still
+    /// scan the old text.
+    case sourceChangedSinceScan
 }
 
 // MARK: - Availability
@@ -89,7 +94,17 @@ public struct SaveAvailability: Equatable, Sendable {
 enum SaveAvailabilityRules {
 
     /// Save Redacted, for one document. Was `if case .ready = status`.
-    static func saveRedacted(status: ReviewStatus) -> SaveAvailability {
+    ///
+    /// `sourceChangedSinceScan` outranks the status: it is only ever set on a
+    /// document whose scan finished, and it names the one remedy (open the
+    /// file again) that the status alone would not.
+    static func saveRedacted(
+        status: ReviewStatus,
+        sourceChangedSinceScan: Bool = false
+    ) -> SaveAvailability {
+        if sourceChangedSinceScan {
+            return .blocked(.sourceChangedSinceScan)
+        }
         switch status {
         case .idle:
             return .blocked(.noDocumentOpen)
@@ -179,6 +194,8 @@ enum SaveAvailabilityPresentation {
             return "This document did not open, so there is nothing to save. Open the file again."
         case .noHandoffToReportOn:
             return "Export Report covers an Export for AI handoff. Run one first."
+        case .sourceChangedSinceScan:
+            return "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving."
         }
     }
 

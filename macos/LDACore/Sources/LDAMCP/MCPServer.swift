@@ -359,13 +359,19 @@ public struct MCPServer {
     private func describe(_ error: LDAServiceError) -> String {
         switch error {
         case .incompleteExtraction(let count):
-            return "The document could not be fully scanned: \(count) segment(s) were truncated. " +
+            return "The document could not be fully scanned: the model gave no usable answer for " +
+                   "\(count) segment(s) (the reply was cut off, failed, or was not an entity list). " +
                    "The output has NOT been written to avoid presenting a partial result as clean."
         case .unanchoredEntities(let count):
             return "The document was fully scanned, but \(count) detected " +
                    "value(s) are present in the text in a form that could not be " +
                    "matched exactly, so they could not be removed. The output " +
                    "has NOT been written, because it would still contain them."
+        case .modelUnavailable(let path, let reason):
+            return "The requested model could not be run " +
+                   "(\((path as NSString).lastPathComponent): \(reason)). Nothing was written, " +
+                   "because without the model people's names, company names, and addresses " +
+                   "are not looked for. Fix the model path, or omit it for pattern-only detection."
         case .outputEqualsInput:
             return "Output path must differ from the input path."
         case .noReadableSources:
