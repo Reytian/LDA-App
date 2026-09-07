@@ -600,56 +600,17 @@ enum DocxDocumentXML {
 // MARK: - XML entity coding
 
 /// Decode the five predefined XML entities. Numeric character references are
-/// decoded too so extracted text is human-readable.
+/// decoded too so extracted text is human-readable, and an unknown entity
+/// stays literal so no information is lost.
+///
+/// One decoder serves the whole module: DocxDecodedXML also carries the
+/// offset map back to the raw bytes, which the field-target scrub needs to
+/// edit what it decided on. Two decoders would be two chances to disagree
+/// about what a consumer reads, and review R3 is what disagreement costs.
+/// The "&" test keeps the common run text allocation free.
 func xmlDecode(_ s: String) -> String {
     guard s.contains("&") else { return s }
-    var result = ""
-    result.reserveCapacity(s.count)
-    let chars = Array(s)
-    var i = 0
-    let n = chars.count
-    while i < n {
-        if chars[i] != "&" {
-            result.append(chars[i])
-            i += 1
-            continue
-        }
-        // Find the terminating ";".
-        var j = i + 1
-        while j < n && chars[j] != ";" && j - i <= 12 {
-            j += 1
-        }
-        guard j < n && chars[j] == ";" else {
-            result.append("&")
-            i += 1
-            continue
-        }
-        let entity = String(chars[(i + 1) ..< j])
-        switch entity {
-        case "amp": result.append("&")
-        case "lt": result.append("<")
-        case "gt": result.append(">")
-        case "quot": result.append("\"")
-        case "apos": result.append("'")
-        default:
-            if entity.hasPrefix("#x") || entity.hasPrefix("#X"),
-               let code = UInt32(entity.dropFirst(2), radix: 16),
-               let scalar = Unicode.Scalar(code) {
-                result.append(Character(scalar))
-            } else if entity.hasPrefix("#"),
-                      let code = UInt32(entity.dropFirst()),
-                      let scalar = Unicode.Scalar(code) {
-                result.append(Character(scalar))
-            } else {
-                // Unknown entity: keep it literal so no information is lost.
-                result.append("&")
-                result.append(entity)
-                result.append(";")
-            }
-        }
-        i = j + 1
-    }
-    return result
+    return DocxDecodedXML.decode(s).text
 }
 
 /// Escape text for safe inclusion as XML character data. Only the characters

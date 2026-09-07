@@ -34,21 +34,13 @@ public enum PlaceholderForensics {
     /// of the exact token (not a guess), so it is decoded before the restore
     /// scan. Only the escaped underscore INSIDE a token-shaped string is
     /// rewritten; every other backslash in the text is left untouched.
+    ///
+    /// The decode itself lives in MarkdownTokenDecode, which also keeps the
+    /// offset map the seam verifier needs to compare these sites against the
+    /// pieces tokenization emitted (R6). One implementation, so restore and
+    /// verification cannot disagree about what an escaped token is.
     public static func decodeMarkdownEscapedTokens(in text: String) -> String {
-        // A token whose underscore is escaped: {TYPE\_N}
-        guard let regex = try? NSRegularExpression(
-            pattern: #"\{([A-Z][A-Z0-9]*)\\_(\d+)\}"#
-        ) else {
-            return text
-        }
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        return regex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: fullRange,
-            withTemplate: "{$1_$2}"
-        )
+        return MarkdownTokenDecode.decodedText(text)
     }
 
     /// Scan `text` for near-miss placeholder shapes for the TYPEs present in

@@ -37,6 +37,9 @@
 //  would substitute, and a site nobody emitted is a template literal that a
 //  seed token would overwrite, or a carried pseudonym occurring naturally.
 //  Neither can be reminted away, so the caller reports rather than repairs.
+//  Those sites are computed over the MARKDOWN-DECODED text, because that is
+//  what the token-style restore scans, with offsets mapped back to the
+//  tokenized text (R6).
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -144,17 +147,47 @@ enum SessionSeamVerifier {
         replacementBySurface: [String: String],
         plan: Restorer.TokenStyleRestorePlan
     ) -> Report {
-        compare(
+        guard let restoreSites = decodedRestoreSites(in: tokenizedText, plan: plan) else {
+            return .unverifiable
+        }
+        return compare(
             documentIndex: documentIndex,
             tokenizedText: tokenizedText,
             originalText: originalText,
             acceptedSpans: acceptedSpans,
             replacementBySurface: replacementBySurface,
-            restoreSites: Restorer.tokenStyleRestoreSites(
-                in: tokenizedText,
-                plan: plan
-            ).map { RestoreSite(range: $0.range, replacement: $0.replacement) }
+            restoreSites: restoreSites
         )
+    }
+
+    /// The sites the token-style restore would act on, in the tokenized
+    /// text's own offsets.
+    ///
+    /// Restoration decodes Markdown-escaped tokens BEFORE it scans, so its
+    /// sites are sites of the DECODED text: "{PERSON\_1}" is a site there and
+    /// invisible in the raw text. Reading the raw text was the R6 defect, and
+    /// a pre-existing escaped literal restored to an entity value with
+    /// nothing reported. The scan therefore runs where restoration runs and
+    /// each site is mapped back to the original offsets the emitted pieces are
+    /// recorded in.
+    ///
+    /// Returns nil when the decode's per-unit map does not hold or a site
+    /// falls outside it. The caller then reports that it could not verify:
+    /// comparing offsets that may be fiction would turn this pass into a
+    /// silent all clear, which is the one outcome it exists to prevent.
+    private static func decodedRestoreSites(
+        in tokenizedText: String,
+        plan: Restorer.TokenStyleRestorePlan
+    ) -> [RestoreSite]? {
+        let decoded = MarkdownTokenDecode.decode(tokenizedText)
+        guard decoded.isConsistent else { return nil }
+
+        var sites: [RestoreSite] = []
+        for site in Restorer.tokenStyleRestoreSites(in: decoded.text, plan: plan) {
+            guard let range = decoded.originalRange(of: site.range) else { return nil }
+            sites.append(RestoreSite(range: range, replacement: site.replacement))
+        }
+        return sites
     }
 
     /// One site the restore scan would act on: where, and which replacement
