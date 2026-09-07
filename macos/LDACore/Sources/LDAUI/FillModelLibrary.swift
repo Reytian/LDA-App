@@ -118,6 +118,9 @@ extension FillModel {
             kind: kind,
             modifiedAtISO8601: createdAtISO8601
         )
+        // A new occupant for the editor: anything still running for the old
+        // one (an extraction, a save, a plan) must not land on this portfolio.
+        invalidateInFlightEditorWork()
         currentPortfolioID = nil
         // Reset the source list so a new portfolio starts with no staged documents
         // from a prior session.
@@ -169,27 +172,32 @@ extension FillModel {
     /// updates the existing entry. Clears profileDirty. Refreshes summaries.
     /// Stage remains .profileReady; the shell decides navigation.
     ///
+    /// The write always completes, but its outcome is published only while
+    /// the editor still holds the portfolio Save was pressed for. Library I/O
+    /// suspends; if the user leaves for the library meanwhile and opens or
+    /// creates another portfolio, the saved id must not land on that editor,
+    /// where the next Save would write the other portfolio's data over this
+    /// one. A dropped outcome loses nothing: the entry is on disk and the
+    /// library list shows it.
+    ///
     /// modifiedAtISO8601 is supplied by the caller per the purity rule.
     public func saveToLibrary(modifiedAtISO8601: String) async {
         guard var p = profile else { return }
         p.modifiedAtISO8601 = modifiedAtISO8601
         profile = p
+        let generation = editorGeneration
+        let existingID = currentPortfolioID
 
         do {
             let lib = try await resolveLibrary()
-            let savedID: UUID
-
-            if let existingID = currentPortfolioID {
-                try await Task.detached(priority: .userInitiated) {
+            let savedID = try await Task.detached(priority: .userInitiated) {
+                if let existingID {
                     try lib.save(p, id: existingID)
-                }.value
-                savedID = existingID
-            } else {
-                savedID = try await Task.detached(priority: .userInitiated) {
-                    try lib.create(p)
-                }.value
-            }
-
+                    return existingID
+                }
+                return try lib.create(p)
+            }.value
+            guard generation == editorGeneration else { return }
             currentPortfolioID = savedID
             profileDirty = false
 
@@ -197,10 +205,12 @@ extension FillModel {
             let refreshed = try await Task.detached(priority: .userInitiated) {
                 try lib.list()
             }.value
+            guard generation == editorGeneration else { return }
             summaries = refreshed
             stage = .profileReady
 
         } catch {
+            guard generation == editorGeneration else { return }
             publishFailure(error, context: .profile)
         }
     }

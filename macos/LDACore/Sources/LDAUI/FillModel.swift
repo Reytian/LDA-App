@@ -169,11 +169,10 @@ public final class FillModel: ObservableObject {
     /// portfolios loaded from an external file also start nil so Save creates a new
     /// library entry rather than overwriting an unrelated open portfolio).
     ///
-    /// Assigning it changes WHOSE data a Save writes, so it retires every
-    /// asynchronous result still in flight for the previous occupant.
-    @Published public var currentPortfolioID: UUID? {
-        didSet { invalidateInFlightEditorWork() }
-    }
+    /// Assigning it is not by itself an occupant change: a Save that gives a
+    /// new portfolio its first id leaves the same portfolio in the editor. The
+    /// sites that DO change the occupant bump editorGeneration explicitly.
+    @Published public var currentPortfolioID: UUID?
 
     // MARK: - Editor generation
 
@@ -189,11 +188,15 @@ public final class FillModel: ObservableObject {
     /// data over B. Binding the completion to the generation makes A's
     /// result land nowhere.
     ///
-    /// Bumped by: any transition to .library (stage didSet), any assignment
-    /// of currentPortfolioID, loadProfile, and the start of every extraction
-    /// and library open, so a later request always supersedes an earlier one
-    /// still in flight.
-    // internal(set) for FillModelLibrary.swift
+    /// Bumped by every occupant change: any transition to .library (stage
+    /// didSet), createPortfolio, loadProfile, and the start of a library open,
+    /// so a later open supersedes an earlier one still reading. Supersession
+    /// within one occupant is tracked apart from this: extractionSerial for
+    /// extractions, targetURL for plans. A Save that gives a new portfolio
+    /// its first id does not bump it, because the portfolio in the editor is
+    /// still the one that was saved and an extraction running for it must
+    /// still land.
+    // internal(set) for FillModelAsyncIntents.swift and FillModelLibrary.swift
     var editorGeneration = 0
 
     /// Retire every asynchronous result still in flight for the editor's
@@ -201,6 +204,12 @@ public final class FillModel: ObservableObject {
     func invalidateInFlightEditorWork() {
         editorGeneration += 1
     }
+
+    /// Count of extractions started, so a later extraction supersedes an
+    /// earlier one still running for the SAME occupant. See
+    /// FillModelAsyncIntents.swift.
+    // internal(set) for FillModelAsyncIntents.swift
+    var extractionSerial = 0
 
     /// A one-time advisory string built from lastListReconciled /
     /// lastIndexPersistFailed on the most recent refreshLibrary call. Non-nil only
