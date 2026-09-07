@@ -11,6 +11,8 @@
 //  Layout under the vault root:
 //
 //    registry.sealed               the encrypted handle registry (atomic writes)
+//    registry.lock                 empty file; flock(2) on it guards the registry
+//                                   transaction across processes (never holds data)
 //    objects/<handle>/...          one directory per staged or derived artifact
 //    outbox/                       where exported artifacts land for the human
 //    scratch/                      short-lived decrypted copies, removed after use
@@ -31,10 +33,21 @@
 //  4 layout (registry.json plus plaintext objects) migrates in place on first
 //  open. The outbox is exempt from encryption; nothing else is.
 //
-//  Concurrency: the registry is a single JSON file written atomically, so a
-//  crash never leaves a torn registry. Writers in ONE process are serialized
-//  by a lock; two processes writing at the same instant are last-writer-wins,
-//  which is acceptable for a human-paced intake flow and noted in the roadmap.
+//  Concurrency (fixed 2026-09, finding 7): the registry is a single file
+//  written atomically (temp file plus rename, via Data.write(options:
+//  .atomic) inside EncryptedContainer.save), so a crash never leaves a torn
+//  registry visible under its stable name. The read-modify-write transaction
+//  itself is guarded by TWO locks, both acquired together through
+//  withRegistryTransaction: an in-process NSLock (registryLock, orders
+//  threads of one process) and a cross-process flock(2) on registry.lock
+//  (VaultCrossProcessLock, orders every process that opens this vault
+//  directory, including the lda CLI and the lda-mcp server sharing one
+//  vault). Both locks are held ONLY around the registry read-modify-write
+//  itself, never across object encryption, which can be slow. Before this
+//  fix, two processes could each read the same registry, append their own
+//  entry, and save, with the later write silently discarding the earlier
+//  one; six concurrent `lda vault stage` processes reproduced this as five
+//  lost registrations with their encrypted objects orphaned on disk.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -145,6 +158,8 @@ public enum DocumentVaultError: Error, Equatable {
     case randomnessUnavailable
     /// A decrypted scratch copy could not be created inside the vault.
     case scratchWriteFailed
+    /// The cross-process registry transaction lock could not be acquired.
+    case crossProcessLockUnavailable
 
     /// A short, boundary-safe description: code plus handle only.
     public var message: String {
@@ -167,6 +182,8 @@ public enum DocumentVaultError: Error, Equatable {
             return "randomness_unavailable: could not allocate a handle"
         case .scratchWriteFailed:
             return "scratch_write_failed: a temporary decrypted copy could not be created"
+        case .crossProcessLockUnavailable:
+            return "cross_process_lock_unavailable: could not acquire the vault registry lock"
         }
     }
 }
@@ -186,6 +203,7 @@ public struct DocumentVault {
     /// can be detected and migrated; the live registry is registry.sealed.
     public static let registryFileName = "registry.json"
     public static let sealedRegistryFileName = "registry.sealed"
+    public static let transactionLockFileName = "registry.lock"
     public static let objectsDirectoryName = "objects"
     public static let outboxDirectoryName = "outbox"
     public static let scratchDirectoryName = "scratch"
@@ -198,8 +216,9 @@ public struct DocumentVault {
     /// the Keychain master key account (see DocumentVaultEncryption.swift).
     let protection: MappingProtection
 
-    /// Serializes registry read-modify-write cycles within this process.
-    private static let registryLock = NSLock()
+    // registryLock, the cross-process lock, and withRegistryTransaction live
+    // in VaultCrossProcessLock.swift (finding 7, 2026-09-06 review), to keep
+    // this file under the house line-count limit.
 
     public init(
         rootDirectory: URL,
@@ -285,34 +304,45 @@ public struct DocumentVault {
         // records the document size (not the container size) and the PDF page
         // count is read from the in-memory bytes.
         let pageCount = format == "pdf" ? PDFDocument(data: plaintext)?.pageCount : nil
+        let storedName = "original.\(format)"
 
-        let entry: VaultEntry = try DocumentVault.registryLock.withLock {
-            var registry = try loadRegistryLocked()
+        // Phase 1 (locked): allocate a fresh handle and reserve its object
+        // directory. Fast; the slow encryption below runs UNLOCKED so no
+        // other vault user is blocked while a large document is sealed.
+        let (handle, storedURL) = try withRegistryTransaction { () -> (String, URL) in
+            let registry = try loadRegistryLocked()
             let handle = try allocateHandleLocked(kind: .original, registry: registry)
-
             let directory = objectsDirectory.appendingPathComponent(handle, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let storedName = "original.\(format)"
-            let storedURL = directory.appendingPathComponent(storedName)
-            try sealObjectData(plaintext, to: storedURL)
+            return (handle, directory.appendingPathComponent(storedName))
+        }
 
-            let entry = VaultEntry(
-                handle: handle,
-                kind: .original,
-                format: format,
-                byteCount: plaintext.count,
-                pageCount: pageCount,
-                stagedAtISO8601: stagedAtISO8601,
-                relativePath: "\(DocumentVault.objectsDirectoryName)/\(handle)/\(storedName)",
-                originalFilename: fileURL.lastPathComponent,
-                sourceHandle: nil,
-                mappingRelativePath: nil,
-                mappingAccountBase: nil,
-                excludedEntityCount: nil
-            )
+        // Unlocked: this handle's directory was just reserved and is unique
+        // to this call, so no other process can be writing into it.
+        try sealObjectData(plaintext, to: storedURL)
+
+        let entry = VaultEntry(
+            handle: handle,
+            kind: .original,
+            format: format,
+            byteCount: plaintext.count,
+            pageCount: pageCount,
+            stagedAtISO8601: stagedAtISO8601,
+            relativePath: "\(DocumentVault.objectsDirectoryName)/\(handle)/\(storedName)",
+            originalFilename: fileURL.lastPathComponent,
+            sourceHandle: nil,
+            mappingRelativePath: nil,
+            mappingAccountBase: nil,
+            excludedEntityCount: nil
+        )
+
+        // Phase 2 (locked): reload the registry FRESH, since another process
+        // may have appended its own entry while phase 1 ran unlocked, then
+        // append this entry and save.
+        try withRegistryTransaction {
+            var registry = try loadRegistryLocked()
             registry.entries.append(entry)
             try saveRegistryLocked(registry)
-            return entry
         }
 
         SecurityEventLog.shared.record(kind: .vaultDocumentStaged, scope: DocumentVault.auditScope)
@@ -335,7 +365,7 @@ public struct DocumentVault {
         guard kind != .original else {
             throw DocumentVaultError.notADerivedKind
         }
-        return try DocumentVault.registryLock.withLock {
+        return try withRegistryTransaction {
             let registry = try loadRegistryLocked()
             let handle = try allocateHandleLocked(kind: kind, registry: registry)
             let directory = objectsDirectory.appendingPathComponent(handle, isDirectory: true)
@@ -402,7 +432,7 @@ public struct DocumentVault {
             excludedEntityCount: excludedEntityCount
         )
 
-        try DocumentVault.registryLock.withLock {
+        try withRegistryTransaction {
             var registry = try loadRegistryLocked()
             registry.entries.append(entry)
             try saveRegistryLocked(registry)
@@ -452,7 +482,7 @@ public struct DocumentVault {
         // attest, lda vault list), so it doubles as the recovery point for
         // scratch plaintext a crashed process left behind.
         sweepDeadScratchFiles()
-        return try DocumentVault.registryLock.withLock {
+        return try withRegistryTransaction {
             try loadRegistryLocked().entries
         }
         .enumerated()
@@ -467,7 +497,7 @@ public struct DocumentVault {
 
     /// The entry for a handle, or DocumentVaultError.unknownHandle.
     public func entry(handle: String) throws -> VaultEntry {
-        let entries = try DocumentVault.registryLock.withLock {
+        let entries = try withRegistryTransaction {
             try loadRegistryLocked().entries
         }
         guard let match = entries.first(where: { $0.handle == handle }) else {
