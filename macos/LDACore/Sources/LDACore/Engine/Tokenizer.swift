@@ -40,14 +40,14 @@ struct DetailedTokenizeResult {
     let requiresWholeAssignmentRepair: Bool
 }
 
-/// A direct tokenization result failed its literal-restore safety audit.
+/// A direct tokenization result failed its restore safety audit.
 public enum TokenizationSafetyError: LocalizedError, Equatable, Sendable {
     case unresolvedSeams([String])
 
     public var errorDescription: String? {
         switch self {
         case .unresolvedSeams(let seams):
-            return "The pseudonym output could not be verified for safe restoration. "
+            return "The redacted output could not be verified for safe restoration. "
                 + "Do not release it until these conflicts are resolved: "
                 + seams.joined(separator: " ")
         }
@@ -61,8 +61,10 @@ public enum TokenizationSafetyError: LocalizedError, Equatable, Sendable {
 /// name so that the result is deterministic and testable.
 public enum Tokenizer {
     /// Refuse a direct tokenization result whose whole-assignment verifier
-    /// reported unresolved literal seams. Release paths call this before any
-    /// file, clipboard, CLI, GUI, or MCP output is produced.
+    /// reported unresolved seams: a literal-style seam it could not remint,
+    /// or a token-style site a carried entry would overwrite. Release paths
+    /// call this before any file, clipboard, CLI, GUI, or MCP output is
+    /// produced.
     @discardableResult
     public static func requireSafeForRelease(
         _ result: TokenizeResult

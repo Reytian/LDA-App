@@ -167,6 +167,47 @@ final class SessionLiteralReservationTests: XCTestCase {
         }
     }
 
+    /// The other replacement the token style cannot mint away: a pseudonym
+    /// carried from an earlier style. The token-style restore scans for it
+    /// too, so a document that spells it naturally would have that text
+    /// replaced by the seed's value, and no minted token moves the entry.
+    func testACarriedPseudonymSpelledNaturallyByADocumentIsReportedAsASeam() {
+        let text = "Person A signs. Bob witnesses."
+        let carried = Mapping(
+            entries: [
+                "Person A": MappingEntry(
+                    token: "Person A",
+                    value: "Alice",
+                    type: .person,
+                    surfaceText: "Alice",
+                    aliases: []
+                )
+            ],
+            createdAtISO8601: stamp,
+            sourceFile: "earlier matter",
+            style: .pseudonym
+        )
+        let tokenized = Tokenizer.tokenize(
+            text: text,
+            spans: [span("Bob", in: text, type: .person)],
+            sourceFile: "template.txt",
+            createdAtISO8601: stamp,
+            seedMapping: carried,
+            style: .token
+        )
+
+        XCTAssertEqual(tokenized.tokenizedText, "Person A signs. {PERSON_1} witnesses.")
+        XCTAssertEqual(
+            tokenized.seamIssues,
+            [.unexpectedReplacement(documentIndex: 0, documentName: "template.txt", matchedReplacement: "Person A")]
+        )
+        XCTAssertEqual(
+            Restorer.restore(text: tokenized.tokenizedText, mapping: tokenized.mapping).text,
+            "Alice signs. Bob witnesses.",
+            "the mis-restore the warning describes"
+        )
+    }
+
     // MARK: - No false alarms
 
     /// An ordinary token-style session, with shared values and reuse across
