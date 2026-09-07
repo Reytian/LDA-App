@@ -191,9 +191,10 @@ enum DocxFieldInstruction {
         }
     }
 
-    /// Apply segment-local edits to one content string, highest offset first
-    /// so earlier offsets stay valid.
-    private static func apply(_ edits: [AssembledEdit], to content: String) -> String {
+    /// Apply edits to one string, highest offset first so earlier offsets stay
+    /// valid. Shared with the simple-field path, whose whole instruction is
+    /// one w:instr attribute and needs the same replacement rule.
+    static func apply(_ edits: [AssembledEdit], to content: String) -> String {
         guard !edits.isEmpty else { return content }
         var result = content as NSString
         for edit in edits.sorted(by: { $0.range.location > $1.range.location }) {

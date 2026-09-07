@@ -274,9 +274,16 @@ enum DocxParts {
         // What this package holds that the export removes, and what makes it
         // refuse outright. Classified before any reference cleanup, because
         // the cleanup has to know what is going away.
-        let classified = DocxPackagePolicy.classify(paths: enumerateEntryPaths(in: url))
+        let paths = enumerateEntryPaths(in: url)
+        let classified = DocxPackagePolicy.classify(paths: paths)
         var replacements = text.replacements
         for (path, bytes) in scrubbedMetadataParts(url: url, budget: budget) {
+            replacements[path] = bytes
+        }
+        // The settings part is not content-free: it carries document
+        // variables and the mail merge query. See DocxSettingsScrub. Only
+        // this path runs it, so a fill leaves the user's own document whole.
+        for (path, bytes) in try DocxSettingsScrub.replacementParts(in: url, paths: paths, budget: budget) {
             replacements[path] = bytes
         }
         for (path, bytes) in cleanedPackageParts(url: url, dropped: classified.dropped, budget: budget) {
@@ -402,8 +409,13 @@ enum DocxParts {
         for relsPath in relsPartPaths(in: url) {
             guard let data = try? DocxZip.readEntry(relsPath, from: url, budget: budget),
                   let xml = String(data: data, encoding: .utf8) else { continue }
-            let cleaned = DocxPackagePolicy.removeDroppedRelationships(
-                neutralizeExternalTargets(xml)
+            // The mail merge data source goes with the w:mailMerge block that
+            // named it: its Target is a path to the recipient list, and a
+            // matter's recipient list is named after the parties.
+            let cleaned = DocxSettingsScrub.removeMailMergeSources(
+                DocxPackagePolicy.removeDroppedRelationships(
+                    neutralizeExternalTargets(xml)
+                )
             )
             if cleaned != xml {
                 replacements[relsPath] = Data(cleaned.utf8)

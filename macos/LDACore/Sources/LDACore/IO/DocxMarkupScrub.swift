@@ -56,24 +56,13 @@ enum DocxMarkupScrub {
     /// A simple field start tag; its instruction lives in the w:instr attribute.
     private static let simpleFieldRegex = try? NSRegularExpression(pattern: #"<w:fldSimple\b[^>]*>"#)
 
-    /// The whole w:instr attribute in either quote style (see DocxParts for
-    /// why the two styles are separate alternatives).
+    /// The w:instr attribute in either quote style (see DocxParts for why the
+    /// two styles are separate alternatives). Group 1 and group 2 are the
+    /// double- and single-quoted VALUE, without its quotes, so the rewrite
+    /// gives the value back the quote style it opened with.
     private static let instrAttributeRegex = try? NSRegularExpression(
-        pattern: #"(?<=\s)w:instr=("[^"]*"|'[^']*')"#
+        pattern: #"(?<=\s)w:instr=(?:"([^"]*)"|'([^']*)')"#
     )
-
-    /// A sensitive address inside an instruction: the scheme and everything up
-    /// to whitespace, a quote, an angle bracket, or an escaped quote entity,
-    /// so the rewrite covers the address whether the instruction spells its
-    /// quotes literally (element content) or as &quot; (attribute value).
-    private static let sensitiveTargetRegex: NSRegularExpression? = {
-        let schemes = DocxParts.sensitiveSchemes
-            .map { NSRegularExpression.escapedPattern(for: String($0.dropLast())) }
-            .joined(separator: "|")
-        return try? NSRegularExpression(
-            pattern: #"(?i)\b(?:"# + schemes + #"):(?:(?!&quot;|&apos;)[^\s"'<>])*"#
-        )
-    }()
 
     /// Rewrite every mailto:/tel: target in the part's field instructions to
     /// about:blank. Other instructions (PAGE, http links) are left untouched.
@@ -84,36 +73,34 @@ enum DocxMarkupScrub {
     /// reads and left a scheme-split address whole in the next run. A simple
     /// field keeps its whole instruction in one w:instr attribute, so it
     /// cannot split and is rewritten in place.
+    ///
+    /// Both paths locate the target the same way, on the DECODED instruction
+    /// and at its real delimiters: see DocxFieldTargets for the two shapes
+    /// that defeated matching the raw bytes with one regex.
     static func neutralizeFieldTargets(_ xml: String) -> String {
         let elementsDone = DocxFieldInstruction.rewriteAssembled(in: xml) {
-            sensitiveTargetEdits(in: $0)
+            DocxFieldTargets.neutralizingEdits(inRaw: $0)
         }
         return rewriteMatches(of: simpleFieldRegex, in: elementsDone) { match, ns in
             let element = ns.substring(with: match.range)
             return rewriteMatches(of: instrAttributeRegex, in: element) { attribute, elementNS in
-                "w:instr=" + neutralizeSensitiveTargets(in: elementNS.substring(with: attribute.range(at: 1)))
+                neutralizedInstrAttribute(attribute, in: elementNS)
             }
         }
     }
 
-    private static func neutralizeSensitiveTargets(in instruction: String) -> String {
-        rewriteMatches(of: sensitiveTargetRegex, in: instruction) { _, _ in
-            DocxParts.neutralizedTarget
+    /// One w:instr attribute with its instruction's sensitive targets removed,
+    /// keeping the quote style the attribute opened with. Exactly one of the
+    /// two quote alternatives participates in a match.
+    private static func neutralizedInstrAttribute(
+        _ match: NSTextCheckingResult,
+        in ns: NSString
+    ) -> String {
+        for (group, quote) in [(1, "\""), (2, "'")] where match.range(at: group).location != NSNotFound {
+            let value = ns.substring(with: match.range(at: group))
+            return "w:instr=" + quote + DocxFieldTargets.neutralized(inRaw: value) + quote
         }
-    }
-
-    /// Every sensitive target in one assembled instruction, as edits over
-    /// that string. The same regex as neutralizeSensitiveTargets, reported as
-    /// ranges instead of applied, so a target that crosses runs can be
-    /// projected back onto them.
-    private static func sensitiveTargetEdits(
-        in instruction: String
-    ) -> [DocxFieldInstruction.AssembledEdit] {
-        guard let sensitiveTargetRegex else { return [] }
-        let ns = instruction as NSString
-        return sensitiveTargetRegex
-            .matches(in: instruction, range: NSRange(location: 0, length: ns.length))
-            .map { .init(range: $0.range, text: DocxParts.neutralizedTarget) }
+        return ns.substring(with: match.range)
     }
 
     // MARK: - Authorship attributes

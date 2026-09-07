@@ -155,4 +155,128 @@ final class DocxNamespacePrefixTests: XCTestCase {
         let layout = try DocxDocumentXML.parse(Data(xml.utf8))
         XCTAssertEqual(layout.text, "<x:t xmlns:x=\"\(Self.wml)\">")
     }
+
+    // MARK: - Representations that hide the same binding (review R2)
+
+    /// The Unicode prefix used by the two R2 fixtures below, kept out of the
+    /// string literals so the test source stays ASCII.
+    private static let unicodePrefix = "\u{6587}"
+
+    /// One character of the Word namespace URI written as a DECIMAL character
+    /// reference, bound to "x". XML expands character references before an
+    /// attribute value is a namespace name, so this IS the ordinary Word
+    /// namespace bound to "x" and Word reads it as such. Comparing the raw
+    /// attribute text let it through: the CLI exited 0, reported zero
+    /// entities, and copied the address into the exported document XML.
+    func testADecimalEncodedWordNamespaceIsRefused() {
+        assertRefused(
+            Self.alternatePrefixDocument(
+                prefix: "x",
+                namespace: "http://schemas.openxmlformats.org/wordprocessingml/2006/ma&#105;n"
+            ),
+            "a decimal character reference must not hide the Word namespace"
+        )
+    }
+
+    /// The hexadecimal spelling of the same reference.
+    func testAHexEncodedWordNamespaceIsRefused() {
+        assertRefused(
+            Self.alternatePrefixDocument(
+                prefix: "x",
+                namespace: "http://schemas.openxmlformats.org/wordprocessingml/2006/&#x6D;ain"
+            ),
+            "a hex character reference must not hide the Word namespace"
+        )
+    }
+
+    /// A Unicode prefix bound to the ordinary Word namespace. An XML Name
+    /// accepts letters far outside ASCII, so a prefix pattern of [A-Za-z_]
+    /// never saw this declaration at all and the guard passed a part whose
+    /// every element name it cannot match.
+    func testAUnicodePrefixBoundToWordTextIsRefused() {
+        assertRefused(
+            Self.alternatePrefixDocument(prefix: Self.unicodePrefix, namespace: Self.wml),
+            "a Unicode prefix must not hide a Word text binding"
+        )
+    }
+
+    /// The reviewer's escaped-namespace package, refused at import so no
+    /// caller can reach detection with an empty string.
+    func testAPackageWithAnEncodedWordNamespaceIsRefusedAtImport() throws {
+        try assertPackageRefused(
+            Self.alternatePrefixDocument(
+                prefix: "x",
+                namespace: "http://schemas.openxmlformats.org/wordprocessingml/2006/ma&#105;n"
+            ),
+            named: "encoded-namespace.docx"
+        )
+    }
+
+    /// The reviewer's Unicode-prefix package, refused at import.
+    func testAPackageWithAUnicodePrefixIsRefusedAtImport() throws {
+        try assertPackageRefused(
+            Self.alternatePrefixDocument(prefix: Self.unicodePrefix, namespace: Self.wml),
+            named: "unicode-prefix.docx"
+        )
+    }
+
+    // MARK: - What decoding must not start refusing
+
+    /// A Unicode prefix on a vocabulary this reader does not touch is
+    /// ordinary, valid XML and must still parse. Refusing every non-ASCII
+    /// prefix would be a different defect with the same cost to the lawyer.
+    func testAUnicodePrefixOnAnUnrelatedNamespaceStillParses() throws {
+        let xml = "<w:document xmlns:w=\"\(Self.wml)\" "
+            + "xmlns:\(Self.unicodePrefix)=\"urn:example:notes\">"
+            + "<w:body><w:p><w:r><w:t>\(Self.email)</w:t></w:r></w:p></w:body></w:document>"
+        let layout = try DocxDocumentXML.parse(Data(xml.utf8))
+        XCTAssertEqual(layout.text, Self.email)
+    }
+
+    /// An unrelated namespace whose URI carries a predefined entity decodes
+    /// to something that is still not the Word namespace, so it parses. The
+    /// decode step must not invent a binding.
+    func testAnUnrelatedNamespaceWithAnEntityStillParses() throws {
+        let xml = "<w:document xmlns:w=\"\(Self.wml)\" xmlns:q=\"urn:example:a&amp;b\">"
+            + "<w:body><w:p><w:r><w:t>\(Self.email)</w:t></w:r></w:p></w:body></w:document>"
+        let layout = try DocxDocumentXML.parse(Data(xml.utf8))
+        XCTAssertEqual(layout.text, Self.email)
+    }
+
+    // MARK: - R2 fixtures
+
+    /// A whole document whose every element carries `prefix`, bound to
+    /// `namespace` on the root: the shape both R2 fixtures take.
+    private static func alternatePrefixDocument(prefix: String, namespace: String) -> String {
+        "<\(prefix):document xmlns:\(prefix)=\"\(namespace)\">"
+            + "<\(prefix):body><\(prefix):p><\(prefix):r>"
+            + "<\(prefix):t>\(email)</\(prefix):t>"
+            + "</\(prefix):r></\(prefix):p></\(prefix):body></\(prefix):document>"
+    }
+
+    /// Write `document` as word/document.xml of a minimal package and assert
+    /// the importer refuses it, so the refusal is proven at the edge a lawyer
+    /// reaches and not only inside the parser.
+    private func assertPackageRefused(_ document: String, named name: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DocxNamespacePrefix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = directory.appendingPathComponent(name)
+        let declaration = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        try DocxZip.writeArchive(
+            parts: [
+                ("[Content_Types].xml", Data("<Types/>".utf8)),
+                ("word/document.xml", Data((declaration + document).utf8))
+            ],
+            to: url
+        )
+
+        XCTAssertThrowsError(try DocxImporter().importDocument(url)) { error in
+            guard case DocumentIOError.unsupportedFormat = error else {
+                return XCTFail("expected an unsupported-representation refusal, got \(error)")
+            }
+        }
+    }
 }
