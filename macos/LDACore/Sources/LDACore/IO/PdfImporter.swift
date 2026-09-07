@@ -108,8 +108,24 @@ public struct PdfImporter: DocumentImporter {
         in url: URL,
         surfaceTexts: [(text: String, token: String)]
     ) -> [RedactionBox] {
+        return redactionCoverage(in: url, surfaceTexts: surfaceTexts).boxes
+    }
+
+    /// Locate the boxes AND report coverage per occurrence.
+    ///
+    /// Both searches run for every value and their results are merged. The
+    /// earlier shape ran the whitespace-normalized search only as a FALLBACK
+    /// for a value with no exact match ANYWHERE in the document, so a name
+    /// printed normally on one page and wrapped across two lines on another got
+    /// a box on the normal page only, and a coverage count that asked merely
+    /// whether SOME box carried the token then called the value covered while
+    /// the wrapped page kept the original pixels.
+    public static func redactionCoverage(
+        in url: URL,
+        surfaceTexts: [(text: String, token: String)]
+    ) -> PdfRedactionCoverage {
         guard let document = PDFDocument(url: url) else {
-            return []
+            return PdfRedactionCoverage()
         }
 
         // Map each page object to its zero-based index for fast lookup when a
@@ -120,79 +136,173 @@ public struct PdfImporter: DocumentImporter {
                 pageIndexByPage[page] = index
             }
         }
+        // Normalize each page ONCE. The normalized search now runs for every
+        // value rather than only for the values the exact search missed, so
+        // re-normalizing per value would cost pages times values.
+        let pages = normalizedPages(of: document)
 
-        var boxes: [RedactionBox] = []
-
+        var located: [PdfTextOccurrence] = []
         for entry in surfaceTexts {
-            let needle = entry.text
-            if needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 continue
             }
-
-            var boxesForEntry: [RedactionBox] = []
-            let selections = document.findString(needle, withOptions: .caseInsensitive)
-            for selection in selections {
-                for page in selection.pages {
-                    guard let pageIndex = pageIndexByPage[page] else { continue }
-                    let rect = selection.bounds(for: page)
-                    if rect.isNull || rect.isEmpty {
-                        continue
-                    }
-                    boxesForEntry.append(
-                        RedactionBox(pageIndex: pageIndex, rect: rect, token: entry.token)
-                    )
-                }
-            }
-
-            // Fallback for visually split PII. PDFDocument.findString matches the
-            // needle only as a contiguous run in the text layer, so a name broken
-            // across two lines of a table cell, or across a column break, is
-            // detected in the extracted text (where the layout is already
-            // flattened) but produces NO selection here. The consequence is a
-            // review PDF that still SHOWS a value the app reports as redacted,
-            // which is the worst kind of miss in this app.
-            //
-            // The fallback searches each page with whitespace normalized on both
-            // sides, then converts the matched character range into one box PER
-            // LINE, so a two-line name gets two boxes that actually cover it
-            // rather than one rect spanning the gap between them.
-            if boxesForEntry.isEmpty {
-                boxesForEntry = normalizedSearchBoxes(
-                    needle: needle,
-                    token: entry.token,
-                    in: document
-                )
-            }
-
-            boxes.append(contentsOf: boxesForEntry)
+            located += occurrences(
+                of: entry,
+                in: document,
+                pageIndexByPage: pageIndexByPage,
+                normalizedPages: pages
+            )
         }
-
-        return boxes
+        return PdfRedactionCoverage(occurrences: located)
     }
 
-    // MARK: - Whitespace-normalized fallback search
+    /// Both search paths for one value, merged into one occurrence set.
+    ///
+    /// PDFDocument.findString matches the needle only as a contiguous run in
+    /// the text layer, so a name broken across two lines of a table cell, or
+    /// across a column break, is detected in the extracted text (where the
+    /// layout is already flattened) but produces NO selection. The
+    /// whitespace-normalized page search sees both shapes, and emits one box
+    /// PER LINE so a two-line name gets two boxes that actually cover it
+    /// rather than one rect spanning the gap between them.
+    private static func occurrences(
+        of entry: (text: String, token: String),
+        in document: PDFDocument,
+        pageIndexByPage: [PDFPage: Int],
+        normalizedPages pages: [NormalizedPage]
+    ) -> [PdfTextOccurrence] {
+        let exact = exactOccurrences(
+            needle: entry.text,
+            token: entry.token,
+            in: document,
+            pageIndexByPage: pageIndexByPage
+        )
+        // Deduplicate: a contiguous occurrence is seen by BOTH searches. Keep
+        // the exact selection's box, which is the proven geometry, and drop the
+        // normalized duplicate instead of stacking two rects on one set of
+        // glyphs.
+        let wrapped = normalizedOccurrences(
+            needle: entry.text,
+            token: entry.token,
+            pages: pages
+        ).filter { candidate in
+            !exact.contains { isSameOccurrence($0, candidate) }
+        }
+        return exact + wrapped
+    }
+
+    /// True when two occurrences describe the same place on the same page.
+    ///
+    /// Compared by rect intersection rather than by text offset because the
+    /// exact search reports geometry (a PDFSelection's bounds) and never a
+    /// character range, so geometry is the only space the two paths share.
+    /// Rects that merely TOUCH do not intersect, so two occurrences printed
+    /// side by side on one line stay separate. An occurrence with no boxes
+    /// matches nothing and therefore survives the filter, which is the safe
+    /// direction: it gets reported as uncovered.
+    private static func isSameOccurrence(
+        _ lhs: PdfTextOccurrence,
+        _ rhs: PdfTextOccurrence
+    ) -> Bool {
+        guard lhs.pageIndex == rhs.pageIndex else { return false }
+        return lhs.boxes.contains { left in
+            rhs.boxes.contains { $0.rect.intersects(left.rect) }
+        }
+    }
+
+    /// One occurrence per contiguous selection page, from PDFKit's own search.
+    ///
+    /// A selection whose bounds are null or empty yields no occurrence at all,
+    /// which leaves the normalized search free to locate that instance instead
+    /// of the value silently losing its box.
+    private static func exactOccurrences(
+        needle: String,
+        token: String,
+        in document: PDFDocument,
+        pageIndexByPage: [PDFPage: Int]
+    ) -> [PdfTextOccurrence] {
+        var found: [PdfTextOccurrence] = []
+        for selection in document.findString(needle, withOptions: .caseInsensitive) {
+            for page in selection.pages {
+                guard let pageIndex = pageIndexByPage[page] else { continue }
+                let rect = selection.bounds(for: page)
+                if rect.isNull || rect.isEmpty { continue }
+                found.append(
+                    PdfTextOccurrence(
+                        pageIndex: pageIndex,
+                        token: token,
+                        boxes: [RedactionBox(pageIndex: pageIndex, rect: rect, token: token)]
+                    )
+                )
+            }
+        }
+        return found
+    }
+
+    // MARK: - Whitespace-normalized search
 
     /// Find `needle` on every page with whitespace normalized, and return one
     /// box per line of each match.
     ///
     /// Internal rather than private so the cross-line behavior is directly
-    /// testable; the production entry point is redactionBoxes(in:surfaceTexts:).
+    /// testable; the production entry point is redactionCoverage(in:surfaceTexts:).
     static func normalizedSearchBoxes(
         needle: String,
         token: String,
         in document: PDFDocument
     ) -> [RedactionBox] {
-        let normalizedNeedle = normalizeWhitespace(needle).text
-        guard !normalizedNeedle.isEmpty else { return [] }
+        return normalizedOccurrences(
+            needle: needle,
+            token: token,
+            pages: normalizedPages(of: document)
+        ).flatMap(\.boxes)
+    }
 
-        var boxes: [RedactionBox] = []
+    /// A page, its whitespace-normalized text, and the map back into the page's
+    /// own UTF-16 offsets. Built once per document and reused for every value.
+    struct NormalizedPage {
+        let page: PDFPage
+        let pageIndex: Int
+        let haystack: NSString
+        let originalIndexes: [Int]
+    }
+
+    /// Normalize every page that carries text. Pages with no text layer are
+    /// omitted; their PII is boxed by the OCR channel instead.
+    static func normalizedPages(of document: PDFDocument) -> [NormalizedPage] {
+        var pages: [NormalizedPage] = []
         for pageIndex in 0 ..< document.pageCount {
             guard let page = document.page(at: pageIndex), let pageText = page.string else {
                 continue
             }
             let normalized = normalizeWhitespace(pageText)
             guard !normalized.text.isEmpty else { continue }
+            pages.append(
+                NormalizedPage(
+                    page: page,
+                    pageIndex: pageIndex,
+                    haystack: normalized.text as NSString,
+                    originalIndexes: normalized.originalIndexes
+                )
+            )
+        }
+        return pages
+    }
 
+    /// Every whitespace-tolerant match of `needle`, one occurrence per match.
+    ///
+    /// An occurrence whose glyph geometry could not be read carries NO boxes
+    /// rather than being dropped, so the caller can report it.
+    static func normalizedOccurrences(
+        needle: String,
+        token: String,
+        pages: [NormalizedPage]
+    ) -> [PdfTextOccurrence] {
+        let normalizedNeedle = normalizeWhitespace(needle).text
+        guard !normalizedNeedle.isEmpty else { return [] }
+
+        var found: [PdfTextOccurrence] = []
+        for entry in pages {
             // Search and index in ONE space: UTF-16 code units. NSString's
             // case-insensitive search returns UTF-16 offsets directly, and
             // originalIndexes carries one entry per UTF-16 unit of the
@@ -205,30 +315,36 @@ public struct PdfImporter: DocumentImporter {
             // haystack was part of the same trap: lowercasing can change
             // UTF-16 length (Turkish dotted I), so the search uses the
             // caseInsensitive option instead of transforming either string.
-            let haystack = normalized.text as NSString
             var searchStart = 0
-            while searchStart < haystack.length {
-                let found = haystack.range(
+            while searchStart < entry.haystack.length {
+                let range = entry.haystack.range(
                     of: normalizedNeedle,
                     options: [.caseInsensitive],
-                    range: NSRange(location: searchStart, length: haystack.length - searchStart)
-                )
-                guard found.location != NSNotFound, found.length > 0 else { break }
-                let originalIndexes = Array(
-                    normalized.originalIndexes[found.location ..< found.location + found.length]
-                )
-                boxes.append(
-                    contentsOf: lineBoxes(
-                        for: originalIndexes,
-                        on: page,
-                        pageIndex: pageIndex,
-                        token: token
+                    range: NSRange(
+                        location: searchStart,
+                        length: entry.haystack.length - searchStart
                     )
                 )
-                searchStart = found.location + found.length
+                guard range.location != NSNotFound, range.length > 0 else { break }
+                let originalIndexes = Array(
+                    entry.originalIndexes[range.location ..< range.location + range.length]
+                )
+                found.append(
+                    PdfTextOccurrence(
+                        pageIndex: entry.pageIndex,
+                        token: token,
+                        boxes: lineBoxes(
+                            for: originalIndexes,
+                            on: entry.page,
+                            pageIndex: entry.pageIndex,
+                            token: token
+                        )
+                    )
+                )
+                searchStart = range.location + range.length
             }
         }
-        return boxes
+        return found
     }
 
     /// A whitespace-normalized copy of text plus, for each UTF-16 code unit of

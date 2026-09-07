@@ -113,12 +113,14 @@ final class LLMExtractorDriftTests: XCTestCase {
     }
 
     func testValuePresentButUnanchorableIsCountedAsLeak() throws {
-        // The document really does contain this person; the model reflowed the
-        // whitespace, so the literal locator cannot find it and it survives into
-        // the output un-redacted.
+        // The document really does contain this person; the model dropped the
+        // space between the names. A space inside Latin text is real, so the
+        // whitespace-variant search will not bridge it (a doubled space, the
+        // old fixture here, it now anchors), the locator cannot find the value,
+        // and it survives into the output un-redacted.
         let text = "This agreement is between Acme Corp and John Smith."
         let json = """
-        {"entities":[{"value":"John  Smith","type":"PERSON"}],"redacted_text":""}
+        {"entities":[{"value":"JohnSmith","type":"PERSON"}],"redacted_text":""}
         """
         let extractor = LLMExtractor(completer: FixedCompleter(output: json))
 

@@ -418,6 +418,156 @@ final class FillModelLibraryTests: XCTestCase {
         XCTAssertNil(model.pickerRequestID, "backToLibrary must clear pickerRequestID")
     }
 
+    // MARK: - A stale extraction cannot overwrite another portfolio
+
+    /// The review finding end to end, through the real library: extraction A
+    /// is in flight, the user goes back to the library and opens B, then A
+    /// finishes. The editor must still hold B, and the Save that follows must
+    /// write B's own data under B's id, never A's.
+    func testAStaleExtractionCannotBeSavedOverThePortfolioOpenedAfterIt() async throws {
+        let lib = try makeLibrarySeam()
+        let bID = try lib.create(makeCompanyPortfolio(label: "Portfolio B"))
+        let portfolioA = makeCompanyPortfolio(label: "Portfolio A")
+        let blocker = DispatchSemaphore(value: 0)
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            blocker.wait()
+            return ExtractProfileResult(profile: portfolioA, failedSources: [])
+        }
+
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        await model.createPortfolio(
+            kind: .company,
+            label: "Portfolio A",
+            fromScratch: false,
+            createdAtISO8601: "2026-09-06T00:00:00Z"
+        )
+        let extracting = Task {
+            await model.extractProfile(
+                sources: [URL(fileURLWithPath: "/tmp/synthetic-source.txt")],
+                label: "Portfolio A",
+                createdAtISO8601: "2026-09-06T00:00:00Z"
+            )
+        }
+        var waited = 0
+        while model.stage != .importingSources && waited < 500 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+            waited += 1
+        }
+        XCTAssertEqual(model.stage, .importingSources, "the extraction never started")
+
+        model.backToLibrary()
+        await model.openForEdit(id: bID)
+        XCTAssertEqual(model.profile?.label, "Portfolio B", "fixture: B is open")
+
+        blocker.signal()
+        await extracting.value
+
+        XCTAssertEqual(model.profile?.label, "Portfolio B", "A's profile landed in B's editor")
+        XCTAssertEqual(model.currentPortfolioID, bID)
+        XCTAssertFalse(model.profileDirty, "B was opened clean and nothing the user did changed it")
+
+        await model.saveToLibrary(modifiedAtISO8601: "2026-09-06T00:01:00Z")
+        XCTAssertEqual(
+            try lib.load(id: bID).label, "Portfolio B",
+            "portfolio B was overwritten with the stale extraction"
+        )
+    }
+
+    /// A Save that completes after the user left for the library must land
+    /// nowhere. Its write is on disk and the list shows it; but publishing its
+    /// outcome would pull the user back into an editor they left, and the id
+    /// it assigns would attach to whatever portfolio is opened next, where the
+    /// next Save writes that portfolio's data over this one.
+    func testASaveThatCompletesAfterLeavingForTheLibraryLandsNowhere() async throws {
+        let lib = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+        await model.createPortfolio(
+            kind: .company,
+            label: "Portfolio A",
+            fromScratch: true,
+            createdAtISO8601: "2026-09-06T00:00:00Z"
+        )
+        model.addField(key: .companyName, value: "Synthetic Alpha Holdings")
+
+        // saveToLibrary stamps the profile before its first suspension, so the
+        // stamp is the signal that the save is in flight. Yield rather than
+        // sleep: a sleep is long enough for the library write to finish, and
+        // the test would then be navigating after a completed save.
+        let stamp = "2026-09-06T00:01:00Z"
+        let saving = Task { await model.saveToLibrary(modifiedAtISO8601: stamp) }
+        var waited = 0
+        while model.profile?.modifiedAtISO8601 != stamp && waited < 500 {
+            await Task.yield()
+            waited += 1
+        }
+        XCTAssertEqual(model.profile?.modifiedAtISO8601, stamp, "the save never started")
+
+        model.backToLibrary()
+        await saving.value
+
+        XCTAssertEqual(model.stage, .library, "a stale save pulled the user back into the editor")
+        XCTAssertNil(model.currentPortfolioID, "a stale save must not assign its id to the editor")
+        XCTAssertEqual(try lib.list().map(\.label), ["Portfolio A"], "the write itself completed")
+    }
+
+    /// The other direction must keep working: a Save still writing when an
+    /// extraction starts for the SAME editor is not stale. Its id must land,
+    /// or the next Save would create a second library entry for one portfolio.
+    func testASaveStillWritingWhenAnExtractionStartsKeepsItsIdentity() async throws {
+        let lib = try makeLibrarySeam()
+        let extracted = makeCompanyPortfolio(label: "Portfolio A")
+        let blocker = DispatchSemaphore(value: 0)
+        FillModel.extractProfileForTesting = { _, _, _, _, _ in
+            blocker.wait()
+            return ExtractProfileResult(profile: extracted, failedSources: [])
+        }
+        let model = FillModel(modelPath: "/fake/model.gguf")
+        await model.createPortfolio(
+            kind: .company,
+            label: "Portfolio A",
+            fromScratch: false,
+            createdAtISO8601: "2026-09-06T00:00:00Z"
+        )
+
+        // Yield, not sleep, so the extraction starts while the write is still
+        // in flight; see the test above.
+        let stamp = "2026-09-06T00:01:00Z"
+        let saving = Task { await model.saveToLibrary(modifiedAtISO8601: stamp) }
+        var waited = 0
+        while model.profile?.modifiedAtISO8601 != stamp && waited < 500 {
+            await Task.yield()
+            waited += 1
+        }
+        XCTAssertEqual(model.profile?.modifiedAtISO8601, stamp, "the save never started")
+
+        let extracting = Task {
+            await model.extractProfile(
+                sources: [URL(fileURLWithPath: "/tmp/synthetic-source.txt")],
+                label: "Portfolio A",
+                createdAtISO8601: "2026-09-06T00:00:00Z"
+            )
+        }
+        waited = 0
+        while model.stage != .importingSources && waited < 500 {
+            await Task.yield()
+            waited += 1
+        }
+        await saving.value
+        let savedID = try XCTUnwrap(
+            model.currentPortfolioID,
+            "the save's id must land: the editor still holds the portfolio it saved"
+        )
+
+        blocker.signal()
+        await extracting.value
+
+        XCTAssertEqual(model.currentPortfolioID, savedID, "the extraction keeps the saved identity")
+        XCTAssertEqual(model.profile?.label, "Portfolio A")
+        XCTAssertFalse(model.profile?.fields.isEmpty ?? true, "the extraction landed")
+        await model.saveToLibrary(modifiedAtISO8601: "2026-09-06T00:02:00Z")
+        XCTAssertEqual(try lib.list().count, 1, "one portfolio, one library entry")
+    }
+
     // MARK: - External "Load Profile" clears currentPortfolioID (fix 4c)
 
     /// When an external .ldaprofile file is loaded via confirmLoadProfile, the shell

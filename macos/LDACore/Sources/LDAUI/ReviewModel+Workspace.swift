@@ -47,8 +47,12 @@ extension ReviewModel {
 
     /// Capture this document's review state for a workspace archive.
     ///
-    /// Decisions and assigned replacements only. No selection, no scroll
-    /// position, no status: a workspace restores work, not a desktop.
+    /// Decisions, assigned replacements, and the AI coverage of the result
+    /// they belong to. No selection, no scroll position, no status: a
+    /// workspace restores work, not a desktop. The coverage is part of the
+    /// work: a review list whose AI pass never ran is a different deliverable
+    /// from one whose pass finished, and the Export for AI gate on the
+    /// reopening Mac has to know which one it is looking at.
     func workspaceSnapshot(documentID: UUID) -> WorkspaceReviewSnapshot {
         WorkspaceReviewSnapshot(
             documentID: documentID,
@@ -60,7 +64,8 @@ extension ReviewModel {
                     accepted: $0.accepted,
                     token: $0.token
                 )
-            }
+            },
+            aiCoverage: aiCoverage.workspaceRecord
         )
     }
 
@@ -72,6 +77,13 @@ extension ReviewModel {
     /// the original bytes and the ordinary importer read them). Detection is
     /// NOT run, and the document ends in the reviewed state so the restored
     /// session can hand off and export immediately.
+    ///
+    /// Reviewed does not mean AI-scanned. The coverage the snapshot recorded
+    /// is re-applied with the decisions, so a result whose AI pass failed or
+    /// stopped short is gated here exactly as it was before it was saved; a
+    /// snapshot from before coverage was recorded is gated as if the pass
+    /// did not run, and a snapshot whose text no longer matches is gated
+    /// whatever it recorded, because that pass ran over different text.
     @discardableResult
     func applyWorkspaceSnapshot(
         _ snapshot: WorkspaceReviewSnapshot
@@ -82,6 +94,12 @@ extension ReviewModel {
             : relocated(snapshot.entities)
 
         entities = outcome.restored
+        // A relocated review is one whose text is no longer the text that was
+        // scanned. Whatever the record says about that scan, it ran over other
+        // text, so this text re-applies warned; see AIScanCoverage.
+        aiCoverage = matches
+            ? AIScanCoverage.restored(from: snapshot.aiCoverage)
+            : AIScanCoverage.textChangedSinceScan()
         selectedGroupID = nil
         // A dropped record is a protected value that this build could not
         // locate. Keep the document out of the export gate until the user

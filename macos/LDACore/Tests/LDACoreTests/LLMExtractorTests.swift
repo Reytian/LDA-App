@@ -166,10 +166,13 @@ final class LLMExtractorTests: XCTestCase {
 
     // MARK: - A garbage chunk is skipped without failing
 
-    func testSkipsChunkWithGarbageCompletionWithoutFailing() throws {
+    func testGarbageChunkKeepsTheGoodChunkEntitiesButCountsAsUnscanned() throws {
         // Two well-separated paragraphs so the chunker yields more than one chunk.
         // The first chunk returns garbage; the second returns valid JSON. The run
-        // must not throw, and must still surface the entity from the good chunk.
+        // must not throw and must still surface the entity from the good chunk,
+        // but the garbage chunk was never scanned: it must count as incomplete so
+        // the coverage gate refuses to call the document clean. (The contract
+        // used to be "skipped silently"; a non-answer is not an empty answer.)
         let firstParagraph = String(repeating: "Alpha clause text. ", count: 200)
         let secondParagraph = "The seller is Acme Corp and the signer is Robert King."
         let text = firstParagraph + "\n\n" + secondParagraph
@@ -190,16 +193,21 @@ final class LLMExtractorTests: XCTestCase {
         // garbage path is actually exercised.
         XCTAssertGreaterThan(SegmentPacker.segments(of: text).count, 1)
 
-        let spans = try extractor.extract(from: text)
+        let result = try extractor.extractDetailed(from: text)
 
-        XCTAssertEqual(spans.count, 2)
-        XCTAssertTrue(spans.contains { $0.text == "Robert King" && $0.type == .person })
-        XCTAssertTrue(spans.contains { $0.text == "Acme Corp" && $0.type == .company })
+        XCTAssertEqual(result.spans.count, 2)
+        XCTAssertTrue(result.spans.contains { $0.text == "Robert King" && $0.type == .person })
+        XCTAssertTrue(result.spans.contains { $0.text == "Acme Corp" && $0.type == .company })
+        XCTAssertGreaterThanOrEqual(
+            result.incompleteSegmentCount, 1,
+            "a chunk that came back as garbage was not scanned"
+        )
+        XCTAssertFalse(result.fullyCovered, "garbage output must not pass the coverage gate")
     }
 
-    // MARK: - A throwing chunk is skipped without failing
+    // MARK: - A throwing chunk does not fail the run, but counts as unscanned
 
-    func testSkipsChunkWhoseCompletionThrowsWithoutFailing() throws {
+    func testThrowingChunkKeepsTheGoodChunkEntitiesButCountsAsUnscanned() throws {
         // A unique marker sits at the very head of the document, so exactly the
         // first window throws while the window carrying "Mary Stone" succeeds.
         let firstParagraph = "OPENING RECITAL MARKER. " + String(repeating: "Beta recital text. ", count: 200)
@@ -218,9 +226,14 @@ final class LLMExtractorTests: XCTestCase {
         )
         let extractor = LLMExtractor(completer: completer)
 
-        let spans = try extractor.extract(from: text)
+        let result = try extractor.extractDetailed(from: text)
 
-        XCTAssertTrue(spans.contains { $0.text == "Mary Stone" && $0.type == .person })
+        XCTAssertTrue(result.spans.contains { $0.text == "Mary Stone" && $0.type == .person })
+        XCTAssertEqual(
+            result.incompleteSegmentCount, 1,
+            "exactly the window whose completion threw was never scanned"
+        )
+        XCTAssertFalse(result.fullyCovered, "a backend failure must not pass the coverage gate")
     }
 
     // MARK: - Truncation handling (LJE-001)

@@ -77,6 +77,29 @@ final class SaveAvailabilityTests: XCTestCase {
         }
     }
 
+    /// The one condition that is not a status: the file on disk stopped
+    /// matching the file that was scanned. It blocks with its own reason,
+    /// because the remedy (open the file again) is one no status names, and
+    /// it outranks a finished scan, which is the only state it can arise in.
+    func testASourceThatChangedAfterTheScanBlocksSaveRedactedWithItsOwnReason() {
+        XCTAssertEqual(
+            SaveAvailabilityRules.saveRedacted(status: .ready, sourceChangedSinceScan: true),
+            .blocked(.sourceChangedSinceScan)
+        )
+        XCTAssertEqual(
+            SaveAvailabilityRules.saveRedacted(status: .ready, sourceChangedSinceScan: false),
+            .available,
+            "the flag, not the status, is what blocks"
+        )
+        for status in Self.allStatuses {
+            XCTAssertEqual(
+                SaveAvailabilityRules.saveRedacted(status: status, sourceChangedSinceScan: true).blockReason,
+                .sourceChangedSinceScan,
+                "a changed source must name its own remedy in \(status)"
+            )
+        }
+    }
+
     func testSaveWorkspaceAvailabilityEqualsTheOldNonEmptyTrayGate() {
         for documentCount in 0...4 {
             // SessionModel.canSaveWorkspace was `!entries.isEmpty`.
