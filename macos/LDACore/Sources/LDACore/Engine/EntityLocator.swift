@@ -86,39 +86,16 @@ public enum EntityLocator {
 
         let haystack = text as NSString
         let length = haystack.length
-        let needleLength = (needle as NSString).length
-        guard needleLength > 0, length > 0 else {
+        guard (needle as NSString).length > 0, length > 0 else {
             return []
         }
 
-        var exact = SearchCursor { from in
-            // Case folding and canonical equivalence both allow a match whose
-            // code-unit length differs from the needle's, so nothing here
-            // assumes needleLength; the search only bounds on the remaining
-            // haystack.
-            let found = haystack.range(
-                of: needle,
-                options: [.caseInsensitive],
-                range: NSRange(location: from, length: length - from)
-            )
-            return found.location != NSNotFound && found.length > 0 ? found : nil
-        }
-        let variantPattern = EntityVariantPattern.regex(for: needle)
-        var variant = SearchCursor { from in
-            guard let variantPattern else { return nil }
-            let found = variantPattern.firstMatch(
-                in: text,
-                options: [],
-                range: NSRange(location: from, length: length - from)
-            )?.range
-            return found.map { $0.length > 0 ? $0 : nil } ?? nil
-        }
-
+        var scan = TwoEngineScan(needle: needle, text: text)
         var result: [Span] = []
         var searchStart = 0
 
         while searchStart < length {
-            guard let found = leftmost(exact.next(from: searchStart), variant.next(from: searchStart)) else {
+            guard let found = scan.nextHit(from: searchStart) else {
                 break
             }
 
@@ -134,21 +111,17 @@ public enum EntityLocator {
                 continue
             }
 
-            // Capture the ACTUAL matched substring, not the needle. NSString.range
-            // does canonical (NFC/NFD-insensitive) and case-insensitive matching,
-            // and a variant hit differs from the needle in its whitespace, so
-            // the matched slice can differ from the needle in both bytes and
-            // length. Stamping `text: needle` would make span.text disagree with
-            // the [start, end) bytes and silently change the document's casing,
-            // normalization form, or line structure on restore. Using the
-            // matched slice keeps span.text byte-identical to the source range.
-            let matched = haystack.substring(with: found)
+            // Capture the ACTUAL matched substring, not the needle: an exact hit
+            // can differ from the needle in casing or normalization form, and a
+            // variant hit differs in its whitespace. Stamping `text: needle`
+            // would make span.text disagree with the [start, end) bytes and
+            // silently change the document on restore.
             result.append(
                 Span(
                     start: start,
                     end: end,
                     type: type,
-                    text: matched,
+                    text: haystack.substring(with: found),
                     source: source,
                     confidence: confidence,
                     priority: llmPriority
@@ -163,6 +136,45 @@ public enum EntityLocator {
     }
 
     // MARK: - Two-engine scan
+
+    /// The exact search and the variant search over one text, each behind its
+    /// own cursor. nextHit returns whichever hit starts first at or after the
+    /// scan position, so the caller sees one ordered stream of candidates.
+    private struct TwoEngineScan {
+        private var exact: SearchCursor
+        private var variant: SearchCursor
+
+        init(needle: String, text: String) {
+            let haystack = text as NSString
+            let length = haystack.length
+            exact = SearchCursor { from in
+                // Case folding and canonical equivalence both allow a match
+                // whose code-unit length differs from the needle's, so nothing
+                // here assumes the needle length; the search only bounds on the
+                // remaining haystack.
+                let found = haystack.range(
+                    of: needle,
+                    options: [.caseInsensitive],
+                    range: NSRange(location: from, length: length - from)
+                )
+                return found.location != NSNotFound && found.length > 0 ? found : nil
+            }
+            let pattern = EntityVariantPattern.regex(for: needle)
+            variant = SearchCursor { from in
+                guard let pattern else { return nil }
+                let found = pattern.firstMatch(
+                    in: text,
+                    options: [],
+                    range: NSRange(location: from, length: length - from)
+                )?.range
+                return found.map { $0.length > 0 ? $0 : nil } ?? nil
+            }
+        }
+
+        mutating func nextHit(from: Int) -> NSRange? {
+            return leftmost(exact.next(from: from), variant.next(from: from))
+        }
+    }
 
     /// One search engine's position in the scan. A hit stays valid while the
     /// scan has not passed its start, so each engine walks the text once even
