@@ -267,39 +267,86 @@ enum DocxParts {
         detect: (String) -> [Span],
         budget: ArchiveBudget
     ) throws -> Result {
+        let loaded = try loadTextBearingParts(from: url, budget: budget)
+        var text = redactedTextParts(loaded.parts, mapping: mapping, detect: detect)
+        text.failedParts += loaded.failedParts
+
+        // What this package holds that the export removes, and what makes it
+        // refuse outright. Classified before any reference cleanup, because
+        // the cleanup has to know what is going away.
+        let classified = DocxPackagePolicy.classify(paths: enumerateEntryPaths(in: url))
+        var replacements = text.replacements
+        for (path, bytes) in scrubbedMetadataParts(url: url, budget: budget) {
+            replacements[path] = bytes
+        }
+        for (path, bytes) in cleanedPackageParts(url: url, dropped: classified.dropped, budget: budget) {
+            replacements[path] = bytes
+        }
+
+        return Result(
+            replacements: replacements,
+            newEntries: text.newEntries,
+            failedParts: text.failedParts,
+            removedParts: classified.dropped,
+            unsupportedParts: classified.unsupported,
+            coverage: text.coverage
+        )
+    }
+
+    /// What redacting the supplementary TEXT parts produced, before the
+    /// metadata scrubs and the package-plumbing cleanup are folded in.
+    private struct TextPartRedaction {
         var replacements: [String: Data] = [:]
         var newEntries: [MappingEntry] = []
+        var failedParts: [String] = []
         var coverage = DocxSupplementaryCoverage.none
+    }
 
-        // Token reuse index and per-type counters seeded from the body mapping,
-        // then carried across parts so numbering never collides.
-        var tokenByNormSurface: [String: String] = [:]
+    /// Every normalized surface the body mapping already knows, aliases
+    /// included, pointing at the token it was given. A surface a header
+    /// repeats must reuse the body's token, not mint a second one.
+    private static func tokensByNormalizedSurface(in mapping: Mapping) -> [String: String] {
+        var tokens: [String: String] = [:]
         for entry in mapping.entries.values {
-            tokenByNormSurface[TextMatching.normalize(entry.surfaceText)] = entry.token
+            tokens[TextMatching.normalize(entry.surfaceText)] = entry.token
             for alias in entry.aliases {
-                tokenByNormSurface[TextMatching.normalize(alias)] = entry.token
+                tokens[TextMatching.normalize(alias)] = entry.token
             }
         }
-        var counters = perTypeMaxIndices(in: mapping.entries.keys)
+        return tokens
+    }
 
-        let loaded = try loadTextBearingParts(from: url, budget: budget)
-        var failedParts = loaded.failedParts
-        for part in loaded.parts {
+    /// Redact every supplementary text part, minting tokens that continue the
+    /// body's per-type numbering and reusing the body's token for a surface
+    /// the body already mapped.
+    private static func redactedTextParts(
+        _ parts: [LoadedPart],
+        mapping: Mapping,
+        detect: (String) -> [Span]
+    ) -> TextPartRedaction {
+        // Token reuse index and per-type counters seeded from the body mapping,
+        // then carried across parts so numbering never collides.
+        var tokenByNormSurface = tokensByNormalizedSurface(in: mapping)
+        var counters = perTypeMaxIndices(in: mapping.entries.keys)
+        var outcome = TextPartRedaction()
+
+        for part in parts {
             // Exactly the spans supplementaryCoverage would preview, so the
             // preview and this pass can never disagree.
             let accepted = acceptedSupplementarySpans(in: part.layout.text, detect: detect)
-            coverage.add(accepted)
+            outcome.coverage.add(accepted)
 
             // Resolve a token for each accepted span, extending the mapping.
-            var replacementsForPart: [Replacement] = []
-            for span in accepted {
-                let token = resolveToken(
-                    for: span,
-                    tokenByNormSurface: &tokenByNormSurface,
-                    counters: &counters,
-                    newEntries: &newEntries
+            let replacementsForPart = accepted.map { span in
+                Replacement(
+                    span: span,
+                    token: resolveToken(
+                        for: span,
+                        tokenByNormSurface: &tokenByNormSurface,
+                        counters: &counters,
+                        newEntries: &outcome.newEntries
+                    )
                 )
-                replacementsForPart.append(Replacement(span: span, token: token))
             }
 
             // Every part also loses the PII its markup carries (field targets,
@@ -307,44 +354,51 @@ enum DocxParts {
             // A part neither pass touched is not listed, so it copies through
             // byte for byte.
             guard let rewritten = redactedPartXML(part, replacements: replacementsForPart) else {
-                failedParts.append(part.path)
+                outcome.failedParts.append(part.path)
                 continue
             }
             let scrubbed = DocxMarkupScrub.scrubRedactedPart(rewritten)
             if !replacementsForPart.isEmpty || scrubbed != rewritten {
-                replacements[part.path] = Data(scrubbed.utf8)
+                outcome.replacements[part.path] = Data(scrubbed.utf8)
             }
         }
+        return outcome
+    }
 
-        // Blank the people named in word/people.xml.
-        if let data = try? DocxZip.readEntry(DocxMarkupScrub.peoplePartPath, from: url, budget: budget),
-           let xml = String(data: data, encoding: .utf8) {
-            replacements[DocxMarkupScrub.peoplePartPath] = Data(DocxMarkupScrub.scrubPeoplePart(xml).utf8)
+    /// The identity metadata parts, blanked. Read best effort: a package that
+    /// carries none of them simply contributes nothing here.
+    private static func scrubbedMetadataParts(
+        url: URL,
+        budget: ArchiveBudget
+    ) -> [String: Data] {
+        // Custom document properties matter as much as the core ones:
+        // DMS-stamped client names, matter numbers, and billing codes
+        // routinely live there as string values.
+        let scrubs: [(String, (String) -> String)] = [
+            (DocxMarkupScrub.peoplePartPath, DocxMarkupScrub.scrubPeoplePart),
+            (docxCorePropsPath, scrubCoreProps),
+            (docxAppPropsPath, scrubAppProps),
+            (docxCustomPropsPath, scrubCustomProps)
+        ]
+        var replacements: [String: Data] = [:]
+        for (path, scrub) in scrubs {
+            guard let data = try? DocxZip.readEntry(path, from: url, budget: budget),
+                  let xml = String(data: data, encoding: .utf8) else { continue }
+            replacements[path] = Data(scrub(xml).utf8)
         }
+        return replacements
+    }
 
-        // Scrub author/title metadata.
-        if let data = try? DocxZip.readEntry(docxCorePropsPath, from: url, budget: budget),
-           let xml = String(data: data, encoding: .utf8) {
-            replacements[docxCorePropsPath] = Data(scrubCoreProps(xml).utf8)
-        }
-        if let data = try? DocxZip.readEntry(docxAppPropsPath, from: url, budget: budget),
-           let xml = String(data: data, encoding: .utf8) {
-            replacements[docxAppPropsPath] = Data(scrubAppProps(xml).utf8)
-        }
-        // Scrub custom document properties: DMS-stamped client names, matter
-        // numbers, and billing codes routinely live here as string values.
-        if let data = try? DocxZip.readEntry(docxCustomPropsPath, from: url, budget: budget),
-           let xml = String(data: data, encoding: .utf8) {
-            replacements[docxCustomPropsPath] = Data(scrubCustomProps(xml).utf8)
-        }
-
-        // What this package holds that the export removes, and what makes it
-        // refuse outright. Classified before any reference cleanup, because
-        // the cleanup below has to know what is going away.
-        let classified = DocxPackagePolicy.classify(paths: enumerateEntryPaths(in: url))
-
-        // Neutralize external mailto:/tel: hyperlink targets in every .rels
-        // part, and drop the relationships that pointed at a removed member.
+    /// The package plumbing, cleaned: external mailto:/tel: hyperlink targets
+    /// neutralized in every .rels part, relationships to a removed member
+    /// dropped, and the content-type overrides of removed members dropped, so
+    /// the package declares and references no part it no longer carries.
+    private static func cleanedPackageParts(
+        url: URL,
+        dropped: [String],
+        budget: ArchiveBudget
+    ) -> [String: Data] {
+        var replacements: [String: Data] = [:]
         for relsPath in relsPartPaths(in: url) {
             guard let data = try? DocxZip.readEntry(relsPath, from: url, budget: budget),
                   let xml = String(data: data, encoding: .utf8) else { continue }
@@ -355,26 +409,14 @@ enum DocxParts {
                 replacements[relsPath] = Data(cleaned.utf8)
             }
         }
-
-        // Drop the content-type overrides of the removed members, so the
-        // package declares no part it no longer carries.
-        if !classified.dropped.isEmpty,
-           let data = try? DocxZip.readEntry(docxContentTypesPath, from: url, budget: budget),
-           let xml = String(data: data, encoding: .utf8) {
-            let cleaned = DocxPackagePolicy.removeDroppedOverrides(xml)
-            if cleaned != xml {
-                replacements[docxContentTypesPath] = Data(cleaned.utf8)
-            }
+        guard !dropped.isEmpty,
+              let data = try? DocxZip.readEntry(docxContentTypesPath, from: url, budget: budget),
+              let xml = String(data: data, encoding: .utf8) else { return replacements }
+        let cleaned = DocxPackagePolicy.removeDroppedOverrides(xml)
+        if cleaned != xml {
+            replacements[docxContentTypesPath] = Data(cleaned.utf8)
         }
-
-        return Result(
-            replacements: replacements,
-            newEntries: newEntries,
-            failedParts: failedParts,
-            removedParts: classified.dropped,
-            unsupportedParts: classified.unsupported,
-            coverage: coverage
-        )
+        return replacements
     }
 
     // MARK: - Restore of text-bearing parts
