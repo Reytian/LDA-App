@@ -138,13 +138,20 @@ enum DocxZip {
         }
     }
 
-    /// Copy every entry from source into a brand new archive at out, but replace
-    /// the bytes of replacements[path] when present. out is overwritten if it
-    /// already exists. Entry order and per-entry metadata are reproduced as
-    /// faithfully as ZIPFoundation allows.
+    /// Copy every entry from source into a brand new archive at out, but
+    /// replace the bytes of replacements[path] when present and OMIT every
+    /// path in removals. out is overwritten if it already exists. Entry order
+    /// and per-entry metadata are reproduced as faithfully as ZIPFoundation
+    /// allows.
+    ///
+    /// removals is how a member leaves the package: a copy-everything rewriter
+    /// is exactly what let the custom XML data store keep the original value
+    /// after the body was redacted (see DocxPackagePolicy). Callers that
+    /// remove a member are responsible for the references to it.
     static func rewrite(
         source: URL,
         replacing replacements: [String: Data],
+        removing removals: Set<String> = [],
         to out: URL
     ) throws {
         let reader: Archive
@@ -171,6 +178,7 @@ enum DocxZip {
             guard entry.type == .file else { continue }
 
             let path = entry.path
+            if removals.contains(path) { continue }
             let data: Data
             if let replacement = replacements[path] {
                 data = replacement

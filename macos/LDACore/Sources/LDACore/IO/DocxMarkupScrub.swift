@@ -37,9 +37,12 @@ enum DocxMarkupScrub {
     static let peoplePartPath = "word/people.xml"
 
     /// Scrub one text-bearing part (body, header, footer, notes, comments)
-    /// for the redacted copy: field targets first, then authorship.
+    /// for the redacted copy: field targets first, then authorship, then the
+    /// data bindings whose custom XML store the export removes (finding 4).
     static func scrubRedactedPart(_ xml: String) -> String {
-        blankAttributes(authorAttributes, in: neutralizeFieldTargets(xml))
+        DocxPackagePolicy.removeDataBindings(
+            blankAttributes(authorAttributes, in: neutralizeFieldTargets(xml))
+        )
     }
 
     /// Blank every person named in the people part. Presence provider ids and

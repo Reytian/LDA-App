@@ -139,6 +139,10 @@ public enum DocxRedactor {
         let bodyXML = DocxDocumentXML.serializeXML(layout)
         var rewriteParts: [String: Data] = [docxMainPartPath: Data(bodyXML.utf8)]
         var outcome = DocxNonBodyOutcome.empty
+        // Members the privacy export removes. Empty on the body-only fill
+        // path: filling a form is not a privacy export, so the package the
+        // user keeps stays whole.
+        var removals: Set<String> = []
 
         if let nonBody {
             // The redacted copy also loses the PII the body keeps in markup:
@@ -161,11 +165,19 @@ public enum DocxRedactor {
                         + "could not be redacted, so the package was not written"
                 )
             }
+            // A member the export can neither redact nor drop would copy into
+            // the output verbatim while the caller reported a clean
+            // redaction. Refuse before anything is written; the message
+            // carries the count, never a path.
+            guard result.unsupportedParts.isEmpty else {
+                throw DocxPackagePolicy.unsupportedPartsError(count: result.unsupportedParts.count)
+            }
             // The body part is never produced by DocxParts, so this merge never
             // clobbers the body rewrite computed above.
             for (path, bytes) in result.replacements {
                 rewriteParts[path] = bytes
             }
+            removals = Set(result.removedParts)
             outcome = DocxNonBodyOutcome(
                 newEntries: result.newEntries,
                 coverage: result.coverage
@@ -175,6 +187,7 @@ public enum DocxRedactor {
         try DocxZip.rewrite(
             source: original,
             replacing: rewriteParts,
+            removing: removals,
             to: out
         )
         return outcome

@@ -33,6 +33,9 @@
 import Foundation
 import ZIPFoundation
 
+/// The fixed path of the package's content-type declarations.
+let docxContentTypesPath = "[Content_Types].xml"
+
 /// The fixed paths of the docProps parts whose metadata is scrubbed.
 let docxCorePropsPath = "docProps/core.xml"
 let docxAppPropsPath = "docProps/app.xml"
@@ -172,6 +175,14 @@ enum DocxParts {
         /// Their PII would ride into the output verbatim, so a non-empty list
         /// means the redaction must not be written (DocxRedactor.redact throws).
         var failedParts: [String]
+        /// Members the export removes from the package entirely: the custom
+        /// XML data store behind bound content controls, and the rendered
+        /// first-page thumbnail. See DocxPackagePolicy.
+        var removedParts: [String]
+        /// Members the export can neither redact nor drop. A non-empty list
+        /// means the package must not be written at all: copying such a part
+        /// through would ship its content under a clean redaction report.
+        var unsupportedParts: [String]
         /// What was covered outside the body, for the caller's coverage report.
         var coverage: DocxSupplementaryCoverage
     }
@@ -294,13 +305,32 @@ enum DocxParts {
             replacements[docxCustomPropsPath] = Data(scrubCustomProps(xml).utf8)
         }
 
-        // Neutralize external mailto:/tel: hyperlink targets in every .rels part.
+        // What this package holds that the export removes, and what makes it
+        // refuse outright. Classified before any reference cleanup, because
+        // the cleanup below has to know what is going away.
+        let classified = DocxPackagePolicy.classify(paths: enumerateEntryPaths(in: url))
+
+        // Neutralize external mailto:/tel: hyperlink targets in every .rels
+        // part, and drop the relationships that pointed at a removed member.
         for relsPath in relsPartPaths(in: url) {
             guard let data = try? DocxZip.readEntry(relsPath, from: url),
                   let xml = String(data: data, encoding: .utf8) else { continue }
-            let neutralized = neutralizeExternalTargets(xml)
-            if neutralized != xml {
-                replacements[relsPath] = Data(neutralized.utf8)
+            let cleaned = DocxPackagePolicy.removeDroppedRelationships(
+                neutralizeExternalTargets(xml)
+            )
+            if cleaned != xml {
+                replacements[relsPath] = Data(cleaned.utf8)
+            }
+        }
+
+        // Drop the content-type overrides of the removed members, so the
+        // package declares no part it no longer carries.
+        if !classified.dropped.isEmpty,
+           let data = try? DocxZip.readEntry(docxContentTypesPath, from: url),
+           let xml = String(data: data, encoding: .utf8) {
+            let cleaned = DocxPackagePolicy.removeDroppedOverrides(xml)
+            if cleaned != xml {
+                replacements[docxContentTypesPath] = Data(cleaned.utf8)
             }
         }
 
@@ -308,6 +338,8 @@ enum DocxParts {
             replacements: replacements,
             newEntries: newEntries,
             failedParts: failedParts,
+            removedParts: classified.dropped,
+            unsupportedParts: classified.unsupported,
             coverage: coverage
         )
     }
@@ -603,25 +635,9 @@ enum DocxParts {
         return regex.stringByReplacingMatches(in: element, range: full, withTemplate: template)
     }
 
-    /// Extract the unescaped value of an attribute from one tag, accepting
-    /// either quote style. Returns nil when the attribute is absent.
-    ///
-    /// The two quote styles are separate alternatives rather than one [^"']
-    /// character class so that a value keeps whichever quote it did not open
-    /// with (see targetAttributePattern). The name is anchored to a preceding
-    /// space so it matches a whole attribute name only, never the tail of a
-    /// longer one ("Mode" must not match inside "TargetMode").
+    /// Attribute reading lives in DocxAttributes, shared with the package
+    /// policy: both passes must read Target the same quote-agnostic way.
     private static func attributeValue(_ name: String, in element: String) -> String? {
-        let escaped = NSRegularExpression.escapedPattern(for: name)
-        let pattern = "(?<=\\s)\(escaped)=(?:\"([^\"]*)\"|'([^']*)')"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let ns = element as NSString
-        let full = NSRange(location: 0, length: ns.length)
-        guard let match = regex.firstMatch(in: element, range: full) else { return nil }
-        // Exactly one of the two quote alternatives participates in a match.
-        for group in 1 ... 2 where match.range(at: group).location != NSNotFound {
-            return ns.substring(with: match.range(at: group))
-        }
-        return nil
+        DocxAttributes.value(name, in: element)
     }
 }

@@ -120,6 +120,22 @@ enum DocxTestPackage {
         return xml
     }
 
+    /// Every file entry of the package as (path, raw bytes), so a test can
+    /// assert a value appears in no member whatever the member is called and
+    /// whatever it encodes. allTextParts skips non-UTF-8 entries; this one
+    /// keeps them, which is the point when the question is "does any byte of
+    /// the archive still carry the value".
+    static func allMembers(in url: URL) throws -> [(path: String, data: Data)] {
+        let archive = try Archive(url: url, accessMode: .read)
+        var members: [(path: String, data: Data)] = []
+        for entry in archive where entry.type == .file {
+            var collected = Data()
+            _ = try archive.extract(entry) { collected.append($0) }
+            members.append((entry.path, collected))
+        }
+        return members
+    }
+
     /// Every file entry of the package as (path, UTF-8 text), so a test can
     /// assert a value appears in NO part at all. Non-UTF-8 entries are skipped.
     static func allTextParts(in url: URL) throws -> [(path: String, xml: String)] {
@@ -157,6 +173,12 @@ enum DocxTestPackage {
     private static func contentType(for path: String) -> String? {
         if path.hasPrefix("word/header") { return officeDocumentPrefix + "header+xml" }
         if path.hasPrefix("word/footer") { return officeDocumentPrefix + "footer+xml" }
+        // A custom XML data store: the item itself is covered by the xml
+        // Default, its properties part carries an explicit override, exactly
+        // as Word writes them.
+        if path.hasPrefix("customXml/itemProps") && path.hasSuffix(".xml") {
+            return "application/vnd.openxmlformats-officedocument.customXmlProperties+xml"
+        }
         switch path {
         case "word/document.xml": return officeDocumentPrefix + "document.main+xml"
         case "word/footnotes.xml": return officeDocumentPrefix + "footnotes+xml"
@@ -193,18 +215,33 @@ enum DocxTestPackage {
     </Relationships>
     """
 
-    /// The relationship (id, type) the main part declares for a supplementary part.
-    private static func documentRelationship(for path: String) -> (id: String, type: String)? {
+    /// The relationship (id, type, target) the main part declares for a
+    /// supplementary part. A target is relative to word/, so a part outside
+    /// that folder (a custom XML item) needs the "../" spelling Word uses.
+    private static func documentRelationship(
+        for path: String
+    ) -> (id: String, type: String, target: String)? {
+        func inWord(_ id: String, _ type: String) -> (String, String, String) {
+            (id, type, String(path.dropFirst("word/".count)))
+        }
+        if path.hasPrefix("customXml/item"), !path.contains("Props"), path.hasSuffix(".xml") {
+            let suffix = path.dropFirst("customXml/item".count).dropLast(".xml".count)
+            return (
+                "rIdCustomXml\(suffix)",
+                relationshipsNamespace + "/customXml",
+                "../" + path
+            )
+        }
         switch path {
-        case "word/header1.xml": return (headerRelationshipId, relationshipsNamespace + "/header")
-        case "word/footer1.xml": return (footerRelationshipId, relationshipsNamespace + "/footer")
-        case "word/footnotes.xml": return ("rIdFootnotes", relationshipsNamespace + "/footnotes")
-        case "word/endnotes.xml": return ("rIdEndnotes", relationshipsNamespace + "/endnotes")
-        case "word/comments.xml": return ("rIdComments", relationshipsNamespace + "/comments")
-        case "word/styles.xml": return ("rIdStyles", relationshipsNamespace + "/styles")
-        case "word/numbering.xml": return ("rIdNumbering", relationshipsNamespace + "/numbering")
+        case "word/header1.xml": return inWord(headerRelationshipId, relationshipsNamespace + "/header")
+        case "word/footer1.xml": return inWord(footerRelationshipId, relationshipsNamespace + "/footer")
+        case "word/footnotes.xml": return inWord("rIdFootnotes", relationshipsNamespace + "/footnotes")
+        case "word/endnotes.xml": return inWord("rIdEndnotes", relationshipsNamespace + "/endnotes")
+        case "word/comments.xml": return inWord("rIdComments", relationshipsNamespace + "/comments")
+        case "word/styles.xml": return inWord("rIdStyles", relationshipsNamespace + "/styles")
+        case "word/numbering.xml": return inWord("rIdNumbering", relationshipsNamespace + "/numbering")
         case "word/people.xml":
-            return ("rIdPeople", "http://schemas.microsoft.com/office/2011/relationships/people")
+            return inWord("rIdPeople", "http://schemas.microsoft.com/office/2011/relationships/people")
         default: return nil
         }
     }
@@ -213,8 +250,7 @@ enum DocxTestPackage {
         var elements = ""
         for path in extraPaths {
             guard let rel = documentRelationship(for: path) else { continue }
-            let target = String(path.dropFirst("word/".count))
-            elements += "<Relationship Id=\"\(rel.id)\" Type=\"\(rel.type)\" Target=\"\(target)\"/>\n"
+            elements += "<Relationship Id=\"\(rel.id)\" Type=\"\(rel.type)\" Target=\"\(rel.target)\"/>\n"
         }
         for element in extra {
             elements += element + "\n"

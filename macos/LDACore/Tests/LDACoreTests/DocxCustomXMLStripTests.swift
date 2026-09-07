@@ -11,6 +11,8 @@
 //  The privacy export must leave the value in NO member of the archive, and
 //  the package must stay valid: no dangling relationship, no content-type
 //  override for a part that is gone, no data binding pointing at nothing.
+//  A part the export cannot redact and cannot safely drop is a refusal, not
+//  a copy: copying it through is the silent failure this finding is about.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -45,8 +47,11 @@ final class DocxCustomXMLStripTests: XCTestCase {
 
     /// The review's bound-content package: a content control whose text is
     /// bound to /client/email in customXml/item1.xml, with the properties
-    /// part and its .rels exactly as Word lays them out.
-    private func writeBoundContentDocx(named name: String = "bound-content.docx") throws -> URL {
+    /// part and the item's own .rels exactly as Word lays them out.
+    private func writeBoundContentDocx(
+        named name: String = "bound-content.docx",
+        extraParts: [(String, String)] = []
+    ) throws -> URL {
         let body = "<w:sdt><w:sdtPr>"
             + "<w:dataBinding w:xpath=\"/client/email\" w:storeItemID=\"\(Self.storeID)\"/>"
             + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>\(Self.email)</w:t></w:r></w:p></w:sdtContent></w:sdt>"
@@ -62,7 +67,7 @@ final class DocxCustomXMLStripTests: XCTestCase {
                 ("customXml/item1.xml", "<client><email>\(Self.email)</email></client>"),
                 ("customXml/itemProps1.xml", itemProps),
                 ("customXml/_rels/item1.xml.rels", itemRels)
-            ],
+            ] + extraParts,
             to: workDir.appendingPathComponent(name)
         )
     }
@@ -72,8 +77,7 @@ final class DocxCustomXMLStripTests: XCTestCase {
             input: input,
             outputDir: workDir.appendingPathComponent("out", isDirectory: true),
             protection: .passphrase("synthetic-review-passphrase"),
-            createdAtISO8601: "2026-09-06T00:00:00Z",
-            llmModelPath: nil
+            createdAtISO8601: "2026-09-06T00:00:00Z"
         )
         XCTAssertEqual(result.entityCount, 1, "fixture: the visible email is detected")
         return result.redactedFileURL
@@ -144,5 +148,68 @@ final class DocxCustomXMLStripTests: XCTestCase {
 
         let reimported = try DocxImporter().importDocument(output)
         XCTAssertEqual(reimported.text, "{EMAIL_1}")
+    }
+
+    /// A rendered thumbnail of page one is a picture of the unredacted
+    /// document. It cannot be redacted, so it is dropped with its override
+    /// and its package relationship rather than shipped.
+    func testPrivacyExportDropsTheDocumentThumbnail() throws {
+        let input = try writeBoundContentDocx(
+            extraParts: [("docProps/thumbnail.jpeg", "not a real jpeg, \(Self.email)")]
+        )
+        let output = try anonymize(input)
+
+        let paths = try DocxTestPackage.allMembers(in: output).map(\.path)
+        XCTAssertFalse(paths.contains { $0.hasPrefix("docProps/thumbnail") }, "\(paths.sorted())")
+    }
+
+    /// A part the export can neither redact nor safely drop must stop the
+    /// export. SmartArt carries its own visible text in word/diagrams, and
+    /// nothing in this app scans it, so copying it through would ship the
+    /// value while the caller was told the document was clean.
+    func testPrivacyExportRefusesAPartItCannotRedact() throws {
+        let input = try writeBoundContentDocx(
+            named: "with-diagram.docx",
+            extraParts: [("word/diagrams/data1.xml", "<dgm:dataModel>\(Self.email)</dgm:dataModel>")]
+        )
+        let outputDir = workDir.appendingPathComponent("refused", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: input,
+                outputDir: outputDir,
+                protection: .passphrase("synthetic-review-passphrase"),
+                createdAtISO8601: "2026-09-06T00:00:00Z"
+            )
+        ) { error in
+            guard case DocumentIOError.unsupportedFormat(let detail) = error else {
+                return XCTFail("expected an unsupported-part refusal, got \(error)")
+            }
+            XCTAssertTrue(detail.lowercased().contains("part"), detail)
+            XCTAssertFalse(detail.contains("data1.xml"), "a part path can itself be PII: \(detail)")
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputDir.appendingPathComponent("with-diagram_redacted.docx").path
+            ),
+            "a refused export must leave no artifact"
+        )
+    }
+
+    /// Filling a form is not a privacy export: it rewrites run text in a
+    /// document the user keeps, so the data store and every other part stay
+    /// exactly as they were. The strip is gated on the export, deliberately.
+    func testFillingAFormLeavesThePackageAsItWas() throws {
+        let input = try writeBoundContentDocx(named: "form.docx")
+        let out = workDir.appendingPathComponent("filled.docx")
+
+        try DocxRedactor.redact(original: input, replacements: [], to: out)
+
+        let paths = try DocxTestPackage.allMembers(in: out).map(\.path)
+        XCTAssertTrue(paths.contains("customXml/item1.xml"), "\(paths.sorted())")
+        XCTAssertTrue(
+            try DocxTestPackage.readPart("word/document.xml", from: out).contains("<w:dataBinding"),
+            "the fill path must not touch the binding"
+        )
     }
 }
