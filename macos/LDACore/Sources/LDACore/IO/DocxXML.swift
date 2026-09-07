@@ -82,8 +82,25 @@ struct DocxLayout: Sendable {
 // MARK: - Zip helpers
 
 enum DocxZip {
-    /// Read a single entry's bytes from a zip archive at url.
-    static func readEntry(_ path: String, from url: URL) throws -> Data {
+    /// Read a single entry's bytes from a zip archive at url, charging the
+    /// bytes the inflater ACTUALLY produced to `budget`.
+    ///
+    /// A .docx IS a zip archive, and the document-size ceiling checks the
+    /// COMPRESSED file, so a package of a few hundred bytes could inflate to
+    /// whatever the deflate ratio allowed. The ledger is the only place that
+    /// can be stopped, and only mid-stream: ZIPFoundation inflates to
+    /// end-of-stream without consulting a declared size (see ZipExtraction and
+    /// ArchiveBudget).
+    ///
+    /// The default mints a fresh ledger, which is right for a caller reading
+    /// one part. Every pass that reads SEVERAL parts of one package passes one
+    /// ledger, or the ceiling multiplies by the number of parts, which is the
+    /// non-compounding bug ArchiveBudget exists to prevent.
+    static func readEntry(
+        _ path: String,
+        from url: URL,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> Data {
         let archive: Archive
         do {
             archive = try Archive(url: url, accessMode: .read)
@@ -94,10 +111,16 @@ enum DocxZip {
             throw DocumentIOError.corrupt("missing \(path)")
         }
         var collected = Data()
+        let refusal = budget.refusalMessage(for: url.lastPathComponent)
         do {
             _ = try archive.extract(entry) { chunk in
+                try budget.charge(chunk.count, message: refusal)
                 collected.append(chunk)
             }
+        } catch let error as DocumentIOError {
+            // The ceiling surfaces as the size error it is. Restating it as
+            // "cannot extract" told the user their document was damaged.
+            throw error
         } catch {
             throw DocumentIOError.corrupt("cannot extract \(path)")
         }
@@ -148,11 +171,16 @@ enum DocxZip {
     /// is exactly what let the custom XML data store keep the original value
     /// after the body was redacted (see DocxPackagePolicy). Callers that
     /// remove a member are responsible for the references to it.
+    ///
+    /// budget meters the bytes this pass inflates to COPY the members it was
+    /// not given replacements for. Replacement bytes are not charged: they
+    /// were produced from input the same pass already charged for.
     static func rewrite(
         source: URL,
         replacing replacements: [String: Data],
         removing removals: Set<String> = [],
-        to out: URL
+        to out: URL,
+        budget: ArchiveBudget = ArchiveBudget()
     ) throws {
         let reader: Archive
         do {
@@ -172,6 +200,7 @@ enum DocxZip {
             throw DocumentIOError.unreadable("cannot create zip at \(out.lastPathComponent)")
         }
 
+        let refusal = budget.refusalMessage(for: source.lastPathComponent)
         for entry in reader {
             // Only files carry data; directories and symlinks are skipped because
             // a .docx never relies on explicit directory entries for validity.
@@ -181,13 +210,20 @@ enum DocxZip {
             if removals.contains(path) { continue }
             let data: Data
             if let replacement = replacements[path] {
+                // Bytes this pass produced from input it already charged for.
                 data = replacement
             } else {
+                // An untouched member is INFLATED to be copied, so the copy
+                // is metered exactly like a read. Skipping it here is how the
+                // export reproduced the import's own hole.
                 var collected = Data()
                 do {
                     _ = try reader.extract(entry) { chunk in
+                        try budget.charge(chunk.count, message: refusal)
                         collected.append(chunk)
                     }
+                } catch let error as DocumentIOError {
+                    throw error
                 } catch {
                     throw DocumentIOError.corrupt("cannot extract \(path)")
                 }

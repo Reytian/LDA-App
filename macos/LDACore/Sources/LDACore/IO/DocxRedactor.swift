@@ -120,9 +120,15 @@ public enum DocxRedactor {
         original: URL,
         replacements: [Replacement],
         to out: URL,
-        nonBody: (mapping: Mapping, detect: (String) -> [Span])? = nil
+        nonBody: (mapping: Mapping, detect: (String) -> [Span])? = nil,
+        budget: ArchiveBudget = ArchiveBudget()
     ) throws -> DocxNonBodyOutcome {
-        let data = try DocxZip.readEntry(docxMainPartPath, from: original)
+        // ONE ledger for this whole pass: the body, every supplementary part,
+        // and the members the rewrite inflates to copy all spend it. A ledger
+        // per read would give each part the full ceiling, which is the
+        // non-compounding bug ArchiveBudget exists to prevent. Replaced
+        // members are charged once, on the read, never again on the write.
+        let data = try DocxZip.readEntry(docxMainPartPath, from: original, budget: budget)
         var layout = try DocxDocumentXML.parse(data)
 
         // Plan every per-run edit against the ORIGINAL run offsets first, then
@@ -148,10 +154,11 @@ public enum DocxRedactor {
             // The redacted copy also loses the PII the body keeps in markup:
             // mailto:/tel: field targets and revision authors.
             rewriteParts[docxMainPartPath] = Data(DocxMarkupScrub.scrubRedactedPart(bodyXML).utf8)
-            let result = DocxParts.redactNonBodyParts(
+            let result = try DocxParts.redactNonBodyParts(
                 url: original,
                 mapping: nonBody.mapping,
-                detect: nonBody.detect
+                detect: nonBody.detect,
+                budget: budget
             )
             // A supplementary part that could not be parsed or rewritten would
             // copy into the output verbatim, PII included, while the caller
@@ -188,7 +195,8 @@ public enum DocxRedactor {
             source: original,
             replacing: rewriteParts,
             removing: removals,
-            to: out
+            to: out,
+            budget: budget
         )
         return outcome
     }
@@ -203,9 +211,10 @@ public enum DocxRedactor {
     /// reason on the CLI and MCP edges.
     public static func supplementaryCoverage(
         in original: URL,
-        detect: (String) -> [Span]
+        detect: (String) -> [Span],
+        budget: ArchiveBudget = ArchiveBudget()
     ) -> DocxSupplementaryCoverage {
-        DocxParts.supplementaryCoverage(url: original, detect: detect)
+        DocxParts.supplementaryCoverage(url: original, detect: detect, budget: budget)
     }
 
     /// How many embedded media files (word/media/...) the package carries.
@@ -393,9 +402,10 @@ public enum DocxRedactor {
     public static func restoreTokenStyle(
         redactedDocx: URL,
         plan: Restorer.TokenStyleRestorePlan,
-        to out: URL
+        to out: URL,
+        budget: ArchiveBudget = ArchiveBudget()
     ) throws -> LiteralRestoreOutcome {
-        let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
+        let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx, budget: budget)
         var layout = try DocxDocumentXML.parse(data)
         let outcome = try restoreTokenStyleInLayout(&layout, plan: plan)
 
@@ -403,7 +413,8 @@ public enum DocxRedactor {
         // Restore the same sites in the non-body text parts too.
         let nonBody = try DocxParts.restoreNonBodyPartsTokenStyle(
             url: redactedDocx,
-            plan: plan
+            plan: plan,
+            budget: budget
         )
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
@@ -412,7 +423,8 @@ public enum DocxRedactor {
         try DocxZip.rewrite(
             source: redactedDocx,
             replacing: rewriteParts,
-            to: out
+            to: out,
+            budget: budget
         )
         return outcome
     }
@@ -450,9 +462,10 @@ public enum DocxRedactor {
     public static func restoreLiteral(
         redactedDocx: URL,
         plan: Restorer.LiteralRestorePlan,
-        to out: URL
+        to out: URL,
+        budget: ArchiveBudget = ArchiveBudget()
     ) throws -> LiteralRestoreOutcome {
-        let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx)
+        let data = try DocxZip.readEntry(docxMainPartPath, from: redactedDocx, budget: budget)
         var layout = try DocxDocumentXML.parse(data)
         let outcome = try restoreLiteralInLayout(&layout, plan: plan)
 
@@ -460,7 +473,8 @@ public enum DocxRedactor {
         // Restore literal replacements in the non-body text parts too.
         let nonBody = try DocxParts.restoreNonBodyPartsLiteral(
             url: redactedDocx,
-            plan: plan
+            plan: plan,
+            budget: budget
         )
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
@@ -469,7 +483,8 @@ public enum DocxRedactor {
         try DocxZip.rewrite(
             source: redactedDocx,
             replacing: rewriteParts,
-            to: out
+            to: out,
+            budget: budget
         )
         return outcome
     }

@@ -113,12 +113,23 @@ enum DocxParts {
 
     /// Loads and parses every additional text-bearing part, reporting the
     /// parts that failed instead of skipping them silently.
-    static func loadTextBearingParts(from url: URL) -> LoadedParts {
+    ///
+    /// A size ceiling is NOT a failed part and is rethrown. Collecting it here
+    /// turned "this package inflates past the unpacking limit" into "3
+    /// supplementary parts could not be redacted", which is the wrong thing to
+    /// tell a lawyer and hides the ceiling that actually fired.
+    static func loadTextBearingParts(
+        from url: URL,
+        budget: ArchiveBudget
+    ) throws -> LoadedParts {
         var loaded: [LoadedPart] = []
         var failed: [String] = []
         for path in textBearingPartPaths(in: url) {
             do {
-                loaded.append(try loadRequiredTextBearingPart(path, from: url))
+                loaded.append(try loadRequiredTextBearingPart(path, from: url, budget: budget))
+            } catch let error as DocumentIOError {
+                if case .tooLarge = error { throw error }
+                failed.append(path)
             } catch {
                 failed.append(path)
             }
@@ -129,17 +140,21 @@ enum DocxParts {
     /// Strict counterpart used by restoration. Once a package has enumerated a
     /// supplementary text part, silently omitting it would make the report and
     /// restored output look complete while leaving an unknown part untouched.
-    private static func loadRequiredTextBearingParts(from url: URL) throws -> [LoadedPart] {
+    private static func loadRequiredTextBearingParts(
+        from url: URL,
+        budget: ArchiveBudget
+    ) throws -> [LoadedPart] {
         try textBearingPartPaths(in: url).map {
-            try loadRequiredTextBearingPart($0, from: url)
+            try loadRequiredTextBearingPart($0, from: url, budget: budget)
         }
     }
 
     private static func loadRequiredTextBearingPart(
         _ path: String,
-        from url: URL
+        from url: URL,
+        budget: ArchiveBudget
     ) throws -> LoadedPart {
-        let data = try DocxZip.readEntry(path, from: url)
+        let data = try DocxZip.readEntry(path, from: url, budget: budget)
         do {
             return LoadedPart(path: path, layout: try DocxDocumentXML.parse(data), data: data)
         } catch let error as DocumentIOError {
@@ -160,10 +175,14 @@ enum DocxParts {
     /// synthetic boundary. One combined scan also keeps orphan reporting
     /// global to the package rather than falsely orphaning a replacement in
     /// every individual part where it does not occur.
-    static func restoreReportText(from url: URL) throws -> String {
-        let bodyData = try DocxZip.readEntry(docxMainPartPath, from: url)
+    static func restoreReportText(
+        from url: URL,
+        budget: ArchiveBudget = ArchiveBudget()
+    ) throws -> String {
+        let bodyData = try DocxZip.readEntry(docxMainPartPath, from: url, budget: budget)
         let body = try DocxDocumentXML.parse(bodyData)
-        let partTexts = try loadRequiredTextBearingParts(from: url).map { $0.layout.text }
+        let partTexts = try loadRequiredTextBearingParts(from: url, budget: budget)
+            .map { $0.layout.text }
         return ([body.text] + partTexts).joined(separator: "\u{0000}")
     }
 
@@ -202,10 +221,18 @@ enum DocxParts {
     /// number for one.
     static func supplementaryCoverage(
         url: URL,
-        detect: (String) -> [Span]
+        detect: (String) -> [Span],
+        budget: ArchiveBudget = ArchiveBudget()
     ) -> DocxSupplementaryCoverage {
         var coverage = DocxSupplementaryCoverage.none
-        for part in loadTextBearingParts(from: url).parts {
+        // A package that hits the unpacking ceiling previews as zero rather
+        // than throwing from a coverage number. It cannot mislead: the
+        // redaction pass reads the same parts under the same ceiling and
+        // refuses to write anything, so no artifact ever ships behind an
+        // under-reported preview.
+        let loaded = (try? loadTextBearingParts(from: url, budget: budget))
+            ?? LoadedParts(parts: [], failedParts: [])
+        for part in loaded.parts {
             coverage.add(acceptedSupplementarySpans(in: part.layout.text, detect: detect))
         }
         return coverage
@@ -237,8 +264,9 @@ enum DocxParts {
     static func redactNonBodyParts(
         url: URL,
         mapping: Mapping,
-        detect: (String) -> [Span]
-    ) -> Result {
+        detect: (String) -> [Span],
+        budget: ArchiveBudget
+    ) throws -> Result {
         var replacements: [String: Data] = [:]
         var newEntries: [MappingEntry] = []
         var coverage = DocxSupplementaryCoverage.none
@@ -254,7 +282,7 @@ enum DocxParts {
         }
         var counters = perTypeMaxIndices(in: mapping.entries.keys)
 
-        let loaded = loadTextBearingParts(from: url)
+        let loaded = try loadTextBearingParts(from: url, budget: budget)
         var failedParts = loaded.failedParts
         for part in loaded.parts {
             // Exactly the spans supplementaryCoverage would preview, so the
@@ -289,23 +317,23 @@ enum DocxParts {
         }
 
         // Blank the people named in word/people.xml.
-        if let data = try? DocxZip.readEntry(DocxMarkupScrub.peoplePartPath, from: url),
+        if let data = try? DocxZip.readEntry(DocxMarkupScrub.peoplePartPath, from: url, budget: budget),
            let xml = String(data: data, encoding: .utf8) {
             replacements[DocxMarkupScrub.peoplePartPath] = Data(DocxMarkupScrub.scrubPeoplePart(xml).utf8)
         }
 
         // Scrub author/title metadata.
-        if let data = try? DocxZip.readEntry(docxCorePropsPath, from: url),
+        if let data = try? DocxZip.readEntry(docxCorePropsPath, from: url, budget: budget),
            let xml = String(data: data, encoding: .utf8) {
             replacements[docxCorePropsPath] = Data(scrubCoreProps(xml).utf8)
         }
-        if let data = try? DocxZip.readEntry(docxAppPropsPath, from: url),
+        if let data = try? DocxZip.readEntry(docxAppPropsPath, from: url, budget: budget),
            let xml = String(data: data, encoding: .utf8) {
             replacements[docxAppPropsPath] = Data(scrubAppProps(xml).utf8)
         }
         // Scrub custom document properties: DMS-stamped client names, matter
         // numbers, and billing codes routinely live here as string values.
-        if let data = try? DocxZip.readEntry(docxCustomPropsPath, from: url),
+        if let data = try? DocxZip.readEntry(docxCustomPropsPath, from: url, budget: budget),
            let xml = String(data: data, encoding: .utf8) {
             replacements[docxCustomPropsPath] = Data(scrubCustomProps(xml).utf8)
         }
@@ -318,7 +346,7 @@ enum DocxParts {
         // Neutralize external mailto:/tel: hyperlink targets in every .rels
         // part, and drop the relationships that pointed at a removed member.
         for relsPath in relsPartPaths(in: url) {
-            guard let data = try? DocxZip.readEntry(relsPath, from: url),
+            guard let data = try? DocxZip.readEntry(relsPath, from: url, budget: budget),
                   let xml = String(data: data, encoding: .utf8) else { continue }
             let cleaned = DocxPackagePolicy.removeDroppedRelationships(
                 neutralizeExternalTargets(xml)
@@ -331,7 +359,7 @@ enum DocxParts {
         // Drop the content-type overrides of the removed members, so the
         // package declares no part it no longer carries.
         if !classified.dropped.isEmpty,
-           let data = try? DocxZip.readEntry(docxContentTypesPath, from: url),
+           let data = try? DocxZip.readEntry(docxContentTypesPath, from: url, budget: budget),
            let xml = String(data: data, encoding: .utf8) {
             let cleaned = DocxPackagePolicy.removeDroppedOverrides(xml)
             if cleaned != xml {
@@ -359,10 +387,11 @@ enum DocxParts {
     /// destructive and are not reversed (there is nothing to restore).
     static func restoreNonBodyPartsTokenStyle(
         url: URL,
-        plan: Restorer.TokenStyleRestorePlan
+        plan: Restorer.TokenStyleRestorePlan,
+        budget: ArchiveBudget
     ) throws -> [String: Data] {
         var replacements: [String: Data] = [:]
-        for part in try loadRequiredTextBearingParts(from: url) {
+        for part in try loadRequiredTextBearingParts(from: url, budget: budget) {
             var layout = part.layout
             let outcome = try DocxRedactor.restoreTokenStyleInLayout(&layout, plan: plan)
             guard outcome.restoredCount > 0 else { continue }
@@ -381,10 +410,11 @@ enum DocxParts {
     /// rather than written half done.
     static func restoreNonBodyPartsLiteral(
         url: URL,
-        plan: Restorer.LiteralRestorePlan
+        plan: Restorer.LiteralRestorePlan,
+        budget: ArchiveBudget
     ) throws -> [String: Data] {
         var replacements: [String: Data] = [:]
-        for part in try loadRequiredTextBearingParts(from: url) {
+        for part in try loadRequiredTextBearingParts(from: url, budget: budget) {
             var layout = part.layout
             let outcome = try DocxRedactor.restoreLiteralInLayout(&layout, plan: plan)
             guard outcome.restoredCount > 0 else { continue }
