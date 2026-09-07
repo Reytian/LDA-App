@@ -128,12 +128,27 @@ public enum EntityJSONParser {
             }
         }
 
-        // Try every candidate balanced region, largest first, and return the
-        // first that yields a usable decode. JSONSerialization is the primary
-        // path; a brace-matching scan supplies the candidates when the raw
-        // string is not itself valid JSON.
+        if let parse = schemaParse(from: candidates) {
+            return parse
+        }
+
+        // No entities array decoded. Either the completion was cut off mid-array,
+        // or it never contained one. Salvage every complete {value,type} object
+        // before a cut and report which failure this is, so the caller treats
+        // neither a partial scan nor a non-answer as a clean one.
+        return salvageTruncatedEntities(from: stripped != modelOutput ? stripped : modelOutput)
+    }
+
+    /// The parse from the candidate regions that carry the entities schema, or
+    /// nil when none of them does (the caller then tries truncation salvage).
+    ///
+    /// Candidates are tried largest first. JSONSerialization is the primary
+    /// path; a brace-matching scan supplies the candidates when the raw string
+    /// is not itself valid JSON.
+    private static func schemaParse(from candidates: [String]) -> EntityParse? {
         var decodedEntitiesSchema = false
         var malformedRows: EntityParse?
+
         for candidate in candidates {
             guard let data = candidate.data(using: .utf8) else { continue }
             guard
@@ -149,11 +164,12 @@ public enum EntityJSONParser {
             // cleanly and say nothing about whether the segment was scanned.
             guard let schema = schemaEntities(from: object) else { continue }
             decodedEntitiesSchema = true
+
             if !schema.allRowsValid {
                 // A row this parser cannot read makes the whole completion an
-                // incomplete answer for its segment (R1). Remember the
-                // largest such region's salvage and keep scanning: a smaller
-                // region may carry the same payload in a readable form.
+                // incomplete answer for its segment (R1). Remember the largest
+                // such region's salvage and keep scanning: a smaller region may
+                // carry the same payload in a readable form.
                 if malformedRows == nil {
                     malformedRows = EntityParse(
                         entities: schema.entities,
@@ -178,15 +194,7 @@ public enum EntityJSONParser {
         // At least one region decoded with an entities array and none carried
         // entities: this is genuine emptiness (the model found no PII), not a
         // cut-off completion and not a refusal.
-        if decodedEntitiesSchema {
-            return EntityParse(entities: [], truncated: false)
-        }
-
-        // No entities array decoded. Either the completion was cut off mid-array,
-        // or it never contained one. Salvage every complete {value,type} object
-        // before a cut and report which failure this is, so the caller treats
-        // neither a partial scan nor a non-answer as a clean one.
-        return salvageTruncatedEntities(from: stripped != modelOutput ? stripped : modelOutput)
+        return decodedEntitiesSchema ? EntityParse(entities: [], truncated: false) : nil
     }
 
     // MARK: - Truncation salvage
