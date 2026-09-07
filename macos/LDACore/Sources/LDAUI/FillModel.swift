@@ -761,6 +761,8 @@ public final class FillModel: ObservableObject {
                 )
             case .outputEqualsInput:
                 return L10n.string("The output path must differ from the source path.")
+            case .modelUnavailable:
+                return L10n.string("The requested detection model could not be run, so nothing was written.")
             case .incompleteExtraction(let count):
                 return String(
                     format: L10n.string(

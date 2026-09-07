@@ -93,7 +93,9 @@ extension LDAService {
     /// - Parameters:
     ///   - inputs: the session's documents, in order. Must not be empty.
     ///   - createdAtISO8601: caller-supplied ISO-8601 timestamp.
-    ///   - llmModelPath: optional GGUF path; nil stays deterministic-only.
+    ///   - llmModelPath: optional GGUF path; nil stays deterministic-only. A
+    ///     path whose model cannot run is refused (modelUnavailable), never
+    ///     quietly downgraded to deterministic-only.
     ///   - seedMapping: optional starting mapping (a client profile's stored
     ///     mapping) whose identities the session keeps using. A seed built in
     ///     a different style contributes restore entries only; the session
@@ -107,6 +109,7 @@ extension LDAService {
     ///   restoring to the wrong entity. That list is a correctness warning,
     ///   not a diagnostic, and callers must put it in front of the user.
     /// - Throws: DocumentIOError for unreadable inputs,
+    ///   LDAServiceError.modelUnavailable when a requested model cannot run,
     ///   LDAServiceError.incompleteExtraction when the LLM could not fully
     ///   scan a document, LDAServiceError.unanchoredEntities when it scanned
     ///   everything but reported values that anchor nowhere and so cannot be
@@ -125,7 +128,7 @@ extension LDAService {
         }
 
         // One detector for the whole session so the model loads at most once.
-        let detector = makeDetector(modelPath: llmModelPath)
+        let detector = try makeDetector(modelPath: llmModelPath)
 
         // Excluded types are dropped per document BEFORE the session-wide
         // sweep below, whose needles derive from these filtered spans, so an

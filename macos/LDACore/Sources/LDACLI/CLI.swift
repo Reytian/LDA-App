@@ -608,6 +608,8 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
             return "The document could not be fully scanned: the model gave no usable answer for \(count) segment(s) (the reply was cut off, failed, or was not an entity list). Nothing was written, because an unscanned segment may still contain names, companies, or addresses."
         case LDAServiceError.unanchoredEntities(let count):
             return "\(count) detected value(s) are present in the document in a form that could not be matched exactly, so they could not be removed. Nothing was written, because the output would still contain them."
+        case LDAServiceError.modelUnavailable(let path, let reason):
+            return "The model at \(path) could not be run: \(reason). Nothing was written, because without the model people's names, company names, and addresses are not looked for. Fix the --model path, or omit --model for pattern-only detection."
         case LDAServiceError.staleTarget(let detail):
             return "The target document changed since the plan was produced (\(detail)). Re-run fill --plan before applying."
         case LDAServiceError.noReadableSources:

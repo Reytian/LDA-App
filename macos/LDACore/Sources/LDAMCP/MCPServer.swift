@@ -367,6 +367,11 @@ public struct MCPServer {
                    "value(s) are present in the text in a form that could not be " +
                    "matched exactly, so they could not be removed. The output " +
                    "has NOT been written, because it would still contain them."
+        case .modelUnavailable(let path, let reason):
+            return "The requested model could not be run " +
+                   "(\((path as NSString).lastPathComponent): \(reason)). Nothing was written, " +
+                   "because without the model people's names, company names, and addresses " +
+                   "are not looked for. Fix the model path, or omit it for pattern-only detection."
         case .outputEqualsInput:
             return "Output path must differ from the input path."
         case .noReadableSources:

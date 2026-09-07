@@ -629,6 +629,11 @@ extension MCPServer {
             return "unanchored_entities: \(count) detected value(s) could not be "
                 + "matched exactly in the text, so no redacted artifact was "
                 + "written (it would still contain them)."
+        case .modelUnavailable:
+            return "model_unavailable: the requested model could not be run, so no "
+                + "redacted artifact was written (without the model, names, companies, "
+                + "and addresses are not looked for). Fix the model path, or omit it "
+                + "for pattern-only detection."
         case .outputEqualsInput:
             return "output_equals_input: the output would overwrite the input."
         case .noReadableSources:

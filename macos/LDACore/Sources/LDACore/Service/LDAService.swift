@@ -23,12 +23,24 @@ import Foundation
 
 /// Errors the service surfaces to its callers (CLI, MCP, app UI).
 public enum LDAServiceError: Error, Equatable {
-    /// The on-device LLM could not fully scan the document: at least one segment's
-    /// completion was truncated at the generation token cap and could not be
-    /// recovered by a larger-cap retry or by splitting. The document is therefore
+    /// The on-device LLM could not fully scan the document: at least one segment
+    /// was never answered for. Its completion was truncated at the generation
+    /// token cap and could not be recovered by a larger-cap retry or by
+    /// splitting, or the backend threw, or the reply carried no entities array
+    /// (prose, an empty string, JSON of another shape). Only a well-formed
+    /// entities array, empty included, is a scan. The document is therefore
     /// NOT guaranteed PII-free and must not be presented as cleanly anonymized
     /// (LJE-001). `incompleteSegmentCount` is how many segments were affected.
     case incompleteExtraction(incompleteSegmentCount: Int)
+    /// The caller asked for the on-device model at `path` and it cannot run: the
+    /// file is missing, or llama.cpp could not load it. A requested model is a
+    /// request for PERSON, COMPANY, and ADDRESS detection, so quietly running
+    /// the pattern-only path instead would hand back a document with every name
+    /// still in it while looking like a successful run. The refusal happens
+    /// before anything is written. A nil model path is the deliberate
+    /// pattern-only path and never reaches here. `reason` is a short, path-free
+    /// phrase saying what failed.
+    case modelUnavailable(path: String, reason: String)
     /// The document was fully scanned, but values the model reported are present
     /// in the source and could not be anchored there, even after repairing CJK
     /// script-boundary space drift. They were detected and will survive into the
@@ -93,9 +105,11 @@ public enum LDAService {
     ///   - createdAtISO8601: caller-supplied creation timestamp (keeps this pure).
     ///   - llmModelPath: optional absolute path to the v2 GGUF model. When nil the
     ///     llm span list stays empty and behavior is identical to the
-    ///     deterministic-only V1 path. When non-nil and the file exists, an
-    ///     LLMExtractor backed by an LLMEngine loaded from this path fills the
-    ///     list; any load or extraction failure degrades gracefully to empty.
+    ///     deterministic-only V1 path. When non-nil, an LLMExtractor backed by an
+    ///     LLMEngine loaded from this path fills the list; a model that cannot
+    ///     run throws LDAServiceError.modelUnavailable before anything is
+    ///     written, and an extraction that could not scan or anchor everything
+    ///     throws incompleteExtraction or unanchoredEntities (see Detector).
     ///   - style: how replacements are rendered in the redacted output. The
     ///     default .token keeps the historical "{TYPE_N}" behavior unchanged.
     ///     Supplementary channels (DOCX non-body parts, the PDF image-PII
@@ -128,10 +142,13 @@ public enum LDAService {
 
         // Detect entities once, then tokenize. The tokenized text and the mapping
         // drive both the edit surface and the mapping sidecar. The detector is
-        // declared at function scope so a later image-PII pass (Task 6) can reuse
-        // the already-loaded engine without loading the model a second time. The
-        // primary text pass throws if a segment could not be fully scanned, so the
-        // document is never written out as cleanly anonymized on a partial scan.
+        // built first and at function scope: a requested model that cannot run
+        // is refused before the import pays for OCR, and a later image-PII pass
+        // (Task 6) reuses the already-loaded engine without loading the model a
+        // second time. The primary text pass throws if a segment could not be
+        // fully scanned, so the document is never written out as cleanly
+        // anonymized on a partial scan.
+        let detector = try makeDetector(modelPath: llmModelPath)
         //
         // A standalone image is extracted ONCE up front: its joined OCR text
         // feeds the same detection pipeline as every other format, and the
@@ -151,7 +168,6 @@ public enum LDAService {
         } else {
             imported = try importDocument(input, extension: ext)
         }
-        let detector = makeDetector(modelPath: llmModelPath)
         // The caller's review step: drop excluded spans BEFORE splitting,
         // tokenization, and alias linking. Exclusion resolves to VALUES and
         // reaches every channel, headers and image text alike (SpanExclusion).
@@ -579,9 +595,10 @@ public enum LDAService {
     ///   - input: the source document.
     ///   - llmModelPath: optional absolute path to the v2 GGUF model. When nil the
     ///     llm span list stays empty and behavior is identical to the
-    ///     deterministic-only V1 path. When non-nil and the file exists, an
-    ///     LLMExtractor backed by an LLMEngine loaded from this path fills the
-    ///     list; any load or extraction failure degrades gracefully to empty.
+    ///     deterministic-only V1 path. When non-nil, an LLMExtractor backed by an
+    ///     LLMEngine loaded from this path fills the list; a model that cannot
+    ///     run throws LDAServiceError.modelUnavailable rather than quietly
+    ///     running pattern-only detection.
     public static func detect(
         input: URL,
         llmModelPath: String? = nil
@@ -589,8 +606,9 @@ public enum LDAService {
         // Not detectSummary().bodySpans: that would also scan the DOCX
         // supplementary parts and throw the result away, so a caller who only
         // wants positions would pay for coverage it never reads.
+        let detector = try makeDetector(modelPath: llmModelPath)
         let imported = try importDocument(input, extension: input.pathExtension.lowercased())
-        return try makeDetector(modelPath: llmModelPath).detectText(imported.text)
+        return try detector.detectText(imported.text)
     }
 
     /// Detect entities AND report how much a run would redact outside the body.
@@ -616,8 +634,8 @@ public enum LDAService {
         llmModelPath: String? = nil
     ) throws -> DetectionSummary {
         let ext = input.pathExtension.lowercased()
+        let detector = try makeDetector(modelPath: llmModelPath)
         let imported = try importDocument(input, extension: ext)
-        let detector = makeDetector(modelPath: llmModelPath)
         let bodySpans = try detector.detectText(imported.text)
         guard ext == "docx" else { return DetectionSummary(bodySpans: bodySpans) }
 
@@ -633,92 +651,6 @@ public enum LDAService {
     }
 
     // MARK: - Private helpers
-
-    /// A detector that loads the LLM engine at most once and offers two entry
-    /// points over it: the primary text pass (which surfaces incomplete scans) and
-    /// the secondary image-PII pass (which stays non-throwing for the resolver).
-    /// Internal (not private) so LDASessionService.swift can reuse it.
-    internal struct Detector {
-        let extractor: LLMExtractor?
-
-        /// Primary detection over the main document text. Throws when the
-        /// result cannot be presented as cleanly anonymized (LJE-001), so a
-        /// document that is not guaranteed PII-free is never written out as
-        /// clean. Two distinct failures qualify and each gets its own error, so
-        /// the caller's message names the one that happened.
-        ///
-        /// Truncation is checked first: when a segment was never scanned the
-        /// unanchored count is drawn from an incomplete sample and reporting it
-        /// would be misleading.
-        ///
-        /// After the merge, the confirmed spans seed the full-document literal
-        /// rescan (EntityRescan.expand): repeat mentions of every confirmed
-        /// PERSON and COMPANY surface, and of the document's defined short
-        /// names bound to them, are swept in with pure string search. This is
-        /// engine-level so the CLI, MCP, and app UI all benefit identically.
-        func detectText(_ text: String) throws -> [Span] {
-            let llm: [Span]
-            if let extractor {
-                let result = try extractor.extractDetailed(from: text)
-                guard result.fullyCovered else {
-                    throw LDAServiceError.incompleteExtraction(
-                        incompleteSegmentCount: result.incompleteSegmentCount
-                    )
-                }
-                guard result.fullyAnchored else {
-                    throw LDAServiceError.unanchoredEntities(
-                        unlocatableEntityCount: result.unlocatableEntityCount
-                    )
-                }
-                llm = result.spans
-            } else {
-                llm = []
-            }
-            let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
-            return EntityRescan.expand(merged, in: text)
-        }
-
-        /// Secondary detection over short OCR'd image-origin text for the image-PII
-        /// channel. This re-uses the loaded engine but stays non-throwing: it is a
-        /// best-effort supplement to the boxed regions, and the salvage path keeps
-        /// any recovered entities. Truncation here does not gate the "clean" claim,
-        /// which is owned by the primary text pass above.
-        func detectForImages(_ text: String) -> [Span] {
-            let llm: [Span]
-            if let extractor {
-                llm = (try? extractor.extract(from: text)) ?? []
-            } else {
-                llm = []
-            }
-            return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
-        }
-    }
-
-    /// Build a detector that loads the LLM engine at most once and reuses it for
-    /// every call (main text pass and image-PII pass). When modelPath is nil or
-    /// the model fails to load, detection is deterministic-only. The primary text
-    /// pass surfaces an incomplete scan; see Detector. Internal (not private) so
-    /// LDASessionService.swift can reuse it.
-    internal static func makeDetector(modelPath: String?) -> Detector {
-        let extractor: LLMExtractor? = {
-#if DEBUG
-            // An installed seam OWNS extractor construction, including the
-            // decision to return nil (which means "run deterministic-only").
-            // It therefore wins whether or not the model path resolves, which
-            // is what lets a test drive the LLM paths with a bogus path. This
-            // whole branch is absent from release builds.
-            if let factory = makeExtractorForTesting {
-                return factory(modelPath ?? "")
-            }
-#endif
-            guard let modelPath, FileManager.default.fileExists(atPath: modelPath) else {
-                return nil
-            }
-            guard let engine = try? LLMEngine(config: .init(modelPath: modelPath)) else { return nil }
-            return LLMExtractor(completer: engine)
-        }()
-        return Detector(extractor: extractor)
-    }
 
     /// True when the file should route through the standalone image pipeline:
     /// an image extension (png / jpg / jpeg) always does; any OTHER extension

@@ -7,9 +7,12 @@
 //  Two layers:
 //  - Unit (no model): with llmModelPath nil the facade behaves exactly as the
 //    deterministic-only V1 path (an email in a .txt still tokenizes as EMAIL).
-//    With a bogus llmModelPath (a path that does not exist) the facade still
-//    SUCCEEDS, because the LLM seam degrades gracefully to an empty span list
-//    rather than failing the operation.
+//    With a bogus llmModelPath (a path that does not exist) and no extractor
+//    seam, the facade REFUSES with LDAServiceError.modelUnavailable before
+//    anything is written: a requested model that cannot run used to degrade
+//    quietly to pattern-only detection, which handed back documents with every
+//    name still in them. With the seam installed the bogus path is the way the
+//    LLM paths are driven without the 2.7 GB model.
 //  - Gated integration (skipped unless the GGUF model is available): detect over
 //    a short SPA sentence with llmModelPath set must surface a PERSON span and a
 //    COMPANY span, which only the LLM path can produce.
@@ -34,7 +37,8 @@ final class LDAServiceLLMTests: XCTestCase {
     /// Fixed ISO-8601 timestamp; the facade is clock-free so the caller supplies it.
     private static let createdAt = "2026-06-06T00:00:00Z"
 
-    /// A path that is guaranteed not to exist, used to prove graceful fallback.
+    /// A path that is guaranteed not to exist. Without the extractor seam it
+    /// proves the refusal; with the seam it drives the LLM paths model-free.
     private static let bogusModelPath = "/nonexistent.gguf"
 
     // MARK: - Hermetic working directory
@@ -128,49 +132,52 @@ final class LDAServiceLLMTests: XCTestCase {
         XCTAssertEqual(restored, original, "restore must reproduce the exact original text")
     }
 
-    // MARK: - Unit: bogus model path falls back gracefully
+    // MARK: - Unit: a bogus model path is refused, never quietly downgraded
 
-    func testAnonymizeWithBogusModelPathSucceedsViaGracefulFallback() throws {
+    func testAnonymizeWithBogusModelPathIsRefusedBeforeAnythingIsWritten() throws {
         // Arrange
         let inputURL = try writeEmailFixture()
         let outputDir = workDir.appendingPathComponent("out-bogus", isDirectory: true)
         let protection = MappingProtection.passphrase("a passphrase")
 
-        // Act + Assert: a non-existent model path must NOT throw. The LLM seam
-        // degrades to an empty span list, leaving deterministic detection intact.
-        let result = try LDAService.anonymize(
-            input: inputURL,
-            outputDir: outputDir,
-            protection: protection,
-            createdAtISO8601: Self.createdAt,
-            llmModelPath: Self.bogusModelPath
-        )
-
-        XCTAssertTrue(
-            result.entities.contains { $0.type == .email },
-            "graceful fallback must still yield deterministic EMAIL detection"
-        )
-        XCTAssertTrue(
-            FileManager.default.fileExists(atPath: result.redactedFileURL.path),
-            "the redacted edit surface must be written even when the model is missing"
+        // Act + Assert: the caller asked for a model that cannot run. The old
+        // contract degraded to pattern-only detection and wrote the file; the
+        // refusal is the only answer that does not hide the missing names.
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: inputURL,
+                outputDir: outputDir,
+                protection: protection,
+                createdAtISO8601: Self.createdAt,
+                llmModelPath: Self.bogusModelPath
+            )
+        ) { error in
+            guard case LDAServiceError.modelUnavailable(let path, _) = error else {
+                XCTFail("expected LDAServiceError.modelUnavailable, got \(error)")
+                return
+            }
+            XCTAssertEqual(path, Self.bogusModelPath)
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputDir.path),
+            "nothing may be written for a model that could not run"
         )
     }
 
-    func testDetectWithBogusModelPathSucceedsViaGracefulFallback() throws {
+    func testDetectWithBogusModelPathIsRefused() throws {
         // Arrange
         let inputURL = try writeEmailFixture()
 
-        // Act: a bogus model path must not throw.
-        let spans = try LDAService.detect(
-            input: inputURL,
-            llmModelPath: Self.bogusModelPath
-        )
-
-        // Assert: deterministic detection is unaffected by the missing model.
-        XCTAssertTrue(
-            spans.contains { $0.type == .email && $0.text == Self.email },
-            "graceful fallback must still yield deterministic EMAIL detection"
-        )
+        // Act + Assert: no seam is installed, so the bogus path reaches the
+        // real engine load and is refused there.
+        XCTAssertThrowsError(
+            try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        ) { error in
+            guard case LDAServiceError.modelUnavailable = error else {
+                XCTFail("expected LDAServiceError.modelUnavailable, got \(error)")
+                return
+            }
+        }
     }
 
     // MARK: - Incomplete extraction is surfaced, not swallowed (LJE-001)

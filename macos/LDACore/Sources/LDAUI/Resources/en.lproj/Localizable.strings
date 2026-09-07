@@ -691,6 +691,7 @@
 "The output path must differ from the source path." = "The output path must differ from the source path.";
 "Extraction could not fully scan %lld segment; some fields may be missing." = "Extraction could not fully scan %lld segment; some fields may be missing.";
 "Extraction could not fully scan %lld segments; some fields may be missing." = "Extraction could not fully scan %lld segments; some fields may be missing.";
+"The requested detection model could not be run, so nothing was written." = "The requested detection model could not be run, so nothing was written.";
 "%lld detected value could not be matched exactly in the document, so it could not be removed." = "%lld detected value could not be matched exactly in the document, so it could not be removed.";
 "%lld detected values could not be matched exactly in the document, so they could not be removed." = "%lld detected values could not be matched exactly in the document, so they could not be removed.";
 "The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "The portfolio index was rebuilt; the list was rebuilt from the portfolio files.";

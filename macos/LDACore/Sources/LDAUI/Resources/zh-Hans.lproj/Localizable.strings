@@ -691,6 +691,7 @@
 "The output path must differ from the source path." = "输出路径必须与源路径不同。";
 "Extraction could not fully scan %lld segment; some fields may be missing." = "提取未能完整扫描 %lld 个片段，部分字段可能缺失。";
 "Extraction could not fully scan %lld segments; some fields may be missing." = "提取未能完整扫描 %lld 个片段，部分字段可能缺失。";
+"The requested detection model could not be run, so nothing was written." = "无法运行所请求的检测模型，因此未写入任何内容。";
 "%lld detected value could not be matched exactly in the document, so it could not be removed." = "%lld 个检测值无法在文档中精确匹配，因此无法移除。";
 "%lld detected values could not be matched exactly in the document, so they could not be removed." = "%lld 个检测值无法在文档中精确匹配，因此无法移除。";
 "The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "资料集索引已重建，列表也已根据资料集文件重建。";

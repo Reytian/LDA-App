@@ -691,6 +691,7 @@
 "The output path must differ from the source path." = "Le chemin de sortie doit être différent du chemin source.";
 "Extraction could not fully scan %lld segment; some fields may be missing." = "L’extraction n’a pas pu analyser entièrement %lld segment. Certains champs peuvent manquer.";
 "Extraction could not fully scan %lld segments; some fields may be missing." = "L’extraction n’a pas pu analyser entièrement %lld segments. Certains champs peuvent manquer.";
+"The requested detection model could not be run, so nothing was written." = "Le modèle de détection demandé n’a pas pu être exécuté. Rien n’a été écrit.";
 "%lld detected value could not be matched exactly in the document, so it could not be removed." = "%lld valeur détectée n’a pas pu être retrouvée exactement dans le document et n’a donc pas pu être supprimée.";
 "%lld detected values could not be matched exactly in the document, so they could not be removed." = "%lld valeurs détectées n’ont pas pu être retrouvées exactement dans le document et n’ont donc pas pu être supprimées.";
 "The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "L’index des portfolios et la liste ont été reconstruits à partir des fichiers de portfolio.";
