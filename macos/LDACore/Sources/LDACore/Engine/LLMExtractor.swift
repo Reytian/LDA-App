@@ -8,7 +8,8 @@
 //  the v2 single-shot extraction prompt (PromptStore + a TextCompleter), parses
 //  the JSON (EntityJSONParser), keeps only the fuzzy types LDA owns from the
 //  LLM minus legal boilerplate (LegalBoilerplate), and re-anchors values to
-//  word-boundary-valid spans (EntityLocator).
+//  word-boundary-valid spans, exact occurrences and whitespace variants alike
+//  (EntityLocator).
 //
 //  The completer is injected via the TextCompleter protocol so this orchestrator
 //  is unit-testable without loading the 2.7 GB GGUF model. In production the
@@ -44,8 +45,8 @@ public struct ExtractionResult: Sendable {
     /// array.
     public let incompleteSegmentCount: Int
     /// How many distinct reported values are present in the source but could not
-    /// be anchored there, even after repairing CJK script-boundary space drift.
-    /// This is the leak: the text really does contain the value, in a surface
+    /// be anchored there, in the reported form or in any whitespace variant of
+    /// it. This is the leak: the text really does contain the value, in a surface
     /// form the literal locator cannot match, so it is detected and survives
     /// into the output. A non-zero count means the document is not guaranteed
     /// PII-free.
@@ -262,25 +263,16 @@ public final class LLMExtractor {
             )
             guard seenEntities.insert(key).inserted else { continue }
 
-            // Anchor the value as reported. If that fails and the value carries
-            // CJK script-boundary space drift, retry once with the tightened
-            // form. The fallback ordering matters: a source that genuinely
-            // spaces its digits still matches on the first, faithful attempt.
-            var located = EntityLocator.spans(
+            // Anchor the value. EntityLocator finds every exact occurrence and
+            // every whitespace variant of it in one pass (a line wrap, a page
+            // break, CJK script-boundary space drift in either direction), so
+            // one exact hit never hides a wrapped repeat mention, and there is
+            // no second mechanism to fall back to.
+            let located = EntityLocator.spans(
                 forValue: entity.value,
                 type: entity.type,
                 in: text
             )
-            if located.isEmpty {
-                let tightened = CJKSpacing.tightenScriptBoundaries(entity.value)
-                if tightened != entity.value {
-                    located = EntityLocator.spans(
-                        forValue: tightened,
-                        type: entity.type,
-                        in: text
-                    )
-                }
-            }
             if located.isEmpty {
                 // Two very different failures look identical here, and only one
                 // is a privacy problem. If the document really does contain this

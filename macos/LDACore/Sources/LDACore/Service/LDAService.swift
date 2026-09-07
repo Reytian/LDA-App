@@ -42,8 +42,8 @@ public enum LDAServiceError: Error, Equatable {
     /// phrase saying what failed.
     case modelUnavailable(path: String, reason: String)
     /// The document was fully scanned, but values the model reported are present
-    /// in the source and could not be anchored there, even after repairing CJK
-    /// script-boundary space drift. They were detected and will survive into the
+    /// in the source and could not be anchored there, in the reported form or in
+    /// any whitespace variant of it. They were detected and will survive into the
     /// output, so the document is NOT guaranteed PII-free and must not be
     /// presented as cleanly anonymized (LJE-001). This is a distinct failure
     /// from truncation: the text was read, the removal is what failed. Values

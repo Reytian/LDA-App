@@ -250,13 +250,17 @@ final class LDAServiceLLMTests: XCTestCase {
     // MARK: - Unanchorable values (LJE-001, second failure mode)
 
     /// A complete, well-formed response: nothing is truncated. The document
-    /// really does contain this person, but the reported value has reflowed
-    /// whitespace, so the literal locator cannot anchor it and the name survives
-    /// into the output. That is the leak the gate exists to stop.
+    /// really does contain this person, but the reported value dropped the
+    /// space between the names. Neither the exact search nor the
+    /// whitespace-variant search anchors it (a space inside Latin text is real,
+    /// so "RobertKing" and "Robert King" are different surfaces), and the name
+    /// survives into the output. That is the leak the gate exists to stop. The
+    /// fixture used to be a doubled space, which the locator now anchors as a
+    /// whitespace variant, so it no longer represents an unanchorable value.
     private struct UnanchorableValueCompleter: TextCompleter {
         func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
             return #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},"# +
-                   #"{"value":"Robert  King","type":"PERSON"}],"redacted_text":""}"#
+                   #"{"value":"RobertKing","type":"PERSON"}],"redacted_text":""}"#
         }
     }
 

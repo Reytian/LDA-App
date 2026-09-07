@@ -10,8 +10,10 @@
 //  Offset convention: returned Span.start/Span.end are UTF-16 code-unit offsets,
 //  NSRange-compatible (start inclusive, end exclusive). See CoreTypes.swift.
 //
-//  Phase 2b scaffold: the interface is frozen here; the search body (literal
-//  occurrence scan, overlap-safe emission) lands in a later phase.
+//  Two searches run side by side: NSString's exact search (case-insensitive,
+//  canonically equivalent) and a bounded whitespace-variant pattern
+//  (EntityVariantPattern), so one exact occurrence never hides a repeat
+//  mention broken by a line wrap.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -33,14 +35,26 @@ public enum EntityLocator {
     /// Find every occurrence of value in text and emit a Span for each.
     ///
     /// The search trims surrounding whitespace from value, then scans text for
-    /// every non-overlapping substring occurrence, advancing past each match so
-    /// occurrences never overlap. Matching is case-insensitive: the model may
-    /// report "ACME CORP" for a document that spells "Acme Corp", and a casing
-    /// mismatch must not make the occurrence invisible (that would leak the
-    /// value through anonymization). Each span carries the document's actual
-    /// surface bytes, so round-trip restore stays byte-identical. All offsets
-    /// are UTF-16 code-unit offsets (NSRange-compatible), computed with
-    /// NSString.
+    /// every non-overlapping occurrence, advancing past each match so
+    /// occurrences never overlap. Two searches run side by side and the
+    /// leftmost hit wins at every step, so the result stays in document order:
+    ///
+    /// - The exact search (NSString) is case-insensitive and canonically
+    ///   equivalent: the model may report "ACME CORP" for a document that
+    ///   spells "Acme Corp", or an NFC name for an NFD source, and neither
+    ///   mismatch may make the occurrence invisible.
+    /// - The variant search (EntityVariantPattern) finds the same words with a
+    ///   different run of whitespace between them: a line wrap, a page break,
+    ///   a tab, a no-break or ideographic space, or CJK script-boundary space
+    ///   drift in either direction. Before it existed one exact hit hid every
+    ///   wrapped repeat mention, which then survived into the output while the
+    ///   result was called fully anchored.
+    ///
+    /// Each span carries the document's actual surface bytes (the wrapped
+    /// slice, line break included), so round-trip restore stays byte-identical
+    /// and SpanSplitter can still split a span that crosses a break into
+    /// per-part tokens downstream. All offsets are UTF-16 code-unit offsets
+    /// (NSRange-compatible).
     ///
     /// Word boundaries: a match whose edge sits INSIDE a Latin word is
     /// rejected. A model-reported fragment such as "laint" (clipped from
@@ -77,23 +91,34 @@ public enum EntityLocator {
             return []
         }
 
-        var result: [Span] = []
-        var searchStart = 0
-
-        // Note: case folding and canonical equivalence both allow a match whose
-        // code-unit length differs from the needle's, so the loop bounds must
-        // not assume needleLength; it only bounds on the remaining haystack.
-        while searchStart < length {
-            let searchRange = NSRange(
-                location: searchStart,
-                length: length - searchStart
-            )
+        var exact = SearchCursor { from in
+            // Case folding and canonical equivalence both allow a match whose
+            // code-unit length differs from the needle's, so nothing here
+            // assumes needleLength; the search only bounds on the remaining
+            // haystack.
             let found = haystack.range(
                 of: needle,
                 options: [.caseInsensitive],
-                range: searchRange
+                range: NSRange(location: from, length: length - from)
             )
-            guard found.location != NSNotFound, found.length > 0 else {
+            return found.location != NSNotFound && found.length > 0 ? found : nil
+        }
+        let variantPattern = EntityVariantPattern.regex(for: needle)
+        var variant = SearchCursor { from in
+            guard let variantPattern else { return nil }
+            let found = variantPattern.firstMatch(
+                in: text,
+                options: [],
+                range: NSRange(location: from, length: length - from)
+            )?.range
+            return found.map { $0.length > 0 ? $0 : nil } ?? nil
+        }
+
+        var result: [Span] = []
+        var searchStart = 0
+
+        while searchStart < length {
+            guard let found = leftmost(exact.next(from: searchStart), variant.next(from: searchStart)) else {
                 break
             }
 
@@ -111,11 +136,12 @@ public enum EntityLocator {
 
             // Capture the ACTUAL matched substring, not the needle. NSString.range
             // does canonical (NFC/NFD-insensitive) and case-insensitive matching,
-            // so the matched slice can differ from the needle in both bytes and
+            // and a variant hit differs from the needle in its whitespace, so
+            // the matched slice can differ from the needle in both bytes and
             // length. Stamping `text: needle` would make span.text disagree with
-            // the [start, end) bytes and silently change the document's casing or
-            // normalization form on restore. Using the matched slice keeps
-            // span.text byte-identical to the source range.
+            // the [start, end) bytes and silently change the document's casing,
+            // normalization form, or line structure on restore. Using the
+            // matched slice keeps span.text byte-identical to the source range.
             let matched = haystack.substring(with: found)
             result.append(
                 Span(
@@ -134,6 +160,53 @@ public enum EntityLocator {
         }
 
         return result
+    }
+
+    // MARK: - Two-engine scan
+
+    /// One search engine's position in the scan. A hit stays valid while the
+    /// scan has not passed its start, so each engine walks the text once even
+    /// when the other engine supplies most of the accepted matches; without
+    /// this, a thousand wrapped mentions ahead of one exact mention would
+    /// re-run the exact search a thousand times over the same stretch.
+    private struct SearchCursor {
+        private let search: (Int) -> NSRange?
+        private var hit: NSRange?
+        private var exhausted = false
+
+        init(search: @escaping (Int) -> NSRange?) {
+            self.search = search
+        }
+
+        mutating func next(from: Int) -> NSRange? {
+            if exhausted {
+                return nil
+            }
+            if let hit, hit.location >= from {
+                return hit
+            }
+            hit = search(from)
+            if hit == nil {
+                exhausted = true
+            }
+            return hit
+        }
+    }
+
+    /// The hit that starts first. On a tie the exact hit wins: the two then
+    /// cover the same words, and the exact search's semantics (canonical
+    /// equivalence) are the established ones.
+    private static func leftmost(_ exact: NSRange?, _ variant: NSRange?) -> NSRange? {
+        switch (exact, variant) {
+        case (nil, nil):
+            return nil
+        case (let exact?, nil):
+            return exact
+        case (nil, let variant?):
+            return variant
+        case (let exact?, let variant?):
+            return variant.location < exact.location ? variant : exact
+        }
     }
 
     // MARK: - Word boundaries

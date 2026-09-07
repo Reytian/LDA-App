@@ -16,10 +16,12 @@
 //  Only boundaries where one side is CJK are tightened. A space inside pure
 //  ASCII text ("98 Main Street", "Alice Wong") is real and is preserved.
 //
-//  Callers must apply this only as a fallback, after a literal match on the
-//  value as reported has already failed. Because the tightened form is then fed
-//  back through the same literal locator, the repair can only ever succeed by
-//  finding a real occurrence in the source: it cannot invent a span.
+//  The boundary rule itself (isScriptBoundary) is shared with
+//  EntityVariantPattern, where it makes the whitespace gap at a script boundary
+//  optional, so EntityLocator anchors both the tight and the spaced surface in
+//  one pass. tightenScriptBoundaries stays as the pure repair for a caller that
+//  needs a tightened needle; fed through a literal locator it can only ever
+//  succeed by finding a real occurrence in the source, never invent a span.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -63,8 +65,8 @@ public enum CJKSpacing {
 
     /// True when a space run sitting between these two scalars is drift rather
     /// than real spacing: exactly one side is CJK and the other is ASCII
-    /// alphanumeric.
-    private static func isScriptBoundary(_ before: Unicode.Scalar, _ after: Unicode.Scalar) -> Bool {
+    /// alphanumeric. Internal so EntityVariantPattern applies the same rule.
+    static func isScriptBoundary(_ before: Unicode.Scalar, _ after: Unicode.Scalar) -> Bool {
         return (isCJK(before) && isASCIIAlphanumeric(after))
             || (isASCIIAlphanumeric(before) && isCJK(after))
     }
