@@ -340,9 +340,12 @@ public enum Tokenizer {
         // "{PERSON_1}" sitting in document 2 are the same collision as within
         // one text: document 2 restored its template field to the entity value
         // with no orphan, no ambiguity, and a passing release gate.
-        var reservedLiterals = sourceTokenLiterals(in: text)
+        //
+        // SourceTokenLiterals scans each text in EVERY spelling restoration
+        // reads it in, the Markdown-escaped "{PERSON\_1}" included (R6).
+        var reservedLiterals = SourceTokenLiterals.literals(in: text)
         for companion in uniquenessCorpus {
-            reservedLiterals.formUnion(sourceTokenLiterals(in: companion))
+            reservedLiterals.formUnion(SourceTokenLiterals.literals(in: companion))
         }
 
         // Step 3: mint tokens. One token per DISTINCT surface text, with a
@@ -738,31 +741,6 @@ public enum Tokenizer {
             suffix += 1
         }
         entries["\(entry.token)#\(suffix)"] = entry
-    }
-
-    /// Scan `text` for every token-shaped literal already present, using the
-    /// shared `TokenGrammar.placeholderPattern` so emit and restore never drift.
-    ///
-    /// Returns the set of distinct matched strings (for example "{PERSON_1}").
-    /// This stays a pure function: it only reads the in-memory text and never
-    /// touches the clock or the file system. NSRegularExpression runs over the
-    /// text as an NSString, matching the UTF-16 offset convention used elsewhere.
-    private static func sourceTokenLiterals(in text: String) -> Set<String> {
-        guard let regex = try? NSRegularExpression(
-            pattern: TokenGrammar.placeholderPattern
-        ) else {
-            return []
-        }
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        var literals = Set<String>()
-        regex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
-            guard let match = match else {
-                return
-            }
-            literals.insert(nsText.substring(with: match.range))
-        }
-        return literals
     }
 
     /// Extract the substring of `text` between two UTF-16 code-unit offsets.
