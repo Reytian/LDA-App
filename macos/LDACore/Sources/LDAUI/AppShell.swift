@@ -230,6 +230,9 @@ public struct AppShell: View {
                 if let advice = keychainAdvisory.advisory {
                     keychainProtectionAdvisory(advice)
                 }
+                if let advice = session.mappingHomeAdvisory {
+                    mappingHomeAdvisory(advice)
+                }
                 if let completion = handoffCompletion {
                     HandoffCompletionCard(
                         completion: completion,
@@ -567,6 +570,17 @@ public struct AppShell: View {
     /// unnoticed. The sentence carries the verbatim Keychain status, which is
     /// what makes it actionable rather than merely alarming.
     private func keychainProtectionAdvisory(_ advice: String) -> some View {
+        AdvisoryRow(advice: advice)
+    }
+
+    /// An export finished after the user switched matters, so its key was
+    /// kept in the STARTING matter's workspace and not loaded here.
+    ///
+    /// A row rather than only the completion card, because the card belongs to
+    /// a document that is no longer open: by the time this is true the user is
+    /// looking at another matter, and the only place they could learn where
+    /// that key went is the shell. See ExportMappingHome.swift.
+    private func mappingHomeAdvisory(_ advice: String) -> some View {
         AdvisoryRow(advice: advice)
     }
 

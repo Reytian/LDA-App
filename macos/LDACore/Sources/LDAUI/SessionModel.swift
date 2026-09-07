@@ -138,6 +138,11 @@ public final class SessionModel: ObservableObject {
     /// fail the same visible way.
     @Published public private(set) var importFailure: String?
 
+    /// An export's key was kept, but in a workspace belonging to a matter this
+    /// session is no longer in, so it was NOT adopted here. Nil the rest of
+    /// the time. See ExportMappingHome.swift for why silence would be wrong.
+    @Published public internal(set) var mappingHomeAdvisory: String?
+
     /// The current session's record id (R18), set by the hand-to-AI build so
     /// later restores append their events to the same record.
     @Published public private(set) var currentRecordID: UUID?
@@ -166,6 +171,26 @@ public final class SessionModel: ObservableObject {
 
     /// Changes whenever a document discard invalidates an in-flight import.
     private var documentImportGeneration = 0
+
+    /// Monotonic count of matter-boundary moves: a different client selected,
+    /// or a workspace opened over the session.
+    ///
+    /// An export suspends for seconds to minutes, and the window stays live,
+    /// so a completion has to ask whether the session it started in is still
+    /// the session on screen. The document import generation cannot answer
+    /// that: it also bumps for reasons that are not a matter move, and it
+    /// does NOT bump for a label change that discards nothing. This counter
+    /// answers exactly one question, which makes it safe to compare.
+    ///
+    /// internal(set) so ExportMappingHome.swift can read it; only the
+    /// boundary moves in this file may write it.
+    private(set) var matterGeneration = 0
+
+    /// Record that the matter boundary moved, retiring every completion still
+    /// in flight for the outgoing matter.
+    private func invalidateWorkStartedInTheOutgoingMatter() {
+        matterGeneration += 1
+    }
 
     /// How a client's stored mapping is protected. Injectable for tests; the
     /// production default is the client's derived Keychain account.
@@ -929,6 +954,7 @@ public final class SessionModel: ObservableObject {
     /// delete the very documents about to be adopted.
     func resetForWorkspaceOpen(discardingExpansions expansions: Set<URL>) {
         documentImportGeneration += 1
+        invalidateWorkStartedInTheOutgoingMatter()
         entries.removeAll()
         selectedID = nil
         sessionMapping = nil
@@ -1241,6 +1267,7 @@ public final class SessionModel: ObservableObject {
         }
 
         clientLabel = label
+        invalidateWorkStartedInTheOutgoingMatter()
         sessionMapping = nil
         currentRecordID = nil
         sessionNote = nil

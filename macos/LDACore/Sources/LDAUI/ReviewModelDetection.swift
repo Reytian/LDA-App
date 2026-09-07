@@ -463,7 +463,7 @@ extension ReviewModel {
         // but a file that travels with the document by default is a file that
         // will eventually travel to somebody who should not have the key. The
         // key's default home is now a workspace on this Mac; see
-        // DefaultWorkspace and SessionModel.keepMappingInWorkspace.
+        // DefaultWorkspace and SessionModel.keepMapping(_:in:).
         //
         // And when it IS written it is passphrase protected, never Keychain
         // protected. The point of a sidecar is to travel (another Mac, a

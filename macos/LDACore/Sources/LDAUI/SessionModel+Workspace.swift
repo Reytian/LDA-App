@@ -372,36 +372,6 @@ extension SessionModel {
         )
     }
 
-    /// Keep an export's mapping in the document's default workspace, and adopt
-    /// it as the session's mapping so a restore in this same sitting needs no
-    /// file at all.
-    ///
-    /// Returns where it was kept. Throws rather than degrading: a caller that
-    /// has already written a redacted document needs to hear that its key did
-    /// not land, because nothing else on screen would say so. ReviewModel.export
-    /// takes that further and removes what it wrote, so a failure here cannot
-    /// leave an unrestorable document behind.
-    @discardableResult
-    public func keepMappingInWorkspace(
-        _ mapping: Mapping,
-        forSource source: URL,
-        documentID: UUID,
-        createdAtISO8601: String
-    ) throws -> URL {
-        let url = try defaultWorkspaceURL(forSource: source)
-        try WorkspaceArchive.write(
-            buildWorkspacePayload(
-                createdAtISO8601: createdAtISO8601,
-                documentIDs: [documentID],
-                mapping: mapping
-            ),
-            to: url,
-            protection: defaultWorkspaceProtection(url)
-        )
-        adoptWorkspaceMapping(mapping)
-        return url
-    }
-
     /// The mapping that restores `redactedFile`, taken from the default
     /// workspace the export kept it in, or nil when there is no single
     /// workspace that can be said to belong to that file.
@@ -443,19 +413,22 @@ extension SessionModel {
             throw DocumentIOError.unreadable("No document is open to redact.")
         }
         let source = entry.url
-        let documentID = entry.id
+        // The key's home is decided HERE, before the export suspends, and the
+        // completion writes that snapshot rather than reading the session
+        // again. See ExportMappingHome.swift for the matter-boundary failure
+        // this ordering prevents.
+        let home = exportMappingHome(
+            forSource: source,
+            documentID: entry.id,
+            createdAtISO8601: createdAtISO8601
+        )
         return try await entry.model.export(
             to: outputDir,
             passphrase: passphrase,
             createdAtISO8601: createdAtISO8601,
             seedMapping: exportMappingSeed(forSource: source),
             keepMapping: { mapping in
-                try keepMappingInWorkspace(
-                    mapping,
-                    forSource: source,
-                    documentID: documentID,
-                    createdAtISO8601: createdAtISO8601
-                )
+                try keepMapping(mapping, in: home)
             }
         )
     }
