@@ -25,10 +25,16 @@
 //  catastrophically. Every gap here is bounded and sits between two literal
 //  pieces, so a failed candidate costs at most maximumGapLength retries.
 //
-//  What this pattern does not do: canonical equivalence. NSString's exact
-//  search matches an NFC needle against an NFD source; ICU's regex engine does
-//  not, so an accented name that is BOTH decomposed and wrapped stays
-//  unanchored and is reported, never silently skipped.
+//  Canonical equivalence: NSString's exact search matches an NFC needle against
+//  an NFD source, but ICU's regex engine does not, so an accented name that was
+//  BOTH decomposed and wrapped used to stay unanchored while the first,
+//  precomposed mention anchored and the result was reported fully covered. The
+//  exported document then still showed the second full name (R5). Every literal
+//  character is therefore emitted as an alternation of its canonical spellings
+//  when they differ, per grapheme cluster, so a source that mixes the forms
+//  inside one word anchors as well. Each alternative is a fixed escaped
+//  literal and the composed and decomposed branches begin with different code
+//  units, so nothing here is ambiguous and nothing backtracks.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -78,7 +84,7 @@ enum EntityVariantPattern {
 
         func flushLiteral() {
             guard !literal.isEmpty else { return }
-            pieces.append(NSRegularExpression.escapedPattern(for: String(literal)))
+            pieces.append(canonicalLiteral(String(literal)))
             literal = String.UnicodeScalarView()
         }
 
@@ -108,5 +114,50 @@ enum EntityVariantPattern {
     /// One bounded gap: optional at a script boundary, required elsewhere.
     private static func gap(optional: Bool) -> String {
         return "\(gapClass){\(optional ? 0 : 1),\(maximumGapLength)}"
+    }
+
+    /// One literal piece of the needle as an escaped, canonically tolerant
+    /// pattern.
+    ///
+    /// Each grapheme cluster becomes either its escaped self (when its
+    /// canonical spellings are identical, which is every ASCII character) or
+    /// an alternation of the spellings that differ: "é" becomes
+    /// "(?:\u{00E9}|e\u{0301})". Working per cluster rather than per whole
+    /// piece is what anchors a source that mixes the forms inside one word,
+    /// which no whole-piece NFC-or-NFD alternative would match.
+    ///
+    /// The needle's own spelling is kept as an alternative when it is neither
+    /// canonical form (an unusual combining-mark order), so making the pattern
+    /// tolerant can never make it match less than before.
+    ///
+    /// The spellings are deduplicated by SCALAR, never by String equality:
+    /// Swift compares strings under canonical equivalence, so "é" == "e\u{0301}"
+    /// is true and a String-keyed set would collapse the two spellings this
+    /// function exists to keep apart.
+    private static func canonicalLiteral(_ piece: String) -> String {
+        var pattern = ""
+        for cluster in piece {
+            let spelling = String(cluster)
+            let escaped = distinctSpellings(of: spelling)
+                .map { NSRegularExpression.escapedPattern(for: $0) }
+            pattern += escaped.count == 1 ? escaped[0] : "(?:\(escaped.joined(separator: "|")))"
+        }
+        return pattern
+    }
+
+    /// The canonical spellings of one grapheme cluster, distinct by scalar and
+    /// in a stable order: precomposed, decomposed, then the needle's own form.
+    private static func distinctSpellings(of cluster: String) -> [String] {
+        var seen = Set<[UInt32]>()
+        var spellings: [String] = []
+        for candidate in [
+            cluster.precomposedStringWithCanonicalMapping,
+            cluster.decomposedStringWithCanonicalMapping,
+            cluster
+        ] {
+            guard seen.insert(candidate.unicodeScalars.map(\.value)).inserted else { continue }
+            spellings.append(candidate)
+        }
+        return spellings
     }
 }
