@@ -299,10 +299,14 @@ public enum LDAService {
             // separately by the image-PII channel below, not via text search.
             let pairs = surfaceTokenPairs(mapping: tokenized.mapping)
             var boxes: [RedactionBox]
+            // Occurrence level coverage of the text layer. Stays empty for a
+            // fully scanned PDF, whose boxes come from OCR rather than search.
+            var textCoverage = PdfRedactionCoverage()
             if imported.isScanned {
                 boxes = PdfOCRImporter.ocrBoxes(in: input, matching: pairs)
             } else {
-                boxes = PdfImporter.redactionBoxes(in: input, surfaceTexts: pairs)
+                textCoverage = PdfImporter.redactionCoverage(in: input, surfaceTexts: pairs)
+                boxes = textCoverage.boxes
                 // Hybrid PDFs: the scanned pages have no text layer for the
                 // selection search, so their PII is boxed via page-scoped OCR.
                 if !imported.scannedPageIndexes.isEmpty {
@@ -340,15 +344,15 @@ public enum LDAService {
                 }
             }
 
-            // Any text-layer value that ended up with NO box is reported, not
-            // papered over. The text search (including the whitespace-normalized
-            // fallback) and the OCR channel have both run by this point, so a
-            // token still missing from `boxes` is genuinely unlocated in the
-            // page geometry and the review PDF will still show it.
-            let boxedTokens = Set(boxes.map(\.token))
-            unboxedTokenCount = pairs.reduce(into: Set<String>()) { unboxed, pair in
-                if !boxedTokens.contains(pair.token) { unboxed.insert(pair.token) }
-            }.count
+            // Any replaced OCCURRENCE with no box is reported, not papered
+            // over. Per occurrence and never per unique token: asking only
+            // whether SOME box carried the token called a value covered while
+            // a second, wrapped occurrence of it kept the original pixels.
+            unboxedTokenCount = PdfRedactionCoverage.unboxedOccurrenceCount(
+                surfaceTexts: pairs,
+                textCoverage: textCoverage,
+                boxedTokens: Set(boxes.map(\.token))
+            )
 
             let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
             try PdfRedactor.renderRedactedPDF(original: input, boxes: boxes, to: reviewURL)

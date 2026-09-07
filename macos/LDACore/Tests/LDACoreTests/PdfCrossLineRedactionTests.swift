@@ -338,4 +338,180 @@ final class PdfCrossLineRedactionTests: XCTestCase {
         // is silently left uncovered without being counted.
         XCTAssertLessThanOrEqual(result.unboxedTokenCount, result.entityCount)
     }
+
+    // MARK: - Mixed contiguous and wrapped occurrences (finding 3)
+
+    func testAValueContiguousOnOnePageAndWrappedOnAnotherIsBoxedOnBoth() throws {
+        // The failure being closed: the whitespace-normalized search ran ONLY
+        // when the exact search found the value nowhere in the document. A name
+        // printed normally on one page and wrapped across two lines on another
+        // therefore got a box on the normal page only. The wrapped page kept
+        // the original pixels while the coverage count, which asked whether
+        // SOME box existed for the token, called the value covered.
+        let url = tempDir.appendingPathComponent("mixed-wrap.pdf")
+        try makePDF(at: url, pages: [
+            ["Client: Jane Aoife Smith signed."],
+            ["Again: Jane Aoife", "Smith countersigned."]
+        ])
+
+        // Precondition: the exact search sees the contiguous occurrence only,
+        // so this test exercises the combination rather than passing for the
+        // old reason.
+        let document = try XCTUnwrap(PDFDocument(url: url))
+        XCTAssertEqual(
+            document.findString("Jane Aoife Smith", withOptions: .caseInsensitive).count, 1,
+            "precondition: only the contiguous occurrence matches the exact search"
+        )
+
+        let boxes = PdfImporter.redactionBoxes(
+            in: url,
+            surfaceTexts: [(text: "Jane Aoife Smith", token: "{PERSON_1}")]
+        )
+
+        XCTAssertTrue(
+            boxes.contains { $0.pageIndex == 0 },
+            "the contiguous occurrence must stay boxed"
+        )
+        XCTAssertTrue(
+            boxes.contains { $0.pageIndex == 1 },
+            "the wrapped occurrence is left visible in the review PDF; boxed pages: "
+                + "\(boxes.map(\.pageIndex))"
+        )
+    }
+
+    // MARK: - Deduplicating the two searches, not the real occurrences
+
+    func testAnOccurrenceSeenByBothSearchesYieldsOneBox() throws {
+        // Both searches run for every value now, so a contiguous occurrence is
+        // found twice. It has to collapse to ONE box rather than two rects
+        // stacked on the same glyphs.
+        let url = tempDir.appendingPathComponent("both-searches.pdf")
+        try makePDF(at: url, pages: [["Client: Jane Aoife Smith signed."]])
+        let needle = "Jane Aoife Smith"
+
+        // Precondition: each search really does see this occurrence on its own,
+        // so the single box below is dedup and not one search coming up empty.
+        let document = try XCTUnwrap(PDFDocument(url: url))
+        XCTAssertEqual(
+            document.findString(needle, withOptions: .caseInsensitive).count, 1,
+            "precondition: the exact search sees the occurrence"
+        )
+        XCTAssertEqual(
+            PdfImporter.normalizedSearchBoxes(
+                needle: needle, token: "{PERSON_1}", in: document
+            ).count,
+            1,
+            "precondition: the normalized search sees the same occurrence"
+        )
+
+        let coverage = PdfImporter.redactionCoverage(
+            in: url,
+            surfaceTexts: [(text: needle, token: "{PERSON_1}")]
+        )
+
+        XCTAssertEqual(coverage.occurrences.count, 1)
+        XCTAssertEqual(
+            coverage.boxes.count, 1,
+            "one occurrence must not be painted twice, rects: \(coverage.boxes.map(\.rect))"
+        )
+    }
+
+    func testTwoContiguousOccurrencesOnSeparatePagesStillYieldTwoBoxes() throws {
+        // Dedup collapses the two SEARCHES that see one occurrence. It must
+        // never collapse two real occurrences of the value.
+        let url = tempDir.appendingPathComponent("twice-contiguous.pdf")
+        try makePDF(at: url, pages: [
+            ["Client: Jane Aoife Smith signed."],
+            ["Witness: Jane Aoife Smith attended."]
+        ])
+
+        let coverage = PdfImporter.redactionCoverage(
+            in: url,
+            surfaceTexts: [(text: "Jane Aoife Smith", token: "{PERSON_1}")]
+        )
+
+        XCTAssertEqual(coverage.occurrences.count, 2)
+        XCTAssertEqual(
+            coverage.boxes.count, 2,
+            "boxed pages: \(coverage.boxes.map(\.pageIndex))"
+        )
+        XCTAssertEqual(coverage.uncoveredOccurrenceCount, 0)
+    }
+
+    func testTwoContiguousOccurrencesOnOneLineStillYieldTwoBoxes() throws {
+        // Two occurrences side by side on one line vertically overlap, so
+        // dedup cannot key off the line: rects that merely touch must stay
+        // separate boxes.
+        let url = tempDir.appendingPathComponent("same-line-twice.pdf")
+        try makePDF(at: url, pages: [["Jane Aoife Smith and Jane Aoife Smith agreed."]])
+
+        let coverage = PdfImporter.redactionCoverage(
+            in: url,
+            surfaceTexts: [(text: "Jane Aoife Smith", token: "{PERSON_1}")]
+        )
+
+        XCTAssertEqual(
+            coverage.boxes.count, 2,
+            "both occurrences on the line need their own box, rects: "
+                + "\(coverage.boxes.map(\.rect))"
+        )
+    }
+
+    // MARK: - Coverage counted per occurrence, not per value
+
+    func testTheReportedCountNamesAnUnboxedOccurrenceOfABoxedValue() {
+        // Deliberately leave one occurrence of a two-occurrence value unboxed.
+        // A per-value count answers 0 here, because the other occurrence IS
+        // boxed, and the review PDF then claims coverage over visible PII.
+        let token = "{PERSON_1}"
+        let boxed = PdfTextOccurrence(
+            pageIndex: 0,
+            token: token,
+            boxes: [
+                RedactionBox(
+                    pageIndex: 0,
+                    rect: CGRect(x: 72, y: 700, width: 120, height: 14),
+                    token: token
+                )
+            ]
+        )
+        let unboxed = PdfTextOccurrence(pageIndex: 1, token: token, boxes: [])
+        let coverage = PdfRedactionCoverage(occurrences: [boxed, unboxed])
+
+        XCTAssertEqual(coverage.occurrenceCount(forToken: token), 2)
+        XCTAssertEqual(coverage.uncoveredOccurrenceCount, 1)
+        XCTAssertEqual(
+            PdfRedactionCoverage.unboxedOccurrenceCount(
+                surfaceTexts: [(text: "Jane Aoife Smith", token: token)],
+                textCoverage: coverage,
+                boxedTokens: Set(coverage.boxes.map(\.token))
+            ),
+            1,
+            "an unboxed occurrence must be reported even though the same value "
+                + "is boxed elsewhere in the document"
+        )
+    }
+
+    func testAValueTheTextLayerNeverLocatedIsStillReported() {
+        // The other way a value stays visible: no occurrence at all, and no box
+        // from the OCR or embedded-image channels either.
+        let count = PdfRedactionCoverage.unboxedOccurrenceCount(
+            surfaceTexts: [(text: "jane@example.test", token: "{EMAIL_1}")],
+            textCoverage: PdfRedactionCoverage(),
+            boxedTokens: []
+        )
+        XCTAssertEqual(count, 1)
+    }
+
+    func testAValueBoxedByAnotherChannelIsNotReportedUnboxed() {
+        // Page OCR and embedded-image OCR contribute boxes without
+        // contributing text-layer occurrences, so a value they boxed is
+        // covered rather than a warning.
+        let count = PdfRedactionCoverage.unboxedOccurrenceCount(
+            surfaceTexts: [(text: "jane@example.test", token: "{EMAIL_1}")],
+            textCoverage: PdfRedactionCoverage(),
+            boxedTokens: ["{EMAIL_1}"]
+        )
+        XCTAssertEqual(count, 0)
+    }
 }
