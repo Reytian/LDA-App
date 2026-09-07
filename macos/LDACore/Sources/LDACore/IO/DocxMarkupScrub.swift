@@ -53,15 +53,6 @@ enum DocxMarkupScrub {
 
     // MARK: - Field instructions
 
-    /// A complex-field instruction element with its content, in either the
-    /// live (w:instrText) or the tracked-deletion (w:delInstrText) spelling.
-    /// The close tag is a backreference so the two never pair up crosswise.
-    /// Instruction content is character data, so it cannot contain "<" and
-    /// the content group is a linear character class.
-    private static let instructionElementRegex = try? NSRegularExpression(
-        pattern: #"(<w:(instrText|delInstrText)\b[^>]*>)([^<]*)(</w:\2>)"#
-    )
-
     /// A simple field start tag; its instruction lives in the w:instr attribute.
     private static let simpleFieldRegex = try? NSRegularExpression(pattern: #"<w:fldSimple\b[^>]*>"#)
 
@@ -86,11 +77,16 @@ enum DocxMarkupScrub {
 
     /// Rewrite every mailto:/tel: target in the part's field instructions to
     /// about:blank. Other instructions (PAGE, http links) are left untouched.
+    ///
+    /// A complex field's instruction is assembled across the runs Word split
+    /// it into before it is judged, then written back onto those runs (see
+    /// DocxFieldInstruction). Judging one run alone read a string no consumer
+    /// reads and left a scheme-split address whole in the next run. A simple
+    /// field keeps its whole instruction in one w:instr attribute, so it
+    /// cannot split and is rewritten in place.
     static func neutralizeFieldTargets(_ xml: String) -> String {
-        let elementsDone = rewriteMatches(of: instructionElementRegex, in: xml) { match, ns in
-            ns.substring(with: match.range(at: 1))
-                + neutralizeSensitiveTargets(in: ns.substring(with: match.range(at: 3)))
-                + ns.substring(with: match.range(at: 4))
+        let elementsDone = DocxFieldInstruction.rewriteAssembled(in: xml) {
+            sensitiveTargetEdits(in: $0)
         }
         return rewriteMatches(of: simpleFieldRegex, in: elementsDone) { match, ns in
             let element = ns.substring(with: match.range)
@@ -104,6 +100,20 @@ enum DocxMarkupScrub {
         rewriteMatches(of: sensitiveTargetRegex, in: instruction) { _, _ in
             DocxParts.neutralizedTarget
         }
+    }
+
+    /// Every sensitive target in one assembled instruction, as edits over
+    /// that string. The same regex as neutralizeSensitiveTargets, reported as
+    /// ranges instead of applied, so a target that crosses runs can be
+    /// projected back onto them.
+    private static func sensitiveTargetEdits(
+        in instruction: String
+    ) -> [DocxFieldInstruction.AssembledEdit] {
+        guard let sensitiveTargetRegex else { return [] }
+        let ns = instruction as NSString
+        return sensitiveTargetRegex
+            .matches(in: instruction, range: NSRange(location: 0, length: ns.length))
+            .map { .init(range: $0.range, text: DocxParts.neutralizedTarget) }
     }
 
     // MARK: - Authorship attributes
