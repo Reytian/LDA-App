@@ -1,9 +1,9 @@
 # Legal Document Anonymizer
 
-## OpenAI Build Week 2026
+## Native macOS app
 
-The current hackathon entry is the native macOS app in `macos/LDACore`. LDA is
-an offline legal privacy workspace that anonymizes and restores documents,
+LDA is an offline legal privacy workspace for macOS. The native app in
+`macos/LDACore` anonymizes and restores documents,
 fills drafts from encrypted profiles, and organizes work in privacy-safe matter
 workspaces. The distributable app is sandboxed, signed with Developer ID, and
 notarized by Apple. Its one network permission exists solely so the model
@@ -37,20 +37,7 @@ precision. An air-gapped Mac can carry the model over from the
 Note that the `### Installation` steps further down belong to the legacy Python
 proof of concept, not to the macOS app.
 
-During the Build Week Submission Period, commit `047b30d` added the guided
-workflow, matter rename and archive, interrupted-session recovery, encrypted
-metadata improvements, regression coverage, and hardened packaging. See the
-[Build Week evidence](docs/hackathon/BUILD_WEEK.md),
-[judge-ready submission draft](docs/hackathon/SUBMISSION.md), and
-[demo script](docs/hackathon/DEMO_SCRIPT.md).
-
-Codex, using GPT-5.6, was the primary engineering and product-design
-collaborator for the Build Week extension. It supported codebase tracing,
-implementation, test design, review, workflow polish, and release hardening.
-The detailed contribution record and session ID are in the Build Week evidence
-linked above.
-
-### Judge quick start
+### Build from source
 
 Requirements: Apple Silicon Mac running macOS 14 or later.
 
