@@ -104,6 +104,15 @@ certificate is renewed need a regenerated profile: Profiles > select "LDA
 Developer ID" > Edit > pick the new certificate > Save, download, replace the
 file. The script's verify step will otherwise fail on the certificate check.
 
+### Where to build
+
+Build into a folder whose name ends in `.noindex`, such as
+`~/Developer/lda-dist.noindex`. Spotlight does not index such folders, so the
+build output never shows up as a second copy of LDA in Spotlight, Launchpad, or
+Open With next to the one installed in /Applications. The folder must also be
+outside iCloud Drive (see `DIST_PATH` above): codesign refuses the extended
+attributes iCloud leaves on synced files.
+
 ## What is in the bundle
 
 - `Contents/MacOS/LDAApp` : the app (statically links llama.cpp with Metal embedded).

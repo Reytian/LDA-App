@@ -51,11 +51,11 @@ STAGE_DIR=""
 # com.apple.fileprovider / com.apple.provenance xattrs on every bundle file
 # (faster than a one-time strip and re-stamped mid-sign), which makes codesign
 # fail with "resource fork, Finder information, or similar detritus not
-# allowed". An iCloud checkout therefore defaults to ~/Developer/lda-dist;
+# allowed". An iCloud checkout therefore defaults to ~/Developer/lda-dist.noindex;
 # other checkouts default to the package-local dist directory.
 DEFAULT_DIST="$PKG/dist"
 case "$PKG" in
-  *"/Mobile Documents/"*|*"/Documents/"*) DEFAULT_DIST="$HOME/Developer/lda-dist" ;;
+  *"/Mobile Documents/"*|*"/Documents/"*) DEFAULT_DIST="$HOME/Developer/lda-dist.noindex" ;;
 esac
 DIST="${DIST_PATH:-$DEFAULT_DIST}"
 APP="$DIST/LDA.app"
@@ -74,7 +74,7 @@ MODEL_PATH="${MODEL_PATH:-$HOME/Developer/lda-models/Qwen3.5-4B-Q4_K_M.gguf}"
 case "$DIST" in
 *"/Mobile Documents/"*|*"/Documents/"*)
   echo "!! Refusing to sign inside an iCloud-synced path ($DIST)."
-  echo "!! Set DIST_PATH to a non-iCloud location, e.g. DIST_PATH=~/Developer/lda-dist"
+  echo "!! Set DIST_PATH to a non-iCloud location, e.g. DIST_PATH=~/Developer/lda-dist.noindex"
   exit 1
   ;;
 esac
