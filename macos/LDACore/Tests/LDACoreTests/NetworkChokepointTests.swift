@@ -5,8 +5,9 @@
 //  Enforces the invariant the privacy claim rests on.
 //
 //  LDA.app carries com.apple.security.network.client so it can download models.
-//  Everything published about the app says the network is used for that and
-//  nothing else. Before the entitlement, the OS enforced that and a reviewer
+//  Its own network access is limited to model downloads. A user-selected
+//  tutorial link may open a fixed GitHub page in the default browser.
+//  Before the entitlement, the OS enforced the download boundary and a reviewer
 //  could verify it by reading one file. Now WE enforce it, so it needs to be
 //  checked by something that runs on every commit rather than by discipline.
 //
@@ -41,6 +42,10 @@ final class NetworkChokepointTests: XCTestCase {
             "NetworkChokepointTests.swift"
         ]
     ]
+
+    // The user requested this browser link during setup. Match the entire line
+    // so an additional URL, query string or document-derived destination is refused.
+    private let tutorialBrowserLink = #"Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {"#
 
     /// Symbols that indicate outbound network capability.
     private let networkSymbols = [
@@ -102,6 +107,7 @@ final class NetworkChokepointTests: XCTestCase {
         }
 
         var offenders: [String: [String]] = [:]
+        var tutorialLinkCount = 0
         for case let url as URL in walker where url.pathExtension == "swift" {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let name = url.lastPathComponent
@@ -111,18 +117,24 @@ final class NetworkChokepointTests: XCTestCase {
                 if trimmed.hasPrefix("//") || trimmed.hasPrefix("///") { continue }
                 for symbol in networkSymbols where line.contains(symbol) {
                     if name == allowedFile { continue }
+                    if name == "TutorialGallery.swift", symbol == "Link(", trimmed == tutorialBrowserLink {
+                        tutorialLinkCount += 1
+                        continue
+                    }
                     if auditedLocalFileReads[symbol]?.contains(name) == true { continue }
                     offenders[name, default: []].append(symbol)
                 }
             }
         }
 
+        XCTAssertEqual(tutorialLinkCount, 1, "The fixed tutorial browser link must be reviewed if changed or removed.")
         XCTAssertTrue(
             offenders.isEmpty,
             """
             Network capability appeared outside \(allowedFile): \(offenders).
             The app publishes that it contacts the network only to download a \
-            model you asked for. A second network user makes that claim false. \
+            model you asked for. The fixed, user-selected tutorial browser link is \
+            separately audited. Any other network use changes that claim. \
             If this is intentional, the published wording in LDA.entitlements, \
             packaging/README.md, SettingsView and OnboardingView must change \
             with it.

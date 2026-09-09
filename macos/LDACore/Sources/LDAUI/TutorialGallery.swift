@@ -10,6 +10,15 @@ struct TutorialGallery: View {
         VStack(alignment: .leading, spacing: 12) {
             L10n.text("Watch the walkthroughs")
                 .font(.headline)
+            // Only an explicit click opens this fixed page in the user's browser.
+            Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {
+                Label {
+                    L10n.text("Watch on GitHub")
+                } icon: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+            }
+            .accessibilityHint(L10n.string("Open both video walkthroughs in your browser"))
             L10n.text("Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
