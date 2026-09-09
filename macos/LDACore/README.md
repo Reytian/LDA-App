@@ -61,42 +61,32 @@ the offline path below.
 
 ### Offline, for an air-gapped or throttled machine
 
-The Quick model is published as two parts plus a checksum file, because a
-single GitHub release asset cannot exceed 2 GiB.
+The Quick model is a separate, optional 2.74 GB download from Hugging Face.
+The [offline model page](https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b)
+links to the original model file and provides its checksum. It is not bundled
+with the LDA app.
 
 On a Mac that has a connection:
 
 ```
-# 1. Download all three assets from the release page:
-#      Qwen3.5-4B-Q4_K_M.gguf.part-aa
-#      Qwen3.5-4B-Q4_K_M.gguf.part-ab
-#      MODEL-SHA256SUMS.txt
+# 1. Follow the model download link and download MODEL-SHA256SUMS.txt from:
 #    https://github.com/Reytian/LDA-App/releases/tag/model-quick-qwen3.5-4b
 
-# 2. Join the parts. The glob puts them in the right order, so do not list them
-#    by hand.
-cat Qwen3.5-4B-Q4_K_M.gguf.part-* > Qwen3.5-4B-Q4_K_M.gguf
-
-# 3. Check the joined file before you carry it anywhere.
+# 2. Check the model file before you carry it anywhere.
 shasum -a 256 -c MODEL-SHA256SUMS.txt
 
-# Expected digest of the joined file:
+# Expected digest:
 #   00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4
 # Expected size: 2740937888 bytes
-
-# 4. Delete the parts. Only the joined .gguf is needed.
-rm Qwen3.5-4B-Q4_K_M.gguf.part-*
 ```
 
-Copy the joined `Qwen3.5-4B-Q4_K_M.gguf` to the other Mac. A FAT-formatted
-flash drive cannot hold both parts and the joined file at once, which is the
-other reason to join before you copy.
+Copy `Qwen3.5-4B-Q4_K_M.gguf` to the other Mac.
 
 On the Mac running LDA:
 
 1. Open Settings, then AI, then Manage Models.
 2. Under "Already have the model file?", press Add Model File and choose the
-   joined `.gguf`.
+   downloaded `.gguf`.
 3. LDA verifies the SHA-256 against its own catalog and copies the file into
    its own folder. The result is identical to a download: the level shows as
    installed, the file survives relaunch, and you can remove it later from the
