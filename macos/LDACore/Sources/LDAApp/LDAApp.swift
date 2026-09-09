@@ -66,6 +66,8 @@ struct LDAApp: App {
 
     @StateObject private var modeStore = AppModeStore()
 
+    @StateObject private var legalAcceptance = LegalAcceptanceStore()
+
     /// The persisted custom vocabulary, shared by the window and Settings.
     @StateObject private var patternStore = CustomPatternStore()
 
@@ -105,6 +107,7 @@ struct LDAApp: App {
     /// The Cmd+J navigation loop applies to Anonymize (entities) and Fill
     /// (blanks); the De-anonymize mode has no list to walk.
     private var navigationLoopDisabled: Bool {
+        guard legalAcceptance.hasAcceptedCurrentDocuments else { return true }
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.entities.isEmpty
         case .fill: return fillModel.blanks.isEmpty
@@ -115,6 +118,7 @@ struct LDAApp: App {
     /// Cmd+Return toggles the selected findings (Anonymize) or accepts the
     /// selected blank (Fill).
     private var toggleDisabled: Bool {
+        guard legalAcceptance.hasAcceptedCurrentDocuments else { return true }
         switch modeStore.activeMode {
         case .anonymize: return sessionModel.activeModel.selectedGroupIDs.isEmpty
         case .fill: return fillModel.selectedBlankID == nil
@@ -122,15 +126,23 @@ struct LDAApp: App {
         }
     }
 
+    @State private var mcpWorkspaceRequest: MCPWorkspaceRequest?
+
     var body: some Scene {
         Window("LDA", id: LDAWindowID.main) {
-            RootShell(
-                session: sessionModel,
-                fillModel: fillModel,
-                modeStore: modeStore,
-                installer: modelInstaller,
-                importer: modelImporter
-            )
+            Group {
+                if legalAcceptance.hasAcceptedCurrentDocuments {
+                    RootShell(
+                        session: sessionModel,
+                        fillModel: fillModel,
+                        modeStore: modeStore,
+                        installer: modelInstaller,
+                        importer: modelImporter
+                    )
+                } else {
+                    LegalConsentView(acceptance: legalAcceptance)
+                }
+            }
                 .frame(minWidth: 1100, minHeight: 720)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
@@ -154,7 +166,23 @@ struct LDAApp: App {
                     // Keychain-protected, and a Keychain prompt at app launch
                     // is exactly the kind of surprise dialog users distrust.
                 }
+                .sheet(item: $mcpWorkspaceRequest) { request in
+                    MCPWorkspacePicker(request: request, session: sessionModel)
+                }
                 .onOpenURL { url in
+                    // External requests cannot present document or integration UI
+                    // over the first-use agreement. The caller can retry afterward.
+                    guard legalAcceptance.hasAcceptedCurrentDocuments else { return }
+                    if let request = MCPWorkspaceRequest(url: url) {
+                        if mcpWorkspaceRequest == nil || mcpWorkspaceRequest?.isExpired() == true {
+                            mcpWorkspaceRequest = request
+                        } else if mcpWorkspaceRequest?.id != request.id {
+                            // A second client cannot displace a selection already under review.
+                            try? MCPWorkspaceBridge.reply(MCPWorkspaceReply(requestID: request.id, confirmed: false, workspaceID: nil))
+                        }
+                        return
+                    }
+                    guard url.isFileURL else { return }
                     // Double-clicking a .ldawork or .ldareport file in Finder
                     // arrives here. The app does NOT open either directly: the
                     // review shell owns the passphrase prompt, the "this
@@ -203,6 +231,7 @@ struct LDAApp: App {
                     sessionModel.requestOpen()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
 
                 // A workspace usually arrives by double-click, but the file
                 // association only exists once the app is installed and
@@ -212,6 +241,7 @@ struct LDAApp: App {
                     presentWorkspaceOpenPanel()
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
 
                 // An encrypted compliance report needs LDA to read it, so the
                 // app has to offer a way in. No shortcut: this is a rare,
@@ -220,6 +250,7 @@ struct LDAApp: App {
                     modeStore.activeMode = .anonymize
                     presentReportOpenPanel()
                 }
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
             }
 
             CommandGroup(after: .saveItem) {
@@ -228,7 +259,7 @@ struct LDAApp: App {
                     sessionModel.activeModel.requestAnonymize()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(!sessionModel.activeModel.canAnonymize)
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments || !sessionModel.activeModel.canAnonymize)
 
                 // Export for AI lives in the Anonymize shell, whose completion
                 // card names the file just written, so the menu lands the user
@@ -238,7 +269,7 @@ struct LDAApp: App {
                     sessionModel.requestExportForAI()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(!sessionModel.exportForAIAvailability.isAvailable)
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments || !sessionModel.exportForAIAvailability.isAvailable)
 
                 Divider()
 
@@ -246,7 +277,7 @@ struct LDAApp: App {
                     sessionModel.activeModel.requestExport()
                 }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(!sessionModel.activeModel.exportAvailability.isAvailable)
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments || !sessionModel.activeModel.exportAvailability.isAvailable)
 
                 Button(localized("Restore…")) {
                     // Land the user in the Restore mode so the flow has
@@ -255,6 +286,7 @@ struct LDAApp: App {
                     sessionModel.activeModel.requestRestore()
                 }
                 .keyboardShortcut("r", modifiers: .command)
+                .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
             }
 
             // Mode-aware navigation loop. Cmd+J / Cmd+Shift+J advance or retreat
@@ -317,23 +349,29 @@ struct LDAApp: App {
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(
-                    modeStore.activeMode != .anonymize
+                    !legalAcceptance.hasAcceptedCurrentDocuments
+                        || modeStore.activeMode != .anonymize
                         || !sessionModel.activeModel.canProtectSelection
                 )
             }
         }
 
         Settings {
-            SettingsView(
-                patterns: patternStore,
-                learning: learningStore,
-                installer: modelInstaller,
-                importer: modelImporter,
-                // Any open document mid-scan gates model removal: llama.cpp
-                // still has the file mmapped, so the disk would not
-                // actually come back and the app would report otherwise.
-                isScanning: sessionModel.entries.contains { $0.model.status == .detecting }
-            )
+            Group {
+                if legalAcceptance.hasAcceptedCurrentDocuments {
+                    SettingsView(
+                        patterns: patternStore,
+                        learning: learningStore,
+                        installer: modelInstaller,
+                        importer: modelImporter,
+                        legalAcceptance: legalAcceptance,
+                        // Removing a model while scanning cannot reclaim its space.
+                        isScanning: sessionModel.entries.contains { $0.model.status == .detecting }
+                    )
+                } else {
+                    LegalConsentView(acceptance: legalAcceptance)
+                }
+            }
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
                 .environment(\.appLanguage, appLanguage)
@@ -343,7 +381,13 @@ struct LDAApp: App {
         // dead end. Coming back from the AI, the user can restore the
         // clipboard without raising the main window.
         MenuBarExtra("LDA", systemImage: "shield.lefthalf.filled") {
-            CompanionMenu(session: sessionModel)
+            Group {
+                if legalAcceptance.hasAcceptedCurrentDocuments {
+                    CompanionMenu(session: sessionModel)
+                } else {
+                    LegalCompanionNotice()
+                }
+            }
                 .environment(\.locale, appLocale)
                 .environment(\.appLanguage, appLanguage)
         }

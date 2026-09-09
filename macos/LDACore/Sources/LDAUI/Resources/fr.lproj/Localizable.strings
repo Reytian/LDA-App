@@ -960,6 +960,81 @@
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "Ce document ne se lit plus comme lors de l'enregistrement de cet espace de travail : l'analyse consignée ne décrit donc pas le texte ouvert. Analysez-le à nouveau, ou relisez la copie avant de la confier à un outil d'IA.";
 "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "Enregistrer l'espace de travail a constaté que « %@ » a changé après sa recherche : sa revue ne le décrit plus. Ouvrez le fichier à nouveau et relancez la recherche avant d'enregistrer l'espace de travail.";
 
+"Add documents, evidence images, or a ZIP to the session" = "Ajouter des documents, des images ou une archive ZIP à la session";
+"Save a workspace or export a review report" = "Enregistrer un espace de travail ou exporter un rapport de révision";
+"Add your files, review sensitive details, then export a redacted copy." = "Ajoutez vos fichiers, vérifiez les données sensibles, puis exportez une copie expurgée.";
+"PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives." = "PDF, Word (.docx), texte brut, images PNG ou JPEG et archives ZIP.";
+"Add several files to review them together. You can add more later." = "Ajoutez plusieurs fichiers pour les réviser ensemble. Vous pourrez en ajouter ensuite.";
+"Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy." = "Choisissez ou déposez un fichier Word, Markdown ou texte expurgé. Vérifiez les valeurs restaurées avant d’enregistrer une nouvelle copie.";
+"Choose File & Preview…" = "Choisir un fichier et prévisualiser…";
+"LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting." = "LDA recherche la table de correspondance dans cette session, l’espace de travail du document ou un fichier .ldamap voisin. Si nécessaire, vous pouvez choisir une table. Les documents Word conservent leur mise en forme.";
+"How restoration works" = "Comment fonctionne la restauration";
+
+/* Model setup clarity */
+"Smallest download. Works on Macs with 16 GB of memory." = "Le plus petit téléchargement. Fonctionne sur les Mac avec 16 Go de mémoire.";
+"Recommended when memory allows. Fewer findings to dismiss." = "Recommandé si la mémoire le permet. Moins de résultats à écarter.";
+"Found the most in our tests. Takes longer to scan and review." = "A trouvé le plus d’éléments dans nos tests. Analyse et révision plus longues.";
+"%@ on disk" = "%@ sur le disque";
+"%@ is recommended for this Mac." = "%@ est recommandé pour ce Mac.";
+"Selected" = "Sélectionné";
+"Not installed" = "Non installé";
+"Ready to scan" = "Prêt pour l’analyse";
+"Installed, cannot run on this Mac" = "Installé, mais incompatible avec ce Mac";
+"Downloading" = "Téléchargement en cours";
+"Verifying" = "Vérification en cours";
+"Memory and test results" = "Mémoire et résultats des tests";
+"Show findings" = "Afficher les résultats";
+"Hide findings" = "Masquer les résultats";
+
+"Choose a Matter for this document" = "Choisir un dossier pour ce document";
+
+"New redacted and restored versions inherit this choice. Matter names stay on this Mac." = "Les nouvelles versions anonymisées et restaurées conservent ce choix. Les noms des dossiers restent sur ce Mac.";
+
+"Your Matters could not be unlocked. Cancel and unlock them in LDA, then try again." = "Impossible de déverrouiller vos dossiers. Annulez et déverrouillez-les dans LDA, puis réessayez.";
+
+"Create a Matter in LDA to organize this document, then try again." = "Créez un dossier dans LDA pour organiser ce document, puis réessayez.";
+
+"Save Association" = "Enregistrer le dossier associé";
+
+"Matter" = "Dossier";
+
+/* Optional AI client and command-line setup. */
+"AI app" = "Application IA";
+"After installing the shortcut, run these commands in Terminal. If lda is not found, use ~/.local/bin/lda or add ~/.local/bin to PATH." = "Après installation du raccourci, exécutez ces commandes dans Terminal. Si lda est introuvable, utilisez ~/.local/bin/lda ou ajoutez ~/.local/bin au PATH.";
+"After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection." = "Après la configuration, redémarrez votre application IA et vérifiez son état MCP. Demandez à LDA une attestation pour confirmer la connexion.";
+"Ask your AI app to use LDA to prepare documents for your named workspace, then give your document instruction. Shortcut syntax depends on the app." = "Demandez à votre application IA de préparer les documents avec LDA pour l’espace de travail indiqué, puis donnez vos instructions. La syntaxe du raccourci dépend de l’application.";
+"CLI Setup" = "Configuration CLI";
+"CLI output can include original values and filenames. Do not paste it into an AI chat when working with confidential documents. Use MCP for the protected document workflow." = "La sortie CLI peut contenir des valeurs originales et des noms de fichiers. Ne la collez pas dans une conversation IA pour des documents confidentiels. Utilisez MCP pour le traitement protégé.";
+"Choose LDA from the slash-command menu, or use $lda in Codex. The workspace name is an LDA Matter, separate from your Codex project. Choose documents locally and turn on the optional PII review if you want to add protection." = "Choisissez LDA dans le menu des commandes /, ou utilisez $lda dans Codex. L’espace de travail est un dossier LDA, distinct du projet Codex. Choisissez les documents localement et activez la vérification facultative des données personnelles pour ajouter des protections.";
+"Choose MCP Helper" = "Choisir l’outil MCP";
+"Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time." = "Choisissez une application, enregistrez son script de configuration, puis ouvrez-le dans Terminal. Cette étape est facultative et reste accessible dans Réglages.";
+"Configuration copied." = "Configuration copiée.";
+"Connect LDA to your AI app" = "Connecter LDA à votre application IA";
+"Copy Configuration" = "Copier la configuration";
+"Do not attach originals, mapping files or passwords to the AI chat. Any workspace name you type into chat is visible to that AI service." = "Ne joignez pas les originaux, les tables de correspondance ou les mots de passe à la conversation IA. Tout nom d’espace de travail saisi dans la conversation est visible par ce service IA.";
+"In an app that supports local STDIO MCP, add a server named lda. Use the command and environment below. Merge the lda entry into existing settings instead of replacing the whole file. Browser-only apps that require an HTTP address cannot use this local server directly." = "Dans une application compatible avec MCP local via STDIO, ajoutez un serveur nommé lda avec la commande et l’environnement ci-dessous. Ajoutez l’entrée lda aux réglages existants sans remplacer le fichier entier. Les applications web exigeant une adresse HTTP ne peuvent pas utiliser directement ce serveur local.";
+"Keep LDA.app in its final location before setting up a connection." = "Placez LDA.app à son emplacement définitif avant de configurer une connexion.";
+"MCP Setup" = "Configuration MCP";
+"MCP helper is ready" = "L’outil MCP est prêt";
+"Open the saved script in Terminal. It creates ~/.local/bin/lda and preserves any existing command." = "Ouvrez le script enregistré dans Terminal. Il crée ~/.local/bin/lda et conserve toute commande existante.";
+"Other AI app" = "Autre application IA";
+"Requested workspace: %@" = "Espace de travail demandé : %@";
+"Save CLI Setup Script" = "Enregistrer le script CLI";
+"Save LDA Skill" = "Enregistrer la compétence LDA";
+"Save Setup Script" = "Enregistrer le script";
+"Save this file inside the lda skill folder for your AI app. Preserve any existing custom skill before replacing it." = "Enregistrez ce fichier dans le dossier de compétence lda de votre application IA. Conservez toute compétence personnalisée avant de la remplacer.";
+"Set Up Later" = "Configurer plus tard";
+"Setup could not be saved. Choose a writable location and try again." = "Impossible d’enregistrer la configuration. Choisissez un emplacement accessible en écriture et réessayez.";
+"Setup script saved. Open it locally in Terminal, then restart your AI app." = "Script enregistré. Ouvrez-le localement dans Terminal, puis redémarrez votre application IA.";
+"The CLI runs locally and supports detection, redaction, restoration, vault staging and audit verification." = "La CLI fonctionne localement : détection, anonymisation, restauration, ajout au coffre et vérification de l’audit.";
+"The script adds only LDA, backs up changed settings, and preserves existing server entries and skills. If LDA is already configured, update its command and environment in your AI app using the configuration below." = "Le script ajoute uniquement LDA, sauvegarde les réglages modifiés et conserve les serveurs et compétences existants. Si LDA est déjà configuré, mettez à jour sa commande et son environnement dans votre application IA avec la configuration ci-dessous.";
+"This build has no bundled CLI helper. Use lda from an LDA release package." = "Cette version ne contient pas l’outil CLI. Utilisez lda depuis une distribution LDA.";
+"This build has no bundled MCP helper. Choose lda-mcp from an LDA release package." = "Cette version ne contient pas l’outil MCP. Choisissez lda-mcp depuis une distribution LDA.";
+"This connection will use Patterns only. Set up a detection model in AI Settings for names, companies and addresses, then export setup again." = "Cette connexion utilisera uniquement les motifs. Configurez un modèle de détection dans les réglages IA pour les noms, sociétés et adresses, puis exportez à nouveau la configuration.";
+"Use LDA from Terminal" = "Utiliser LDA depuis Terminal";
+"Use lda anonymize --help and lda restore --help for redaction and restoration options. Keep mappings and passphrases local." = "Utilisez lda anonymize --help et lda restore --help pour les options d’anonymisation et de restauration. Gardez les correspondances et les phrases secrètes localement.";
+"View Configuration" = "Afficher la configuration";
+
 // Offline video tutorials
 "Watch the walkthroughs" = "Regarder les tutoriels";
 "Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "Exemples illustrés avec des données fictives. Vidéos muettes avec sous-titres en anglais. Lecture hors ligne.";
@@ -973,3 +1048,24 @@
 "Tutorials" = "Tutoriels";
 "Watch on GitHub" = "Voir sur GitHub";
 "Open both video walkthroughs in your browser" = "Ouvrir les deux tutoriels vidéo dans votre navigateur";
+
+/* First-use legal acceptance */
+"Before you begin" = "Avant de commencer";
+"Please review and accept both documents to continue using LDA." = "Veuillez consulter et accepter les deux documents pour continuer à utiliser LDA.";
+"I have read and agree to the Terms of Service." = "J’ai lu et j’accepte les Conditions d’utilisation.";
+"I have read and accept the Privacy Policy." = "J’ai lu et j’accepte la Politique de confidentialité.";
+"Acceptance is saved only on this Mac. It does not authorize optional sharing or future data uses." = "Votre acceptation est conservée dans les préférences de ce Mac. Elle n’autorise aucun partage facultatif ni aucune utilisation future des données.";
+"Acceptance could not be saved. Please try again." = "Impossible d’enregistrer votre acceptation. Veuillez réessayer.";
+"Decline and Quit" = "Refuser et quitter";
+"Accept and Continue" = "Accepter et continuer";
+"Legal document" = "Document juridique";
+"Terms of Service" = "Conditions d’utilisation";
+"Privacy Policy" = "Politique de confidentialité";
+"These documents are in English. You can save a copy for your records." = "Ces documents sont en anglais. Vous pouvez en enregistrer une copie.";
+"Save a Copy..." = "Enregistrer une copie...";
+"The document could not be saved. Choose another location and try again." = "Impossible d’enregistrer le document. Choisissez un autre emplacement et réessayez.";
+"The legal documents could not be loaded. Please reinstall LDA from its official distribution." = "Impossible de charger les documents juridiques. Veuillez réinstaller la version officielle de LDA.";
+"Accepted on this Mac:" = "Accepté sur ce Mac :";
+"Review the Terms of Service and Privacy Policy to begin." = "Consultez les Conditions d’utilisation et la Politique de confidentialité pour commencer.";
+"Legal" = "Informations juridiques";
+"Contact Support" = "Contacter l’assistance";

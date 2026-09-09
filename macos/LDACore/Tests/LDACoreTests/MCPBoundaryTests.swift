@@ -312,26 +312,16 @@ final class MCPBoundaryTests: XCTestCase {
         }
     }
 
-    /// attest must be honest, not hopeful: over a vault still carrying the
-    /// pre-encryption plaintext registry (unmigrated because no tool has
-    /// opened the registry yet), it must report vaultEncryptionAtRest false.
-    func testAttestReportsFalseOverAnUnmigratedPlaintextVault() throws {
+    /// The mandatory journal opens and migrates the registry before any tool dispatch.
+    func testAttestMigratesLegacyVaultBeforeReportingEncryption() throws {
         try FileManager.default.createDirectory(at: vaultDir, withIntermediateDirectories: true)
         try Data("{\"entries\":[],\"version\":1}".utf8).write(
             to: vaultDir.appendingPathComponent(DocumentVault.registryFileName)
         )
-
-        var attest = try summary(of: try call(tool: "attest", arguments: [:]))
-        XCTAssertEqual(
-            attest["vaultEncryptionAtRest"] as? Bool,
-            false,
-            "an unmigrated plaintext registry means the guarantee does not hold yet"
-        )
-
-        // Any registry-opening tool migrates the store; attest then flips.
-        try call(tool: "list_pending", arguments: [:])
-        attest = try summary(of: try call(tool: "attest", arguments: [:]))
+        let attest = try summary(of: try call(tool: "attest", arguments: [:]))
         XCTAssertEqual(attest["vaultEncryptionAtRest"] as? Bool, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vaultDir.appendingPathComponent(DocumentVault.registryFileName).path))
+        XCTAssertEqual(try MCPAuditJournal(vault: VaultTestSupport.vault(root: vaultDir)).verify().records.count, 2)
     }
 
     // MARK: - Session sharing through handles

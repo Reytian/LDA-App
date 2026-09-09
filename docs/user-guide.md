@@ -40,7 +40,7 @@ download the files again before opening the app.
 
 ## 2. Choose a language and install a model
 
-1. Choose your language in the first-run wizard.
+1. Review and accept the Terms of Service and Privacy Policy, then choose your language in the first-run wizard. Both documents remain available in **Settings > Legal**.
 2. Choose an available detection model. **Quick** is the starting option for a
    Mac with 16 GB of memory; larger choices require more memory and disk space.
 3. Start the download and wait for verification and installation to complete.
@@ -183,7 +183,7 @@ but the completed document contains actual client details.
 ## Optional: connect LDA to an AI app
 
 **Requires a setup-enabled build with Settings > MCP Setup, the bundled helper,
-and the LDA workflow skill.** The September 4 version 1.1 release predates these
+and the LDA workflow skill.** LDA 1.2 includes these controls. The September 4 version 1.1 release predates these
 setup controls. If they are absent, use the manual export-and-restore steps above;
 this guide does not add the integration to an older app.
 

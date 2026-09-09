@@ -23,7 +23,7 @@
 //  MCP host launches this process and pipes requests to it on stdin; responses
 //  come back on stdout.
 //
-//  Structure for testability: the core is a PURE function, handle(_:), that maps
+//  Structure for testability: the core handle(_:) maps
 //  one raw JSON-RPC request payload to one raw response payload (or nil for a
 //  notification). It performs no stdio of its own, so it is fully unit-testable.
 //  The one piece of per-instance state is MCPSessionMetrics, the counters the
@@ -79,10 +79,30 @@ public struct MCPServer {
     /// A reference type held by this value-typed server, so handle(_:) stays
     /// non-mutating and one server instance accumulates across calls.
     let metrics = MCPSessionMetrics()
+    let audit: MCPAuditJournal
+    let auditSessionID = UUID().uuidString.lowercased()
+    let approvePartialDisclosure: (String, Int) -> Bool
+    #if DEBUG
+    var chooseWorkspaceForTesting: ((VaultEntry) throws -> UUID?)?
+    var prepareMappingPassphraseForTesting: String?
+    var selectDocumentsForTesting: (() throws -> MCPLocalPreparation.Selection)?
+    var reviewDocumentForTesting: ((String, [Span]) throws -> [CustomPattern])?
+    var localReviewDetectionForTesting: ((String) throws -> [Span])?
+    #endif
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.environment = environment
+        audit = MCPAuditJournal(vault: DocumentVault(environment: environment))
+        approvePartialDisclosure = MCPLocalApproval.confirm
     }
+
+    #if DEBUG
+    init(environment: [String: String], approvePartialDisclosure: @escaping (String, Int) -> Bool) {
+        self.environment = environment
+        audit = MCPAuditJournal(vault: DocumentVault(environment: environment))
+        self.approvePartialDisclosure = approvePartialDisclosure
+    }
+    #endif
 
     /// Whether the path-taking legacy tools are enabled for this process.
     var legacyPathToolsEnabled: Bool {
@@ -91,8 +111,8 @@ public struct MCPServer {
 
     // MARK: - Pure request handler
 
-    /// The pure request handler: maps one raw JSON-RPC request payload to one raw
-    /// JSON-RPC response payload. Pure so it can be unit-tested without any stdio.
+    /// Maps one raw JSON-RPC request to a response, persisting tool boundary records.
+    /// Tests inject a temporary vault so the transport remains independently testable.
     /// Returns nil for notifications (requests without an id), which take no
     /// response.
     ///
@@ -134,7 +154,13 @@ public struct MCPServer {
         case "tools/list":
             return handleToolsList(id: id)
         case "tools/call":
-            return handleToolsCall(id: id, params: params)
+            do {
+                return try auditedToolCall(request: requestJSON, params: params) {
+                    handleToolsCall(id: id, params: params)
+                }
+            } catch {
+                return toolErrorResult(id: id, message: "audit_unavailable: the persistent audit trail could not be verified or saved; no document content was returned")
+            }
         case "ping":
             return encode(resultWithId: id, result: [:])
         default:
@@ -152,6 +178,7 @@ public struct MCPServer {
     /// (empty) tools capability object.
     private func handleInitialize(id: RequestID) -> Data? {
         let result: [String: Any] = [
+            "instructions": "For LDA document requests, call prepare_documents with the user-provided workspaceName. A local picker selects documents and offers optional PII review. Never read originals through shell, files, screenshots or another tool. Use returned handles and read_redacted for AI work, then restore and export. Never request passwords or mappings in chat. A workspace name is only a hint until confirmed locally. Keep each document and its mapping separate.",
             "protocolVersion": MCPServer.protocolVersion,
             "serverInfo": [
                 "name": MCPServer.serverName,
@@ -199,8 +226,12 @@ public struct MCPServer {
             do {
                 let summary: [String: Any]
                 switch name {
+                case "prepare_documents":
+                    summary = try callPrepareDocuments(arguments)
                 case "list_pending":
                     summary = try callListPending()
+                case "choose_workspace":
+                    summary = try callChooseWorkspace(arguments)
                 case "anonymize":
                     summary = try callAnonymizeHandle(arguments)
                 case "anonymize_session":
@@ -499,7 +530,7 @@ public struct MCPServer {
     /// Run the blocking stdio read/dispatch/write loop until EOF on stdin.
     ///
     /// Reads newline-delimited JSON from stdin, passes each line's UTF-8 bytes to
-    /// the pure handle(_:), writes any non-nil response as a single line to
+    /// handle(_:), writes any non-nil response as a single line to
     /// stdout, and flushes. This is the local transport shell; all logic lives in
     /// handle(_:). No sockets, no network: stdin and stdout only.
     public func runStdioLoop() {

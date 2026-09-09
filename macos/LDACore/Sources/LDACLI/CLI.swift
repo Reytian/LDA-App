@@ -428,7 +428,8 @@ struct LDARoot: ParsableCommand {
             ExtractProfile.self,
             Fill.self,
             Portfolio.self,
-            Vault.self
+            Vault.self,
+            Setup.self
         ]
     )
 }

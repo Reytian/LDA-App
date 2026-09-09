@@ -643,17 +643,16 @@ final class DocumentVaultTests: XCTestCase {
             redactedBody: "Mail {EMAIL_1} now.",
             mappingBytes: Data("pretend-ldamap-container".utf8)
         )
-        _ = try vault.list()
+        let legacyRegistry = try rawBytes(atVaultRelativePath: DocumentVault.registryFileName)
+        let before = try vault.list()
         // Recreate the crash by restoring the plaintext registry AFTER the
         // objects were sealed.
         let registryJSON = try rawBytes(atVaultRelativePath: DocumentVault.sealedRegistryFileName)
         XCTAssertTrue(registryJSON.starts(with: DocumentVault.registryMagic))
-        try Data("""
-        {"entries":[{"byteCount":26,"format":"txt","handle":"doc_aaaaaaaaaaaa","kind":"original","originalFilename":"\(sensitiveName).txt","relativePath":"objects/doc_aaaaaaaaaaaa/original.txt","stagedAtISO8601":"2026-08-29T00:00:00Z"}],"version":1}
-        """.utf8).write(to: vaultRoot.appendingPathComponent(DocumentVault.registryFileName))
+        try legacyRegistry.write(to: vaultRoot.appendingPathComponent(DocumentVault.registryFileName))
 
         let entries = try vault.list()
-        XCTAssertEqual(entries.map(\.handle), ["doc_aaaaaaaaaaaa"])
+        XCTAssertEqual(entries, before)
         XCTAssertEqual(
             String(decoding: try vault.readDocumentBytes(handle: "doc_aaaaaaaaaaaa"), as: UTF8.self),
             "Mail jane@example.com now."

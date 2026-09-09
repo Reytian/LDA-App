@@ -48,7 +48,10 @@ final class MCPReviewExclusionTests: XCTestCase {
             .appendingPathComponent("MCPReviewExclusionTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         vaultDir = workDir.appendingPathComponent("vault", isDirectory: true)
-        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
+        // These tests exercise the explicitly approved exclusion path. Separate boundary tests
+        // prove unapproved reads return no text and cannot be enabled by MCP arguments.
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir),
+                           approvePartialDisclosure: { _, _ in true })
     }
 
     override func tearDownWithError() throws {

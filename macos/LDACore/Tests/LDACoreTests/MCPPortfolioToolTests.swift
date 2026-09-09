@@ -30,9 +30,7 @@ final class MCPPortfolioToolTests: XCTestCase {
     private var workDir: URL!
     /// The legacy path tools under test are gated behind the launch-time
     /// opt-in, so this suite runs its server with the gate open.
-    private let server = MCPServer(environment: [
-        MCPServer.legacyPathToolsEnvironmentKey: "1"
-    ])
+    private var server: MCPServer!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -44,6 +42,9 @@ final class MCPPortfolioToolTests: XCTestCase {
             at: workDir,
             withIntermediateDirectories: true
         )
+        server = MCPServer(environment: VaultTestSupport.serverEnvironment(
+            vaultDir: workDir.appendingPathComponent("audit-vault"),
+            extra: [MCPServer.legacyPathToolsEnvironmentKey: "1"]))
     }
 
     override func tearDownWithError() throws {

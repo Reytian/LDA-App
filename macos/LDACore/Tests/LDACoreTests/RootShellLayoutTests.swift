@@ -320,6 +320,50 @@ final class RootShellLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testQueuedToolbarChangesKeepTheLatestInset() async {
+        var inset: CGFloat = 52
+        let reader = WindowContentTopInsetReader(topInset: Binding(
+            get: { inset },
+            set: { inset = $0 }
+        ))
+
+        // Switching modes can remove and restore the toolbar in one run loop.
+        // The second update must not be dropped against the old binding value.
+        reader.updateTopInset(0)
+        reader.updateTopInset(52)
+        let drained = expectation(description: "Queued inset updates applied")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 2)
+
+        XCTAssertEqual(inset, 52)
+    }
+
+    @MainActor
+    func testWindowInsetRefreshCanBeScheduledBeforeAttachment() async throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.toolbar = NSToolbar(identifier: "RootShellLayoutTests.DeferredToolbar")
+        let probe = WindowContentInsetView(frame: .zero)
+        var reportedInset: CGFloat?
+        probe.onInsetChange = { reportedInset = $0 }
+
+        probe.scheduleRefresh()
+        try XCTUnwrap(window.contentView).addSubview(probe)
+        let drained = expectation(description: "Attached window measured")
+        DispatchQueue.main.async { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 2)
+
+        XCTAssertEqual(try XCTUnwrap(reportedInset),
+                       window.frame.height - window.contentLayoutRect.height,
+                       accuracy: 0.5)
+        probe.removeFromSuperview()
+    }
+
+    @MainActor
     func testWindowContentInsetViewReportsTheAttachedNativeWindow() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -431,7 +475,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         try assertFontRole(
             in: Self.modelManagementSourceURL,
-            after: "Quick is the smallest download and works on every Mac LDA supports.",
+            after: "%@ is recommended for this Mac.",
             role: "CounselTheme.Typography.readingBody"
         )
         try assertFontRole(

@@ -2,8 +2,8 @@
 //  AppShellToolbar.swift
 //  LDAUI
 //
-//  The review window's unified toolbar: Open, the matter menu, and the four
-//  things a user saves at the end of a sitting. Kept out of AppShell because
+//  The review window's unified toolbar: Open, the matter menu, two common
+//  exports, and a menu for workspace and report actions. Kept out of AppShell because
 //  that file already carries the shell and this is large and self contained.
 //
 //  The mode's primary action (Scan for PII) is deliberately NOT here. It
@@ -31,6 +31,9 @@ struct AppShellToolbar: ToolbarContent {
     /// contribute none.
     let isActive: Bool
 
+    let findingsVisible: Bool
+    let onToggleFindings: () -> Void
+
     let exportFlow: ExportFlowModel
     let workspaceFlow: WorkspaceFlowModel
     let reportFlow: ComplianceReportFlowModel
@@ -55,12 +58,20 @@ struct AppShellToolbar: ToolbarContent {
     var body: some ToolbarContent {
         if isActive {
             ToolbarItemGroup(placement: .navigation) {
+                if !session.entries.isEmpty {
+                    Button(action: onToggleFindings) {
+                        L10n.label(findingsVisible ? "Hide findings" : "Show findings",
+                                   systemImage: "sidebar.left")
+                    }
+                    .l10nHelp(findingsVisible ? "Hide findings" : "Show findings")
+                    .accessibilityIdentifier("toggleFindingsSidebar")
+                }
                 Button {
                     onOpen()
                 } label: {
                     L10n.label("Open", systemImage: "doc.badge.plus")
                 }
-                .l10nHelp("Add .txt, .docx, .pdf documents or a .zip to the session")
+                .l10nHelp("Add documents, evidence images, or a ZIP to the session")
 
                 ClientMatterMenu(
                     session: session,
@@ -70,65 +81,62 @@ struct AppShellToolbar: ToolbarContent {
                 )
             }
 
-            ToolbarItemGroup(placement: .automatic) {
-                // The mode's primary action (Scan for PII) lives in the status
-                // banner, not here: toolbar items overflow into the >> menu on
-                // narrow windows, and the primary action must never disappear.
-                // Two doors, one Restore. Export for AI writes the whole
-                // session as ONE Markdown file for chat or upload; Save
-                // Redacted writes one document in its original format for
-                // editors that keep formatting. They leave their key in
-                // different places (Export for AI beside its Markdown, Save
-                // Redacted in the document's workspace on this Mac), and
-                // Restore finds either without being told.
-                Button {
-                    onExportForAI()
-                } label: {
-                    L10n.label("Export for AI\u{2026}", systemImage: "doc.richtext")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.exportForAIAvailability.isAvailable)
-                .help(exportForAIHelp)
+            if !session.entries.isEmpty {
+                ToolbarItemGroup(placement: .automatic) {
+                    // The mode's primary action (Scan for PII) lives in the status
+                    // banner, not here: toolbar items overflow into the >> menu on
+                    // narrow windows, and the primary action must never disappear.
+                    // Two doors, one Restore. Export for AI writes the whole
+                    // session as ONE Markdown file for chat or upload; Save
+                    // Redacted writes one document in its original format for
+                    // editors that keep formatting. They leave their key in
+                    // different places (Export for AI beside its Markdown, Save
+                    // Redacted in the document's workspace on this Mac), and
+                    // Restore finds either without being told.
+                    Button {
+                        onExportForAI()
+                    } label: {
+                        L10n.label("Export for AI\u{2026}", systemImage: "doc.richtext")
+                    }
+                    .labelStyle(.titleAndIcon)
+                    .disabled(!session.exportForAIAvailability.isAvailable)
+                    .help(exportForAIHelp)
 
-                Button {
-                    exportFlow.requestExport()
-                } label: {
-                    L10n.label("Save Redacted", systemImage: "square.and.arrow.up")
-                }
-                .labelStyle(.titleAndIcon)
-                // Still disabled, and deliberately so: an enabled button that
-                // fails is worse. What changed is that the status banner now
-                // renders the reason from this same availability value, so the
-                // click that produces nothing is no longer unexplained.
-                .disabled(!model.exportAvailability.isAvailable)
-                .l10nHelp("Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.")
+                    Button {
+                        exportFlow.requestExport()
+                    } label: {
+                        L10n.label("Save Redacted", systemImage: "square.and.arrow.up")
+                    }
+                    .labelStyle(.titleAndIcon)
+                    // Still disabled, and deliberately so: an enabled button that
+                    // fails is worse. What changed is that the status banner now
+                    // renders the reason from this same availability value, so the
+                    // click that produces nothing is no longer unexplained.
+                    .disabled(!model.exportAvailability.isAvailable)
+                    .l10nHelp("Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.")
 
-                // Next to Save Redacted, because it is the other thing a user
-                // saves at the end of a sitting: the redacted output goes out,
-                // the workspace stays with the matter.
-                Button {
-                    workspaceFlow.requestSave()
-                } label: {
-                    L10n.label("Save Workspace", systemImage: "shippingbox")
-                }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.workspaceAvailability.isAvailable)
-                .help(L10n.string(WorkspacePresentation.saveHelp))
+                    Menu {
+                        Button {
+                            workspaceFlow.requestSave()
+                        } label: {
+                            L10n.label("Save Workspace", systemImage: "shippingbox")
+                        }
+                        .disabled(!session.workspaceAvailability.isAvailable)
+                        .help(L10n.string(WorkspacePresentation.saveHelp))
 
-                // The report carries NO protected value, but it does carry the
-                // matter label and every document name, and in PRC legal
-                // practice those names are the parties. So the export is
-                // passphrase protected by default, like the workspace file,
-                // and the readable pair is an explicit choice on the sheet.
-                // The panels and the sheet live in ComplianceReportFlow.
-                Button {
-                    reportFlow.requestExport()
-                } label: {
-                    L10n.label("Export Report", systemImage: "list.clipboard")
+                        Button {
+                            reportFlow.requestExport()
+                        } label: {
+                            L10n.label("Export Report", systemImage: "list.clipboard")
+                        }
+                        .disabled(!session.complianceReportAvailability.isAvailable)
+                        .help(L10n.string(ComplianceReportPresentation.exportHelp))
+                    } label: {
+                        L10n.label("More", systemImage: "ellipsis.circle")
+                    }
+                    .labelStyle(.titleAndIcon)
+                    .l10nHelp("Save a workspace or export a review report")
                 }
-                .labelStyle(.titleAndIcon)
-                .disabled(!session.complianceReportAvailability.isAvailable)
-                .help(L10n.string(ComplianceReportPresentation.exportHelp))
             }
         }
     }

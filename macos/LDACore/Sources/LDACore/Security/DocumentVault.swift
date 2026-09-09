@@ -33,21 +33,12 @@
 //  4 layout (registry.json plus plaintext objects) migrates in place on first
 //  open. The outbox is exempt from encryption; nothing else is.
 //
-//  Concurrency (fixed 2026-09, finding 7): the registry is a single file
-//  written atomically (temp file plus rename, via Data.write(options:
-//  .atomic) inside EncryptedContainer.save), so a crash never leaves a torn
-//  registry visible under its stable name. The read-modify-write transaction
-//  itself is guarded by TWO locks, both acquired together through
-//  withRegistryTransaction: an in-process NSLock (registryLock, orders
-//  threads of one process) and a cross-process flock(2) on registry.lock
-//  (VaultCrossProcessLock, orders every process that opens this vault
-//  directory, including the lda CLI and the lda-mcp server sharing one
-//  vault). Both locks are held ONLY around the registry read-modify-write
-//  itself, never across object encryption, which can be slow. Before this
-//  fix, two processes could each read the same registry, append their own
-//  entry, and save, with the later write silently discarding the earlier
-//  one; six concurrent `lda vault stage` processes reproduced this as five
-//  lost registrations with their encrypted objects orphaned on disk.
+//  Registry updates use atomic encrypted writes and two locks acquired through
+//  withRegistryTransaction: an in-process NSLock and cross-process flock(2).
+//  Both cover the complete registry read-modify-write transaction, preventing
+//  concurrent CLI/server writers from losing registrations. Object encryption
+//  happens outside these locks. MCPAuditJournal separately coordinates the
+//  encrypted request/response chain and anchors its identity in this registry.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -132,6 +123,14 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     /// entries written before this field existed). Surfaced by list_pending
     /// so a partially redacted artifact is never mistaken for a clean one.
     public let excludedEntityCount: Int?
+    /// Stable identifier of the locally selected LDA Matter. Labels stay outside MCP.
+    public internal(set) var workspaceID: UUID? = nil
+    /// False means never selected; true includes an explicit No Matter choice.
+    /// Missing in older records decodes as nil, preserving their unknown intent.
+    public internal(set) var workspaceSelectionIsExplicit: Bool? = false
+    /// Local review policy, encrypted in the registry and never included in MCP summaries.
+    public internal(set) var requiredLocalPatterns: [CustomPattern]? = nil
+    public internal(set) var localReviewTextDigest: String? = nil
 }
 
 // MARK: - Errors
@@ -289,7 +288,9 @@ public struct DocumentVault {
     ///   - fileURL: the document to stage. Copied, never moved.
     ///   - stagedAtISO8601: caller-supplied timestamp (the edge owns the clock).
     @discardableResult
-    public func stage(fileURL: URL, stagedAtISO8601: String) throws -> VaultEntry {
+    public func stage(fileURL: URL, stagedAtISO8601: String, originalFilename: String? = nil,
+                      workspaceID: UUID? = nil, workspaceSelectionIsExplicit: Bool = false,
+                      requiredLocalPatterns: [CustomPattern] = [], localReviewTextDigest: String? = nil) throws -> VaultEntry {
         var isDirectory: ObjCBool = false
         guard
             FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
@@ -321,7 +322,7 @@ public struct DocumentVault {
         // to this call, so no other process can be writing into it.
         try sealObjectData(plaintext, to: storedURL)
 
-        let entry = VaultEntry(
+        var entry = VaultEntry(
             handle: handle,
             kind: .original,
             format: format,
@@ -329,12 +330,17 @@ public struct DocumentVault {
             pageCount: pageCount,
             stagedAtISO8601: stagedAtISO8601,
             relativePath: "\(DocumentVault.objectsDirectoryName)/\(handle)/\(storedName)",
-            originalFilename: fileURL.lastPathComponent,
+            originalFilename: originalFilename ?? fileURL.lastPathComponent,
             sourceHandle: nil,
             mappingRelativePath: nil,
             mappingAccountBase: nil,
             excludedEntityCount: nil
         )
+
+        entry.workspaceID = workspaceID
+        entry.workspaceSelectionIsExplicit = workspaceSelectionIsExplicit
+        entry.requiredLocalPatterns = requiredLocalPatterns.isEmpty ? nil : requiredLocalPatterns
+        entry.localReviewTextDigest = localReviewTextDigest
 
         // Phase 2 (locked): reload the registry FRESH, since another process
         // may have appended its own entry while phase 1 ran unlocked, then
@@ -393,6 +399,8 @@ public struct DocumentVault {
     /// visible on purpose (the review step); it is kept on the entry and
     /// noted on the security event so a partially redacted artifact is
     /// visible as such wherever it is named.
+    /// workspaceFallbackHandle supplies the originating Matter for an edit whose
+    /// association was never selected. Explicit No Matter and legacy intent are preserved.
     @discardableResult
     public func commit(
         slot: DerivedSlot,
@@ -401,7 +409,8 @@ public struct DocumentVault {
         sourceHandle: String?,
         mappingFile: URL?,
         mappingAccountBase: String?,
-        excludedEntityCount: Int? = nil
+        excludedEntityCount: Int? = nil,
+        workspaceFallbackHandle: String? = nil
     ) throws -> VaultEntry {
         let relativePath = try vaultRelativePath(of: primaryFile)
         let mappingRelativePath = try mappingFile.map { try vaultRelativePath(of: $0) }
@@ -417,7 +426,7 @@ public struct DocumentVault {
             keeping: [primaryFile, mappingFile].compactMap { $0 }
         )
 
-        let entry = VaultEntry(
+        var entry = VaultEntry(
             handle: slot.handle,
             kind: slot.kind,
             format: format,
@@ -434,6 +443,17 @@ public struct DocumentVault {
 
         try withRegistryTransaction {
             var registry = try loadRegistryLocked()
+            let source = registry.entries.first { $0.handle == sourceHandle }
+            entry.workspaceID = source?.workspaceID
+            entry.workspaceSelectionIsExplicit = source?.workspaceSelectionIsExplicit
+            if entry.workspaceID == nil, source?.workspaceSelectionIsExplicit == false,
+               let workspaceFallbackHandle {
+                guard let origin = registry.entries.first(where: { $0.handle == workspaceFallbackHandle }) else {
+                    throw DocumentVaultError.unknownHandle(workspaceFallbackHandle)
+                }
+                entry.workspaceID = origin.workspaceID
+                entry.workspaceSelectionIsExplicit = origin.workspaceSelectionIsExplicit
+            }
             registry.entries.append(entry)
             try saveRegistryLocked(registry)
         }
@@ -632,9 +652,10 @@ public struct DocumentVault {
     // MARK: - Registry persistence
 
     /// The registry file payload. Versioned so phase 5 can migrate it.
-    private struct Registry: Codable {
+    struct Registry: Codable, Equatable {
         var version: Int
         var entries: [VaultEntry]
+        var mcpAuditJournalID: UUID? = nil
 
         static let currentVersion = 1
         static let empty = Registry(version: currentVersion, entries: [])
@@ -646,8 +667,21 @@ public struct DocumentVault {
     /// unencrypted store. Called with the registry lock held.
     /// FileManager.contents is deliberate: unlike Data(contentsOf:) it has no
     /// remote-URL capability, so the network chokepoint scan stays clean.
-    private func loadRegistryLocked() throws -> Registry {
+    func loadRegistryLocked() throws -> Registry {
         if FileManager.default.fileExists(atPath: plaintextRegistryURL.path) {
+            // A completed seal followed by a crash before legacy-file removal is recoverable
+            // only when both decoded registries agree and no journal identity existed yet.
+            // Unauthenticated legacy data must never replace an authenticated registry.
+            if FileManager.default.fileExists(atPath: sealedRegistryURL.path) {
+                let sealed = try DocumentVault.registryContainer.load(from: sealedRegistryURL, protection: protection)
+                guard let authenticated = try? JSONDecoder().decode(Registry.self, from: sealed),
+                      authenticated.mcpAuditJournalID == nil,
+                      let legacyData = FileManager.default.contents(atPath: plaintextRegistryURL.path),
+                      let legacy = try? JSONDecoder().decode(Registry.self, from: legacyData),
+                      authenticated == legacy else { throw DocumentVaultError.corruptRegistry }
+                try FileManager.default.removeItem(at: plaintextRegistryURL)
+                return authenticated
+            }
             return try migrateFromPlaintextFormLocked()
         }
         guard FileManager.default.fileExists(atPath: sealedRegistryURL.path) else {
@@ -665,7 +699,7 @@ public struct DocumentVault {
 
     /// Encrypt and write the registry. The container writes atomically, so a
     /// crash never leaves a torn file. Called with the registry lock held.
-    private func saveRegistryLocked(_ registry: Registry) throws {
+    func saveRegistryLocked(_ registry: Registry) throws {
         try FileManager.default.createDirectory(
             at: rootDirectory,
             withIntermediateDirectories: true

@@ -196,6 +196,7 @@ struct MatterWorkspaceView: View {
         NavigationSplitView {
             sidebar
                 .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
+                .toolbar(removing: isActive ? nil : .sidebarToggle)
         } detail: {
             // The window-level inset reader below serves both columns, so the
             // detail column reserves its own clearance here at the route owner.

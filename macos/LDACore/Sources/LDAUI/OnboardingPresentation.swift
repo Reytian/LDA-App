@@ -22,6 +22,7 @@ enum OnboardingPresentation {
         case language
         case model
         case steps
+        case integrations
     }
 
     /// The first page shown for a given entry mode.
@@ -44,7 +45,8 @@ enum OnboardingPresentation {
         case (.language, _): return hasModel ? .steps : .model
         case (.model, .firstRun): return .steps
         case (.model, .modelAskOnly): return nil
-        case (.steps, _): return nil
+        case (.steps, .firstRun): return .integrations
+        case (.steps, .modelAskOnly), (.integrations, _): return nil
         }
     }
 
@@ -52,7 +54,7 @@ enum OnboardingPresentation {
     static func pageCount(mode: OnboardingView.Mode, hasModel: Bool) -> Int {
         switch mode {
         case .modelAskOnly: return 1
-        case .firstRun: return hasModel ? 2 : 3
+        case .firstRun: return hasModel ? 3 : 4
         }
     }
 
@@ -62,6 +64,7 @@ enum OnboardingPresentation {
         case .language: return 1
         case .model: return mode == .modelAskOnly ? 1 : 2
         case .steps: return hasModel ? 2 : 3
+        case .integrations: return hasModel ? 3 : 4
         }
     }
 

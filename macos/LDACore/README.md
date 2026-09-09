@@ -265,10 +265,12 @@ lda fill --portfolio "Meridian Pacific" --input agreement.docx \
 agent host launches it and pipes requests in. Everything a tool returns enters
 the model context of that host and leaves the machine, and file paths are
 themselves PII (legal folders are named after the parties), so the surface is
-handle-first: the human stages documents with `lda vault stage <path>`, tools
+handle-first: the human chooses documents in LDA's local picker or stages them with `lda vault stage <path>`, tools
 accept and return opaque handles, only `read_redacted` returns body text (and
-only redacted text), and no original text, detected value, filename, or path
-crosses the wire, in results or in error messages. The vault lives at
+only redacted artifacts). Original and restored documents cannot be read through
+MCP. Filenames and paths are omitted from results and errors. A redacted
+artifact can still contain undetected values or deliberate exclusions; the
+local approval rules below apply before known partial content is returned. The vault lives at
 `~/Library/Application Support/LDA/Vault` (override with `LDA_VAULT_DIR` at
 launch); exports land only in the vault's own `outbox/`.
 
@@ -276,11 +278,13 @@ launch); exports land only in the vault's own `outbox/`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
+| `prepare_documents` | `workspaceName?` | local document picker, optional additional PII review, and Matter confirmation; returns redacted/source handles, counts, detection mode, review status and an optional opaque workspace ID |
 | `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (occurrences the review step left visible, on every channel; 0 means fully redacted) |
+| `choose_workspace` | `handle` | local LDA Matter picker; only `handle`, `assigned`, and an optional opaque `workspaceID` return to the host |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
 | `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `excludedValueCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
-| `read_redacted` | `handle` (red_) | `text`: the redacted body text, the only text any tool returns |
+| `read_redacted` | `handle` (red_) | `text` and `localApproval`; known partial or legacy unknown-exclusion artifacts require fresh local confirmation and macOS authentication |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
 | `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
 | `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned (plaintext, redacted, and the partially redacted subset), per-tool call counts |
@@ -290,9 +294,101 @@ Error results are boundary-safe codes plus handles: `unknown_handle`,
 `detection_id_required`, `invalid_entity_id`, `unknown_entity_id`,
 `entity_ids_not_supported`, `not_an_edit_surface`, `unsupported_format`,
 `no_placeholders_found`,
-`mapping_mismatch`, plus argument errors for an
+`mapping_mismatch`, `local_approval_required`, `audit_unavailable`,
+`workspace_unavailable`, `workspace_selection_cancelled`, `preparation_cancelled`, plus argument errors for an
 unknown `excludeTypes` value, an unknown `style`, and `editedText` given
 together with `editedHandle`.
+
+### Short command and optional setup
+
+In a client with the LDA skill installed, select LDA from its slash-command menu and enter a quoted Matter name followed by the document instruction, for example `/LDA "Cedar transaction" Summarize the risks.` Codex also supports explicit skill selection with `$lda`. The Matter is separate from a Codex project. Omit its name from chat if you want to choose it privately in the local picker.
+
+`prepare_documents` accepts only that optional name hint. The human chooses up to 20 documents locally and can enable **Review locally and add more PII before redaction**. Review is off by default. The local text window highlights detected findings and lets the human protect a selection or add a literal term, including one found in a header. Added terms apply to every matching occurrence and supplementary channels. Each document retains its own mapping.
+
+Unconfirmed selections remain in a separate encrypted preparation registry and are removed on cancellation. After review, LDA stores the highlighted findings and additional terms in the source's encrypted registry entry. Subsequent MCP redaction preserves that policy, checks the reviewed text digest, and refuses exclusions or session operations that could weaken it. Optional review is distinct from the existing authenticated approval required before known partially redacted text can be returned.
+
+First-run onboarding offers optional setup for Codex, Claude Code, Claude Desktop, or another local STDIO MCP client. **Set Up Later** skips it. **Settings > MCP Setup** exports configuration, a setup script, and the portable skill; **Settings > CLI Setup** exports a CLI shortcut installer and explains usage. The app bundles both `lda` and `lda-mcp`. Setup scripts run through the bundled CLI without requiring Python, preserve existing LDA entries and skills, and back up settings before changes. Nonstandard Codex TOML forms are left untouched with instructions for manual setup. Restart the AI client after setup and use `attest` to verify the connection.
+
+The exported connection uses the model selected in LDA. A configured `LDA_MODEL_PATH` authorizes that exact model file even on an external volume, without authorizing sibling files or document paths. If no model is configured, preparation explicitly reports `patterns_only`. Browser-only clients requiring a hosted HTTP MCP endpoint cannot connect directly to this local STDIO server.
+
+### Matter association
+
+Call `choose_workspace` with a document handle when the user wants to assign
+or change its Matter. The installed LDA app opens a picker with the existing
+Matters. Their names remain in LDA; the MCP reply and `list_pending` expose only
+the selected random `workspaceID`. New redacted and restored artifacts inherit
+their source's association at creation. Changing an older artifact does not
+reassign already-created descendants. This associates vault artifacts; it does
+not add MCP activity to the GUI's session-history document counts.
+
+For a newly staged edited document returned through `restore`, a Matter that
+was never selected inherits from the redacted mapping artifact. An explicit
+Matter or No Matter choice on the edited input takes priority. Older unassigned
+records retain their association because their original selection intent is
+unknown. The restored artifact still records the edited input as its source.
+
+The user may choose No Matter to clear an association. Cancel and timeout leave
+it unchanged. The picker expires after two minutes. Only the local GUI chooses
+the ID; arguments containing a Matter name or `workspaceID` are refused.
+`LDA_APP_PATH`, set by the launcher, can select a development app bundle.
+
+### Local approval before sharing partial text
+
+`read_redacted` shows the exact outgoing text on this Mac when the stored
+exclusion count is positive or missing in an older artifact. The user must
+confirm that preview and complete fresh macOS device-owner authentication.
+Cancel, unavailable authentication, and the 90-second timeout return
+`local_approval_required` without document text. Every read requires a new
+decision. Neither an MCP argument nor an environment setting grants approval.
+Do not enter a login password in a chat or MCP argument.
+
+An exclusion count of zero means no **detected** values were excluded. It is
+not proof that detection found all PII. The always-zero plaintext counter in
+`attest` is accounting, not a leak scanner. Returned-byte counters advance only
+after the response has been durably journaled for release.
+
+### Persistent MCP audit trail
+
+Every `tools/call` has a server-generated call ID and paired request/response
+records: timestamp, session, operation, keyed payload fingerprint, byte count,
+opaque document handles, source lineage, Matter ID when assigned, outcome, and
+local approval status. Raw content, arguments, passwords, filenames, and Matter
+names are not stored in the journal. Unknown caller-supplied tool names are
+normalized. Protocol handshakes, notifications, and invalid requests that never
+reach `tools/call` are outside this journal.
+
+Records use AES-GCM encryption and an HMAC chain. The vault protection seals
+the independent audit key; the encrypted vault registry anchors journal identity.
+The `mcp-audit/` directory, `mcp-audit-key.sealed`, and
+`mcp-audit-checkpoint.sealed` remain inside the vault. Writes are serialized,
+synchronized to disk, and verified before append. Missing, modified, reordered,
+or incomplete records refuse subsequent dispatch or content release. There is
+no automatic reset or unaudited fallback.
+
+Human CLI commands verify or export the content-free records:
+
+```sh
+lda vault audit verify
+lda vault audit export /path/to/unused-audit-report.json
+lda vault audit verify --checkpoint /separate/location/trusted-checkpoint.json
+```
+
+Use the same vault location and protection as the server (`LDA_VAULT_DIR`,
+`LDA_VAULT_PASSPHRASE`, or its Keychain key). `--vault-dir` explicitly selects
+a vault. Export creates the report and a companion
+`unused-audit-report.json.checkpoint.json`, both with owner-only permissions.
+Retain the checkpoint independently: coordinated rollback of every local vault
+file cannot be detected from those files alone. Decrypted exports should also
+be retained securely. No keyless verifier or external timestamp service is
+provided.
+
+A response record means the server prepared the response for release, not that
+Codex acknowledged receiving it. A crash may leave a request without a response;
+a completed document operation can precede a failure to save its response.
+Inspect the vault and preserve damaged journal evidence before repair. These
+records audit this MCP boundary, not the AI provider's retention or other host
+filesystem/network activity. A process controlling the user's account and keys
+is outside this protection boundary.
 
 ### The review step: choose which PII to redact
 
@@ -321,7 +417,7 @@ type, are unaffected.
 The response says how far that reaches: `excludedCount` is the number of
 OCCURRENCES now in clear on every channel (usually larger than the number of
 ids passed) and `excludedValueCount` is how many distinct values they are.
-Both are counts; no entity text ever crosses the boundary. The same
+Both are counts; these processing responses contain no entity text. The same
 `excludedCount` reaches `list_pending` as the artifact's
 `excludedEntityCount`, and reading such an artifact is counted separately by
 `attest`, so a partially redacted artifact is never mistaken for a complete
@@ -543,9 +639,10 @@ handle, never a document name.
   themselves PII (legal folders are named after the parties). The advertised
   tools therefore operate on opaque vault handles: the human stages documents
   with `lda vault stage <path>`, and the tools return handles, redacted text
-  (`read_redacted` only), and aggregate counts. No original text, no detected
-  entity values, no filenames, and no paths cross the tool surface, in results
-  or in error messages. `attest` reports the posture, including byte counters
+  (`read_redacted` only), and aggregate counts. Original/restored body reads
+  are refused. Partial redacted text requires local approval as described above;
+  undetected values remain a detection limitation. Results and errors omit
+  filenames and paths. `attest` reports the posture, including byte counters
   for what the session has returned. The vault lives at
   `~/Library/Application Support/LDA/Vault` (override with `LDA_VAULT_DIR` at
   launch); exports land only in the vault's own `outbox/`. The old path-taking
@@ -563,7 +660,7 @@ handle, never a document name.
   not a policy. GGUF model paths (the one path argument the handle-first tools
   still accept) are held to the same allow-list, widened by one directory: the
   app bundle's `Resources`, where a distributed build ships its model. A model
-  anywhere else requires `LDA_MCP_ALLOWED_ROOTS`, so a prompt-steered host
+  elsewhere can be authorized individually by the launch-time `LDA_MODEL_PATH`, or through `LDA_MCP_ALLOWED_ROOTS`, so a prompt-steered host
   cannot stage a malicious model in some other writable location and point
   llama.cpp at it. The launcher itself stays trusted: it controls the
   environment, the binary, and the bundled model.

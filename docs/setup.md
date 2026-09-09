@@ -8,7 +8,7 @@ Two illustrated walkthroughs, generated on a Mac Mini using fictional data. They
 
 [Watch or download the video](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-app-walkthrough.mp4) · [Read the transcript](tutorials/lda-app-walkthrough.md) · [Download captions](tutorials/lda-app-walkthrough.vtt)
 
-1. Open LDA and choose or import a compatible local detection model. Patterns only has limited coverage and does not detect names, companies or addresses.
+1. Open LDA, review and accept the Terms of Service and Privacy Policy, then choose or import a compatible local detection model. Patterns only has limited coverage and does not detect names, companies or addresses.
 2. In Anonymize, add a document and choose **Scan for PII**.
 3. Review the findings and protect anything missed. Check **Safe Preview**.
 4. Choose **Export for AI**. Send only the reviewed, redacted version to your AI app. Ask it to preserve placeholders exactly.
@@ -38,7 +38,7 @@ The demonstrated integration is an LDA skill plus a local MCP connection. The ve
 
 ## Watch offline
 
-New source builds include both videos in the first-run workflow page and **Settings > Tutorials**. Setup-enabled builds also show them in **MCP Setup**. Choose **Watch on GitHub** during setup to open the [video release](https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909) in your browser. The link opens only when selected and contains no document or Matter information. Open a bundled video and press Play; closing the player stops playback. A transcript is available below the player.
+LDA 1.2 includes both videos in the first-run workflow page, **Settings > Tutorials**, and **MCP Setup**. Choose **Watch on GitHub** during setup to open the [video release](https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909) in your browser. The link opens only when selected and contains no document or Matter information. Open a bundled video and press Play; closing the player stops playback. A transcript is available below the player.
 
 You can also download the [offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/LDA-Tutorials.zip), extract it, and open `setup.html` in a browser. It has no external scripts, analytics, fonts or media requests.
 

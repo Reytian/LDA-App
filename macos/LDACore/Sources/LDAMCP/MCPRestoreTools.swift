@@ -189,7 +189,8 @@ extension MCPServer {
                 stagedAtISO8601: context.stagedAt,
                 sourceHandle: editedHandle,
                 mappingFile: nil,
-                mappingAccountBase: nil
+                mappingAccountBase: nil,
+                workspaceFallbackHandle: context.redactedEntry.handle
             )
             return MCPServer.restoreResponse(
                 restoredHandle: committed.handle,

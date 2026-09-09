@@ -106,46 +106,56 @@ public struct RootShell: View {
     // MARK: - Body
 
     public var body: some View {
-        ZStack {
-            // Matters layer.
-            MatterWorkspaceView(
-                session: session,
-                isActive: modeStore.activeMode == .matters,
-                onOpenDestination: { destination in
-                    modeStore.activeMode = destination.appMode
-                }
-            )
-            .opacity(modeStore.activeMode == .matters ? 1 : 0)
-            .disabled(modeStore.activeMode != .matters)
+        GeometryReader { geometry in
+            let size = geometry.size
+            // Retained native split views can request more than the available
+            // height. Bound every mode so a hidden screen cannot expand the
+            // centered stack and push the active page under the toolbar.
+            ZStack {
+                // Matters layer.
+                MatterWorkspaceView(
+                    session: session,
+                    isActive: modeStore.activeMode == .matters,
+                    onOpenDestination: { destination in
+                        modeStore.activeMode = destination.appMode
+                    }
+                )
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .opacity(modeStore.activeMode == .matters ? 1 : 0)
+                .disabled(modeStore.activeMode != .matters)
 
-            // Anonymize layer.
-            // .disabled(true) on the inactive layer resigns any first responder
-            // inside it, preventing keyboard events from bleeding through to the
-            // hidden subtree. .allowsHitTesting would block pointer input but
-            // leave text fields able to receive keyboard events.
-            AppShell(
-                session: session,
-                installer: installer,
-                importer: importer,
-                isActive: modeStore.activeMode == .anonymize,
-                onOpenRestore: { modeStore.activeMode = .deanonymize },
-                onOpenMatters: { modeStore.activeMode = .matters }
-            )
-                .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
-                .disabled(modeStore.activeMode != .anonymize)
+                // Anonymize layer.
+                // .disabled(true) on the inactive layer resigns any first responder
+                // inside it, preventing keyboard events from bleeding through to the
+                // hidden subtree. .allowsHitTesting would block pointer input but
+                // leave text fields able to receive keyboard events.
+                AppShell(
+                    session: session,
+                    installer: installer,
+                    importer: importer,
+                    isActive: modeStore.activeMode == .anonymize,
+                    onOpenRestore: { modeStore.activeMode = .deanonymize },
+                    onOpenMatters: { modeStore.activeMode = .matters }
+                )
+                    .frame(width: size.width, height: size.height, alignment: .top)
+                    .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
+                    .disabled(modeStore.activeMode != .anonymize)
 
-            // Restore layer.
-            DeanonymizeShell(
-                session: session,
-                isActive: modeStore.activeMode == .deanonymize
-            )
-            .opacity(modeStore.activeMode == .deanonymize ? 1 : 0)
-            .disabled(modeStore.activeMode != .deanonymize)
+                // Restore layer.
+                DeanonymizeShell(
+                    session: session,
+                    isActive: modeStore.activeMode == .deanonymize
+                )
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .opacity(modeStore.activeMode == .deanonymize ? 1 : 0)
+                .disabled(modeStore.activeMode != .deanonymize)
 
-            // Fill layer.
-            FillShell(model: fillModel, isActive: modeStore.activeMode == .fill)
-                .opacity(modeStore.activeMode == .fill ? 1 : 0)
-                .disabled(modeStore.activeMode != .fill)
+                // Fill layer.
+                FillShell(model: fillModel, isActive: modeStore.activeMode == .fill)
+                    .frame(width: size.width, height: size.height, alignment: .top)
+                    .opacity(modeStore.activeMode == .fill ? 1 : 0)
+                    .disabled(modeStore.activeMode != .fill)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {

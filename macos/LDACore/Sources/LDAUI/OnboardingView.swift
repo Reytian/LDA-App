@@ -2,10 +2,8 @@
 //  OnboardingView.swift
 //  LDAUI
 //
-//  The first-run sheet (R13/R17). Three pages: language, the model ask, then
-//  what the app does (the round-trip in three steps), the honest privacy
-//  promise and the cautions. Dismissing the sheet leaves the user at the drop
-//  zone.
+//  First-run pages: language, the model ask, the document workflow, and
+//  optional AI client setup. Dismissing leaves the user at the drop zone.
 //
 //  Language is page 1 because a lawyer who reads Chinese must be able to read
 //  every page that follows it, including the ask. The model page exists
@@ -16,7 +14,7 @@
 //  first document buys a defensible log entry rather than an informed
 //  reader, and it is unresolvable on an 8 GB Mac.
 //
-//  Escape is blocked on every page except the last (.steps), and nowhere on
+//  Escape is blocked before the workflow (.steps) page, and nowhere on
 //  the .unavailable route: AppShell.swift's onboardingDismissed() writes
 //  .declined for an unanswered ask, and .declined is honoured forever, so a
 //  page in front of that ask with Escape enabled would let a user
@@ -40,7 +38,7 @@ public struct OnboardingView: View {
 
     /// Why this sheet is on screen.
     ///
-    /// `.firstRun` is the three-page sheet (two when a model is already
+    /// `.firstRun` is the four-page sheet (three when a model is already
     /// present). `.modelAskOnly` is the return visit for an unresolved ask
     /// (pressed Download and cancelled, or the drive is still at the
     /// office): only the model page exists and answering dismisses, because
@@ -138,6 +136,7 @@ public struct OnboardingView: View {
                 case .language: languagePage
                 case .model: modelAskPage
                 case .steps: stepsPage
+                case .integrations: integrationPage
                 }
             }
             .padding(28)
@@ -154,7 +153,7 @@ public struct OnboardingView: View {
         // No exit that is not an answer, except on the Mac that has nothing to
         // answer: there every page is (or leads only to) a statement, so
         // Escape is the same as working through to its single Continue.
-        .interactiveDismissDisabled(page != .steps && route != .unavailable)
+        .interactiveDismissDisabled(page != .steps && page != .integrations && route != .unavailable)
     }
 
     private var currentLanguage: AppLanguage { AppLanguage.from(rawValue: languageRaw) }
@@ -312,6 +311,33 @@ public struct OnboardingView: View {
             ForEach(selectableLevels, id: \.rawValue) { level in
                 rungRow(level)
             }
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(selectableLevels, id: \.rawValue) { level in
+                        if let tier = catalog.tier(for: level) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                L10n.text(level.displayName).font(.callout.weight(.medium))
+                                Text(verbatim: ModelAnnotation.localizedFacts(
+                                    for: tier, bundled: false, language: currentLanguage
+                                ))
+                                Text(verbatim: MemoryGate.localizedRequirementText(
+                                    for: tier, installedGB: installedGB, language: currentLanguage
+                                ))
+                                Text(verbatim: ModelAnnotation.localizedBody(
+                                    for: level, language: currentLanguage
+                                ))
+                            }
+                        }
+                    }
+                }
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+            } label: {
+                L10n.text("Memory and test results")
+                    .font(CounselTheme.Typography.supporting)
+            }
             if !blockedLevels.isEmpty {
                 Text(verbatim: ModelSetupPresentation.blockedRungsLine(
                     blockedLevels: blockedLevels,
@@ -356,23 +382,24 @@ public struct OnboardingView: View {
                                 )
                         }
                     }
+                    Text(verbatim: ModelAnnotation.summary(for: level, language: currentLanguage))
+                        .font(CounselTheme.Typography.supporting)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let tier {
-                        Text(verbatim: ModelAnnotation.localizedFacts(
-                            for: tier, bundled: false, language: currentLanguage
+                        Text(verbatim: ModelAnnotation.storage(
+                            for: tier, language: currentLanguage
                         ))
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
-                    }
-                    // The deciding-factor line renders only when there is a
-                    // decision to make: on the 16 GB Mac most PRC lawyers own,
-                    // one rung is selectable and the honest answer is the
-                    // blocked-rungs sentence above, not a guidance line
-                    // restating that there is no choice.
-                    if selectableLevels.count > 1 {
-                        Text(verbatim: OnboardingPresentation.chooseLine(for: level, language: currentLanguage))
-                            .font(CounselTheme.Typography.supporting)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        if MemoryGate.availability(for: tier, installedGB: installedGB) == .tight {
+                            Text(verbatim: MemoryGate.localizedRequirementText(
+                                for: tier, installedGB: installedGB, language: currentLanguage
+                            ))
+                                .font(CounselTheme.Typography.supporting)
+                                .foregroundStyle(CounselTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 Spacer(minLength: 0)
@@ -658,13 +685,27 @@ public struct OnboardingView: View {
                 }
                 Spacer()
                 Button {
-                    isPresented = false
+                    advance()
                 } label: {
-                    Text(verbatim: L10n.string("Get Started", language: currentLanguage))
+                    Text(verbatim: L10n.string("Continue", language: currentLanguage))
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
+            }
+        }
+    }
+
+    private var integrationPage: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            MCPSetupView()
+            HStack {
+                L10n.button("Set Up Later") { isPresented = false }
+                Spacer()
+                L10n.button("Get Started") { isPresented = false }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
             }
         }
     }

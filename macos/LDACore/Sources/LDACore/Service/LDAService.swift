@@ -135,7 +135,9 @@ public enum LDAService {
         style: SubstitutionStyle = .token,
         includeSealCandidates: Bool = true,
         spanFilter: ((Span) -> Bool)? = nil,
-        excludedTypes: Set<EntityType> = []
+        excludedTypes: Set<EntityType> = [],
+        additionalPatterns: [CustomPattern] = [],
+        expectedReviewDigest: String? = nil
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
@@ -171,11 +173,15 @@ public enum LDAService {
         // The caller's review step: drop excluded spans BEFORE splitting,
         // tokenization, and alias linking. Exclusion resolves to VALUES and
         // reaches every channel, headers and image text alike (SpanExclusion).
+        if let expectedReviewDigest, AdditionalProtection.textDigest(imported.text) != expectedReviewDigest {
+            throw AdditionalProtection.ReviewError.documentChangedSinceReview
+        }
         let exclusion = SpanExclusion(excludedTypes: excludedTypes, bodyFilter: spanFilter)
-        let review = exclusion.resolve(bodySpans: try detector.detectText(imported.text))
+        let localSpans = AdditionalProtection.merge(text: imported.text, detected: try detector.detectText(imported.text), patterns: additionalPatterns)
+        let review = exclusion.resolve(bodySpans: localSpans)
         let detected = review.keptBodySpans
         let detectSupplementary: (String) -> [Span] = { text in
-            review.filterSupplementary(detector.detectForImages(text))
+            review.filterSupplementary(AdditionalProtection.merge(text: text, detected: detector.detectForImages(text), patterns: additionalPatterns))
         }
         // No replacement may swallow a newline or a tab, on any format. In a
         // DOCX those characters exist in no w:t run, so a crossing surface
@@ -616,6 +622,15 @@ public enum LDAService {
             supplementaryEntityCount: coverage.replacementCount,
             supplementaryCountsByType: coverage.countsByType
         )
+    }
+
+    /// Original text for a local review surface. Never return this through MCP.
+    public static func localReviewText(input: URL) throws -> String {
+        try importDocument(input, extension: input.pathExtension.lowercased()).text
+    }
+
+    public static func localReviewFindings(text: String, llmModelPath: String?) throws -> [Span] {
+        try makeDetector(modelPath: llmModelPath).detectText(text)
     }
 
     // MARK: - Private helpers

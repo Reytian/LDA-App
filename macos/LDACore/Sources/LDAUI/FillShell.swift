@@ -364,12 +364,14 @@ public struct FillShell: View {
             }
             .l10nHelp("Return to the portfolio library")
 
-            Button {
-                presentAddSources()
-            } label: {
-                L10n.label("Add Sources", systemImage: "doc.badge.plus")
+            if profilePrimaryAction != .addSources {
+                Button {
+                    presentAddSources()
+                } label: {
+                    L10n.label("Add Sources", systemImage: "doc.badge.plus")
+                }
+                .l10nHelp("Add source documents to extract profile fields from (PDF, Word, or plain text)")
             }
-            .l10nHelp("Add source documents to extract profile fields from (PDF, Word, or plain text)")
         }
 
         // One primary next action plus a More menu keeps the workflow legible
@@ -489,7 +491,12 @@ public struct FillShell: View {
             profileStatusBanner
             ProfileBuilderBody(
                 model: model,
-                sourcePaths: model.sourcePaths
+                sourcePaths: model.sourcePaths,
+                primaryActionTitle: profilePrimaryActionLabel,
+                primaryActionHelp: profilePrimaryActionHelp,
+                canRunPrimaryAction: canRunProfilePrimaryAction,
+                onPrimaryAction: runProfilePrimaryAction,
+                onLoadProfile: beginLoadProfile
             )
         }
     }
@@ -594,6 +601,7 @@ public struct FillShell: View {
             fillStatusBanner
             FillReviewBody(
                 model: model,
+                isActive: isActive,
                 pickerOpenForBlankID: $pickerOpenForBlankID,
                 applyMessage: $applyMessage
             )

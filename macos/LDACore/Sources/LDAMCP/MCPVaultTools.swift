@@ -133,9 +133,21 @@ enum MCPVaultToolError: Error {
     /// restore's editedHandle named a redacted artifact that carries a
     /// different mapping.
     case mappingMismatch(String)
+    case localPreparationCancelled
+    case localApprovalRequired
+    case workspaceUnavailable
+    case workspaceSelectionCancelled
 
     var message: String {
         switch self {
+        case .localPreparationCancelled:
+            return "preparation_cancelled: local document selection or review was cancelled; no document text was returned"
+        case .localApprovalRequired:
+            return "local_approval_required: partially redacted text needs fresh confirmation and authentication on this Mac; no text was returned"
+        case .workspaceUnavailable:
+            return "workspace_unavailable: existing LDA Matters could not be opened locally; no association was changed"
+        case .workspaceSelectionCancelled:
+            return "workspace_selection_cancelled: no association was changed"
         case .notAnOriginal(let handle):
             return "not_an_original: \(handle) does not refer to a staged source document"
         case .notRedacted(let handle, let kind):
@@ -208,6 +220,9 @@ extension MCPServer {
             if let source = entry.sourceHandle {
                 item["sourceHandle"] = source
             }
+            if let workspaceID = entry.workspaceID {
+                item["workspaceID"] = workspaceID.uuidString.lowercased()
+            }
             // How many detected values this artifact left visible on
             // purpose; 0 means fully redacted. Absent for originals and for
             // entries whose producer did not report.
@@ -226,6 +241,7 @@ extension MCPServer {
     /// The response carries the new handle and aggregate counts only.
     func callAnonymizeHandle(
         _ arguments: [String: Any],
+        localPatterns: [CustomPattern] = [],
         prepareDerived: (DocumentVault) throws -> DocumentVault.DerivedSlot = {
             try $0.prepareDerived(kind: .redacted)
         },
@@ -246,6 +262,10 @@ extension MCPServer {
         let entry = try vault.entry(handle: handle)
         guard entry.kind == .original else {
             throw MCPVaultToolError.notAnOriginal(handle)
+        }
+        let requiredPatterns = entry.requiredLocalPatterns ?? []
+        guard entry.localReviewTextDigest == nil || (review.excludedIds.isEmpty && review.excludedTypes.isEmpty) else {
+            throw MCPVaultToolError.localPreparationCancelled
         }
 
         // Run the complete release-gated service operation before reserving a
@@ -288,7 +308,9 @@ extension MCPServer {
                 llmModelPath: modelPath,
                 style: style,
                 spanFilter: observer.keep,
-                excludedTypes: review.excludedTypes
+                excludedTypes: review.excludedTypes,
+                additionalPatterns: requiredPatterns + localPatterns,
+                expectedReviewDigest: entry.localReviewTextDigest
             )
         }
         // An id the fresh detection does not know means the caller reviewed a
@@ -396,15 +418,12 @@ extension MCPServer {
             text = decoded
         }
 
-        let byteCount = Data(text.utf8).count
-        metrics.noteRedactedBytesReturned(byteCount)
-        // Values the caller chose to leave visible ride inside this text, so
-        // attest also names the subset of redacted bytes that came from
-        // partially redacted artifacts.
-        if (entry.excludedEntityCount ?? 0) > 0 {
-            metrics.notePartiallyRedactedBytesReturned(byteCount)
+        // Older artifacts with no recorded exclusion status also require local review.
+        let needsApproval = entry.excludedEntityCount != 0
+        if needsApproval, !approvePartialDisclosure(text, entry.excludedEntityCount ?? -1) {
+            throw MCPVaultToolError.localApprovalRequired
         }
-        return ["handle": handle, "text": text]
+        return ["handle": handle, "text": text, "localApproval": needsApproval]
     }
 
     // MARK: detect_entities
@@ -488,7 +507,11 @@ extension MCPServer {
             "plaintextBytesReturnedThisSession": snapshot.plaintextBytesReturned,
             "redactedBytesReturnedThisSession": snapshot.redactedBytesReturned,
             "partiallyRedactedBytesReturnedThisSession": snapshot.partiallyRedactedBytesReturned,
-            "toolCallCounts": snapshot.toolCallCounts
+            "toolCallCounts": snapshot.toolCallCounts,
+            "persistentAudit": "encrypted_chained_request_response",
+            "auditFailurePolicy": "refuse_tool_dispatch_or_content_release",
+            "partialDisclosurePolicy": "fresh_local_confirmation_and_device_owner_authentication",
+            "plaintextCounterIsLeakDetector": false
         ]
     }
 

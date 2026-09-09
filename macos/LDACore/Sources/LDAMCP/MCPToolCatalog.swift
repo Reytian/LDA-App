@@ -35,7 +35,9 @@ extension MCPServer {
 
     /// The handle-first tools, in advertisement order.
     static let vaultToolNames: [String] = [
+        "prepare_documents",
         "list_pending",
+        "choose_workspace",
         "anonymize",
         "anonymize_session",
         "read_redacted",
@@ -87,6 +89,15 @@ extension MCPServer {
     /// JSON-Schema descriptors for the handle-first surface.
     static let vaultToolDescriptors: [[String: Any]] = [
         [
+            "name": "prepare_documents",
+            "description": "Start the LDA workflow: open a LOCAL file picker, offer optional local review to highlight additional PII, and confirm the requested LDA Matter. The person chooses documents and whether to review; paths, original text and added terms never return to AI. Returns redacted handles and counts only. Use read_redacted for the AI instruction, then restore and export. workspaceName is an optional user-provided hint, never an assignment override. Each document has its own mapping; keep its handle with its text. Cancellation returns no text. Allow time for local interaction.",
+            "inputSchema": [
+                "type": "object", "additionalProperties": false,
+                "properties": ["workspaceName": ["type": "string", "maxLength": 256, "description": "The workspace name explicitly supplied by the user; confirmed in the local Matters picker."]],
+                "required": [String]()
+            ]
+        ],
+        [
             "name": "list_pending",
             "description": "List the staged documents and derived artifacts in the vault: opaque handles plus neutral metadata (kind, format, byte count, page count, staged-at, source handle, and for redacted artifacts excludedEntityCount: how many detected occurrences the review step left visible, on every channel; 0 means fully redacted). Never returns filenames or paths.",
             "inputSchema": [
@@ -94,6 +105,13 @@ extension MCPServer {
                 "properties": [String: Any](),
                 "required": [String]()
             ]
+        ],
+        [
+            "name": "choose_workspace",
+            "description": "Ask the user ON THIS MAC to choose an existing LDA Matter for a staged document or identify the matter a derived artifact belongs to. Opens a local picker; matter names never enter model context. Call this before processing when the user wants to choose or change the association. Redacted and restored artifacts inherit the chosen workspaceID. No request argument can select a matter or confirm the local picker. Cancelling leaves the association unchanged.",
+            "inputSchema": ["type": "object", "properties": [
+                "handle": ["type": "string", "description": "The staged or derived document handle to associate locally."]
+            ], "required": ["handle"], "additionalProperties": false]
         ],
         [
             "name": "anonymize",
@@ -149,7 +167,7 @@ extension MCPServer {
         ],
         [
             "name": "read_redacted",
-            "description": "Return the redacted TEXT of a redacted artifact. This is the only tool that returns body text, and it refuses originals and restored artifacts (both contain real PII).",
+            "description": "Return the redacted TEXT of a redacted artifact. This is the only tool that returns body text, and it refuses originals and restored artifacts (both contain real PII). Partially redacted content requires fresh local user confirmation and macOS authentication for THIS exact response. The tool refuses if approval is cancelled, unavailable, or times out. Never ask for a password in chat. No MCP argument grants approval.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

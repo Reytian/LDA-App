@@ -15,6 +15,13 @@ import XCTest
 @testable import LDAMCP
 
 final class MCPPathPolicyTests: XCTestCase {
+    func testConfiguredExternalModelIsAllowedWithoutGrantingItsDirectory() {
+        let model = URL(fileURLWithPath: "/Volumes/LDA-models/chosen.gguf")
+        let environment = ["LDA_MODEL_PATH": model.path]
+        XCTAssertTrue(MCPPathPolicy.isAllowedModelPath(model, environment: environment))
+        XCTAssertFalse(MCPPathPolicy.isAllowedModelPath(model.deletingLastPathComponent().appendingPathComponent("other.gguf"), environment: environment))
+        XCTAssertFalse(MCPPathPolicy.isAllowed(model, environment: environment))
+    }
 
     private var workDir: URL!
 
@@ -122,9 +129,9 @@ final class MCPPathPolicyTests: XCTestCase {
             "params": ["name": tool, "arguments": arguments]
         ]
         let payload = try JSONSerialization.data(withJSONObject: request)
-        let server = MCPServer(environment: [
-            MCPServer.legacyPathToolsEnvironmentKey: "1"
-        ])
+        let server = MCPServer(environment: VaultTestSupport.serverEnvironment(
+            vaultDir: workDir.appendingPathComponent("audit-vault"),
+            extra: [MCPServer.legacyPathToolsEnvironmentKey: "1"]))
         let responseData = try XCTUnwrap(server.handle(payload))
         let response = try XCTUnwrap(
             JSONSerialization.jsonObject(with: responseData) as? [String: Any]

@@ -148,65 +148,85 @@ public struct DocumentPane: View {
 
     // MARK: - Drop zone (empty state)
 
-    /// The first-run intake: a dashed drop target plus a Choose File button.
-    /// Accepts a dragged document or a click to browse.
+    /// Scrollable intake keeps the primary button reachable in short windows.
+    /// The native button remains a separate keyboard and accessibility target.
     private var dropZone: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 46, weight: .light))
-                .foregroundStyle(CounselTheme.inkAccent.opacity(0.85))
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        L10n.text("Anonymize Documents")
+                            .font(CounselTheme.Typography.pageTitle)
+                            .foregroundStyle(CounselTheme.textPrimary)
+                        L10n.text("Add your files, review sensitive details, then export a redacted copy.")
+                            .font(CounselTheme.Typography.readingBody)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
 
-            VStack(spacing: 6) {
-                L10n.text("Drop documents to anonymize")
-                    .font(.system(.title3, design: .serif))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                L10n.text("PDF, Word (.docx), plain text, or a .zip of them. Several files become one session. Detection and redaction run on this Mac.")
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
-            .multilineTextAlignment(.center)
+                    VStack(spacing: 18) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .font(.system(size: 42, weight: .light))
+                            .foregroundStyle(CounselTheme.inkAccent)
+                            .accessibilityHidden(true)
 
-            Button {
-                presentOpenPanel()
-            } label: {
-                L10n.text("Choose Files")
-                    .padding(.horizontal, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(CounselTheme.inkAccentFill)
+                        L10n.text("Drop documents to anonymize")
+                            .font(CounselTheme.Typography.sectionTitle)
+                            .foregroundStyle(CounselTheme.textPrimary)
+                        L10n.text("PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives.")
+                            .font(.callout)
+                            .foregroundStyle(CounselTheme.textSecondary)
 
-            if case .failed(let detail) = model.status {
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+                        Button(action: presentOpenPanel) {
+                            L10n.label("Choose Files", systemImage: "plus")
+                                .padding(.horizontal, 12)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(CounselTheme.inkAccentFill)
+                        .accessibilityIdentifier("chooseDocuments")
+
+                        L10n.text("Add several files to review them together. You can add more later.")
+                            .font(CounselTheme.Typography.supporting)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                    }
+                    .padding(32)
+                    .frame(maxWidth: .infinity)
+                    .background(CounselTheme.raised, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(
+                                isDropTargeted ? CounselTheme.inkAccent : CounselTheme.hairline,
+                                style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1.5, dash: [8, 6])
+                            )
+                    }
+
+                    L10n.label("Detection and redaction run on this Mac.", systemImage: "lock.shield")
+                        .font(CounselTheme.Typography.supporting)
+                        .foregroundStyle(CounselTheme.textSecondary)
+
+                    if case .failed(let detail) = model.status {
+                        Label {
+                            Text(verbatim: detail)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                        }
+                        .font(.callout)
+                        .foregroundStyle(CounselTheme.danger)
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 560)
+                .padding(32)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: geometry.size.height)
             }
         }
-        .frame(maxWidth: 440)
-        .padding(48)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(CounselTheme.raised.opacity(isDropTargeted ? 1.0 : 0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(
-                    isDropTargeted ? CounselTheme.inkAccent : CounselTheme.hairline,
-                    style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1.5, dash: [9, 7])
-                )
-        )
-        .padding(48)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { presentOpenPanel() }
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
             openURLs(urls)
             return true
         } isTargeted: { isDropTargeted = $0 }
-        .accessibilityElement(children: .combine)
-        .l10nAccessibilityLabel("Drop documents to anonymize, or choose files")
-        .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Open

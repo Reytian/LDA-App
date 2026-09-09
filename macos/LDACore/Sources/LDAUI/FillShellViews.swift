@@ -28,6 +28,11 @@ import LDACore
 struct ProfileBuilderBody: View {
     @ObservedObject var model: FillModel
     let sourcePaths: [URL]
+    let primaryActionTitle: String
+    let primaryActionHelp: String
+    let canRunPrimaryAction: Bool
+    let onPrimaryAction: () -> Void
+    let onLoadProfile: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -62,10 +67,41 @@ struct ProfileBuilderBody: View {
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { emptyStateActions }
+                VStack(spacing: 12) { emptyStateActions }
+            }
+
+            if !sourcePaths.isEmpty && !canRunPrimaryAction {
+                L10n.text(primaryActionHelp)
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: 400)
         .padding(48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var emptyStateActions: some View {
+        Button(action: onPrimaryAction) {
+            L10n.text(primaryActionTitle)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(CounselTheme.inkAccentFill)
+        .controlSize(.large)
+        .disabled(!canRunPrimaryAction)
+        .l10nHelp(primaryActionHelp)
+
+        Button(action: onLoadProfile) {
+            L10n.text("Load Profile")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .disabled(model.stage == .importingSources || model.stage == .extracting)
     }
 }
 

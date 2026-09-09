@@ -254,11 +254,14 @@ private struct PackagingFixture {
 
         try fm.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         try fm.createDirectory(at: swiftBinURL, withIntermediateDirectories: true)
-        try Self.writeExecutable(
-            named: "LDAApp",
-            in: swiftBinURL,
-            contents: "#!/bin/bash\nexit 0\n"
-        )
+        // The current app package includes the CLI and MCP helpers as well.
+        for executable in ["LDAApp", "lda", "lda-mcp"] {
+            try Self.writeExecutable(
+                named: executable,
+                in: swiftBinURL,
+                contents: "#!/bin/bash\nexit 0\n"
+            )
+        }
         try Self.writeExecutable(
             named: "swift",
             in: fakeBinURL,

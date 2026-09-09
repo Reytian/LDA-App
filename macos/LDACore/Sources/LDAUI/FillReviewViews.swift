@@ -26,6 +26,7 @@ import LDACore
 /// leading side and the document / report pane in the detail.
 struct FillReviewBody: View {
     @ObservedObject var model: FillModel
+    let isActive: Bool
     @Binding var pickerOpenForBlankID: UUID?
     @Binding var applyMessage: String?
 
@@ -36,6 +37,7 @@ struct FillReviewBody: View {
                 pickerOpenForBlankID: $pickerOpenForBlankID
             )
             .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
+            .toolbar(removing: isActive ? nil : .sidebarToggle)
         } detail: {
             VStack(spacing: 0) {
                 detailContent

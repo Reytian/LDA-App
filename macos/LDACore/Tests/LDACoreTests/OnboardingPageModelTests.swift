@@ -37,15 +37,18 @@ final class OnboardingPageModelTests: XCTestCase {
         XCTAssertNil(
             OnboardingPresentation.nextPage(after: .model, mode: .modelAskOnly, hasModel: false)
         )
-        XCTAssertNil(
-            OnboardingPresentation.nextPage(after: .steps, mode: .firstRun, hasModel: false)
+        XCTAssertEqual(
+            OnboardingPresentation.nextPage(after: .steps, mode: .firstRun, hasModel: false), .integrations
         )
+        XCTAssertNil(OnboardingPresentation.nextPage(after: .integrations, mode: .firstRun, hasModel: false))
+        XCTAssertEqual(OnboardingPresentation.position(of: .integrations, mode: .firstRun, hasModel: false), 4)
+        XCTAssertEqual(OnboardingPresentation.position(of: .integrations, mode: .firstRun, hasModel: true), 3)
         XCTAssertNil(
             OnboardingPresentation.nextPage(after: .steps, mode: .modelAskOnly, hasModel: false)
         )
 
-        XCTAssertEqual(OnboardingPresentation.pageCount(mode: .firstRun, hasModel: false), 3)
-        XCTAssertEqual(OnboardingPresentation.pageCount(mode: .firstRun, hasModel: true), 2)
+        XCTAssertEqual(OnboardingPresentation.pageCount(mode: .firstRun, hasModel: false), 4)
+        XCTAssertEqual(OnboardingPresentation.pageCount(mode: .firstRun, hasModel: true), 3)
         XCTAssertEqual(OnboardingPresentation.pageCount(mode: .modelAskOnly, hasModel: false), 1)
         XCTAssertEqual(OnboardingPresentation.pageCount(mode: .modelAskOnly, hasModel: true), 1)
     }

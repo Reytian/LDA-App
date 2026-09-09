@@ -116,7 +116,11 @@ public enum MCPPathPolicy {
         _ url: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        contains(url, roots: allowedModelRoots(environment: environment))
+        if let configured = environment["LDA_MODEL_PATH"], configured.hasPrefix("/"),
+           resolvedForComparison(url) == resolvedForComparison(URL(fileURLWithPath: configured)) {
+            return true
+        }
+        return contains(url, roots: allowedModelRoots(environment: environment))
     }
 
     /// Throw MCPPathPolicyError.modelOutsideAllowedRoots when url may not be

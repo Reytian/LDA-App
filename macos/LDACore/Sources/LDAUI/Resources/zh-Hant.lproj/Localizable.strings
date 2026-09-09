@@ -960,6 +960,81 @@
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "這份文件的文字與儲存此工作區時已不相同，因此所記錄的掃描結果並不描述目前開啟的文字。請重新掃描，或者在把副本交給 AI 工具之前先通讀它。";
 "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "「儲存工作區」發現「%@」在掃描之後已被更改，其審閱結果不再與之對應。請重新開啟該檔案並再次掃描，然後再儲存工作區。";
 
+"Add documents, evidence images, or a ZIP to the session" = "向工作階段加入文件、證據圖片或 ZIP 壓縮檔";
+"Save a workspace or export a review report" = "儲存工作區或匯出審閱報告";
+"Add your files, review sensitive details, then export a redacted copy." = "加入檔案，審閱敏感資訊，再匯出去識別化副本。";
+"PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives." = "支援 PDF、Word (.docx)、純文字、PNG 或 JPEG 圖片及 ZIP 壓縮檔。";
+"Add several files to review them together. You can add more later." = "可加入多個檔案一起審閱，也可稍後繼續加入。";
+"Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy." = "選擇或拖入去識別化的 Word、Markdown 或文字檔案。先預覽還原的資訊，再儲存新副本。";
+"Choose File & Preview…" = "選擇檔案並預覽…";
+"LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting." = "LDA 會在目前工作階段、文件工作區或檔案旁的 .ldamap 中尋找對應表。需要時，您也可選擇對應表檔案。Word 文件會保留格式。";
+"How restoration works" = "瞭解還原方式";
+
+/* Model setup clarity */
+"Smallest download. Works on Macs with 16 GB of memory." = "下載量最小。適用於配備 16 GB 記憶體的 Mac。";
+"Recommended when memory allows. Fewer findings to dismiss." = "記憶體充足時的推薦選擇。需要排除的誤報更少。";
+"Found the most in our tests. Takes longer to scan and review." = "在我們的測試中檢出最多。掃描和覆核耗時更長。";
+"%@ on disk" = "佔用磁碟 %@";
+"%@ is recommended for this Mac." = "建議此 Mac 使用%@。";
+"Selected" = "已選取";
+"Not installed" = "未安裝";
+"Ready to scan" = "已就緒，可掃描";
+"Installed, cannot run on this Mac" = "已安裝，但無法在此 Mac 上執行";
+"Downloading" = "正在下載";
+"Verifying" = "正在驗證";
+"Memory and test results" = "記憶體與測試結果";
+"Show findings" = "顯示檢出項";
+"Hide findings" = "隱藏檢出項";
+
+"Choose a Matter for this document" = "為此文件選擇事項";
+
+"New redacted and restored versions inherit this choice. Matter names stay on this Mac." = "新產生的去識別化與還原版本將沿用此選擇。事項名稱僅保留在此 Mac 上。";
+
+"Your Matters could not be unlocked. Cancel and unlock them in LDA, then try again." = "無法解鎖事項。請取消，在 LDA 中解鎖後再試。";
+
+"Create a Matter in LDA to organize this document, then try again." = "請先在 LDA 中建立事項，再重試關聯此文件。";
+
+"Save Association" = "儲存關聯";
+
+"Matter" = "事項";
+
+/* Optional AI client and command-line setup. */
+"AI app" = "AI 應用程式";
+"After installing the shortcut, run these commands in Terminal. If lda is not found, use ~/.local/bin/lda or add ~/.local/bin to PATH." = "安裝快捷命令後，在終端機執行以下命令。如果找不到 lda，請使用 ~/.local/bin/lda，或將 ~/.local/bin 加入 PATH。";
+"After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection." = "設定完成後，重新啟動 AI 應用程式並檢查 MCP 狀態。請 LDA 執行 attest 以確認連線。";
+"Ask your AI app to use LDA to prepare documents for your named workspace, then give your document instruction. Shortcut syntax depends on the app." = "請 AI 應用程式使用 LDA 為指定工作空間準備文件，然後提供文件處理指令。快捷命令語法取決於應用程式。";
+"CLI Setup" = "CLI 設定";
+"CLI output can include original values and filenames. Do not paste it into an AI chat when working with confidential documents. Use MCP for the protected document workflow." = "CLI 輸出可能包含原始值和檔案名稱。處理機密文件時，請勿將這些輸出貼到 AI 聊天中。請使用 MCP 的受保護文件流程。";
+"Choose LDA from the slash-command menu, or use $lda in Codex. The workspace name is an LDA Matter, separate from your Codex project. Choose documents locally and turn on the optional PII review if you want to add protection." = "從斜線命令選單中選擇 LDA，或在 Codex 中使用 $lda。工作空間名稱對應 LDA 事項，與 Codex 專案分開管理。在本機選擇文件；如需增加保護，可開啟選用的個人資訊審查。";
+"Choose MCP Helper" = "選擇 MCP 程式";
+"Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time." = "選擇應用程式，儲存設定指令碼，然後在終端機中開啟。此步驟可略過，稍後可隨時從設定返回。";
+"Configuration copied." = "已複製組態。";
+"Connect LDA to your AI app" = "將 LDA 連接到 AI 應用程式";
+"Copy Configuration" = "複製組態";
+"Do not attach originals, mapping files or passwords to the AI chat. Any workspace name you type into chat is visible to that AI service." = "請勿將原件、對應檔案或密碼附加到 AI 聊天中。在聊天中輸入的任何工作空間名稱都會對該 AI 服務可見。";
+"In an app that supports local STDIO MCP, add a server named lda. Use the command and environment below. Merge the lda entry into existing settings instead of replacing the whole file. Browser-only apps that require an HTTP address cannot use this local server directly." = "在支援本機 STDIO MCP 的應用程式中，新增名為 lda 的伺服器，並使用以下命令和環境組態。將 lda 項目合併到現有設定中，請勿取代整個檔案。要求 HTTP 位址的純網頁應用程式無法直接使用此本機伺服器。";
+"Keep LDA.app in its final location before setting up a connection." = "設定連線前，請將 LDA.app 放在最終使用位置。";
+"MCP Setup" = "MCP 設定";
+"MCP helper is ready" = "MCP 程式已就緒";
+"Open the saved script in Terminal. It creates ~/.local/bin/lda and preserves any existing command." = "在終端機開啟已儲存的指令碼。它會建立 ~/.local/bin/lda，並保留任何現有命令。";
+"Other AI app" = "其他 AI 應用程式";
+"Requested workspace: %@" = "要求的工作空間：%@";
+"Save CLI Setup Script" = "儲存 CLI 設定指令碼";
+"Save LDA Skill" = "儲存 LDA 技能";
+"Save Setup Script" = "儲存設定指令碼";
+"Save this file inside the lda skill folder for your AI app. Preserve any existing custom skill before replacing it." = "將此檔案儲存到 AI 應用程式的 lda 技能資料夾中。取代之前，請保留現有的自訂技能。";
+"Set Up Later" = "稍後設定";
+"Setup could not be saved. Choose a writable location and try again." = "無法儲存設定。請選擇可寫入的位置後重試。";
+"Setup script saved. Open it locally in Terminal, then restart your AI app." = "已儲存設定指令碼。請在本機終端機開啟，然後重新啟動 AI 應用程式。";
+"The CLI runs locally and supports detection, redaction, restoration, vault staging and audit verification." = "CLI 在本機執行，支援偵測、去識別化、還原、存入保險庫以及稽核驗證。";
+"The script adds only LDA, backs up changed settings, and preserves existing server entries and skills. If LDA is already configured, update its command and environment in your AI app using the configuration below." = "指令碼僅新增 LDA，備份變更的設定，並保留現有伺服器項目和技能。如果已設定 LDA，請使用以下組態在 AI 應用程式中更新其命令和環境。";
+"This build has no bundled CLI helper. Use lda from an LDA release package." = "此版本未附帶 CLI 程式。請使用 LDA 發行套件中的 lda。";
+"This build has no bundled MCP helper. Choose lda-mcp from an LDA release package." = "此版本未附帶 MCP 程式。請選擇 LDA 發行套件中的 lda-mcp。";
+"This connection will use Patterns only. Set up a detection model in AI Settings for names, companies and addresses, then export setup again." = "此連線將僅使用模式偵測。請在 AI 設定中設定偵測模型，以識別姓名、公司和地址，然後重新匯出設定。";
+"Use LDA from Terminal" = "在終端機中使用 LDA";
+"Use lda anonymize --help and lda restore --help for redaction and restoration options. Keep mappings and passphrases local." = "使用 lda anonymize --help 和 lda restore --help 查看去識別化與還原選項。請將對應資料和密碼留在本機。";
+"View Configuration" = "檢視組態";
+
 // Offline video tutorials
 "Watch the walkthroughs" = "觀看使用示範";
 "Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "採用虛構資料的示意演示。無聲影片，配有英文字幕，可離線播放。";
@@ -973,3 +1048,24 @@
 "Tutorials" = "使用示範";
 "Watch on GitHub" = "在 GitHub 上觀看";
 "Open both video walkthroughs in your browser" = "在瀏覽器中開啟兩個影片示範";
+
+/* First-use legal acceptance */
+"Before you begin" = "開始使用前";
+"Please review and accept both documents to continue using LDA." = "請閱讀並接受這兩份文件，以繼續使用 LDA。";
+"I have read and agree to the Terms of Service." = "我已閱讀並同意服務條款。";
+"I have read and accept the Privacy Policy." = "我已閱讀並接受隱私政策。";
+"Acceptance is saved only on this Mac. It does not authorize optional sharing or future data uses." = "接受記錄僅儲存在此 Mac 上。這不代表授權選用的分享操作或未來的資料用途。";
+"Acceptance could not be saved. Please try again." = "無法儲存接受記錄。請重試。";
+"Decline and Quit" = "拒絕並結束";
+"Accept and Continue" = "接受並繼續";
+"Legal document" = "法律文件";
+"Terms of Service" = "服務條款";
+"Privacy Policy" = "隱私政策";
+"These documents are in English. You can save a copy for your records." = "這些文件以英文提供。您可以儲存副本以備查閱。";
+"Save a Copy..." = "儲存副本...";
+"The document could not be saved. Choose another location and try again." = "無法儲存文件。請選擇其他位置並重試。";
+"The legal documents could not be loaded. Please reinstall LDA from its official distribution." = "無法載入法律文件。請從官方發佈管道重新安裝 LDA。";
+"Accepted on this Mac:" = "在此 Mac 上接受的日期：";
+"Review the Terms of Service and Privacy Policy to begin." = "請閱讀服務條款和隱私政策以開始使用。";
+"Legal" = "法律";
+"Contact Support" = "聯絡支援";

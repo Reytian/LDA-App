@@ -157,12 +157,8 @@ public struct DeanonymizeShell: View {
         card(
             icon: "doc.badge.arrow.up",
             title: "Restore a file",
-            body: "Choose or drop the file that came back: the Markdown you exported for the AI, "
-                + "or a redacted Word document you saved. The mapping is found automatically "
-                + "from this session, from the workspace LDA keeps for the document, or from a "
-                + ".ldamap saved next to the file. "
-                + "Formatting is kept when the file is a Word document.",
-            buttonTitle: "Choose File & Restore\u{2026}",
+            body: "Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy.",
+            buttonTitle: "Choose File & Preview\u{2026}",
             buttonHelp: "Pick the file that came back, review the restored document, then save it (Cmd+R)",
             isProminent: true,
             action: presentRestore
@@ -215,6 +211,18 @@ public struct DeanonymizeShell: View {
             }
             .controlSize(.large)
             .help(L10n.string(buttonHelp))
+
+            DisclosureGroup {
+                L10n.text("LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting.")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 6)
+            } label: {
+                L10n.text("How restoration works")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
         }
         .padding(24)
         .frame(minHeight: 240)

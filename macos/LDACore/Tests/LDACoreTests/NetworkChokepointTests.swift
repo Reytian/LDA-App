@@ -6,7 +6,8 @@
 //
 //  LDA.app carries com.apple.security.network.client so it can download models.
 //  Its own network access is limited to model downloads. A user-selected
-//  tutorial link may open a fixed GitHub page in the default browser.
+//  tutorial link may open a fixed GitHub page in the default browser, and a
+//  support link may open a blank email addressed to the fixed support mailbox.
 //  Before the entitlement, the OS enforced the download boundary and a reviewer
 //  could verify it by reading one file. Now WE enforce it, so it needs to be
 //  checked by something that runs on every commit rather than by discipline.
@@ -26,26 +27,34 @@ final class NetworkChokepointTests: XCTestCase {
     private let allowedFile = "ModelInstaller.swift"
 
     /// URL-taking APIs that are network capable but are used here on local
-    /// files only. Each entry has been read and confirmed to build its URL from
+    /// files or the built-in local LDA bridge only. Each entry has been read and confirmed to build its URL from
     /// a file path. They are listed rather than ignored so that a NEW use is
     /// still flagged and has to be justified: `Data(contentsOf:)` on a remote
     /// URL performs a synchronous network GET that no amount of URLSession
     /// auditing would reveal.
-    private let auditedLocalFileReads: [String: Set<String>] = [
+    private let auditedLocalOnlyAPIs: [String: Set<String>] = [
         "Data(contentsOf:": [
             "ModelTiers.swift",        // Models.json from the app bundle
             "SettingsView.swift",      // profile JSON chosen in an open panel
             "EncryptedContainer.swift",// the encrypted mapping container
             "TextDocumentIO.swift"     // a document the user opened
         ],
+        // The URL is generated from MCPWorkspaceRequest, never passed through from an
+        // MCP argument. It always has the lda-mcp scheme and targets the local LDA app.
+        // MCPWorkspaceBridgeTests verifies the request shape and rejects other schemes.
+        "NSWorkspace.shared.open": ["MCPWorkspaceTools.swift"],
         "String(contentsOf:": [
-            "NetworkChokepointTests.swift"
+            "NetworkChokepointTests.swift",
+            "LegalAcceptance.swift"    // bundled Markdown; requires a file URL
         ]
     ]
 
     // The user requested this browser link during setup. Match the entire line
     // so an additional URL, query string or document-derived destination is refused.
     private let tutorialBrowserLink = #"Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {"#
+
+    // This fixed mailto URL contains no subject, body, attachment, or app data.
+    private let supportEmailLink = #"Link(destination: URL(string: "mailto:formelocale@protonmail.com")!) {"#
 
     /// Symbols that indicate outbound network capability.
     private let networkSymbols = [
@@ -121,7 +130,10 @@ final class NetworkChokepointTests: XCTestCase {
                         tutorialLinkCount += 1
                         continue
                     }
-                    if auditedLocalFileReads[symbol]?.contains(name) == true { continue }
+                    if name == "LegalConsentView.swift", symbol == "Link(", trimmed == supportEmailLink {
+                        continue
+                    }
+                    if auditedLocalOnlyAPIs[symbol]?.contains(name) == true { continue }
                     offenders[name, default: []].append(symbol)
                 }
             }
@@ -133,8 +145,8 @@ final class NetworkChokepointTests: XCTestCase {
             """
             Network capability appeared outside \(allowedFile): \(offenders).
             The app publishes that it contacts the network only to download a \
-            model you asked for. The fixed, user-selected tutorial browser link is \
-            separately audited. Any other network use changes that claim. \
+            model you asked for. The fixed, user-selected tutorial and support \
+            links are separately audited. Any other network use changes that claim. \
             If this is intentional, the published wording in LDA.entitlements, \
             packaging/README.md, SettingsView and OnboardingView must change \
             with it.
@@ -151,13 +163,13 @@ final class NetworkChokepointTests: XCTestCase {
         if let walker = fm.enumerator(at: sources, includingPropertiesForKeys: nil) {
             for case let url as URL in walker where url.pathExtension == "swift" {
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-                for (symbol, files) in auditedLocalFileReads
+                for (symbol, files) in auditedLocalOnlyAPIs
                 where files.contains(url.lastPathComponent) && text.contains(symbol) {
                     seen[symbol, default: []].insert(url.lastPathComponent)
                 }
             }
         }
-        for (symbol, files) in auditedLocalFileReads {
+        for (symbol, files) in auditedLocalOnlyAPIs {
             let live = seen[symbol] ?? []
             let stale = files.subtracting(live).subtracting(["NetworkChokepointTests.swift"])
             XCTAssertTrue(stale.isEmpty,

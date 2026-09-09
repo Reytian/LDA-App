@@ -38,21 +38,25 @@ struct WindowContentTopInsetReader: NSViewRepresentable {
     func makeNSView(context: Context) -> WindowContentInsetView {
         let view = WindowContentInsetView()
         view.onInsetChange = updateTopInset
+        view.scheduleRefresh()
         return view
     }
 
     func updateNSView(_ nsView: WindowContentInsetView, context: Context) {
         nsView.onInsetChange = updateTopInset
-        nsView.reportCurrentInset()
+        nsView.scheduleRefresh()
     }
 
     static func dismantleNSView(_ nsView: WindowContentInsetView, coordinator: ()) {
         nsView.onInsetChange = nil
     }
 
-    private func updateTopInset(_ newValue: CGFloat) {
-        guard abs(topInset - newValue) > 0.5 else { return }
+    func updateTopInset(_ newValue: CGFloat) {
         DispatchQueue.main.async {
+            // Compare when applying the update. A toolbar can disappear and
+            // return before this queue drains; comparing earlier would drop
+            // the final value and leave content underneath the restored bar.
+            guard abs(topInset - newValue) > 0.5 else { return }
             topInset = newValue
         }
     }
@@ -61,23 +65,44 @@ struct WindowContentTopInsetReader: NSViewRepresentable {
 final class WindowContentInsetView: NSView {
     var onInsetChange: ((CGFloat) -> Void)?
     private var contentLayoutObservation: NSKeyValueObservation?
+    private weak var observedWindow: NSWindow?
+    private var refreshIsScheduled = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        contentLayoutObservation = nil
+        observeCurrentWindow()
+        scheduleRefresh()
+    }
 
+    private func observeCurrentWindow() {
+        guard observedWindow !== window else { return }
+        contentLayoutObservation = nil
+        observedWindow = window
         guard let window else { return }
         contentLayoutObservation = window.observe(
             \.contentLayoutRect,
-            options: [.initial, .new]
+            options: [.new]
         ) { [weak self] _, _ in
-            self?.reportCurrentInset()
+            self?.scheduleRefresh()
         }
     }
 
     override func layout() {
         super.layout()
-        reportCurrentInset()
+        scheduleRefresh()
+    }
+
+    /// SwiftUI can update the representable before AppKit attaches it to the
+    /// window or finishes replacing a toolbar. Measure after that layout pass.
+    func scheduleRefresh() {
+        guard !refreshIsScheduled else { return }
+        refreshIsScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.refreshIsScheduled = false
+            self.observeCurrentWindow()
+            self.reportCurrentInset()
+        }
     }
 
     func reportCurrentInset() {

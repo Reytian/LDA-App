@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  LDAUI
 //
-//  The Settings window (Cmd+,), in two tabs:
+//  The Settings window (Cmd+,), including integration setup and local preferences:
 //    - Vocabulary: user-defined terms (literal or regex) to always redact.
 //    - Learned: what the app has learned from the user's accept and reject
 //      decisions, with the ability to forget entries.
@@ -15,8 +15,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import LDACore
 
-/// The Settings root: a two-tab editor for the custom vocabulary and the learned
-/// terms.
+/// The Settings root for local preferences, vocabulary, history and integration setup.
 public struct SettingsView: View {
     @ObservedObject private var patterns: CustomPatternStore
     @ObservedObject private var learning: LearningStore
@@ -24,6 +23,7 @@ public struct SettingsView: View {
     @ObservedObject private var installer: ModelInstaller
     /// Owned by the app so a model import outlives this window.
     @ObservedObject private var importer: ModelImporter
+    @ObservedObject private var legalAcceptance: LegalAcceptanceStore
     /// True while a scan is running, which gates model removal.
     private let isScanning: Bool
 
@@ -32,12 +32,14 @@ public struct SettingsView: View {
         learning: LearningStore,
         installer: ModelInstaller,
         importer: ModelImporter,
+        legalAcceptance: LegalAcceptanceStore,
         isScanning: Bool
     ) {
         self.patterns = patterns
         self.learning = learning
         self.installer = installer
         self.importer = importer
+        self.legalAcceptance = legalAcceptance
         self.isScanning = isScanning
     }
 
@@ -53,17 +55,23 @@ public struct SettingsView: View {
                 .tabItem { Label { L10n.text("Learned") } icon: { Image(systemName: "brain") } }
             SharingTab(patterns: patterns, learning: learning)
                 .tabItem { Label { L10n.text("Sharing") } icon: { Image(systemName: "square.and.arrow.up.on.square") } }
+            ScrollView { MCPSetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+                .tabItem { Label { L10n.text("MCP Setup") } icon: { Image(systemName: "point.3.connected.trianglepath.dotted") } }
+            ScrollView { CLISetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+                .tabItem { Label { L10n.text("CLI Setup") } icon: { Image(systemName: "terminal") } }
             ScrollView { TutorialGallery().padding(24) }
                 .tabItem { Label { L10n.text("Tutorials") } icon: { Image(systemName: "play.rectangle") } }
             HistoryTab()
                 .tabItem { Label { L10n.text("History") } icon: { Image(systemName: "clock.arrow.circlepath") } }
+            LegalSettingsView(acceptance: legalAcceptance)
+                .tabItem { Label { L10n.text("Legal") } icon: { Image(systemName: "doc.text") } }
         }
         // Resizable, from the UI/UX audit on feat/lda-macos-core. Kept through
         // the merge: the model ladder makes this panel taller, so a fixed
         // 440pt height would clip the lowest rung.
         .frame(
-            minWidth: 580,
-            idealWidth: 700,
+            minWidth: 720,
+            idealWidth: 860,
             maxWidth: .infinity,
             minHeight: 440,
             idealHeight: 540,

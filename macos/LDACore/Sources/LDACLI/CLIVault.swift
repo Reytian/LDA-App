@@ -94,7 +94,8 @@ struct Vault: ParsableCommand {
         abstract: "Stage documents into the local vault and inspect its contents.",
         subcommands: [
             VaultStage.self,
-            VaultList.self
+            VaultList.self,
+            VaultAudit.self
         ]
     )
 }

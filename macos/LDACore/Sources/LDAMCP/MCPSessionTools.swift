@@ -86,6 +86,10 @@ extension MCPServer {
             guard entry.kind == .original else {
                 throw MCPVaultToolError.notAnOriginal(handle)
             }
+            // Session redaction has no per-document local policy support yet.
+            guard entry.localReviewTextDigest == nil, (entry.requiredLocalPatterns ?? []).isEmpty else {
+                throw MCPVaultToolError.localPreparationCancelled
+            }
         }
 
         // Client seeding (R10): when a client label is given, reuse and extend

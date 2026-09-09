@@ -137,6 +137,77 @@ final class MCPRestoreLineageTests: XCTestCase {
 
     // MARK: - Originals must prove their lineage
 
+    func testReimportedEditInheritsMappingMatterWithoutChangingSource() throws {
+        let original = try stageText("Mail \(Self.email) now.", named: "matter.txt")
+        let matterID = UUID()
+        try vault.assignWorkspace(handle: original, workspaceID: matterID)
+        let redacted = try anonymize(original)
+        let edited = try stageText(try readRedacted(redacted) + " Reviewed.", named: "edited.txt")
+        let result = try summary(tool: "restore", arguments: [
+            "redactedHandle": redacted, "editedHandle": edited, "passphrase": passphrase
+        ])
+        let restored = try vault.entry(handle: XCTUnwrap(result["restoredHandle"] as? String))
+        XCTAssertEqual(restored.workspaceID, matterID)
+        XCTAssertEqual(restored.sourceHandle, edited)
+        XCTAssertNil(try vault.entry(handle: edited).workspaceID)
+        let response = try XCTUnwrap(MCPAuditJournal(vault: vault).verify().records.last?.event)
+        XCTAssertTrue(response.documents.contains { $0.handle == restored.handle && $0.workspaceID == matterID })
+    }
+
+    func testReimportedEditKeepsExplicitMatterAssignment() throws {
+        let original = try stageText("Mail \(Self.email) now.", named: "matter.txt")
+        try vault.assignWorkspace(handle: original, workspaceID: UUID())
+        let redacted = try anonymize(original)
+        let edited = try stageText(try readRedacted(redacted), named: "edited.txt")
+        let editedMatter = UUID()
+        try vault.assignWorkspace(handle: edited, workspaceID: editedMatter)
+        let result = try summary(tool: "restore", arguments: [
+            "redactedHandle": redacted, "editedHandle": edited, "passphrase": passphrase
+        ])
+        let restored = try vault.entry(handle: XCTUnwrap(result["restoredHandle"] as? String))
+        XCTAssertEqual(restored.workspaceID, editedMatter)
+        XCTAssertEqual(restored.sourceHandle, edited)
+    }
+
+    func testReimportedEditKeepsExplicitNoMatterChoice() throws {
+        let original = try stageText("Mail \(Self.email) now.", named: "matter.txt")
+        try vault.assignWorkspace(handle: original, workspaceID: UUID())
+        let redacted = try anonymize(original)
+        let edited = try stageText(try readRedacted(redacted), named: "edited.txt")
+        try vault.assignWorkspace(handle: edited, workspaceID: nil)
+        let result = try summary(tool: "restore", arguments: [
+            "redactedHandle": redacted, "editedHandle": edited, "passphrase": passphrase
+        ])
+        let restored = try vault.entry(handle: XCTUnwrap(result["restoredHandle"] as? String))
+        XCTAssertNil(restored.workspaceID)
+        XCTAssertEqual(restored.workspaceSelectionIsExplicit, true)
+        XCTAssertEqual(restored.sourceHandle, edited)
+    }
+
+    func testLegacyUnassignedEditDoesNotInventSelectionIntent() throws {
+        let original = try stageText("Mail \(Self.email) now.", named: "matter.txt")
+        try vault.assignWorkspace(handle: original, workspaceID: UUID())
+        let redacted = try anonymize(original)
+        let edited = try stageText(try readRedacted(redacted), named: "edited.txt")
+        try vault.withRegistryTransaction {
+            let registry = try vault.loadRegistryLocked()
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(registry)) as? [String: Any])
+            var entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
+            let index = try XCTUnwrap(entries.firstIndex { $0["handle"] as? String == edited })
+            entries[index].removeValue(forKey: "workspaceSelectionIsExplicit")
+            object["entries"] = entries
+            let legacy = try JSONDecoder().decode(DocumentVault.Registry.self, from: JSONSerialization.data(withJSONObject: object))
+            try vault.saveRegistryLocked(legacy)
+        }
+        XCTAssertNil(try vault.entry(handle: edited).workspaceSelectionIsExplicit)
+        let result = try summary(tool: "restore", arguments: [
+            "redactedHandle": redacted, "editedHandle": edited, "passphrase": passphrase
+        ])
+        let restored = try vault.entry(handle: XCTUnwrap(result["restoredHandle"] as? String))
+        XCTAssertNil(restored.workspaceID)
+        XCTAssertNil(restored.workspaceSelectionIsExplicit)
+    }
+
     func testAnOriginalWithNoPlaceholderOfTheMappingIsRefusedAndNothingIsWritten() throws {
         let matter = try stageText("Mail \(Self.email) now.", named: "matter.txt")
         let redactedHandle = try anonymize(matter)

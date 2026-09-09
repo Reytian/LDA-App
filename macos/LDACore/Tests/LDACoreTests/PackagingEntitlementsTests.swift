@@ -199,6 +199,8 @@ final class PackagingEntitlementsTests: XCTestCase {
         )
 
         XCTAssertEqual(plist["com.apple.security.app-sandbox"] as? Bool, true)
+        XCTAssertEqual(plist["com.apple.security.files.user-selected.executable"] as? Bool, true,
+                       "the user explicitly exports setup scripts to run in Terminal")
         XCTAssertEqual(
             plist["com.apple.security.files.user-selected.read-write"] as? Bool,
             true

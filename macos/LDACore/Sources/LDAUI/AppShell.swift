@@ -112,6 +112,8 @@ public struct AppShell: View {
     /// compact toolbar during live resize.
     @State private var isWindowNarrow = false
 
+    @State private var findingsVisibility: NavigationSplitViewVisibility
+
     /// Full-screen and AppKit-zoomed windows have room for the product name.
     /// Ordinary windows keep the short title even when their content is wide.
     @State private var usesFullProductTitle = false
@@ -184,12 +186,15 @@ public struct AppShell: View {
         self.isActive = isActive
         self.onOpenRestore = onOpenRestore
         self.onOpenMatters = onOpenMatters
+        _findingsVisibility = State(initialValue: session.entries.isEmpty ? .detailOnly : .all)
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $findingsVisibility) {
             EntitySidebar(session: session, model: model)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
+                // This sidebar has an explicit, mode-aware toolbar control.
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: 0) {
                 if WindowLayoutPolicy.showsWorkflowProgress(isWindowNarrow: isWindowNarrow) {
@@ -257,6 +262,10 @@ public struct AppShell: View {
             AppShellToolbar(
                 session: session,
                 isActive: isActive,
+                findingsVisible: findingsVisibility != .detailOnly,
+                onToggleFindings: {
+                    findingsVisibility = findingsVisibility == .detailOnly ? .all : .detailOnly
+                },
                 exportFlow: exportFlow,
                 workspaceFlow: workspaceFlow,
                 reportFlow: reportFlow,
@@ -331,6 +340,11 @@ public struct AppShell: View {
                 onboardingMode = .modelAskOnly
                 isOnboardingPresented = true
             }
+        }
+        .onChange(of: session.entries.isEmpty) { _, isEmpty in
+            // Only document presence changes the default. Preserve a user's
+            // sidebar choice while scanning or switching between documents.
+            findingsVisibility = isEmpty ? .detailOnly : .all
         }
         .onChange(of: model.anonymizeRequestToken) { _, _ in
             handleScanRequest(.active)

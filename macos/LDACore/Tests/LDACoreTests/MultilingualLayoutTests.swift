@@ -292,13 +292,10 @@ private enum RestoreCardCopy: CaseIterable {
                 icon: "doc.badge.arrow.up",
                 title: L10n.string("Restore a file", language: language),
                 body: L10n.string(
-                    "Choose or drop the file that came back: the Markdown you exported for the AI, "
-                        + "or a redacted Word document you saved. The mapping is found automatically "
-                        + "from this session or from the .ldamap saved next to the file. "
-                        + "Formatting is kept when the file is a Word document.",
+                    "Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy.",
                     language: language
                 ),
-                buttonTitle: L10n.string("Choose File & Restore\u{2026}", language: language),
+                buttonTitle: L10n.string("Choose File & Preview\u{2026}", language: language),
                 isProminent: true
             )
         }

@@ -528,6 +528,19 @@ final class ModelTiersTests: XCTestCase {
         XCTAssertNotNil(ModelCatalog.freeSpaceBytes())
     }
 
+    func testFreeSpaceIsAvailableBeforeTheModelStoreExists() throws {
+        let (_, root) = try container("free-space")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appendingPathComponent("new-user/Application Support")
+        let stub = ModelContainerStub(supportRoot: support)
+
+        XCTAssertNotNil(ModelCatalog.freeSpaceBytes(fileManager: stub))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: support.path),
+            "Checking capacity must not create the model store."
+        )
+    }
+
     // MARK: - hasAnyModelAvailable versus isModelMissing
 
     /// A catalog whose files are small enough to write in a test.

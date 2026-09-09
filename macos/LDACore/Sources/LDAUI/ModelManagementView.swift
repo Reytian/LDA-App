@@ -26,6 +26,28 @@ import UniformTypeIdentifiers
 /// putting prose in the manifest invites shipping an unreviewed string.
 enum ModelAnnotation {
 
+    static func summary(for level: DetectionLevel, language: AppLanguage? = nil) -> String {
+        let key: String
+        switch level {
+        case .patternsOnly:
+            key = "No model runs. The names of people and organisations are not detected."
+        case .quick:
+            key = "Smallest download. Works on Macs with 16 GB of memory."
+        case .balanced:
+            key = "Recommended when memory allows. Fewer findings to dismiss."
+        case .mostThorough:
+            key = "Found the most in our tests. Takes longer to scan and review."
+        }
+        return L10n.string(key, language: language)
+    }
+
+    static func storage(for tier: ModelTier, language: AppLanguage? = nil) -> String {
+        String(
+            format: L10n.string("%@ on disk", language: language),
+            tier.downloadSizeDescription as NSString
+        )
+    }
+
     static func body(for level: DetectionLevel) -> String {
         switch level {
         case .patternsOnly:
@@ -125,6 +147,25 @@ enum ModelAnnotation {
             locale: selectedLanguage.locale,
             arguments: arguments
         )
+    }
+}
+
+/// Selection is a preference; readiness also requires a usable model file.
+enum ModelReadiness {
+    static func statusKey(
+        selected: Bool,
+        installed: Bool,
+        availability: TierAvailability,
+        phase: ModelInstallPhase
+    ) -> String {
+        switch phase {
+        case .downloading: return "Downloading"
+        case .verifying: return "Verifying"
+        default: break
+        }
+        guard installed else { return "Not installed" }
+        guard availability.isSelectable else { return "Installed, cannot run on this Mac" }
+        return selected ? "Ready to scan" : "Installed"
     }
 }
 
@@ -257,18 +298,21 @@ public struct ModelManagementView: View {
             L10n.text("Which should I choose?")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            // Deviation from spec section 4F: the spec's RETIRED list names
-            // this exact key ("superseded by #18-21 as one shared source"),
-            // but BundledModelClaimTests.testTheCatalogsCarryNoRetiredBundledClaim
-            // asserts this precise value must remain present in all four
-            // catalogs (it is the already-shipped replacement for an older
-            // "built in" claim). Retiring it would break that pre-existing,
-            // non-negotiable test, so it stays here unchanged in content,
-            // routed only through the new idiom.
-            L10n.text("Quick is the smallest download and works on every Mac LDA supports. With 24 GB of memory or more, Balanced finds the same amount and leaves you far less to dismiss. Most thorough is the only one that missed nothing in our testing.")
-                .font(CounselTheme.Typography.readingBody)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let recommended = OnboardingPresentation.recommendedLevel(
+                catalog: catalog, installedGB: installedGB
+            ) {
+                Text(verbatim: String(
+                    format: L10n.string("%@ is recommended for this Mac."),
+                    L10n.string(recommended.displayName) as NSString
+                ))
+                    .font(CounselTheme.Typography.readingBody)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                L10n.text("This Mac cannot run a detection model")
+                    .font(CounselTheme.Typography.readingBody)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
         }
         .padding(20)
     }
@@ -317,6 +361,7 @@ public struct ModelManagementView: View {
         let installed = bundled || ModelCatalog.isInstalled(tier)
         let availability = MemoryGate.availability(for: tier, installedGB: installedGB)
         let phase = installer.phase(for: tier)
+        let selected = level == lvl && customModelPath.isEmpty
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -329,25 +374,55 @@ public struct ModelManagementView: View {
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer()
                 if bundled { tag("Built in") }
-                if level == lvl && customModelPath.isEmpty { tag("In use", tone: CounselTheme.inkAccent) }
+                if selected { tag("Selected", tone: CounselTheme.inkAccent) }
             }
 
-            Text(verbatim: ModelAnnotation.localizedBody(for: lvl))
+            Text(verbatim: ModelAnnotation.summary(for: lvl))
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(verbatim: ModelAnnotation.localizedFacts(for: tier, bundled: bundled))
+            Text(verbatim: ModelAnnotation.storage(for: tier))
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
 
-            Text(verbatim: MemoryGate.localizedRequirementText(
-                for: tier,
-                installedGB: installedGB
+            L10n.text(ModelReadiness.statusKey(
+                selected: selected, installed: installed,
+                availability: availability, phase: phase
             ))
+                .font(CounselTheme.Typography.supporting.weight(.medium))
+                .foregroundStyle(selected && installed && availability.isSelectable
+                                 ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+
+            // Keep a hardware constraint visible before a download decision.
+            if availability != .available {
+                Text(verbatim: MemoryGate.localizedRequirementText(
+                    for: tier, installedGB: installedGB
+                ))
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(availability.isSelectable
                                  ? CounselTheme.textSecondary : CounselTheme.danger)
+            }
+
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: ModelAnnotation.localizedBody(for: lvl))
+                        .font(CounselTheme.Typography.supporting)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: ModelAnnotation.localizedFacts(for: tier, bundled: bundled))
+                        .font(CounselTheme.Typography.supporting)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: MemoryGate.localizedRequirementText(
+                        for: tier, installedGB: installedGB
+                    ))
+                        .font(CounselTheme.Typography.supporting)
+                }
+                .foregroundStyle(CounselTheme.textSecondary)
+                .padding(.top, 4)
+            } label: {
+                L10n.text("Memory and test results")
+                    .font(CounselTheme.Typography.supporting)
+            }
 
             statusLine(lvl, tier, bundled: bundled, installed: installed,
                        availability: availability, phase: phase)

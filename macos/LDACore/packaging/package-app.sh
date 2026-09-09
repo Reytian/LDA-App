@@ -113,6 +113,16 @@ else
 fi
 BIN="$BUILD_DIR/LDAApp"
 
+# The setup screens point at helpers inside the app, so every distributed app carries them.
+for LDA_HELPER in lda lda-mcp; do
+  if [ -n "${SCRATCH_PATH:-}" ]; then
+    swift build -c release --product "$LDA_HELPER" --scratch-path "$SCRATCH_PATH" >/dev/null
+  else
+    swift build -c release --product "$LDA_HELPER" >/dev/null
+  fi
+done
+
+
 # Ship gate: the test seams are #if DEBUG, so a release binary must contain
 # ZERO *ForTesting symbols. The unit suite cannot catch a regression here
 # because it always builds debug; this scan is the only check that does.
@@ -131,6 +141,9 @@ cp "$PKG/packaging/Info.plist" "$APP/Contents/Info.plist"
 cp "$PKG/packaging/Credits.html" "$APP/Contents/Resources/Credits.html"
 cp "$PKG/../../LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 cp "$BIN" "$APP/Contents/MacOS/LDAApp"
+mkdir -p "$APP/Contents/Helpers"
+cp "$BUILD_DIR/lda" "$BUILD_DIR/lda-mcp" "$APP/Contents/Helpers/"
+
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [ -f "$PKG/packaging/AppIcon.icns" ]; then
   cp "$PKG/packaging/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
@@ -291,6 +304,12 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
 else
   echo "==> Ad hoc signing for local use with App Sandbox enabled"
 fi
+
+# Headless helpers run in the connected AI client's local process context.
+for LDA_HELPER in lda lda-mcp; do
+  codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \
+    --sign "$SIGN_IDENTITY" "$APP/Contents/Helpers/$LDA_HELPER"
+done
 
 # Sign the executable first, then the bundle, with the chosen entitlements.
 codesign --force --options runtime "${TIMESTAMP_ARGS[@]}" \

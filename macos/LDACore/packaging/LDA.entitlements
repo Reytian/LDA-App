@@ -25,6 +25,10 @@
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 
+  <!-- User-exported MCP and CLI setup scripts must be executable in Terminal. -->
+  <key>com.apple.security.files.user-selected.executable</key>
+  <true/>
+
   <!-- Persist access to a model the user picked in an open panel, so it is
        still readable after the next launch. Without this the sandbox grants
        access to the URL for one launch only, the stored path silently stops

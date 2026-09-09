@@ -92,7 +92,7 @@ Older app releases may not include these controls.
 
 Open the [setup guide and both videos](docs/setup.md), or download the
 [offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/LDA-Tutorials.zip).
-New source builds also include offline playback in onboarding and **Settings > Tutorials**.
+LDA 1.2 includes offline playback in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
 
 ## Install the macOS app
 
@@ -101,13 +101,13 @@ You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
    and download **LDA-notarized.zip** from **Assets**.
 2. Double-click the ZIP in Finder, then drag **LDA.app** into **Applications**.
-3. Open LDA from Applications. Choose your language and a detection model in
-   the setup wizard. **Quick** is the starting option for a 16 GB Mac.
+3. Open LDA from Applications. Review and accept the Terms of Service and
+   Privacy Policy, then choose your language and a detection model in the setup wizard. **Quick** is the starting option for a 16 GB Mac.
 4. Wait for the model download and verification to finish, or use **Add Model
    File** to import a compatible model you already have.
 
-The app and detection model are separate downloads. The September 4 version 1.1
-app archive is approximately 5.3 MB; the Quick model is approximately 2.74 GB.
+The app and detection model are separate downloads. LDA 1.2 includes both video
+walkthroughs; the Quick model is a separate download of approximately 2.74 GB.
 Later packages may differ in size. No cloud API key is required for the Mac app.
 
 Without a model, **Patterns only** can find structured items such as emails,
@@ -419,6 +419,17 @@ This is a proof-of-concept. Current limitations include:
 - No encryption on mapping tables; store them securely
 
 </details>
+
+## Terms and privacy
+
+Read the [Terms of Service](macos/LDACore/Sources/LDAUI/Resources/TermsOfService.md)
+and [Privacy Policy](macos/LDACore/Sources/LDAUI/Resources/PrivacyPolicy.md).
+LDA 1.2 asks you to accept both before using the Mac app, and keep them
+available offline in **Settings > Legal**. Acceptance is recorded only on your
+Mac. These notices preserve your GPLv3 software rights.
+
+For support or privacy questions, email [Forme Locale Studio](mailto:formelocale@protonmail.com).
+Use fictional examples and omit confidential information.
 
 ## License
 

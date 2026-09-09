@@ -346,7 +346,14 @@ public struct ModelCatalog: Sendable {
         fileManager: FileManager = .default
     ) -> Int64? {
         guard let root = modelsRoot(fileManager: fileManager) else { return nil }
-        let probe = root.deletingLastPathComponent()
+        // A fresh install has no model store yet. Query its nearest existing
+        // ancestor so the first download gets the same capacity check as later ones.
+        var probe = root
+        while !fileManager.fileExists(atPath: probe.path) {
+            let parent = probe.deletingLastPathComponent()
+            guard parent != probe else { return nil }
+            probe = parent
+        }
         let values = try? probe.resourceValues(
             forKeys: [.volumeAvailableCapacityForImportantUsageKey]
         )
