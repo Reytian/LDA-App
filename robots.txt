@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://formelocale.studio/sitemap.xml
