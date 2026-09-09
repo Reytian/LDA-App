@@ -77,6 +77,23 @@ manager can fetch a detection model you pick. Document processing runs on-device
 You choose which reviewed export to share with an external AI app, whose own
 privacy terms then apply.
 
+## Watch the walkthroughs
+
+[**LDA app: scan, review, export and restore (1:30)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-app-walkthrough.mp4)
+
+[**LDA in Codex: connect and use /LDA (1:57)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-codex-walkthrough.mp4)
+
+[![LDA app video walkthrough](macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.png)](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-app-walkthrough.mp4)
+
+Illustrated tutorials with fictional data, generated on a Mac Mini. The videos are silent, with English
+subtitles embedded in the picture. The Codex tutorial requires a setup-enabled
+build with **Settings > MCP Setup**, the bundled helper, and the LDA skill.
+Older app releases may not include these controls.
+
+Open the [setup guide and both videos](docs/setup.md), or download the
+[offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/LDA-Tutorials.zip).
+New source builds also include offline playback in onboarding and **Settings > Tutorials**.
+
 ## Install the macOS app
 
 You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory**.

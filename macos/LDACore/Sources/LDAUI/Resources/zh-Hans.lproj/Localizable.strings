@@ -959,3 +959,15 @@
 "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving." = "“存储已隐去文档”发现此文件在扫描之后已被更改，扫描结果不再与之对应。请重新打开该文件并再次扫描，然后再存储。";
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "这份文档的文本与存储此工作区时已不相同，因此所记录的扫描结果并不描述当前打开的文本。请重新扫描，或者在把副本交给 AI 工具之前先通读它。";
 "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "“存储工作区”发现“%@”在扫描之后已被更改，其审阅结果不再与之对应。请重新打开该文件并再次扫描，然后再存储工作区。";
+
+// Offline video tutorials
+"Watch the walkthroughs" = "观看使用演示";
+"Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "采用虚构数据的示意演示。无声视频，配有英文字幕，可离线播放。";
+"Use the LDA app" = "使用 LDA 应用";
+"Use LDA in Codex" = "在 Codex 中使用 LDA";
+"Scan, review, export and restore." = "扫描、复核、导出和还原。";
+"Connect Codex, invoke /LDA and choose documents locally." = "连接 Codex，调用 /LDA 并在本机选择文档。";
+"Open the offline video player" = "打开离线视频播放器";
+"This tutorial is missing from the app. Reinstall a complete LDA release." = "应用中缺少此演示。请重新安装完整的 LDA 版本。";
+"Read the transcript" = "阅读文字稿";
+"Tutorials" = "使用演示";

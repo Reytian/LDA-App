@@ -959,3 +959,15 @@
 "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving." = "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving.";
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool.";
 "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace.";
+
+// Offline video tutorials
+"Watch the walkthroughs" = "Watch the walkthroughs";
+"Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline.";
+"Use the LDA app" = "Use the LDA app";
+"Use LDA in Codex" = "Use LDA in Codex";
+"Scan, review, export and restore." = "Scan, review, export and restore.";
+"Connect Codex, invoke /LDA and choose documents locally." = "Connect Codex, invoke /LDA and choose documents locally.";
+"Open the offline video player" = "Open the offline video player";
+"This tutorial is missing from the app. Reinstall a complete LDA release." = "This tutorial is missing from the app. Reinstall a complete LDA release.";
+"Read the transcript" = "Read the transcript";
+"Tutorials" = "Tutorials";

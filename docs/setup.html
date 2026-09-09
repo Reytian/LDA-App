@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Learn the LDA app and its Codex slash-command workflow with two offline, illustrated video tutorials using fictional data.">
+  <title>LDA | Setup walkthroughs</title>
+  <style>
+    :root{color-scheme:light;--ink:#193337;--green:#206763;--muted:#596b6b;--paper:#f6f3ed;--line:#d8e3df}
+    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 system-ui,sans-serif}
+    main{max-width:1140px;margin:auto;padding:42px 28px 64px}header{border-bottom:1px solid var(--line);padding-bottom:30px}
+    .brand{color:var(--green);font-weight:750;letter-spacing:.04em}.brand span{font-size:12px;margin-left:20px}
+    h1{font:600 clamp(36px,5vw,62px)/1.08 Georgia,serif;letter-spacing:-.03em;margin:30px 0 18px}h2{font-size:27px;line-height:1.3;margin:0}
+    p{max-width:850px}a{color:var(--green);text-underline-offset:4px}a:focus-visible,summary:focus-visible{outline:3px solid var(--green);outline-offset:4px}
+    .intro{font-size:20px;color:var(--muted)}.badge{display:inline-block;background:#e0efe8;padding:6px 13px;border-radius:20px;font-size:13px;color:var(--green);font-weight:650}
+    article{padding:34px 0;border-bottom:1px solid var(--line)}.heading{display:flex;justify-content:space-between;gap:18px;align-items:center;margin-bottom:18px}
+    .duration{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}video{display:block;width:100%;aspect-ratio:16/9;background:var(--ink);border-radius:15px}
+    .links{font-size:15px}details{margin-top:18px;background:white;padding:16px 20px;border-radius:12px}summary{cursor:pointer;font-weight:650}
+    ol{padding-left:24px}li+li{margin-top:10px}code{background:#e3ebe6;border-radius:5px;padding:3px 6px;font-size:.92em}
+    footer{padding-top:25px;color:var(--muted);font-size:15px}.note{color:var(--muted);font-size:15px}nav{display:flex;gap:24px;flex-wrap:wrap;margin-top:24px}
+    @media(max-width:600px){main{padding:25px 16px}.heading{align-items:flex-start}h2{font-size:23px}.brand span{display:block;margin:6px 0 0}}
+  </style>
+</head>
+<body><main>
+  <header>
+    <div class="brand">LDA <span>FORME LOCALE STUDIO</span></div>
+    <h1>See the workflow.<br>Then make it your own.</h1>
+    <p class="intro">Two short walkthroughs show how to use the LDA app and start a protected document workflow from Codex.</p>
+    <span class="badge">Illustrated examples · Fictional data · English subtitles · No audio</span>
+    <nav aria-label="Tutorial navigation"><a href="#app">Use the LDA app</a><a href="#codex">Use LDA in Codex</a></nav>
+  </header>
+  <article id="app">
+    <div class="heading"><h2>01 / Use the LDA app</h2><span class="duration">1 min 30 sec</span></div>
+    <video controls playsinline preload="none" poster="../macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.png" aria-label="Use the LDA app, illustrated video tutorial">
+      <source src="../macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.mp4" type="video/mp4">
+      <track kind="captions" src="tutorials/lda-app-walkthrough.vtt" srclang="en" label="English">
+      Your browser cannot play this video. <a href="../macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.mp4">Download it here.</a>
+    </video>
+    <p>Scan on your Mac, review the findings, export a redacted copy, and restore the edited result with the matching local mapping.</p>
+    <p class="links"><a href="../macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.mp4" download>Download video</a> · <a href="../macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.txt">Read the transcript</a></p>
+    <details><summary>Follow the steps</summary><ol>
+      <li>Choose or import a local detection model during setup. Patterns only has narrower coverage.</li>
+      <li>Add a document in Anonymize, then choose <strong>Scan for PII</strong>.</li>
+      <li>Review the detected values, add protection for anything missed, and check <strong>Safe Preview</strong>.</li>
+      <li>Choose <strong>Export for AI</strong>. Send only the reviewed, redacted version, and ask the AI to preserve placeholders.</li>
+      <li>Save the edited result, open <strong>Restore</strong>, and use the matching local mapping. Review and save the output.</li>
+    </ol></details>
+  </article>
+  <article id="codex">
+    <div class="heading"><h2>02 / Use LDA in Codex</h2><span class="duration">1 min 57 sec</span></div>
+    <video controls playsinline preload="none" poster="../macos/LDACore/Sources/LDAUI/Resources/lda-codex-walkthrough.png" aria-label="Use LDA in Codex, illustrated video tutorial">
+      <source src="../macos/LDACore/Sources/LDAUI/Resources/lda-codex-walkthrough.mp4" type="video/mp4">
+      <track kind="captions" src="tutorials/lda-codex-walkthrough.vtt" srclang="en" label="English">
+      Your browser cannot play this video. <a href="../macos/LDACore/Sources/LDAUI/Resources/lda-codex-walkthrough.mp4">Download it here.</a>
+    </video>
+    <p>Connect once, choose the LDA skill from the slash menu, and select documents in the local picker. Codex works with the prepared redacted text.</p>
+    <p class="note">Requires a setup-enabled LDA build with Settings &gt; MCP Setup and its bundled helper. Older releases may not include these controls. This tutorial kit does not install or update LDA.</p>
+    <p class="links"><a href="../macos/LDACore/Sources/LDAUI/Resources/lda-codex-walkthrough.mp4" download>Download video</a> · <a href="../macos/LDACore/Sources/LDAUI/Resources/lda-codex-walkthrough.txt">Read the transcript</a></p>
+    <details open><summary>Connect and try the command</summary><ol>
+      <li>Put LDA.app in its final location. In <strong>Settings &gt; MCP Setup</strong>, choose Codex, save its setup script, and open it in Terminal.</li>
+      <li>Restart Codex and check the LDA connection.</li>
+      <li>Type <code>/LDA</code> and select the LDA skill, then add: <code>Summarize the renewal terms.</code> The alternate skill reference is <code>$lda</code>.</li>
+      <li>Choose files locally, enable optional PII review if wanted, and confirm the Matter locally.</li>
+      <li>Review the redacted answer. For one document, ask <code>Restore this summary locally and export it.</code> Review the saved output on your Mac.</li>
+    </ol></details>
+    <p class="note">A Matter name typed into chat is visible to the AI service. Omit it and choose locally to keep the label private. The illustrated entry point is the LDA slash-command skill; an @LDA plugin mention is not assumed.</p>
+  </article>
+  <footer><p>Generated on a Mac Mini from a text-only fictional storyboard. No personal screen footage, analytics, external scripts or remote media. Both videos include captions within the picture, so captions remain readable offline.</p><p>Automatic detection can miss information. Review the remaining context before sharing. Keep originals, mappings and passwords local.</p></footer>
+</main></body></html>

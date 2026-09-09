@@ -959,3 +959,15 @@
 "Save Redacted found this file changed after it was scanned, so the scan no longer describes it. Open the file again and scan it before saving." = "Enregistrer le document caviardé a constaté que ce fichier a changé après sa recherche : la recherche ne le décrit plus. Ouvrez le fichier à nouveau et relancez la recherche avant d’enregistrer.";
 "This document no longer reads as it did when this workspace was saved, so the scan it recorded does not describe the text that is open. Scan it again, or read the copy before you hand it to an AI tool." = "Ce document ne se lit plus comme lors de l'enregistrement de cet espace de travail : l'analyse consignée ne décrit donc pas le texte ouvert. Analysez-le à nouveau, ou relisez la copie avant de la confier à un outil d'IA.";
 "Save Workspace found \"%@\" changed after it was scanned, so its review no longer describes it. Open the file again and scan it before saving the workspace." = "Enregistrer l'espace de travail a constaté que « %@ » a changé après sa recherche : sa revue ne le décrit plus. Ouvrez le fichier à nouveau et relancez la recherche avant d'enregistrer l'espace de travail.";
+
+// Offline video tutorials
+"Watch the walkthroughs" = "Regarder les tutoriels";
+"Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "Exemples illustrés avec des données fictives. Vidéos muettes avec sous-titres en anglais. Lecture hors ligne.";
+"Use the LDA app" = "Utiliser l’app LDA";
+"Use LDA in Codex" = "Utiliser LDA dans Codex";
+"Scan, review, export and restore." = "Analyser, vérifier, exporter et restaurer.";
+"Connect Codex, invoke /LDA and choose documents locally." = "Connecter Codex, appeler /LDA et choisir les documents localement.";
+"Open the offline video player" = "Ouvrir le lecteur vidéo hors ligne";
+"This tutorial is missing from the app. Reinstall a complete LDA release." = "Ce tutoriel est absent de l’app. Réinstallez une version complète de LDA.";
+"Read the transcript" = "Lire la transcription";
+"Tutorials" = "Tutoriels";

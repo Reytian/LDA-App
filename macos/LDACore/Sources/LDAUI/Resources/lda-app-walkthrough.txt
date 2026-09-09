@@ -1,0 +1,47 @@
+Use the LDA app
+
+Illustrated walkthrough. All data is fictional. Silent video with English subtitles.
+
+00:00:00.000  Choose your detection setup
+
+This illustrated walkthrough uses fictional data throughout.
+
+Open LDA and choose a detection model during setup, or add one later in AI Settings.
+
+Patterns only has narrower coverage. Names, companies and addresses need a model.
+
+00:00:16.369  Add a document and scan
+
+In Anonymize, add a local document, then choose Scan for PII.
+
+LDA checks the document on your Mac. Our example is a fictional service agreement.
+
+00:00:27.585  Review what will be protected
+
+Review the detected values before sharing. Check names, companies, emails and other sensitive details.
+
+Correct the selections and add protection for anything missed. Automatic detection can miss information.
+
+00:00:39.954  Check Safe Preview and export
+
+Read Safe Preview to check what the AI will receive. Protected values become placeholders.
+
+Choose Export for AI. Keep the original document and its mapping on your Mac.
+
+00:00:52.323  Work with the redacted version
+
+Give your AI app only the reviewed, redacted version and your instruction.
+
+Ask it to preserve placeholders exactly. Review the remaining context too, because it can still identify a person or matter.
+
+00:01:06.231  Bring real values back locally
+
+Save the AI result, open Restore in LDA, and choose the edited file.
+
+LDA uses the matching local mapping. If asked, select it locally, then review and save the restored output.
+
+00:01:19.754  Your everyday LDA workflow
+
+The routine is simple: add, scan, review, export, and restore.
+
+Keep originals and mappings local, and check every result before using it.

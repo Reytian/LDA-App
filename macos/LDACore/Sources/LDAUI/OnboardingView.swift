@@ -572,6 +572,8 @@ public struct OnboardingView: View {
 
     private var stepsPage: some View {
         VStack(alignment: .leading, spacing: 20) {
+            TutorialGallery()
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(verbatim: OnboardingPresentation.stepsTitle(language: currentLanguage))
                     .font(.system(.title2, design: .serif).weight(.semibold))

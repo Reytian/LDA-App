@@ -53,6 +53,8 @@ public struct SettingsView: View {
                 .tabItem { Label { L10n.text("Learned") } icon: { Image(systemName: "brain") } }
             SharingTab(patterns: patterns, learning: learning)
                 .tabItem { Label { L10n.text("Sharing") } icon: { Image(systemName: "square.and.arrow.up.on.square") } }
+            ScrollView { TutorialGallery().padding(24) }
+                .tabItem { Label { L10n.text("Tutorials") } icon: { Image(systemName: "play.rectangle") } }
             HistoryTab()
                 .tabItem { Label { L10n.text("History") } icon: { Image(systemName: "clock.arrow.circlepath") } }
         }
