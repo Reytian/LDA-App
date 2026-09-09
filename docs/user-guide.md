@@ -183,7 +183,7 @@ but the completed document contains actual client details.
 ## Optional: connect LDA to an AI app
 
 **Requires a setup-enabled build with Settings > MCP Setup, the bundled helper,
-and the LDA workflow skill.** LDA 1.2 includes these controls. The September 4 version 1.1 release predates these
+and the LDA workflow skill.** LDA 1.0 includes these controls. The September 4 version 1.1 release predates these
 setup controls. If they are absent, use the manual export-and-restore steps above;
 this guide does not add the integration to an older app.
 

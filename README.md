@@ -92,7 +92,7 @@ Older app releases may not include these controls.
 
 Open the [setup guide and both videos](docs/setup.md), or download the
 [offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/LDA-Tutorials.zip).
-LDA 1.2 includes offline playback in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
+LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
 
 ## Install the macOS app
 
@@ -106,7 +106,7 @@ You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory
 4. Wait for the model download and verification to finish, or use **Add Model
    File** to import a compatible model you already have.
 
-The app and detection model are separate downloads. LDA 1.2 includes both video
+The app and detection model are separate downloads. LDA 1.0 includes both video
 walkthroughs; the Quick model is a separate download of approximately 2.74 GB.
 Later packages may differ in size. No cloud API key is required for the Mac app.
 
@@ -424,7 +424,7 @@ This is a proof-of-concept. Current limitations include:
 
 Read the [Terms of Service](macos/LDACore/Sources/LDAUI/Resources/TermsOfService.md)
 and [Privacy Policy](macos/LDACore/Sources/LDAUI/Resources/PrivacyPolicy.md).
-LDA 1.2 asks you to accept both before using the Mac app, and keep them
+LDA 1.0 asks you to accept both before using the Mac app, and keep them
 available offline in **Settings > Legal**. Acceptance is recorded only on your
 Mac. These notices preserve your GPLv3 software rights.
 

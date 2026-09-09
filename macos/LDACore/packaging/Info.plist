@@ -9,9 +9,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.haotianyi.LDA</string>
 	<key>CFBundleVersion</key>
-	<string>20260909</string>
+	<string>20260909.1</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2.0</string>
+	<string>1.0</string>
 	<key>CFBundleExecutable</key>
 	<string>LDAApp</string>
 	<key>CFBundleIconFile</key>
