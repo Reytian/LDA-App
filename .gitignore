@@ -29,3 +29,9 @@ macos/LDACore/.build/
 macos/LDACore/Models/
 .lda-wf-*.js
 macos/LDACore/dist/
+
+# Local development notes and agent memory
+/project-notes/
+/.workbuddy-ai/
+/docs/project-memory.md
+/docs/project-memory-generator.py
