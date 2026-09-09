@@ -1,5 +1,7 @@
 # Legal Document Anonymizer
 
+**By Forme Locale Studio**
+
 ## Native macOS app
 
 LDA is an offline legal privacy workspace for macOS. The native app in
@@ -222,4 +224,12 @@ This is a proof-of-concept. Current limitations include:
 
 ## License
 
-MIT
+Copyright (c) 2026 Haotian Yi. Created by **Forme Locale Studio**.
+
+LDA is free software licensed under the **GNU General Public License, version 3
+only** (`GPL-3.0-only`). You may use, modify, and redistribute it under the terms
+of the [full license](LICENSE). It is provided without any warranty, including
+any implied warranty of merchantability or fitness for a particular purpose.
+
+Third-party libraries and detection models retain their own licenses. Versions
+previously released under the MIT License remain available under that license.

@@ -22,7 +22,7 @@
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>Legal Document Anonymizer. Documents stay on this Mac.</string>
+  <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Haotian Yi (Forme Locale Studio).</string>
 
   <!-- The encrypted files LDA writes. The portable workspace (.ldawork)
        holds a matter's documents, review decisions, and replacements; the

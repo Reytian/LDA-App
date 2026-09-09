@@ -127,6 +127,9 @@ echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$PKG/packaging/Info.plist" "$APP/Contents/Info.plist"
+# The standard macOS About panel loads Credits.html from the app resources.
+cp "$PKG/packaging/Credits.html" "$APP/Contents/Resources/Credits.html"
+cp "$PKG/../../LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 cp "$BIN" "$APP/Contents/MacOS/LDAApp"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [ -f "$PKG/packaging/AppIcon.icns" ]; then
