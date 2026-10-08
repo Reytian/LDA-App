@@ -282,6 +282,8 @@ mkdir -p "$V4_DEST/tokenizer"
 cp "$LDA_V4_DIR/runtime.json" "$V4_DEST/runtime.json"
 cp "$LDA_V4_DIR/tokenizer/vocab.json" "$LDA_V4_DIR/tokenizer/charsmap.bin" \
   "$LDA_V4_DIR/tokenizer/tables.json" "$V4_DEST/tokenizer/"
+# The model is privately owned, not GPL: its license travels with it.
+cp "$PKG/../../LICENSE-LDA-V4.md" "$V4_DEST/LICENSE.md"
 xcrun coremlcompiler compile "$LDA_V4_DIR/LDA-V4.mlpackage" "$V4_DEST" >/dev/null
 if [ ! -d "$V4_DEST/LDA-V4.mlmodelc" ]; then
   echo "!! Compiling LDA-V4.mlpackage produced no LDA-V4.mlmodelc."

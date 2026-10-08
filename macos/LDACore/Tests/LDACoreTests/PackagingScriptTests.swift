@@ -61,7 +61,7 @@ final class PackagingScriptTests: XCTestCase {
 
         XCTAssertEqual(result.status, 0, result.output)
         let folder = fixture.distURL.appendingPathComponent("LDA.app/Contents/Resources/LDA-V4")
-        for item in ["LDA-V4.mlmodelc", "runtime.json", "tokenizer/vocab.json", "tokenizer/charsmap.bin", "tokenizer/tables.json"] {
+        for item in ["LDA-V4.mlmodelc", "runtime.json", "tokenizer/vocab.json", "tokenizer/charsmap.bin", "tokenizer/tables.json", "LICENSE.md"] {
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: folder.appendingPathComponent(item).path),
                 "missing \(item): \(result.output)"

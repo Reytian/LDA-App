@@ -263,6 +263,13 @@ The [LICENSE](LICENSE) contains the governing terms. Copies previously released
 under MIT retain their applicable MIT permissions; libraries and models keep
 their own licenses. Check the license supplied with your particular release.
 
+**Is the LDA V4 model under the GPL too?**
+
+No. LDA V4, the detection model that comes with the app, is privately owned
+(Copyright (c) 2026 Haotian Yi) and is not part of LDA's source code. It is free
+to use within LDA, and copies of LDA that include it may be shared as a whole;
+any other use needs written permission. See [LICENSE-LDA-V4.md](LICENSE-LDA-V4.md).
+
 **Can I use it for paid client work or in a large firm?**
 
 Yes. The GPL permits commercial use and does not impose a firm-size limit or an
@@ -450,5 +457,7 @@ only** (`GPL-3.0-only`). You may use, modify, and redistribute it under the term
 of the [full license](LICENSE). It is provided without any warranty, including
 any implied warranty of merchantability or fitness for a particular purpose.
 
-Third-party libraries and detection models retain their own licenses. Versions
-previously released under the MIT License remain available under that license.
+Third-party libraries and detection models retain their own licenses. The LDA V4
+detection model that comes with the app is privately owned and free to use within
+LDA; see [LICENSE-LDA-V4.md](LICENSE-LDA-V4.md). Versions previously released
+under the MIT License remain available under that license.

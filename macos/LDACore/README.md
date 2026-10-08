@@ -66,6 +66,10 @@ values (emails, phones, dates, amounts, ID and case numbers).
   deliberate Patterns only are left alone. Fill from Profile needs a
   generative model, so with LDA V4 selected it uses a downloaded tier, or asks
   for one; Quick stays in Manage Models as an optional download for it.
+- **License.** LDA V4 is privately owned (Copyright (c) 2026 Haotian Yi) and is
+  not covered by LDA's GPL: it is free to use within LDA, and every other use
+  needs written permission. See `LICENSE-LDA-V4.md` at the repository root;
+  `package-app.sh` copies it into the model folder as `LICENSE.md`.
 - **CLI and MCP.** Pass the folder as the model:
   `lda detect --input FILE --model /Applications/LDA.app/Contents/Resources/LDA-V4`.
   The MCP setup in the app exports it as `LDA_MODEL_PATH` when LDA V4 is
