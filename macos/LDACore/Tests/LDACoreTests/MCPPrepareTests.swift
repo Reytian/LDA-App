@@ -45,6 +45,9 @@ final class MCPPrepareTests: XCTestCase {
             XCTAssertFalse(response.1.contains(privateValue))
         }
         let documents = try XCTUnwrap(response.2["documents"] as? [[String: Any]])
+        XCTAssertEqual(documents.first?["sourceFormat"] as? String, "txt")
+        XCTAssertEqual(documents.first?["format"] as? String, "txt")
+        XCTAssertEqual(documents.first?["kind"] as? String, "redacted")
         let handle = try XCTUnwrap(documents.first?["redactedHandle"] as? String)
         let read = try server.callReadRedacted(["handle": handle])
         let safe = try XCTUnwrap(read["text"] as? String)

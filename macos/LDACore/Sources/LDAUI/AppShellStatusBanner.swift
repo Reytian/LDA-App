@@ -270,6 +270,14 @@ struct AppShellStatusBanner: View {
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
+            if let note = model.precedentNote {
+                L10n.text("\u{00B7}  %@", note as NSString)
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .lineLimit(1)
+                    .help(note)
+            }
+
             if model.canChooseSealCandidates {
                 sealCandidateToggle
             }

@@ -73,6 +73,9 @@ public enum AISettings {
     /// Set once migration from `detectionModeKey` has run.
     public static let migratedKey = "com.haotianyi.LDA.detectionLevelMigrated"
 
+    /// UserDefaults key recording that the one-time move to LDA V4 ran.
+    public static let ldaV4MigratedKey = "com.haotianyi.LDA.ldaV4Migrated"
+
     /// Set once the one-time offer to leave the retired lda-v2 fine tune has
     /// been answered, either way, so it never appears twice.
     public static let ldaV2NoticeDismissedKey = "com.haotianyi.LDA.ldaV2NoticeDismissed"
@@ -238,24 +241,76 @@ public enum AISettings {
 
     /// The selected rung, after migrating a legacy `detectionMode` when needed.
     ///
-    /// The default is `.quick` even on an install that has no model file, and
-    /// that is deliberate. Defaulting to `.patternsOnly` instead would set
-    /// `usesLLM == false`, which makes `ReviewModel.llmSpans` report
-    /// `attempted: false` with no failure, and that state is reserved for "the
-    /// user did not ask for an AI pass". Auto-demoting would convert a reported
-    /// failure into a silent one, which in a redaction tool is the worst
-    /// outcome available. So the default is a rung that cannot run until a
-    /// model is added, and `isModelMissing()` stays true so the app says so.
+    /// The default is LDA V4 wherever the build carries it, which every
+    /// packaged build does: detection then works from the first launch with
+    /// no download.
+    ///
+    /// Without it (an unpackaged development run) the default is `.quick`
+    /// even on an install that has no model file, and that is deliberate.
+    /// Defaulting to `.patternsOnly` instead would set `usesLLM == false`,
+    /// which makes `ReviewModel.llmSpans` report `attempted: false` with no
+    /// failure, and that state is reserved for "the user did not ask for an AI
+    /// pass". Auto-demoting would convert a reported failure into a silent
+    /// one, which in a redaction tool is the worst outcome available. So the
+    /// default is a rung that cannot run until a model is added, and
+    /// `isModelMissing()` stays true so the app says so.
     public static func detectionLevel(
         defaults: UserDefaults = .standard,
-        catalog: ModelCatalog = .load()
+        catalog: ModelCatalog = .load(),
+        builtIn: String? = ModelCatalog.ldaV4Path(),
+        fileManager: FileManager = .default
     ) -> DetectionLevel {
         migrateIfNeeded(defaults: defaults, catalog: catalog)
+        migrateToLDAV4IfNeeded(
+            defaults: defaults, catalog: catalog, builtIn: builtIn, fileManager: fileManager
+        )
         guard let raw = defaults.string(forKey: detectionLevelKey),
               let level = DetectionLevel(rawValue: raw) else {
-            return .quick
+            return defaultLevel(builtIn: builtIn)
         }
+        // Quick is not a detection level where LDA V4 ships (see
+        // DetectionLevel.detectionRungs); a Quick written by any path reads
+        // as LDA V4, which is faster and comes with the app.
+        if level == .quick, builtIn != nil { return .ldaV4 }
         return level
+    }
+
+    /// The rung a Mac with no stored choice runs: LDA V4 when the build
+    /// carries it, otherwise Quick (see detectionLevel).
+    public static func defaultLevel(
+        builtIn: String? = ModelCatalog.ldaV4Path()
+    ) -> DetectionLevel {
+        builtIn != nil ? .ldaV4 : .quick
+    }
+
+    /// One-time move to LDA V4.
+    ///
+    /// Quick is no longer a detection level where LDA V4 ships, so an install
+    /// on Quick moves to LDA V4; a downloaded Quick file stays for Fill from
+    /// Profile. Earlier builds shipped no model, so a user who picked a larger
+    /// level and never finished its download sat on a rung with no file and a
+    /// standing "model missing" warning; that user moves to LDA V4 as well. A
+    /// larger level whose file is present, a custom model, and a deliberate
+    /// Patterns only are left alone. The move is recorded only when LDA V4 is
+    /// present, so a development run without it does not use it up.
+    public static func migrateToLDAV4IfNeeded(
+        defaults: UserDefaults = .standard,
+        catalog: ModelCatalog = .load(),
+        builtIn: String? = ModelCatalog.ldaV4Path(),
+        fileManager: FileManager = .default
+    ) {
+        guard builtIn != nil, !defaults.bool(forKey: ldaV4MigratedKey) else { return }
+        defer { defaults.set(true, forKey: ldaV4MigratedKey) }
+        guard customModelPath(defaults: defaults) == nil,
+              let raw = defaults.string(forKey: detectionLevelKey),
+              let level = DetectionLevel(rawValue: raw),
+              DetectionLevel.modelLevels.contains(level) else { return }
+        if level != .quick,
+           let tier = catalog.tier(for: level),
+           ModelCatalog.isInstalled(tier, fileManager: fileManager) || ModelCatalog.isBundled(tier) {
+            return
+        }
+        defaults.set(DetectionLevel.ldaV4.rawValue, forKey: detectionLevelKey)
     }
 
     /// One-time migration from the two-value `detectionMode` to the ladder.
@@ -399,9 +454,15 @@ public enum AISettings {
         catalog: ModelCatalog = .load(),
         installedGB: Double = MemoryGate.installedGB(),
         fileManager: FileManager = .default,
-        notAbove: DetectionLevel? = nil
+        notAbove: DetectionLevel? = nil,
+        builtIn: String? = ModelCatalog.ldaV4Path()
     ) -> DetectionLevel {
-        let order: [DetectionLevel] = [.mostThorough, .balanced, .quick]
+        // Quick is not a detection level where LDA V4 ships; LDA V4 is the floor.
+        let order: [DetectionLevel] = builtIn != nil
+            ? [.mostThorough, .balanced]
+            : [.mostThorough, .balanced, .quick]
+        // Quick sits below the larger tiers and above nothing but the floor.
+        if builtIn != nil, notAbove == .quick { return .ldaV4 }
         // Fail CLOSED when the bound is not a model rung. notAbove: .patternsOnly
         // means "nothing above patterns only", which is patterns only. Treating
         // an unknown bound as no bound at all would silently PROMOTE the user,
@@ -418,6 +479,9 @@ public enum AISettings {
             else { continue }
             return level
         }
+        // No downloaded tier fits. LDA V4 comes with the app and runs on every
+        // supported Mac, so it is the floor whenever the build carries it.
+        if builtIn != nil, notAbove != .ldaV4 { return .ldaV4 }
         // Nothing runnable. Patterns only is the honest destination, and the
         // caller must say so rather than leaving a rung selected that cannot run.
         return .patternsOnly
@@ -448,12 +512,19 @@ public enum AISettings {
     public static func resolveModelPath(
         defaults: UserDefaults = .standard,
         catalog: ModelCatalog = .load(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        builtIn: String? = ModelCatalog.ldaV4Path()
     ) -> String? {
-        let level = detectionLevel(defaults: defaults, catalog: catalog)
+        let level = detectionLevel(
+            defaults: defaults, catalog: catalog, builtIn: builtIn, fileManager: fileManager
+        )
         guard level.usesLLM else { return nil }
 
         if let custom = customModelPath(defaults: defaults) { return custom }
+
+        // LDA V4 resolves to its folder inside the app, or to nil in a build
+        // without it, which the caller reports like any other missing model.
+        if level == .ldaV4 { return builtIn }
 
         guard let tier = catalog.tier(for: level) else { return nil }
 
@@ -471,12 +542,15 @@ public enum AISettings {
     public static func isModelMissing(
         defaults: UserDefaults = .standard,
         catalog: ModelCatalog = .load(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        builtIn: String? = ModelCatalog.ldaV4Path()
     ) -> Bool {
-        let level = detectionLevel(defaults: defaults, catalog: catalog)
+        let level = detectionLevel(
+            defaults: defaults, catalog: catalog, builtIn: builtIn, fileManager: fileManager
+        )
         guard level.usesLLM else { return false }
         return resolveModelPath(
-            defaults: defaults, catalog: catalog, fileManager: fileManager
+            defaults: defaults, catalog: catalog, fileManager: fileManager, builtIn: builtIn
         ) == nil
     }
 
@@ -492,8 +566,11 @@ public enum AISettings {
     public static func hasAnyModelAvailable(
         catalog: ModelCatalog = .load(),
         fileManager: FileManager = .default,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        builtIn: String? = ModelCatalog.ldaV4Path()
     ) -> Bool {
+        // LDA V4 comes with the app, so a packaged build always has a model.
+        if builtIn != nil { return true }
         if customModelPath(defaults: defaults) != nil { return true }
         return catalog.tiers.contains {
             ModelCatalog.isInstalled($0, fileManager: fileManager)
@@ -592,7 +669,37 @@ public enum AISettings {
         to model: FillModel,
         defaults: UserDefaults = .standard
     ) {
-        model.modelPath = resolveModelPath(defaults: defaults)
+        model.modelPath = resolveFillModelPath(defaults: defaults)
+    }
+
+    /// The model the Fill flow runs. Fill writes text into a draft, which
+    /// needs a generative GGUF model; LDA V4 only finds entities. So with LDA
+    /// V4 selected, Fill uses the most capable downloaded tier on this Mac, or
+    /// nil (Fill then asks for a model) when none is installed. Every other
+    /// rung resolves exactly as detection does.
+    public static func resolveFillModelPath(
+        defaults: UserDefaults = .standard,
+        catalog: ModelCatalog = .load(),
+        fileManager: FileManager = .default,
+        builtIn: String? = ModelCatalog.ldaV4Path()
+    ) -> String? {
+        let level = detectionLevel(
+            defaults: defaults, catalog: catalog, builtIn: builtIn, fileManager: fileManager
+        )
+        guard level == .ldaV4, customModelPath(defaults: defaults) == nil else {
+            return resolveModelPath(
+                defaults: defaults, catalog: catalog, fileManager: fileManager, builtIn: builtIn
+            )
+        }
+        for candidate in [DetectionLevel.mostThorough, .balanced, .quick] {
+            guard let tier = catalog.tier(for: candidate) else { continue }
+            if ModelCatalog.isInstalled(tier, fileManager: fileManager),
+               let url = ModelCatalog.installedURL(for: tier, fileManager: fileManager) {
+                return url.path
+            }
+            if let bundled = ModelCatalog.bundledPath(for: tier) { return bundled }
+        }
+        return nil
     }
 
     /// Apply the current settings to one document model.

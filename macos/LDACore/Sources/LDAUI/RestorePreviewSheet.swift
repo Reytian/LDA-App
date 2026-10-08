@@ -48,6 +48,23 @@ struct PendingRestore: Identifiable {
     /// RestoreSourceGuard.swift.
     let previewedSource: SourceFingerprint
 
+    /// Only the session mapping proves association with the selected Matter.
+    /// External mappings retain no inferred Matter, and approval uses this snapshot.
+    let exportWorkspaceID: UUID?
+    let exportMatterLabel: String?
+
+    init(file: URL, mapping: Mapping, keySource: RestoreResultPresentation.KeySource,
+         preview: RestorePreview, previewedSource: SourceFingerprint,
+         sessionWorkspaceID: UUID?, sessionMatterLabel: String?) {
+        self.file = file
+        self.mapping = mapping
+        self.keySource = keySource
+        self.preview = preview
+        self.previewedSource = previewedSource
+        exportWorkspaceID = keySource == .session ? sessionWorkspaceID : nil
+        exportMatterLabel = keySource == .session ? sessionMatterLabel : nil
+    }
+
     /// The edit surface's extension, which decides the offered formats.
     var inputExtension: String { file.pathExtension.lowercased() }
 }

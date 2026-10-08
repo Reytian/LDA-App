@@ -26,19 +26,27 @@
 //
 
 import Foundation
+import LDACore
 import SwiftUI
 
 // MARK: - DetectionLevel
 
 /// How hard the app looks for PERSON, COMPANY, and ADDRESS, which are the types
-/// no regex layer covers. One ladder, four rungs, lowest first.
+/// no regex layer covers. One ladder, lowest first.
 ///
 /// This replaces `DetectionMode` as the user-facing setting. The old two-value
 /// mode is still derived from this (see `usesLLM`) so nothing downstream of
 /// `ReviewModel.useLLM` has to change.
+///
+/// `.ldaV4` is the tagger every packaged build carries (LDAV4Extractor). It is
+/// not a Models.json tier: it is never downloaded, imported or removed, so it
+/// has no `tierID` and is not in `modelLevels`, which lists the downloadable
+/// tiers. It is the default rung wherever the build carries it.
 public enum DetectionLevel: String, CaseIterable, Sendable {
     /// Patterns only. No model runs at all.
     case patternsOnly
+    /// LDA V4, the token tagger that comes with the app (Core ML, about 120 MB).
+    case ldaV4
     /// Qwen3.5-4B. The smallest download.
     case quick
     /// gemma-4-12b-it. User installed.
@@ -51,6 +59,7 @@ public enum DetectionLevel: String, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .patternsOnly: return "Patterns only"
+        case .ldaV4: return LDAV4Extractor.displayName
         case .quick: return "Quick"
         case .balanced: return "Balanced"
         case .mostThorough: return "Most thorough"
@@ -64,15 +73,31 @@ public enum DetectionLevel: String, CaseIterable, Sendable {
     /// The manifest tier id backing this rung, or nil when no model runs.
     public var tierID: String? {
         switch self {
-        case .patternsOnly: return nil
+        case .patternsOnly, .ldaV4: return nil
         case .quick: return "quick"
         case .balanced: return "balanced"
         case .mostThorough: return "most-thorough"
         }
     }
 
-    /// The rungs that run a model, in ladder order.
+    /// The downloadable rungs (Models.json tiers), in ladder order. LDA V4
+    /// runs a model too but is not listed: it comes with the app.
     public static var modelLevels: [DetectionLevel] { [.quick, .balanced, .mostThorough] }
+
+    /// The detection levels Settings offers, lowest first.
+    ///
+    /// Where the build carries LDA V4, Quick is not a detection level: LDA V4
+    /// is faster, needs no download and finds more on the blind set. Quick
+    /// stays an optional download because Fill from Profile needs a model that
+    /// writes, and Quick is the one that fits a 16 GB Mac. A build without LDA
+    /// V4 (an unpackaged development run) keeps the earlier ladder.
+    public static func detectionRungs(
+        builtIn: String? = ModelCatalog.ldaV4Path()
+    ) -> [DetectionLevel] {
+        builtIn != nil
+            ? [.patternsOnly, .ldaV4, .balanced, .mostThorough]
+            : [.patternsOnly, .quick, .balanced, .mostThorough]
+    }
 }
 
 // MARK: - ModelTier
@@ -317,6 +342,55 @@ public struct ModelCatalog: Sendable {
     public static func isBundled(_ tier: ModelTier) -> Bool {
         bundledPath(for: tier) != nil
     }
+
+    /// The LDA V4 model folder inside the app, or nil when this build does not
+    /// carry it. Every packaged build carries it (package-app.sh refuses to
+    /// build without it); an unpackaged development run does not.
+    ///
+    /// The app finds it in its Resources directory. The command-line helpers
+    /// live in Contents/Helpers, so they look one level up as well.
+    public static func ldaV4Path() -> String? { bundledLDAV4 }
+
+    /// Bytes of the LDA V4 folder inside the app (the compiled model and its
+    /// tokenizer), or nil when this build does not carry it.
+    public static func ldaV4SizeBytes() -> Int64? { bundledLDAV4Size }
+
+    /// "128 MB": the size shown beside LDA V4, in the decimal units the
+    /// download sizes use.
+    public static func ldaV4SizeDescription() -> String? {
+        ldaV4SizeBytes().map { String(format: "%.0f MB", Double($0) / 1_000_000) }
+    }
+
+    private static let bundledLDAV4Size: Int64? = {
+        guard let path = bundledLDAV4,
+              let walker = FileManager.default.enumerator(
+                  at: URL(fileURLWithPath: path, isDirectory: true),
+                  includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+              ) else { return nil }
+        var total: Int64 = 0
+        for case let url as URL in walker {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            if values?.isRegularFile == true { total += Int64(values?.fileSize ?? 0) }
+        }
+        return total
+    }()
+
+    private static let bundledLDAV4: String? = {
+        var candidates: [URL] = []
+        if let resources = Bundle.main.resourceURL {
+            candidates.append(resources.appendingPathComponent(LDAV4Extractor.bundleFolderName))
+        }
+        if let executable = Bundle.main.executableURL {
+            candidates.append(
+                executable
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources")
+                    .appendingPathComponent(LDAV4Extractor.bundleFolderName)
+            )
+        }
+        return candidates.map { $0.path }.first { LDAV4Extractor.isModelDirectory($0) }
+    }()
 
     /// A downloaded copy of a tier that ALSO ships inside the app.
     ///

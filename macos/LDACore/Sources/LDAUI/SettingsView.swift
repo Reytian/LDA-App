@@ -208,7 +208,7 @@ private struct AITab: View {
     /// disk reclaimed that llama.cpp still has mmapped.
     let isScanning: Bool
 
-    @AppStorage(AISettings.detectionLevelKey) private var levelRaw = DetectionLevel.quick.rawValue
+    @AppStorage(AISettings.detectionLevelKey) private var levelRaw = AISettings.defaultLevel().rawValue
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
 
     @State private var showLdaV2Notice = false
@@ -218,7 +218,7 @@ private struct AITab: View {
     private let installedGB = MemoryGate.installedGB()
 
     private var level: DetectionLevel {
-        DetectionLevel(rawValue: levelRaw) ?? .quick
+        DetectionLevel(rawValue: levelRaw) ?? AISettings.defaultLevel()
     }
 
     /// Run the legacy migration before the panel reads the stored level.
@@ -253,7 +253,7 @@ private struct AITab: View {
                 if showLdaV2Notice { ldaV2Notice }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(DetectionLevel.allCases, id: \.rawValue) { rung in
+                    ForEach(DetectionLevel.detectionRungs(), id: \.rawValue) { rung in
                         rungRow(rung)
                     }
                 }
@@ -343,6 +343,9 @@ private struct AITab: View {
         // closed rather than present a healthy-looking, unrunnable option.
         let selectable: Bool = {
             if rung == .patternsOnly { return true }
+            // LDA V4 comes with the app and has no tier: selectable exactly
+            // when this build carries it.
+            if rung == .ldaV4 { return ModelCatalog.ldaV4Path() != nil }
             guard let availability else { return false }
             return availability.isSelectable && installed
         }()
@@ -365,7 +368,16 @@ private struct AITab: View {
                         L10n.text(rung.displayName)
                             .font(.body.weight(.medium))
                             .foregroundStyle(selectable ? CounselTheme.textPrimary : CounselTheme.textSecondary)
-                        if tier != nil, installed {
+                        if rung == .ldaV4, selectable {
+                            if let size = ModelCatalog.ldaV4SizeDescription() {
+                                verbatimBadge(
+                                    String(format: L10n.string("Included · %@"), size as NSString),
+                                    tone: CounselTheme.textSecondary
+                                )
+                            } else {
+                                badge("Included", tone: CounselTheme.textSecondary)
+                            }
+                        } else if tier != nil, installed {
                             badge("Installed", tone: CounselTheme.textSecondary)
                         } else if let tier {
                             verbatimBadge(
@@ -418,20 +430,41 @@ private struct AITab: View {
             L10n.text("Your chosen model leaves some names in the document")
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
-            L10n.text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.")
-                .font(CounselTheme.Typography.supporting)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // Where LDA V4 ships, Quick is not a detection level, so the
+            // offer is LDA V4 (see DetectionLevel.detectionRungs).
+            if ModelCatalog.ldaV4Path() != nil {
+                L10n.text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster.")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                L10n.text("It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 10) {
-                L10n.button("Switch to Quick") {
-                    AISettings.setCustomModel(url: nil)
-                    customModelPath = ""
-                    AISettings.setDetectionLevel(.quick)
-                    levelRaw = DetectionLevel.quick.rawValue
-                    AISettings.dismissLdaV2Notice()
-                    showLdaV2Notice = false
+                if ModelCatalog.ldaV4Path() != nil {
+                    L10n.button("Switch to LDA V4") {
+                        AISettings.setCustomModel(url: nil)
+                        customModelPath = ""
+                        AISettings.setDetectionLevel(.ldaV4)
+                        levelRaw = DetectionLevel.ldaV4.rawValue
+                        AISettings.dismissLdaV2Notice()
+                        showLdaV2Notice = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    L10n.button("Switch to Quick") {
+                        AISettings.setCustomModel(url: nil)
+                        customModelPath = ""
+                        AISettings.setDetectionLevel(.quick)
+                        levelRaw = DetectionLevel.quick.rawValue
+                        AISettings.dismissLdaV2Notice()
+                        showLdaV2Notice = false
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.borderedProminent)
                 L10n.button("Keep using my model") {
                     AISettings.dismissLdaV2Notice()
                     showLdaV2Notice = false

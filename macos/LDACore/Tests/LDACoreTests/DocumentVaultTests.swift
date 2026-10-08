@@ -144,6 +144,23 @@ final class DocumentVaultTests: XCTestCase {
         }
     }
 
+    func testStagingRejectsNonFileURLWithAnExistingLocalPath() throws {
+        let localFile = try writeFixture(named: "local-only.txt")
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "127.0.0.1"
+        components.port = 9
+        components.path = localFile.path
+        let remoteURL = try XCTUnwrap(components.url)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: remoteURL.path))
+
+        XCTAssertThrowsError(try vault.stage(fileURL: remoteURL, stagedAtISO8601: "2026-09-14T00:00:00Z")) {
+            XCTAssertEqual($0 as? DocumentVaultError, .sourceUnreadable)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vaultRoot.path), "Refusal must happen before vault allocation")
+    }
+
     func testAnUnknownExtensionIsNormalizedToTxt() throws {
         // An exotic extension could itself carry matter information, and the
         // importer treats unknown extensions as text anyway.

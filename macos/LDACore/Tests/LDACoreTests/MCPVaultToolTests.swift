@@ -409,7 +409,13 @@ final class MCPVaultToolTests: XCTestCase {
 
         let exported = try callSummary(tool: "export", arguments: ["handle": redactedHandle])
         XCTAssertEqual(exported["ok"] as? Bool, true)
-        XCTAssertEqual(exported.count, 1, "the export response carries ok and nothing else")
+        XCTAssertEqual(exported["status"] as? String, "completed")
+        XCTAssertEqual(exported["format"] as? String, "txt")
+        XCTAssertEqual(exported["kind"] as? String, "redacted")
+        XCTAssertNotNil(exported["exportID"])
+        let wire = String(decoding: try JSONSerialization.data(withJSONObject: exported), as: UTF8.self)
+        XCTAssertFalse(wire.contains("client-matter"))
+        XCTAssertFalse(wire.contains(vaultDir.path))
 
         let outbox = VaultTestSupport.vault(root: vaultDir).outboxDirectory
         let names = try FileManager.default.contentsOfDirectory(atPath: outbox.path)

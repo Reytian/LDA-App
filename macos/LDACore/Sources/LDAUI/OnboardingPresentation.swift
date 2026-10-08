@@ -118,6 +118,11 @@ enum OnboardingPresentation {
                 "No model runs. The names of people and organisations are not detected.",
                 language: language
             )
+        case .ldaV4:
+            return L10n.string(
+                "Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds.",
+                language: language
+            )
         case .quick:
             return L10n.string(
                 "Runs on every Mac LDA supports. About one flag in five is one you will dismiss.",

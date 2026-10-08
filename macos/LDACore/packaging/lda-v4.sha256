@@ -1,0 +1,7 @@
+d6d41d8ec52f82e12e9698bf4f7086724b00a2628e4f570603cecf8ce93a2f7d  ./LDA-V4.mlpackage/Data/com.apple.CoreML/model.mlmodel
+324a029d3061574c2c6d8dbd351bbc3c310f3d95f2ac75db4352c60679be267e  ./LDA-V4.mlpackage/Data/com.apple.CoreML/weights/weight.bin
+241c08060c02db653440381f51bb6c45ca2fc6e7278daa6d73899745c0d38684  ./LDA-V4.mlpackage/Manifest.json
+09cb99da44015dd2dfebc2584aad965cd592eab97ad4ddc059dfdc6afea38bda  ./runtime.json
+0942789e0111452f1cc446f70036e26d24458c3c7858c53cc12ca4d87531279b  ./tokenizer/charsmap.bin
+8c1c892f4876d83596879a65a0e3899946c5bb74ddc35d0d04e7ef67880eb46e  ./tokenizer/tables.json
+ee7da15447247e257338f30d681b75ac76fe5d78a78c62e257d849d37ebafe59  ./tokenizer/vocab.json

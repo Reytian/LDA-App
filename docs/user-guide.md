@@ -14,10 +14,10 @@ memory**. In the Apple menu, choose **About This Mac** to check your chip, memor
 and macOS version.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest).
-2. Under **Assets**, download **LDA-notarized.zip**. The automatically generated
+2. Under **Assets**, download **LDA-1.3.dmg**. The automatically generated
    **Source code** archives are for developers, not the ready-to-run app.
-3. Double-click the ZIP in Finder to extract it.
-4. Drag **LDA.app** to **Applications** and open it from there.
+3. Double-click the disk image in Finder to open it.
+4. Drag **LDA.app** onto **Applications** and open it from there.
 
 The official release is Developer ID signed and notarized. macOS may still ask
 you to confirm opening an app downloaded from the internet. If it instead reports
@@ -27,30 +27,36 @@ instructions rather than disabling macOS security controls.
 ### Verify the download (optional)
 
 Download **SHA256SUMS.txt** from the same release into the folder containing the
-original ZIP. If that folder is Downloads, open Terminal and run:
+original disk image. If that folder is Downloads, open Terminal and run:
 
 ```bash
 cd ~/Downloads
 shasum -a 256 -c SHA256SUMS.txt
 ```
 
-The line for **LDA-notarized.zip** should say **OK**. Use the unchanged filenames
+The line for **LDA-1.3.dmg** should say **OK**. Use the unchanged filenames
 and the checksum file for that exact release. A mismatch means you should
 download the files again before opening the app.
 
-## 2. Choose a language and install a model
+## 2. Choose a language
 
 1. Review and accept the Terms of Service and Privacy Policy, then choose your language in the first-run wizard. Both documents remain available in **Settings > Legal**.
-2. Choose an available detection model. **Quick** is the starting option for a
-   Mac with 16 GB of memory; larger choices require more memory and disk space.
-3. Start the download and wait for verification and installation to complete.
-   Quick is approximately **2.74 GB**, separate from the much smaller app archive.
-4. If you already have a compatible model, use **Add Model File** instead.
-5. Finish setup. You can change models later in **Settings > AI > Manage Models**.
+2. Finish setup. LDA comes with **LDA V4**, its detection model, which finds
+   people's names, company names and addresses from the first scan. There is
+   nothing to download.
 
-For a Mac kept offline, download the model on another machine and carry it over.
-The [offline model instructions](../macos/LDACore/README.md#installing-a-detection-model)
-explain how to join the split download and verify it before import.
+**Larger models are optional.** In **Settings > AI > Manage Models** you can
+download **Balanced** or **Most thorough** and pick it as the detection level
+in **Settings > AI**. **Fill from Profile** needs a model that writes text: it
+uses one of those, or **Quick**, an optional download kept for Fill that fits a
+16 GB Mac. For a Mac kept offline, the
+[offline model instructions](../macos/LDACore/README.md#installing-a-larger-detection-model)
+explain how to carry a model over and verify it before import.
+
+**Published precedents.** When a document is itself a published precedent (a
+guiding case, or a published US opinion), LDA leaves the parties named in its
+caption in clear and lists them unticked in the review list. Tick a name to
+redact it after all. Witnesses, judges and counsel stay redacted.
 
 **Check model readiness before scanning.** Patterns only detects structured
 items such as emails, phones, dates, amounts, IDs, and case numbers. It does not

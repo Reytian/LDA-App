@@ -64,13 +64,14 @@ extension LDACLI {
         inputs: [URL],
         vaultRoot: URL,
         timestamp: TimestampProvider = defaultTimestampProvider,
-        protection: MappingProtection = DocumentVault.defaultProtection()
+        protection: MappingProtection = DocumentVault.defaultProtection(),
+        progress: (VaultStagingPhase) throws -> Void = { _ in }
     ) throws -> [VaultEntryJSON] {
         defer { ZipImporter.cleanUpAllExpansions() }
         let resolved = try resolveSessionInputs(inputs)
         let vault = DocumentVault(rootDirectory: vaultRoot, protection: protection)
         return try resolved.map { url in
-            VaultEntryJSON(entry: try vault.stage(fileURL: url, stagedAtISO8601: timestamp()))
+            VaultEntryJSON(entry: try vault.stage(fileURL: url, stagedAtISO8601: timestamp(), progress: progress))
         }
     }
 
@@ -120,8 +121,12 @@ struct VaultStage: ParsableCommand {
                 ?? DocumentVault.rootDirectory()
             let entries = try LDACLI.runVaultStage(
                 inputs: [URL(fileURLWithPath: path)],
-                vaultRoot: root
+                vaultRoot: root,
+                progress: { phase in
+                    FileHandle.standardError.write(Data((phase.message + "\n").utf8))
+                }
             )
+            FileHandle.standardError.write(Data("Staging completed.\n".utf8))
             print(try CLIJSON.encode(entries))
         } catch {
             throw CLIRuntimeError(error)

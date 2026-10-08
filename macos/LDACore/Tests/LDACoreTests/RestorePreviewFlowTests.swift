@@ -129,6 +129,34 @@ final class RestorePreviewFlowTests: XCTestCase {
         )
     }
 
+    func testExternalRestoreMappingsDoNotAssignTheSelectedMatterToHistory() throws {
+        let fixture = try fixture()
+        let unrelatedMatterID = UUID()
+        for source in [RestoreResultPresentation.KeySource.sidecar, .chosenMapping, .defaultWorkspace] {
+            let request = PendingRestore(
+                file: fixture.edited, mapping: fixture.mapping, keySource: source,
+                preview: fixture.preview, previewedSource: fixture.previewedSource,
+                sessionWorkspaceID: unrelatedMatterID, sessionMatterLabel: "Unrelated Matter"
+            )
+
+            XCTAssertNil(request.exportWorkspaceID, "An external mapping does not prove ownership by the active Matter")
+            XCTAssertNil(request.exportMatterLabel)
+        }
+    }
+
+    func testSessionRestoreRetainsTheMatterCapturedWithItsMapping() throws {
+        let fixture = try fixture()
+        let sourceMatterID = UUID()
+        let request = PendingRestore(
+            file: fixture.edited, mapping: fixture.mapping, keySource: .session,
+            preview: fixture.preview, previewedSource: fixture.previewedSource,
+            sessionWorkspaceID: sourceMatterID, sessionMatterLabel: "Source Matter"
+        )
+
+        XCTAssertEqual(request.exportWorkspaceID, sourceMatterID)
+        XCTAssertEqual(request.exportMatterLabel, "Source Matter")
+    }
+
     // MARK: - Claim 1: cancel writes nothing
 
     func testCancellingAtTheSavePanelWritesNothing() throws {

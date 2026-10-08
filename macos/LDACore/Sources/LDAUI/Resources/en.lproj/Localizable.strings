@@ -1069,3 +1069,37 @@
 "Review the Terms of Service and Privacy Policy to begin." = "Review the Terms of Service and Privacy Policy to begin.";
 "Legal" = "Legal";
 "Contact Support" = "Contact Support";
+
+/* Save Redacted progress and destination */
+"Choose Folder" = "Choose Folder";
+"Saving Redacted…" = "Saving Redacted…";
+"Saving the redacted document and its mapping. Large documents can take a little longer." = "Saving the redacted document and its mapping. Large documents can take a little longer.";
+"Save failed: %@" = "Save failed: %@";
+"%@\n\nSaved in: %@" = "%@\n\nSaved in: %@";
+
+/* Export receipts and history */
+"Export History" = "Export History";
+"Refresh" = "Refresh";
+"App and MCP exports. Each Reveal button opens the file recorded on that row." = "App and MCP exports. Each Reveal button opens the file recorded on that row.";
+"No exports recorded" = "No exports recorded";
+"New App and MCP exports will appear here." = "New App and MCP exports will appear here.";
+"Current MCP export" = "Current MCP export";
+"%@ · %@ · %@ · Completed" = "%@ · %@ · %@ · Completed";
+"MCP" = "MCP";
+"App" = "App";
+"Matter: %@" = "Matter: %@";
+"Redacted" = "Redacted";
+"Restored" = "Restored";
+"App export saved · %@ · Redacted" = "App export saved · %@ · Redacted";
+"Reveal the exact App or MCP export by time, format and Matter" = "Reveal the exact App or MCP export by time, format and Matter";
+"Export completed, but history could not be saved. Use this export's Reveal in Finder action." = "Export completed, but history could not be saved. Use this export's Reveal in Finder action.";
+"Export history could not be opened. Check local file access, then refresh." = "Export history could not be opened. Check local file access, then refresh.";
+"LDA V4" = "LDA V4";
+"Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds." = "Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds.";
+"Included" = "Included";
+"Published precedent: %lld party named in its caption is left in clear. Tick it in the list to redact it." = "Published precedent: %lld party named in its caption is left in clear. Tick it in the list to redact it.";
+"Published precedent: %lld parties named in its caption are left in clear. Tick them in the list to redact them." = "Published precedent: %lld parties named in its caption are left in clear. Tick them in the list to redact them.";
+"Included · %@" = "Included · %@";
+"For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory.";
+"Switch to LDA V4" = "Switch to LDA V4";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster.";

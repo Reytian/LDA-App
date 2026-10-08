@@ -28,7 +28,13 @@ extension LDAService {
     /// the secondary image-PII pass (which stays non-throwing for the resolver).
     /// Internal (not private) so LDASessionService.swift can reuse it.
     internal struct Detector {
-        let extractor: LLMExtractor?
+        let extractor: EntityExtracting?
+        /// The published-precedent release for the document most recently
+        /// passed to detectText. detectForImages reads it, so a party name the
+        /// rule leaves visible in the body is not tokenized in a header,
+        /// footer, note, comment or image either (a token beside the name in
+        /// clear would disclose the mapping).
+        let precedent = PrecedentState()
 
         /// Primary detection over the main document text. Throws when the
         /// result cannot be presented as cleanly anonymized (LJE-001), so a
@@ -48,7 +54,7 @@ extension LDAService {
         func detectText(_ text: String) throws -> [Span] {
             let llm: [Span]
             if let extractor {
-                let result = try extractor.extractDetailed(from: text)
+                let result = try extractor.extractDetailed(from: text, onProgress: nil)
                 guard result.fullyCovered else {
                     throw LDAServiceError.incompleteExtraction(
                         incompleteSegmentCount: result.incompleteSegmentCount
@@ -64,7 +70,12 @@ extension LDAService {
                 llm = []
             }
             let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
-            return EntityRescan.expand(merged, in: text)
+            let expanded = EntityRescan.expand(merged, in: text)
+            // A published precedent's own parties stay visible (PrecedentPartyRule).
+            let release = PrecedentPartyRule.release(text: text, spans: expanded)
+            precedent.set(release)
+            guard let release else { return expanded }
+            return expanded.filter { !release.releases($0) }
         }
 
         /// Secondary detection over short OCR'd image-origin text for the image-PII
@@ -75,11 +86,33 @@ extension LDAService {
         func detectForImages(_ text: String) -> [Span] {
             let llm: [Span]
             if let extractor {
-                llm = (try? extractor.extract(from: text)) ?? []
+                llm = (try? extractor.extract(from: text, onProgress: nil)) ?? []
             } else {
                 llm = []
             }
-            return SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            guard let release = precedent.release else { return merged }
+            return merged.filter { !release.releases($0) }
+        }
+    }
+
+    /// Holds one document's PrecedentRelease between the primary text pass and
+    /// the supplementary passes of the same run. A reference type because the
+    /// detector is a value shared by escaping closures.
+    internal final class PrecedentState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var current: PrecedentRelease?
+
+        func set(_ release: PrecedentRelease?) {
+            lock.lock()
+            current = release
+            lock.unlock()
+        }
+
+        var release: PrecedentRelease? {
+            lock.lock()
+            defer { lock.unlock() }
+            return current
         }
     }
 
@@ -110,10 +143,12 @@ extension LDAService {
         return Detector(extractor: try loadExtractor(modelPath: modelPath))
     }
 
-    /// Load the engine at modelPath and wrap it in an extractor, or refuse.
-    private static func loadExtractor(modelPath: String) throws -> LLMExtractor {
+    /// Load the model at modelPath and wrap it in an extractor, or refuse. A
+    /// folder holding the built-in LDA V4 tagger loads the tagger; any other
+    /// path is a GGUF for the LLM.
+    private static func loadExtractor(modelPath: String) throws -> EntityExtracting {
         do {
-            return LLMExtractor(completer: try LLMEngine(config: .init(modelPath: modelPath)))
+            return try EntityExtractorFactory.make(modelPath: modelPath)
         } catch {
             throw LDAServiceError.modelUnavailable(
                 path: modelPath,
@@ -132,6 +167,8 @@ extension LDAService {
             return "the file could not be loaded as a GGUF model"
         case LLMEngine.LLMError.contextCreationFailed:
             return "the model loaded but no inference context could be created"
+        case LDAV4Extractor.LoadError.incompleteModelDirectory:
+            return "the LDA V4 model folder is incomplete"
         default:
             return String(describing: error)
         }
@@ -145,7 +182,7 @@ extension LDAService {
     private static func seamExtractor(
         _ factory: (String) -> LLMExtractor?,
         modelPath: String?
-    ) throws -> LLMExtractor? {
+    ) throws -> EntityExtracting? {
         if let extractor = factory(modelPath ?? "") {
             return extractor
         }

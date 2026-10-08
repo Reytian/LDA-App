@@ -9,8 +9,10 @@
 #   - Release LDAApp binary via SwiftPM
 #   - LDA.app bundle (Info.plist + the static-linked binary + resource bundles)
 #
-# No detection model is bundled unless BUNDLE_MODEL=1 is set. The shipping
-# build is model-less and asks for a model on first run.
+# Every build carries LDA V4, the default detection model (a Core ML token
+# tagger, about 120 MB), verified file by file against packaging/lda-v4.sha256
+# and compiled once here. No GGUF model is bundled unless BUNDLE_MODEL=1 is
+# set; the larger models stay optional downloads.
 #
 # Optional (set to enable):
 #   CODESIGN_IDENTITY  optional Developer ID identity for distribution, e.g.
@@ -26,6 +28,14 @@
 #                        xcrun notarytool store-credentials NOTARY_PROFILE \
 #                          --apple-id you@example.com --team-id TEAMID \
 #                          --password APP_SPECIFIC_PASSWORD
+#   LDA_V4_DIR         folder holding the LDA V4 model files (default
+#                      ~/Developer/lda-models/lda-v4): LDA-V4.mlpackage,
+#                      runtime.json and tokenizer/, as published in the
+#                      Hugging Face repo Reytian/LDA-V4. Required: a build
+#                      without LDA V4 is refused.
+#   LDA_V4_SUMS        checksum list to verify them against (default
+#                      packaging/lda-v4.sha256). Overriding it is for the
+#                      packaging tests; the script says so when it happens.
 #   BUNDLE_MODEL       set to 1 to copy the Quick model into the bundle, for a
 #                      single-file deploy. The file is verified against the
 #                      packaged Models.json first and the script refuses to
@@ -100,25 +110,34 @@ fi
 
 echo "==> Building release binary"
 cd "$BUILD_PKG"
+# Swift 6.4 builds with the Swift Build engine by default, which lays a
+# resource bundle out as LDACore_LDAUI.bundle/Contents/Resources. Every LDA
+# release so far shipped SwiftPM's flat layout, which this script and the
+# app's resource lookups were written and tested against, so ask for the
+# native build system whenever the toolchain still offers the choice.
+BUILD_SYSTEM_ARGS=()
+if swift build --help 2>/dev/null | grep -q -- "--build-system"; then
+  BUILD_SYSTEM_ARGS=(--build-system native)
+fi
 # Their explicit SCRATCH_PATH branching is kept: the SCRATCH array this used to
 # expand no longer exists, so the old form would break under set -u. BUILD_DIR is
 # captured alongside BIN because the SwiftPM resource bundles (Models.json, the
 # tier manifest) live beside the binary and must be copied into the .app.
 if [ -n "${SCRATCH_PATH:-}" ]; then
-  swift build -c release --product LDAApp --scratch-path "$SCRATCH_PATH" >/dev/null
-  BUILD_DIR="$(swift build -c release --product LDAApp --scratch-path "$SCRATCH_PATH" --show-bin-path)"
+  swift build -c release --product LDAApp ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} --scratch-path "$SCRATCH_PATH" >/dev/null
+  BUILD_DIR="$(swift build -c release --product LDAApp ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} --scratch-path "$SCRATCH_PATH" --show-bin-path)"
 else
-  swift build -c release --product LDAApp >/dev/null
-  BUILD_DIR="$(swift build -c release --product LDAApp --show-bin-path)"
+  swift build -c release --product LDAApp ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} >/dev/null
+  BUILD_DIR="$(swift build -c release --product LDAApp ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} --show-bin-path)"
 fi
 BIN="$BUILD_DIR/LDAApp"
 
 # The setup screens point at helpers inside the app, so every distributed app carries them.
 for LDA_HELPER in lda lda-mcp; do
   if [ -n "${SCRATCH_PATH:-}" ]; then
-    swift build -c release --product "$LDA_HELPER" --scratch-path "$SCRATCH_PATH" >/dev/null
+    swift build -c release --product "$LDA_HELPER" ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} --scratch-path "$SCRATCH_PATH" >/dev/null
   else
-    swift build -c release --product "$LDA_HELPER" >/dev/null
+    swift build -c release --product "$LDA_HELPER" ${BUILD_SYSTEM_ARGS[@]+"${BUILD_SYSTEM_ARGS[@]}"} >/dev/null
   fi
 done
 
@@ -216,9 +235,64 @@ done
 # model can be checked at all. Skip the check here and the file is never
 # verified by anything, ever. Size first because it is cheap and it names the
 # likely cause (a truncated copy), then the digest.
+# LDA V4, the default detection model, ships in every build. As with a
+# bundled GGUF below, packaging is the only moment its files can be checked:
+# the app loads them straight from Contents/Resources/LDA-V4. Every file in
+# the pinned list must exist and match its SHA-256 (absolute tool paths, so a
+# stub on PATH cannot vouch for it); then the Core ML package is compiled once
+# here, so the app never compiles a model at launch.
+LDA_V4_DIR="${LDA_V4_DIR:-$HOME/Developer/lda-models/lda-v4}"
+LDA_V4_SUMS="${LDA_V4_SUMS:-$PKG/packaging/lda-v4.sha256}"
+echo "==> Bundling LDA V4 from $LDA_V4_DIR"
+if [ "$LDA_V4_SUMS" != "$PKG/packaging/lda-v4.sha256" ]; then
+  echo "!! Verifying LDA V4 against a non-default checksum list: $LDA_V4_SUMS"
+fi
+if [ ! -f "$LDA_V4_SUMS" ]; then
+  echo "!! The LDA V4 checksum list $LDA_V4_SUMS is missing."
+  exit 1
+fi
+if [ ! -d "$LDA_V4_DIR" ]; then
+  echo "!! No LDA V4 model files at $LDA_V4_DIR."
+  echo "!! Fetch them with: hf download Reytian/LDA-V4 --local-dir \"$LDA_V4_DIR\""
+  echo "!! or set LDA_V4_DIR. LDA V4 is the default detection model, so a build without it is refused."
+  exit 1
+fi
+V4_COUNT=0
+while read -r V4_WANT V4_FILE; do
+  [ -n "$V4_WANT" ] || continue
+  V4_FILE="${V4_FILE#./}"
+  if [ ! -f "$LDA_V4_DIR/$V4_FILE" ]; then
+    echo "!! LDA V4 file missing: $V4_FILE"
+    exit 1
+  fi
+  V4_GOT="$(/usr/bin/shasum -a 256 "$LDA_V4_DIR/$V4_FILE" | /usr/bin/awk '{print $1}')"
+  if [ "$V4_GOT" != "$V4_WANT" ]; then
+    echo "!! LDA V4 file does not match packaging/lda-v4.sha256: $V4_FILE"
+    echo "!! Refusing to bundle an unverified model."
+    exit 1
+  fi
+  V4_COUNT=$((V4_COUNT + 1))
+done < "$LDA_V4_SUMS"
+if [ "$V4_COUNT" -eq 0 ]; then
+  echo "!! $LDA_V4_SUMS lists no files; refusing to bundle an unverified model."
+  exit 1
+fi
+V4_DEST="$APP/Contents/Resources/LDA-V4"
+mkdir -p "$V4_DEST/tokenizer"
+cp "$LDA_V4_DIR/runtime.json" "$V4_DEST/runtime.json"
+cp "$LDA_V4_DIR/tokenizer/vocab.json" "$LDA_V4_DIR/tokenizer/charsmap.bin" \
+  "$LDA_V4_DIR/tokenizer/tables.json" "$V4_DEST/tokenizer/"
+xcrun coremlcompiler compile "$LDA_V4_DIR/LDA-V4.mlpackage" "$V4_DEST" >/dev/null
+if [ ! -d "$V4_DEST/LDA-V4.mlmodelc" ]; then
+  echo "!! Compiling LDA-V4.mlpackage produced no LDA-V4.mlmodelc."
+  exit 1
+fi
+chmod -R u+w "$V4_DEST"
+echo "    $V4_COUNT files verified, LDA-V4.mlmodelc compiled ($(du -sh "$V4_DEST" | cut -f1))"
+
 MANIFEST="$APP/Contents/Resources/LDACore_LDAUI.bundle/Models.json"
 if [ "${BUNDLE_MODEL:-0}" != "1" ]; then
-  echo "==> No model bundled (BUNDLE_MODEL is not set). First run will offer a download or an offline import."
+  echo "==> No GGUF model bundled (BUNDLE_MODEL is not set). LDA V4 is the default; larger models stay optional downloads."
   BUNDLED_MODEL_NAME=""
 else
   if [ ! -f "$MODEL_PATH" ]; then
@@ -375,8 +449,9 @@ else
 fi
 
 echo "==> Done: $APP"
+echo "    Detection model: LDA V4 bundled and checksum verified."
 if [ -z "$BUNDLED_MODEL_NAME" ]; then
-  echo "    Model: not bundled. First run offers a download or an offline import."
+  echo "    GGUF model: not bundled. Larger models are optional downloads in Manage Models."
 else
-  echo "    Model: $BUNDLED_MODEL_NAME bundled and checksum verified."
+  echo "    GGUF model: $BUNDLED_MODEL_NAME bundled and checksum verified."
 fi

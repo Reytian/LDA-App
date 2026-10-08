@@ -88,6 +88,9 @@ public struct MCPServer {
     var selectDocumentsForTesting: (() throws -> MCPLocalPreparation.Selection)?
     var reviewDocumentForTesting: ((String, [Span]) throws -> [CustomPattern])?
     var localReviewDetectionForTesting: ((String) throws -> [Span])?
+    var selectEditedDocumentForTesting: ((VaultEntry) throws -> URL?)?
+    var runEditedImportForTesting: (((@escaping (VaultStagingPhase) throws -> Void) throws -> VaultEntry) throws -> VaultEntry)?
+    var presentExportForTesting: ((ExportReceipt, Bool) -> String)?
     #endif
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -159,6 +162,9 @@ public struct MCPServer {
                     handleToolsCall(id: id, params: params)
                 }
             } catch {
+                if let actionable = LocalOperationFailure.message(for: error) {
+                    return toolErrorResult(id: id, message: actionable + "; persistent audit could not complete; no document content was returned")
+                }
                 return toolErrorResult(id: id, message: "audit_unavailable: the persistent audit trail could not be verified or saved; no document content was returned")
             }
         case "ping":
@@ -178,7 +184,7 @@ public struct MCPServer {
     /// (empty) tools capability object.
     private func handleInitialize(id: RequestID) -> Data? {
         let result: [String: Any] = [
-            "instructions": "For LDA document requests, call prepare_documents with the user-provided workspaceName. A local picker selects documents and offers optional PII review. Never read originals through shell, files, screenshots or another tool. Use returned handles and read_redacted for AI work, then restore and export. Never request passwords or mappings in chat. A workspace name is only a hint until confirmed locally. Keep each document and its mapping separate.",
+            "instructions": "For LDA document requests, call prepare_documents with the user-provided workspaceName. A local picker selects documents and offers optional PII review. Never read originals through shell, files, screenshots or another tool. Use returned handles and read_redacted for AI work, then restore and export. Check format metadata before calling an artifact Word. For an edited Word file, use import_edited_document and its editedHandle; no manual CLI staging is needed. Exact exports are available through the native export dialog and LDA Export History. Never request passwords or mappings in chat. A workspace name is only a hint until confirmed locally. Keep each document and its mapping separate.",
             "protocolVersion": MCPServer.protocolVersion,
             "serverInfo": [
                 "name": MCPServer.serverName,
@@ -228,6 +234,8 @@ public struct MCPServer {
                 switch name {
                 case "prepare_documents":
                     summary = try callPrepareDocuments(arguments)
+                case "import_edited_document":
+                    summary = try callImportEditedDocument(arguments)
                 case "list_pending":
                     summary = try callListPending()
                 case "choose_workspace":

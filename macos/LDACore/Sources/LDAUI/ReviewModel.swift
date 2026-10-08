@@ -245,6 +245,14 @@ public final class ReviewModel: ObservableObject {
     /// reads as a finished job when it is not.
     @Published public var aiRanPartially: Bool = false
 
+    /// One line for the status banner when the document is a published
+    /// precedent whose own parties were left in clear, or nil.
+    @Published public private(set) var precedentNote: String?
+
+    /// The party names the published-precedent rule left in clear for the
+    /// last scan (PrecedentPartyRule). Their entities are listed unticked.
+    public private(set) var precedentRelease: PrecedentRelease?
+
     /// The three coverage fields as one value. Every path that moves a scan
     /// result somewhere else (a cancelled retry putting the previous result
     /// back, a workspace capturing and re-applying it) reads and writes this
@@ -554,6 +562,8 @@ public final class ReviewModel: ObservableObject {
         etaText = nil
         aiWarning = nil
         aiRanPartially = false
+        precedentRelease = nil
+        precedentNote = nil
         trackedChangeCount = 0
         // A supplementary count belongs to the document that produced it; a
         // stale one would mis-state the next document's coverage.
@@ -655,12 +665,14 @@ public final class ReviewModel: ObservableObject {
         // coverage while the user is still deciding. It scans only the small
         // supplementary parts with the SAME detector the export uses, so the
         // preview and the export cannot disagree.
+        let keepVisible = outcome.precedent?.normalizedValues ?? []
         let supplementary = await Task.detached(priority: .utility) {
             Self.supplementaryCount(
                 source: source,
                 useLLM: shouldUseLLM,
                 modelPath: path,
-                custom: custom
+                custom: custom,
+                keepVisible: keepVisible
             )
         }.value
 
@@ -686,7 +698,13 @@ public final class ReviewModel: ObservableObject {
         // IDs from the old pass cannot silently select findings in the new one.
         // The cancellation branch above deliberately leaves selection intact.
         selectedGroupIDs = []
-        entities = outcome.spans.map { ReviewEntity(span: $0, accepted: true) }
+        // A published precedent's own parties are listed unticked: left in
+        // clear unless the user ticks them (PrecedentPartyRule).
+        entities = outcome.spans.map {
+            ReviewEntity(span: $0, accepted: !(outcome.precedent?.releases($0) ?? false))
+        }
+        precedentRelease = outcome.precedent
+        precedentNote = Self.precedentNote(for: outcome.precedent)
         supplementaryRedactedCount = supplementary
         learningNote = Self.learningNote(applied: outcome.learnedApplied, suppressed: outcome.suppressed)
         // AI is only "active" when the pass ran to full coverage; a load
@@ -730,6 +748,38 @@ public final class ReviewModel: ObservableObject {
             protection: protection,
             output: output
         )
+    }
+
+    /// The banner line for a published precedent whose parties stay in clear.
+    static func precedentNote(for release: PrecedentRelease?) -> String? {
+        guard let release else { return nil }
+        let language = AppLanguage.selected()
+        let count = release.values.count
+        return String(
+            format: L10n.string(
+                count == 1
+                    ? "Published precedent: %lld party named in its caption is left in clear. Tick it in the list to redact it."
+                    : "Published precedent: %lld parties named in its caption are left in clear. Tick them in the list to redact them.",
+                language: language
+            ),
+            locale: language.locale,
+            Int64(count)
+        )
+    }
+
+    /// The released party names no occurrence of which the user ticked. The
+    /// export leaves them in clear in headers, footers, notes and comments
+    /// too, by value, as the body does.
+    static func precedentValuesLeftVisible(
+        entities: [ReviewEntity],
+        release: PrecedentRelease?
+    ) -> Set<String> {
+        guard let release else { return [] }
+        var ticked = Set<String>()
+        for entity in entities where entity.accepted && release.releases(entity.span) {
+            ticked.insert(TextMatching.normalize(entity.span.text))
+        }
+        return release.normalizedValues.subtracting(ticked)
     }
 
     /// A short, human note about what learning contributed, or nil when nothing.
@@ -1001,6 +1051,16 @@ public final class ReviewModel: ObservableObject {
         keepMapping: (Mapping) throws -> URL? = { _ in nil }
     ) async throws -> ExportResult {
         let acceptedSpans = entities.filter { $0.accepted }.map { $0.span }
+        let keepVisible = Self.precedentValuesLeftVisible(
+            entities: entities,
+            release: precedentRelease ?? PrecedentPartyRule.release(
+                // A review restored from a workspace carries its decisions but
+                // not the rule's result; the rule is a pure function of the
+                // text and the listed spans, so it is recomputed here.
+                text: documentText,
+                spans: entities.map { $0.span }
+            )
+        )
         let text = documentText
         let source = sourceURL
         // Read the custom vocabulary on the main actor so the non-body detector
@@ -1048,7 +1108,8 @@ public final class ReviewModel: ObservableObject {
                     createdAtISO8601: createdAtISO8601,
                     style: style,
                     includeSealCandidates: wantsSealCandidates,
-                    seedMapping: seedMapping
+                    seedMapping: seedMapping,
+                    keepVisible: keepVisible
                 )
             }.value
         } catch let changed as SourceChangedSinceScanError {

@@ -242,6 +242,9 @@ extension MCPServer {
             throw MCPVaultToolError.unsupportedEditFormat(handle: edited.handle, format: edited.format)
         }
         if edited.kind == .original {
+            if let source = edited.editingSourceHandle, source != redacted.handle {
+                throw MCPVaultToolError.mappingMismatch(edited.handle)
+            }
             return .stagedOriginal
         }
         // Session members share one sidecar and an edited-text artifact

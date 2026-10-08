@@ -29,7 +29,7 @@
 
 import Foundation
 
-/// A blocking, cross-process exclusive lock backed by flock(2) on one file.
+/// A bounded, cross-process exclusive lock backed by flock(2) on one file.
 /// The file's contents are never read or written; it exists only to be
 /// locked. Safe to construct fresh for every call: flock is associated with
 /// the open file description, not with any DocumentVault value.
@@ -38,8 +38,9 @@ struct VaultCrossProcessLock {
     /// Where the lock file lives. Typically a sibling of registry.sealed
     /// inside the vault root.
     let lockFileURL: URL
+    var timeout: TimeInterval = 10
 
-    /// Acquire the lock (blocking until any other process releases it), run
+    /// Acquire the lock (waiting up to timeout for another process), run
     /// body while holding it, and release it afterward whether body returns
     /// or throws. Never call this recursively on the same lock file from the
     /// same thread: flock does not nest and the second call would deadlock
@@ -55,12 +56,20 @@ struct VaultCrossProcessLock {
         // description, not to any path or process).
         let descriptor = open(lockFileURL.path, O_CREAT | O_RDWR, 0o600)
         guard descriptor >= 0 else {
+            if errno == EACCES || errno == EPERM { throw DocumentVaultError.filesystemPermissionDenied }
             throw DocumentVaultError.crossProcessLockUnavailable
         }
         defer { close(descriptor) }
 
-        guard flock(descriptor, LOCK_EX) == 0 else {
-            throw DocumentVaultError.crossProcessLockUnavailable
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            let failure = errno
+            guard failure == EWOULDBLOCK || failure == EAGAIN || failure == EINTR else {
+                if failure == EACCES || failure == EPERM { throw DocumentVaultError.filesystemPermissionDenied }
+                throw DocumentVaultError.crossProcessLockUnavailable
+            }
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw DocumentVaultError.lockTimedOut }
+            Thread.sleep(forTimeInterval: 0.05)
         }
         // Runs before close(descriptor) above (defers unwind last-declared
         // first), so the lock is released explicitly rather than only as a
@@ -98,8 +107,14 @@ extension DocumentVault {
     /// boundary. Hold this ONLY around the registry read-modify-write
     /// itself; never across object encryption, which can be slow.
     func withRegistryTransaction<T>(_ body: () throws -> T) throws -> T {
-        try transactionLock.withLock {
-            try DocumentVault.registryLock.withLock(body)
+        let started = ProcessInfo.processInfo.systemUptime
+        return try transactionLock.withLock {
+            let remaining = max(0, transactionLock.timeout - (ProcessInfo.processInfo.systemUptime - started))
+            guard DocumentVault.registryLock.lock(before: Date().addingTimeInterval(remaining)) else {
+                throw DocumentVaultError.lockTimedOut
+            }
+            defer { DocumentVault.registryLock.unlock() }
+            return try body()
         }
     }
 }

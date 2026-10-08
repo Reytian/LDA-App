@@ -67,7 +67,7 @@ struct HandoffCompletionCard: View {
             switch completion {
             case .exportedForAI(let result):
                 VStack(alignment: .leading, spacing: 3) {
-                    L10n.text("Redacted file saved")
+                    L10n.text("App export saved · %@ · Redacted", "Markdown" as NSString)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text(verbatim: AnonymizeWorkflowPresentation.exportCompletionDetail(
@@ -161,7 +161,7 @@ struct HandoffCompletionCard: View {
         result: ExportResult
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            L10n.text("Redacted document saved")
+            L10n.text("App export saved · %@ · Redacted", result.redactedURL.pathExtension.uppercased() as NSString)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             completionFileLine(

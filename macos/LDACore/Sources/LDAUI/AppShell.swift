@@ -426,7 +426,8 @@ public struct AppShell: View {
         case .nothingReady(let reason):
             exportMessage = SaveAvailabilityPresentation.sentence(for: reason)
         case .exported(let result):
-            exportMessage = nil
+            exportMessage = LocalExportHistory.record([result.markdownURL], kind: .redacted,
+                workspaceID: session.matterScopeID, matterLabel: session.clientLabel)
             handoffCompletion = .exportedForAI(result)
             hasSharedOutput = AnonymizeWorkflowPresentation.hasSharedActiveDocument(
                 activeDocumentID: session.selectedID,

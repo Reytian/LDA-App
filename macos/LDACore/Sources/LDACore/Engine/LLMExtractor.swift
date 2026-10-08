@@ -232,6 +232,22 @@ public final class LLMExtractor {
         // never returns results, however far it got.
         try throwIfCancelled()
 
+        return Self.locate(rawEntities, in: text, incompleteSegmentCount: incompleteSegmentCount)
+    }
+
+    // MARK: - Filtering and anchoring
+
+    /// Steps 3 and 4 of extractDetailed: keep the fuzzy types, drop legal
+    /// boilerplate and the document's own defined terms, then anchor each
+    /// distinct value at every occurrence in the full text. Shared with
+    /// LDAV4Extractor, so a value the built-in tagger reports passes exactly
+    /// the same filters and anchors exactly the same way as one the LLM
+    /// reports. The tagger's figures were measured through this path.
+    public static func locate(
+        _ rawEntities: [ExtractedEntity],
+        in text: String,
+        incompleteSegmentCount: Int
+    ) -> ExtractionResult {
         // 3. Keep only the fuzzy types LDA owns from the LLM, and drop legal
         //    boilerplate the model over-reports: role labels, defined terms
         //    ("Company", "Agreement"), titles ("CEO"), statutes, tribunals, and

@@ -79,6 +79,10 @@ extension ReviewModel {
         /// True when the user stopped the pass. The caller discards the
         /// outcome instead of presenting it as a completed detection.
         let cancelled: Bool
+        /// The party names of a published precedent that stay visible
+        /// (PrecedentPartyRule), or nil. Their spans are in `spans`; the
+        /// caller lists them unticked so the user can still redact them.
+        var precedent: PrecedentRelease? = nil
     }
 
     nonisolated static func detect(
@@ -147,6 +151,15 @@ extension ReviewModel {
             kept.map { $0.text.lowercased() }.filter { learnedValues.contains($0) }
         )
 
+        // A published precedent's own parties stay visible. Values another
+        // document of the session redacts are not released (see
+        // PrecedentPartyRule.release).
+        let precedent = PrecedentPartyRule.release(
+            text: text,
+            spans: kept,
+            redactedElsewhere: knownEntities
+        )
+
         return DetectionOutcome(
             spans: kept,
             learnedApplied: appliedValues.count,
@@ -154,7 +167,8 @@ extension ReviewModel {
             aiRan: llm.attempted && llm.failure == nil,
             aiFailure: llm.failure,
             aiRanPartially: llm.partial,
-            cancelled: false
+            cancelled: false,
+            precedent: precedent
         )
     }
 
@@ -221,12 +235,12 @@ extension ReviewModel {
             )
         }
         do {
-            let extractor: LLMExtractor
+            // The built-in LDA V4 tagger (a model folder) or a GGUF tier.
+            let extractor: EntityExtracting
             if let factory = effectiveLLMExtractorFactory {
                 extractor = factory(modelPath, cancel)
             } else {
-                let engine = try LLMEngine(config: .init(modelPath: modelPath))
-                extractor = LLMExtractor(completer: engine, cancelToken: cancel)
+                extractor = try EntityExtractorFactory.make(modelPath: modelPath, cancelToken: cancel)
             }
             let result = try extractor.extractDetailed(from: text, onProgress: onProgress)
             guard result.fullyCovered else {
@@ -342,7 +356,8 @@ extension ReviewModel {
         createdAtISO8601: String,
         style: SubstitutionStyle = .token,
         includeSealCandidates: Bool = true,
-        seedMapping: Mapping? = nil
+        seedMapping: Mapping? = nil,
+        keepVisible: Set<String> = []
     ) throws -> (export: ExportResult, mapping: Mapping, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
@@ -423,7 +438,9 @@ extension ReviewModel {
             // own settings; it never re-runs the LLM over the body. Surfaces found
             // only in a non-body part mint new tokens that are folded into the
             // mapping below so they persist in the sidecar and restore correctly.
-            let detect = Self.nonBodyDetector(useLLM: useLLM, modelPath: modelPath, custom: custom)
+            let detect = Self.nonBodyDetector(
+                useLLM: useLLM, modelPath: modelPath, custom: custom, keepVisible: keepVisible
+            )
             let outcome = try DocxRedactor.redact(
                 original: source,
                 replacements: replacements,
@@ -603,18 +620,29 @@ extension ReviewModel {
     /// degrades to empty), mirroring LDAService's detectForImages. It only ever
     /// scans the small non-body parts (headers, footers, notes), never the body,
     /// so it does not re-run the LLM over the document the user already reviewed.
+    ///
+    /// `keepVisible` holds the normalized party names a published precedent
+    /// leaves in clear in the body. They stay in clear in the other parts too:
+    /// a token in a header beside the name in clear in the body would
+    /// disclose the mapping.
     nonisolated static func nonBodyDetector(
         useLLM: Bool,
         modelPath: String?,
-        custom: [CustomPattern]
+        custom: [CustomPattern],
+        keepVisible: Set<String> = []
     ) -> (String) -> [Span] {
         return { text in
             let deterministic = DeterministicEngine().detect(text)
                 + CustomPatternEngine.detect(text, patterns: custom)
-            return SpanMerger.merge(
+            let merged = SpanMerger.merge(
                 deterministic: deterministic,
                 llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath).spans
             )
+            guard !keepVisible.isEmpty else { return merged }
+            return merged.filter {
+                !(($0.type == .person || $0.type == .company)
+                    && keepVisible.contains(TextMatching.normalize($0.text)))
+            }
         }
     }
 
@@ -631,10 +659,13 @@ extension ReviewModel {
         source: URL?,
         useLLM: Bool,
         modelPath: String?,
-        custom: [CustomPattern]
+        custom: [CustomPattern],
+        keepVisible: Set<String> = []
     ) -> Int {
         guard let source, source.pathExtension.lowercased() == "docx" else { return 0 }
-        let detect = nonBodyDetector(useLLM: useLLM, modelPath: modelPath, custom: custom)
+        let detect = nonBodyDetector(
+            useLLM: useLLM, modelPath: modelPath, custom: custom, keepVisible: keepVisible
+        )
         return DocxRedactor.supplementaryCoverage(in: source, detect: detect).replacementCount
     }
 

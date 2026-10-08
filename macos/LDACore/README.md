@@ -21,19 +21,76 @@ What each detection level needs, measured on an Apple M4:
 | Level | Model | Download | Peak memory | Mac needed | Per agreement |
 |---|---|---|---|---|---|
 | Patterns only | none | none | none | any | instant |
-| Quick | Qwen3.5-4B | 2.74 GB | 3.1 GB | **16 GB** | about 55 s |
+| **LDA V4** (default) | Multilingual-MiniLM tagger, Core ML int8 | none, in the app (128 MB) | about 110 MB | any | a few seconds |
+| Quick (Fill from Profile only) | Qwen3.5-4B | 2.74 GB | 3.1 GB | **16 GB** | about 55 s |
 | Balanced | gemma-4-12b | 7.1 GB | 8.5 GB | 24 GB | about 2 min |
 | Most thorough | Qwen3.8-27B | 13.2 GB | 12.2 GB | 24 GB | about 4.5 min |
 
-No model ships inside the app. On first run LDA asks you to add one, either by
-downloading it or by adding a file you already have. Patterns only needs no
-model and finds emails, phones, dates, amounts, ID numbers and case numbers;
-names, companies and addresses need a model. LDA will not offer you a level
-your Mac cannot run, and it says so before a scan when no model is installed.
+LDA V4 comes with the app and is the default level, so names, companies and
+addresses are found from the first launch with nothing to download; see
+[LDA V4](#lda-v4-the-default-detection-model). The larger models are optional
+downloads. Patterns only needs no model and finds emails, phones, dates,
+amounts, ID numbers and case numbers; names, companies and addresses need a
+model. LDA will not offer you a level your Mac cannot run, and it says so
+before a scan when the selected level has no model.
 
 Also required: macOS 14 or later, and Apple silicon.
 
-## Installing a detection model
+## LDA V4, the default detection model
+
+LDA V4 is a BIOES token tagger fine-tuned from
+`microsoft/Multilingual-MiniLM-L12-H384` for English, Chinese and mixed legal
+text, exported to Core ML with int8 weights. It finds people, companies,
+street-level addresses, brands and vessel names, and it keeps courts, agencies
+and jurisdictions visible. The deterministic rules still find the structured
+values (emails, phones, dates, amounts, ID and case numbers).
+
+- **Runtime.** The `TinyPII` target reproduces the training pipeline exactly:
+  the XLM-R Unigram tokenizer with the `cjk-punct-v1` pre-tokenizer, 256-token
+  windows with a 64-token stride, constrained BIOES Viterbi decoding and window
+  merging. `LDAV4Extractor` turns the tagger's spans into values and hands them
+  to `LLMExtractor.locate`, the same filters and locator an LLM tier's values
+  go through. Brands and vessels are replaced as COMPANY. It runs on the CPU,
+  where the Swift runtime matches the reference pipeline bit for bit.
+- **Where it lives.** Every packaged build carries it in
+  `LDA.app/Contents/Resources/LDA-V4` (`LDA-V4.mlmodelc`, `runtime.json`,
+  `tokenizer/`). The packaging script verifies the source files against
+  `packaging/lda-v4.sha256` and compiles the model once; a build without it is
+  refused. The source files are in the private Hugging Face repo
+  `Reytian/LDA-V4`.
+- **Selecting it.** It is the **LDA V4** level in Settings > AI and the default
+  for a new install. It replaces Quick as a detection level: where LDA V4
+  ships, the ladder is Patterns only, LDA V4, Balanced, Most thorough, and a
+  stored Quick reads as LDA V4. An install left on a larger level whose file
+  never arrived moves to it once; a working level, a custom model and a
+  deliberate Patterns only are left alone. Fill from Profile needs a
+  generative model, so with LDA V4 selected it uses a downloaded tier, or asks
+  for one; Quick stays in Manage Models as an optional download for it.
+- **CLI and MCP.** Pass the folder as the model:
+  `lda detect --input FILE --model /Applications/LDA.app/Contents/Resources/LDA-V4`.
+  The MCP setup in the app exports it as `LDA_MODEL_PATH` when LDA V4 is
+  selected.
+- **Measured.** With LDA's rules in value mode, on the blind set (200 records,
+  precedent parties excluded) it covers 1,533 of 1,929 values completely,
+  including 1,053 of 1,063 people, companies and addresses, and masks 14 of
+  3,418 decoys; on the regression set, 221 of 231 values. About 4 seconds for
+  117,000 characters on an Apple M4, about 110 MB of memory.
+
+### Published precedents
+
+When the document is itself a published precedent, its own parties' names are
+public and stay in clear (`PrecedentPartyRule`). The caption is found
+conservatively by `TinyPII.PrecedentRule`: the title block of an SPC or SPP
+guiding case, or the caption line of a US opinion that shows opinion markers
+and no "not for publication" notice. Every PERSON or COMPANY value of two or
+more characters that the caption spells is left in clear, by value, on every
+channel, so a header never carries a token for a name that is in clear in the
+body. Witnesses, judges, counsel and short forms the caption does not spell
+stay redacted, and a value another document of the session redacts is never
+released. The app lists the released names unticked and says so in the status
+line; ticking one redacts it everywhere.
+
+## Installing a larger detection model
 
 ### Which path
 
@@ -268,15 +325,16 @@ launch); exports land only in the vault's own `outbox/`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `prepare_documents` | `workspaceName?` | local document picker, optional additional PII review, and Matter confirmation; returns redacted/source handles, counts, detection mode, review status and an optional opaque workspace ID |
+| `prepare_documents` | `workspaceName?` | local document picker, optional additional PII review, and Matter confirmation; returns redacted/source handles, `format`, `sourceFormat`, `kind`, counts, detection mode, review status and an optional opaque workspace ID |
 | `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (occurrences the review step left visible, on every channel; 0 means fully redacted) |
 | `choose_workspace` | `handle` | local LDA Matter picker; only `handle`, `assigned`, and an optional opaque `workspaceID` return to the host |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
 | `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `excludedValueCount`, `detectionChanged` |
 | `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text` and `localApproval`; known partial or legacy unknown-exclusion artifacts require fresh local confirmation and macOS authentication |
+| `import_edited_document` | `redactedHandle` only | local picker and source confirmation; `status`, `editedHandle`, `format`, `kind`, tracked-change policy; document bytes stay local |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
-| `export` | `handle` (red_ or res_) | `ok`; the file appears in the outbox under the original's name plus `_redacted` or `_restored` |
+| `export` | `handle` (red_ or res_) | `ok`, `status`, `exportID`, `format`, `kind`, `exportedAt`, `historyStatus`, `localAction`; exact native Reveal in Finder action in Export History, with filenames and paths kept local |
 | `attest` | none | encryption at rest, key protection, Keychain ACL mode, byte counters for what the session returned (plaintext, redacted, and the partially redacted subset), per-tool call counts |
 
 Error results are boundary-safe codes plus handles: `unknown_handle`,
@@ -427,16 +485,36 @@ that travels through the vault. `restore` with `editedText` restores to TEXT
 kept only through `editedHandle` with a `.docx`.
 
 ```
-human   lda vault stage Agreement.docx                      -> doc_a1
-agent   detect_entities {handle: doc_a1}                     -> ids, detectionId (optional review)
-agent   anonymize {handle: doc_a1, excludeTypes: ["DATE"]}   -> red_b2
-agent   export {handle: red_b2}                              -> outbox/Agreement_redacted.docx
-human   edits outbox/Agreement_redacted.docx in Word, keeping the placeholders
-        (accept all tracked changes), saves it as Agreement-edited.docx
-human   lda vault stage Agreement-edited.docx                -> doc_c3
+agent   prepare_documents {}                              -> red_b2, format docx
+human   chooses the agreement and confirms its Matter locally
+agent   export {handle: red_b2}                            -> exportID, format docx, completed
+human   clicks Reveal in Finder in the current MCP export receipt
+human   edits the redacted Word file, keeping placeholders; resolves tracked changes and saves
+agent   import_edited_document {redactedHandle: red_b2}    -> editedHandle doc_c3, completed
+human   chooses the edited redacted DOCX in the local picker
 agent   restore {redactedHandle: red_b2, editedHandle: doc_c3} -> res_d4, format docx
-agent   export {handle: res_d4}                              -> outbox/Agreement-edited_restored.docx
+agent   export {handle: res_d4}                            -> exportID, format docx, completed
+human   reveals the restored agreement from its own export receipt
 ```
+
+The import snapshots the selected file locally before checking tracked changes in
+the body, headers, footers, notes and comments. Unresolved revisions are refused;
+LDA does not silently accept or reject them. Successful imports preserve the Word
+bytes and bind the private staged handle to the confirmed source mapping and Matter.
+Imported edits cannot be read through `read_redacted`, and a different mapping is refused.
+
+Export History records new App and MCP exports with time, format, redacted/restored
+kind, Matter and an exact reveal target. Receipts contain no document text or mapping
+values. Private filenames, URLs and bookmarks are encrypted using LDA's separate local
+metadata key in the login Keychain so both companions can read the history; document
+and mapping protection is unchanged. MCP responses contain only opaque identifiers
+and neutral metadata. Concurrent outbox exports allocate distinct names under a lock.
+
+Staging shows local phases and supports cancellation before registration. Vault lock
+waits are bounded to 10 seconds per lock acquisition. `vault_busy`,
+`filesystem_permission_denied`, `authentication_required`, and
+`authentication_cancelled` have distinct recovery messages. An unknown delay is not
+reported as authentication failure. The previously observed delay's cause is unproven.
 
 `editedHandle` accepts only a document that belongs to this round trip: a
 human-staged file must still hold at least one placeholder of the mapping

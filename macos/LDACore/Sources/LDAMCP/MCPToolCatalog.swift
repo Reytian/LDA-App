@@ -42,6 +42,7 @@ extension MCPServer {
         "anonymize_session",
         "read_redacted",
         "detect_entities",
+        "import_edited_document",
         "restore",
         "export",
         "attest"
@@ -90,7 +91,7 @@ extension MCPServer {
     static let vaultToolDescriptors: [[String: Any]] = [
         [
             "name": "prepare_documents",
-            "description": "Start the LDA workflow: open a LOCAL file picker, offer optional local review to highlight additional PII, and confirm the requested LDA Matter. The person chooses documents and whether to review; paths, original text and added terms never return to AI. Returns redacted handles and counts only. Use read_redacted for the AI instruction, then restore and export. workspaceName is an optional user-provided hint, never an assignment override. Each document has its own mapping; keep its handle with its text. Cancellation returns no text. Allow time for local interaction.",
+            "description": "Start the LDA workflow: open a LOCAL file picker, offer optional local review to highlight additional PII, and confirm the requested LDA Matter. The person chooses documents and whether to review; paths, original text and added terms never return to AI. Returns redacted handles, sourceFormat, artifact format, kind, and counts only. Use read_redacted for the AI instruction, then restore and export. workspaceName is an optional user-provided hint, never an assignment override. Each document has its own mapping; keep its handle with its text. Cancellation returns no text. Allow time for local interaction.",
             "inputSchema": [
                 "type": "object", "additionalProperties": false,
                 "properties": ["workspaceName": ["type": "string", "maxLength": 256, "description": "The workspace name explicitly supplied by the user; confirmed in the local Matters picker."]],
@@ -121,7 +122,7 @@ extension MCPServer {
                 "properties": [
                     "handle": ["type": "string", "description": "Handle of a staged original (doc_...)."],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."],
+                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model, or to the LDA V4 model folder inside LDA.app, to also detect PERSON/COMPANY/ADDRESS."],
                     "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Replacement style: token ({PERSON_1}, default), pseudonym (natural-language stand-ins that survive AI rewriting), or asterisk (masking for human recipients; restore refuses ambiguous masks)."],
                     "excludeEntityIds": [
                         "type": "array",
@@ -153,7 +154,7 @@ extension MCPServer {
                         "description": "Handles of the session's staged originals (doc_...)."
                     ],
                     "passphrase": ["type": "string", "description": "Optional passphrase to protect the session mapping sidecar."],
-                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."],
+                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model, or to the LDA V4 model folder inside LDA.app, to also detect PERSON/COMPANY/ADDRESS."],
                     "client": ["type": "string", "description": "Optional client profile label: the session reuses and extends that client's stored identities. The label is never echoed back."],
                     "style": ["type": "string", "enum": ["token", "pseudonym", "asterisk"], "description": "Replacement style: token ({PERSON_1}, default), pseudonym (natural-language stand-ins that survive AI rewriting), or asterisk (masking for human recipients; restore refuses ambiguous masks)."],
                     "excludeTypes": [
@@ -183,20 +184,30 @@ extension MCPServer {
                 "type": "object",
                 "properties": [
                     "handle": ["type": "string", "description": "Handle of a vault document."],
-                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model to also detect PERSON/COMPANY/ADDRESS."]
+                    "modelPath": ["type": "string", "description": "Optional path to a GGUF model, or to the LDA V4 model folder inside LDA.app, to also detect PERSON/COMPANY/ADDRESS."]
                 ],
                 "required": ["handle"]
             ]
         ],
         [
+            "name": "import_edited_document",
+            "description": "Import an edited redacted document through a LOCAL picker, bound to redactedHandle's source mapping and Matter. No paths, original text, mapping values or approval flags are accepted. The human confirms the source locally. Word sources require DOCX, preserving structure and placeholders. Unresolved tracked changes are refused: accept or reject them in Word, save, and import again. Reports progress locally and returns status, editedHandle, format and tracked-change policy. Pass editedHandle with the same redactedHandle to restore. Imported text remains private and cannot be read through read_redacted. Cancellation registers no edited document; lock, permission and authentication failures have separate recovery messages.",
+            "inputSchema": [
+                "type": "object",
+                "properties": ["redactedHandle": ["type": "string", "description": "The source redacted artifact whose mapping will restore this edit."]],
+                "required": ["redactedHandle"],
+                "additionalProperties": false
+            ]
+        ],
+        [
             "name": "restore",
-            "description": "Restore placeholders back to their original values using a redacted artifact's encrypted mapping. Three shapes: (1) omit editedText and editedHandle to restore the stored redacted artifact as-is (a .docx keeps its formatting); (2) pass editedText with the (possibly AI-edited) redacted TEXT to restore that: the result is TEXT (format txt) even when the redacted artifact was a .docx, so Word formatting is NOT kept on this path; (3) pass editedHandle, the handle of the EDITED redacted document that came back, to restore it with redactedHandle's mapping: a .docx keeps its formatting. To keep Word formatting end to end: export the redacted .docx, have the human edit that file itself (accept all tracked changes before staging), stage it with `lda vault stage <file>`, and pass its doc_... handle as editedHandle. Every response reports format (docx, txt, or md), restoredCount, orphanTokens, suspectPlaceholderCount, ambiguousReplacements, and suspectPlaceholders (the strings only when the restored surface's text is already known to you: the stored artifact, editedText, or a redacted artifact of this mapping; a human-staged file reports the count only). The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
+            "description": "Restore placeholders back to their original values using a redacted artifact's encrypted mapping. Three shapes: (1) omit editedText and editedHandle to restore the stored redacted artifact as-is (a .docx keeps its formatting); (2) pass editedText with the (possibly AI-edited) redacted TEXT to restore that: the result is TEXT (format txt) even when the redacted artifact was a .docx, so Word formatting is NOT kept on this path; (3) pass editedHandle, the handle of the EDITED redacted document that came back, to restore it with redactedHandle's mapping: a .docx keeps its formatting. To keep Word formatting end to end: export the redacted .docx, have the human edit that file itself, call import_edited_document with this redactedHandle, and pass the returned editedHandle. The local picker explains tracked changes and refuses unresolved revisions; the human must accept or reject them in Word and save before import. Every response reports format (docx, txt, or md), restoredCount, orphanTokens, suspectPlaceholderCount, ambiguousReplacements, and suspectPlaceholders (the strings only when the restored surface's text is already known to you: the stored artifact, editedText, or a redacted artifact of this mapping; a human-staged file reports the count only). The restored artifact STAYS in the vault (it contains real PII); use export to hand it to the human.",
             "inputSchema": [
                 "type": "object",
                 "properties": [
                     "redactedHandle": ["type": "string", "description": "Handle of the redacted artifact whose mapping to use (red_...)."],
                     "editedText": ["type": "string", "description": "Optional edited redacted TEXT to restore; it is written into the vault as its own artifact first. Restores to text (format txt): formatting is not kept on this path. Mutually exclusive with editedHandle."],
-                    "editedHandle": ["type": "string", "description": "Optional handle of the EDITED redacted document that came back (a doc_... the human staged with `lda vault stage <file>`, or a red_... artifact). Restored with redactedHandle's mapping; a .docx keeps its formatting, text and Markdown restore as text. Restored artifacts (res_...), images, and PDFs are refused; so is an original that holds no placeholder of this mapping (no_placeholders_found, nothing is written) and a redacted artifact of another mapping (mapping_mismatch). Mutually exclusive with editedText."],
+                    "editedHandle": ["type": "string", "description": "Optional handle of the EDITED redacted document that came back (a doc_... returned by import_edited_document, or a red_... artifact). Restored with redactedHandle's mapping; a .docx keeps its formatting, text and Markdown restore as text. Restored artifacts (res_...), images, and PDFs are refused; so is an original that holds no placeholder of this mapping (no_placeholders_found, nothing is written) and a redacted artifact of another mapping (mapping_mismatch). Mutually exclusive with editedText."],
                     "passphrase": ["type": "string", "description": "Optional passphrase that protects the mapping sidecar."]
                 ],
                 "required": ["redactedHandle"]
@@ -204,7 +215,7 @@ extension MCPServer {
         ],
         [
             "name": "export",
-            "description": "Copy a redacted or restored artifact to the vault's outbox, a fixed location the human knows. Originals are refused. The response contains no path.",
+            "description": "Export a redacted or restored artifact. Returns an opaque exportID, format, kind, completion status and local-action status, never a filename or path. A native MCP export dialog offers Reveal in Finder for this exact artifact, and LDA Export History distinguishes App and MCP exports with timestamps and Matter association. Originals are refused. Read format metadata before describing the artifact as Word. If localAction is unavailable or timed_out, direct the user to Export History; do not use an earlier App export card.",
             "inputSchema": [
                 "type": "object",
                 "properties": [

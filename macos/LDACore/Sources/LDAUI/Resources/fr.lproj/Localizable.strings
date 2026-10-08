@@ -1069,3 +1069,37 @@
 "Review the Terms of Service and Privacy Policy to begin." = "Consultez les Conditions d’utilisation et la Politique de confidentialité pour commencer.";
 "Legal" = "Informations juridiques";
 "Contact Support" = "Contacter l’assistance";
+
+/* Save Redacted progress and destination */
+"Choose Folder" = "Choisir un dossier";
+"Saving Redacted…" = "Enregistrement en cours…";
+"Saving the redacted document and its mapping. Large documents can take a little longer." = "Enregistrement du document caviardé et de sa table de correspondance. Les documents volumineux peuvent prendre un peu plus de temps.";
+"Save failed: %@" = "Échec de l’enregistrement : %@";
+"%@\n\nSaved in: %@" = "%@\n\nEnregistré dans : %@";
+
+/* Export receipts and history */
+"Export History" = "Historique des exportations";
+"Refresh" = "Actualiser";
+"App and MCP exports. Each Reveal button opens the file recorded on that row." = "Exportations de l’application et de MCP. Chaque bouton d’affichage ouvre le fichier enregistré sur sa ligne.";
+"No exports recorded" = "Aucune exportation enregistrée";
+"New App and MCP exports will appear here." = "Les nouvelles exportations de l’application et de MCP apparaîtront ici.";
+"Current MCP export" = "Exportation MCP actuelle";
+"%@ · %@ · %@ · Completed" = "%@ · %@ · %@ · Terminé";
+"MCP" = "MCP";
+"App" = "Application";
+"Matter: %@" = "Dossier : %@";
+"Redacted" = "Caviardé";
+"Restored" = "Restauré";
+"App export saved · %@ · Redacted" = "Exportation de l’application enregistrée · %@ · Caviardé";
+"Reveal the exact App or MCP export by time, format and Matter" = "Afficher l’exportation exacte de l’application ou de MCP selon l’heure, le format et le dossier";
+"Export completed, but history could not be saved. Use this export's Reveal in Finder action." = "L’exportation est terminée, mais l’historique n’a pas pu être enregistré. Utilisez l’action Afficher dans le Finder de cette exportation.";
+"Export history could not be opened. Check local file access, then refresh." = "Impossible d’ouvrir l’historique des exportations. Vérifiez l’accès aux fichiers locaux, puis actualisez.";
+"LDA V4" = "LDA V4";
+"Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds." = "Fourni avec LDA, rien à télécharger. Détecte en quelques secondes les personnes, les sociétés et les adresses en anglais et en chinois.";
+"Included" = "Inclus";
+"Published precedent: %lld party named in its caption is left in clear. Tick it in the list to redact it." = "Précédent publié : %lld partie nommée dans son intitulé reste en clair. Cochez-la dans la liste pour la masquer.";
+"Published precedent: %lld parties named in its caption are left in clear. Tick them in the list to redact them." = "Précédent publié : %lld parties nommées dans son intitulé restent en clair. Cochez-les dans la liste pour les masquer.";
+"Included · %@" = "Inclus · %@";
+"For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "Pour Remplir depuis un profil. Le plus petit téléchargement ; fonctionne sur les Mac avec 16 Go de mémoire.";
+"Switch to LDA V4" = "Passer à LDA V4";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "Il restitue certains noms et certaines adresses sous une forme légèrement différente de celle du document. Ils ne sont donc jamais caviardés et n’apparaissent jamais dans la liste de vérification. LDA V4, fourni avec l’application, n’a pas ce problème et fonctionne plus vite.";

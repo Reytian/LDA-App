@@ -60,6 +60,17 @@ You need an Apple Developer account.
    ./packaging/package-app.sh
    ```
 
+   Then wrap the notarized app in a signed, notarized disk image with an
+   Applications link, the release asset:
+
+   ```bash
+   APP_PATH=~/Developer/lda-dist.noindex/LDA.app \
+   CODESIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)" \
+   NOTARY_PROFILE=LDA_NOTARY \
+   ./packaging/make-dmg.sh
+   # writes LDA-<version>.dmg beside the app and prints its SHA-256
+   ```
+
    `PROVISIONING_PROFILE` is required whenever `CODESIGN_IDENTITY` is set; the
    script refuses to sign without it rather than produce a build that dies at
    launch. The profile is copied to `LDA.app/Contents/embedded.provisionprofile`
@@ -125,15 +136,26 @@ attributes iCloud leaves on synced files.
   the app degrades to an empty catalog: the ladder collapses to Patterns only
   and Manage Models is empty. `package-app.sh` exits non-zero rather than
   shipping such a build.
+- `Contents/Resources/LDA-V4` : LDA V4, the default detection model:
+  `LDA-V4.mlmodelc` (compiled here from `LDA-V4.mlpackage` with
+  `xcrun coremlcompiler`), `runtime.json` and `tokenizer/`.
 - `Contents/Info.plist` : bundle id `com.haotianyi.LDA` (change as needed).
 
-**No detection model is bundled by default**, so the shipping .app is about
-16 MB and a fresh install asks for a model on first run: Manage Models
-downloads one, or the user adds a file they carried over. Both paths verify the
-file against the checksum in `Models.json` and copy it into
+**LDA V4 is bundled in every build.** The script reads the model files from
+`LDA_V4_DIR` (default `~/Developer/lda-models/lda-v4`, the layout of the
+private Hugging Face repo `Reytian/LDA-V4`; fetch it with
+`hf download Reytian/LDA-V4 --local-dir ~/Developer/lda-models/lda-v4`),
+checks every file against `packaging/lda-v4.sha256`, and refuses to build when
+a file is missing or differs. The app loads the folder straight from its
+Resources, so packaging is the only moment it can be checked. It takes the
+.app to about 130 MB.
+
+**No GGUF model is bundled by default.** The larger tiers are optional: Manage
+Models downloads one, or the user adds a file they carried over. Both paths
+verify the file against the checksum in `Models.json` and copy it into
 `Application Support/LDA/Models/`.
 
-Set `BUNDLE_MODEL=1` to build a single-file deploy instead, with `MODEL_PATH`
+Set `BUNDLE_MODEL=1` to add the Quick GGUF as well, with `MODEL_PATH`
 pointing at the Quick GGUF. Only Quick is a candidate: it peaks at 3.1 GB and
 fits the 16 GB minimum spec, where Balanced needs 24 GB and the memory gate
 would block it. The script verifies the file's byte count and SHA-256 against

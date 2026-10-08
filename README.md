@@ -99,24 +99,34 @@ LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, pl
 You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory**.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-notarized.zip** from **Assets**.
-2. Double-click the ZIP in Finder, then drag **LDA.app** into **Applications**.
+   and download **LDA-1.3.dmg** from **Assets**.
+2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
-   Privacy Policy, then choose your language and a detection model in the setup wizard. **Quick** is the starting option for a 16 GB Mac.
-4. Wait for the model download and verification to finish, or use **Add Model
-   File** to import a compatible model you already have.
+   Privacy Policy, then choose your language in the setup wizard.
 
-The app and detection model are separate downloads. LDA 1.0 includes both video
-walkthroughs; the Quick model is a separate download of approximately 2.74 GB.
-Later packages may differ in size. No cloud API key is required for the Mac app.
+LDA 1.3 comes with **LDA V4**, its detection model, so names, companies and
+addresses are found from the first launch with nothing else to download. LDA V4
+is a small on-device tagger (128 MB) for English, Chinese and mixed legal
+text; it runs on every Mac LDA supports and takes a few seconds per document.
+It replaces Quick as the light detection level. **Balanced** and **Most
+thorough** remain optional detection downloads in **Settings > AI > Manage
+Models**. **Fill from Profile** needs a model that writes, so it uses one of
+those or **Quick**, which stays an optional download for it and fits a 16 GB
+Mac. No cloud API key is required for the Mac app.
 
-Without a model, **Patterns only** can find structured items such as emails,
-phone numbers, dates, amounts, IDs, and case numbers. It does **not** detect
-people's names, company names, or addresses. For an offline Mac, use the
-[model import instructions](macos/LDACore/README.md#installing-a-detection-model).
+When a document is itself a published precedent (a guiding case of the Supreme
+People's Court or Procuratorate, or a published US opinion), LDA leaves the
+parties named in its caption in clear and lists them unticked for review; tick
+a name to redact it after all. Witnesses, judges and counsel stay redacted.
+
+**Patterns only** finds structured items such as emails, phone numbers, dates,
+amounts, IDs, and case numbers without any model. It does **not** detect
+people's names, company names, or addresses. For an offline Mac that should use
+a larger model, see the
+[model import instructions](macos/LDACore/README.md#installing-a-larger-detection-model).
 
 For download verification, also download **SHA256SUMS.txt** into the same folder
-as the ZIP and follow the [checksum instructions](docs/user-guide.md#verify-the-download-optional).
+as the disk image and follow the [checksum instructions](docs/user-guide.md#verify-the-download-optional).
 
 ## Your first document
 

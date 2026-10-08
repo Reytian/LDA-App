@@ -137,9 +137,21 @@ enum MCPVaultToolError: Error {
     case localApprovalRequired
     case workspaceUnavailable
     case workspaceSelectionCancelled
+    case localHandoffUnavailable
+    case wordEditRequired
+    case unresolvedTrackedChanges(Int)
+    case invalidImportArguments
 
     var message: String {
         switch self {
+        case .invalidImportArguments:
+            return "invalid_arguments: import_edited_document accepts only redactedHandle; choose the file and confirm locally"
+        case .localHandoffUnavailable:
+            return "local_handoff_unavailable: open LDA on this Mac and retry from a local desktop MCP session"
+        case .wordEditRequired:
+            return "word_edit_required: choose the edited redacted DOCX to preserve Word formatting"
+        case .unresolvedTrackedChanges(let count):
+            return "tracked_changes_unresolved: count=\(count); accept or reject all tracked changes in Word, save, then import again; no edited document was registered"
         case .localPreparationCancelled:
             return "preparation_cancelled: local document selection or review was cancelled; no document text was returned"
         case .localApprovalRequired:
@@ -220,6 +232,7 @@ extension MCPServer {
             if let source = entry.sourceHandle {
                 item["sourceHandle"] = source
             }
+            if let editingSource = entry.editingSourceHandle { item["editingSourceHandle"] = editingSource }
             if let workspaceID = entry.workspaceID {
                 item["workspaceID"] = workspaceID.uuidString.lowercased()
             }
@@ -357,6 +370,8 @@ extension MCPServer {
             )
             var response: [String: Any] = [
                 "redactedHandle": committed.handle,
+                "format": committed.format,
+                "kind": committed.kind.rawValue,
                 "imageRedactionCount": stagedResult.imageRedactionCount,
                 "embeddedMediaCount": stagedResult.embeddedMediaCount,
                 "unboxedTokenCount": stagedResult.unboxedTokenCount,
@@ -481,13 +496,42 @@ extension MCPServer {
 
     /// export: copy a redacted or restored artifact to the vault's outbox, a
     /// fixed human-known location. The MODEL never chooses a destination; the
-    /// response says only that it happened.
+    /// response carries only neutral metadata; the native action owns its URL.
     func callExport(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
-        // The returned outbox URL is for human-facing edges; it must not
-        // enter this response.
-        _ = try openVault().exportToOutbox(handle: handle)
-        return ["ok": true]
+        let vault = openVault()
+        let entry = try vault.entry(handle: handle)
+        let url = try vault.exportToOutbox(handle: handle)
+        let presentationApp = MCPLocalHandoff.prepareExportApp(configuredURL: environment["LDA_APP_PATH"].map { URL(fileURLWithPath: $0) })
+        let receipt = ExportReceipt(fileURL: url, origin: .mcp, kind: entry.kind,
+                                    workspaceID: entry.workspaceID, artifactHandle: handle)
+        var historySaved = true
+        do { try exportHistory().record(receipt) } catch { historySaved = false }
+        let action: String
+        #if DEBUG
+        if let presentExportForTesting { action = presentExportForTesting(receipt, historySaved) }
+        else { action = MCPLocalHandoff.presentExport(receipt, historySaved: historySaved, appURL: presentationApp) }
+        #else
+        action = MCPLocalHandoff.presentExport(receipt, historySaved: historySaved, appURL: presentationApp)
+        #endif
+        var response: [String: Any] = ["ok": true, "status": "completed", "exportID": receipt.exportID,
+            "handle": handle, "format": entry.format, "kind": entry.kind.rawValue,
+            "exportedAt": ISO8601DateFormatter().string(from: receipt.createdAt),
+            "historyStatus": historySaved ? "saved" : "unavailable",
+            "localAction": ["type": "reveal_in_finder", "status": action],
+            "nextStep": "Use the local MCP export dialog or LDA Export History to reveal this exact export. For Word edits, call import_edited_document with the redactedHandle, then restore with its editedHandle."]
+        if let workspaceID = entry.workspaceID { response["workspaceID"] = workspaceID.uuidString.lowercased() }
+        return response
+    }
+
+    func exportHistory() -> ExportHistory {
+        // An explicit launch-only override keeps isolated development/test
+        // vaults out of the person's shared history. It is never a tool argument.
+        if let root = environment["LDA_EXPORT_HISTORY_DIR"] {
+            return ExportHistory(directory: URL(fileURLWithPath: root),
+                protection: environment["LDA_EXPORT_HISTORY_PASSPHRASE"].map(MappingProtection.passphrase))
+        }
+        return ExportHistory()
     }
 
     // MARK: attest
@@ -587,6 +631,7 @@ extension MCPServer {
     /// policy messages, and String(describing:) fallbacks can all embed
     /// filesystem paths, so none of them pass through verbatim.
     func describeBoundarySafe(_ error: Error) -> String {
+        if let actionable = LocalOperationFailure.message(for: error) { return actionable }
         switch error {
         case let vaultToolError as MCPVaultToolError:
             return vaultToolError.message

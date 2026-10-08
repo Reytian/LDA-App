@@ -5,8 +5,10 @@
 //  Drives packaging/package-app.sh against a fake toolchain so the packaging
 //  rules are covered by the unit suite rather than by memory.
 //
-//  Bundling a model is opt in. BUNDLE_MODEL=1 is the only thing that turns it
-//  on, and when it is on the file is verified against the packaged Models.json
+//  LDA V4, the default detection model, is bundled in every build, file by
+//  file verified against a pinned checksum list and compiled once. Bundling a
+//  GGUF model is opt in. BUNDLE_MODEL=1 is the only thing that turns it on,
+//  and when it is on the file is verified against the packaged Models.json
 //  before it is copied. That verification is the only moment in the product's
 //  life when a bundled model can be checked at all: ModelCatalog.bundledPath
 //  resolves straight through Bundle.main, so ModelInstaller never sees it.
@@ -45,8 +47,60 @@ final class PackagingScriptTests: XCTestCase {
         let result = try fixture.run()
 
         XCTAssertEqual(result.status, 0, result.output)
-        XCTAssertTrue(result.output.contains("No model bundled"), result.output)
+        XCTAssertTrue(result.output.contains("No GGUF model bundled"), result.output)
         XCTAssertEqual(fixture.bundledModelFileNames(), [], result.output)
+    }
+
+    // MARK: - LDA V4 ships in every build
+
+    func testEveryBuildCarriesAVerifiedCompiledLDAV4() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run()
+
+        XCTAssertEqual(result.status, 0, result.output)
+        let folder = fixture.distURL.appendingPathComponent("LDA.app/Contents/Resources/LDA-V4")
+        for item in ["LDA-V4.mlmodelc", "runtime.json", "tokenizer/vocab.json", "tokenizer/charsmap.bin", "tokenizer/tables.json"] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: folder.appendingPathComponent(item).path),
+                "missing \(item): \(result.output)"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: folder.appendingPathComponent("LDA-V4.mlpackage").path),
+            "the app carries the compiled model, not the package"
+        )
+        XCTAssertTrue(result.output.contains("LDA V4 bundled and checksum verified"), result.output)
+    }
+
+    func testABuildWithoutLDAV4IsRefused() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+
+        let result = try fixture.run(extraEnvironment: [
+            "LDA_V4_DIR": fixture.rootURL.appendingPathComponent("no-such-folder").path
+        ])
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("a build without it is refused"), result.output)
+    }
+
+    func testATamperedLDAV4FileIsRefused() throws {
+        let fixture = try PackagingFixture(swiftExitStatus: 0)
+        defer { fixture.remove() }
+        try Data("tampered".utf8).write(to: fixture.ldaV4URL.appendingPathComponent("runtime.json"))
+
+        let result = try fixture.run()
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("does not match packaging/lda-v4.sha256"), result.output)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: fixture.distURL.appendingPathComponent("LDA.app/Contents/Resources/LDA-V4/runtime.json").path
+            ),
+            "nothing unverified may be copied"
+        )
     }
 
     func testPackagingWithoutABundledModelIgnoresAStaleModelPath() throws {
@@ -238,6 +292,9 @@ private struct PackagingFixture {
     let missingModelURL: URL
     /// The SHA-256 the fixture manifest publishes for `modelURL`.
     let expectedDigest: String
+    /// Stand-in LDA V4 model files, and the checksum list that vouches for them.
+    let ldaV4URL: URL
+    let ldaV4SumsURL: URL
 
     init(
         swiftExitStatus: Int32,
@@ -277,6 +334,42 @@ private struct PackagingFixture {
         )
         try Self.writeExecutable(named: "xattr", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
         try Self.writeExecutable(named: "codesign", in: fakeBinURL, contents: "#!/bin/bash\nexit 0\n")
+        // Stands in for `xcrun coremlcompiler compile SRC DST`: writes the
+        // compiled folder the real compiler would, named after the package.
+        try Self.writeExecutable(
+            named: "xcrun",
+            in: fakeBinURL,
+            contents: """
+            #!/bin/bash
+            if [ "$1" = "coremlcompiler" ] && [ "$2" = "compile" ]; then
+              name="$(basename "$3" .mlpackage)"
+              mkdir -p "$4/$name.mlmodelc" && echo stub > "$4/$name.mlmodelc/coremldata.bin"
+              exit 0
+            fi
+            exit 1
+            """
+        )
+
+        // The stand-in LDA V4 folder and its checksum list, computed from the
+        // bytes just written so the two cannot drift apart.
+        ldaV4URL = rootURL.appendingPathComponent("lda-v4", isDirectory: true)
+        ldaV4SumsURL = rootURL.appendingPathComponent("lda-v4.sha256")
+        var sums = ""
+        for (relative, contents) in [
+            ("LDA-V4.mlpackage/Manifest.json", "{}"),
+            ("LDA-V4.mlpackage/Data/com.apple.CoreML/model.mlmodel", "model stand-in"),
+            ("runtime.json", "{\"label_names\": [\"O\"]}"),
+            ("tokenizer/vocab.json", "{}"),
+            ("tokenizer/charsmap.bin", "charsmap"),
+            ("tokenizer/tables.json", "{}")
+        ] {
+            let url = ldaV4URL.appendingPathComponent(relative)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let bytes = Data(contents.utf8)
+            try bytes.write(to: url)
+            sums += Self.hexDigest(of: bytes) + "  ./" + relative + "\n"
+        }
+        try Data(sums.utf8).write(to: ldaV4SumsURL)
 
         // The stand-in Quick model, plus the two near misses. All three carry
         // the same file name because the script looks the expected figures up
@@ -361,6 +454,8 @@ private struct PackagingFixture {
         environment.removeValue(forKey: "SCRATCH_PATH")
         environment.removeValue(forKey: "MODEL_PATH")
         environment.removeValue(forKey: "BUNDLE_MODEL")
+        environment["LDA_V4_DIR"] = ldaV4URL.path
+        environment["LDA_V4_SUMS"] = ldaV4SumsURL.path
         // Never inherit a real signing identity or profile from the developer's
         // shell: the fixture must exercise the ad hoc path unless a test says
         // otherwise, or a stray CODESIGN_IDENTITY would make it sign for real.

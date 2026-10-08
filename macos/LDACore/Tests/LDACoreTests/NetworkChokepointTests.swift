@@ -42,7 +42,14 @@ final class NetworkChokepointTests: XCTestCase {
         // The URL is generated from MCPWorkspaceRequest, never passed through from an
         // MCP argument. It always has the lda-mcp scheme and targets the local LDA app.
         // MCPWorkspaceBridgeTests verifies the request shape and rejects other schemes.
-        "NSWorkspace.shared.open": ["MCPWorkspaceTools.swift"],
+        "NSWorkspace.shared.open": [
+            "MCPWorkspaceTools.swift",
+            // The application URL comes from the local bundle lookup or a launch-only
+            // fileURLWithPath override. The only delivered URL is ExportReceipt's
+            // fixed lda-mcp://show-export/<UUID> route, never a tool-supplied URL.
+            // MCPExportHandoffTests verifies that route and rejects query/path injection.
+            "MCPLocalHandoff.swift"
+        ],
         "String(contentsOf:": [
             "NetworkChokepointTests.swift",
             "LegalAcceptance.swift"    // bundled Markdown; requires a file URL

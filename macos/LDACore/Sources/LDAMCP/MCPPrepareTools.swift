@@ -82,6 +82,7 @@ extension MCPServer {
             let result = try callAnonymizeHandle(args)
             var summary = result
             summary["sourceHandle"] = published.handle
+            summary["sourceFormat"] = published.format
             summary["localReviewCompleted"] = selection.review
             if let workspace { summary["workspaceID"] = workspace.uuidString.lowercased() }
             documents.append(summary)

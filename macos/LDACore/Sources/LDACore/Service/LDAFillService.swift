@@ -72,6 +72,15 @@ extension LDAService {
             return factory()
         }
 #endif
+        // Filling writes text, which needs a generative GGUF model. LDA V4
+        // finds entities and cannot fill; say so instead of failing as a
+        // GGUF that will not load.
+        if LDAV4Extractor.isModelDirectory(modelPath) {
+            throw LDAServiceError.modelUnavailable(
+                path: modelPath,
+                reason: "LDA V4 detects names but cannot fill in a document; profile filling needs a downloadable model such as Quick"
+            )
+        }
         return try LLMEngine(config: .init(modelPath: modelPath))
     }
 

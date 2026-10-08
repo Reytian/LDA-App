@@ -38,6 +38,8 @@ enum VaultTestSupport {
         var environment = extra
         environment[DocumentVault.environmentKey] = vaultDir.path
         environment[DocumentVault.passphraseEnvironmentKey] = passphrase
+        environment["LDA_EXPORT_HISTORY_DIR"] = vaultDir.appendingPathComponent("export-history").path
+        environment["LDA_EXPORT_HISTORY_PASSPHRASE"] = passphrase
         return environment
     }
 }

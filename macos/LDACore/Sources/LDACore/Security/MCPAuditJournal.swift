@@ -14,7 +14,7 @@ public final class MCPAuditJournal {
         containerDescription: "MCP audit key", auditing: false)
     private static let genesis = String(repeating: "0", count: 64)
     private static let operations: Set<String> = [
-        "prepare_documents", "list_pending", "anonymize", "anonymize_session", "read_redacted", "detect_entities",
+        "prepare_documents", "import_edited_document", "list_pending", "anonymize", "anonymize_session", "read_redacted", "detect_entities",
         "restore", "export", "attest", "choose_workspace", "extract_profile", "fill",
         "portfolio_list", "portfolio_show", "anonymize_document", "restore_document", "unknown"
     ]

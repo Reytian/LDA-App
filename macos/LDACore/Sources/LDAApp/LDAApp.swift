@@ -86,7 +86,7 @@ struct LDAApp: App {
     // Observe the ladder's key. The legacy detectionModeKey is no longer
     // written by anything, so watching it meant a settings change never reached
     // an already-open document.
-    @AppStorage(AISettings.detectionLevelKey) private var detectionLevelRaw = DetectionLevel.quick.rawValue
+    @AppStorage(AISettings.detectionLevelKey) private var detectionLevelRaw = AISettings.defaultLevel().rawValue
 
     private var colorScheme: ColorScheme? {
         AppearanceMode.from(rawValue: appearanceRaw).colorScheme
@@ -173,6 +173,10 @@ struct LDAApp: App {
                     // External requests cannot present document or integration UI
                     // over the first-use agreement. The caller can retry afterward.
                     guard legalAcceptance.hasAcceptedCurrentDocuments else { return }
+                    if let exportID = ExportReceipt.requestedID(from: url) {
+                        modeStore.requestedExportID = exportID
+                        return
+                    }
                     if let request = MCPWorkspaceRequest(url: url) {
                         if mcpWorkspaceRequest == nil || mcpWorkspaceRequest?.isExpired() == true {
                             mcpWorkspaceRequest = request

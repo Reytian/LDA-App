@@ -292,7 +292,9 @@ public struct DeanonymizeShell: View {
                 mapping: key.mapping,
                 keySource: key.source,
                 preview: preview,
-                previewedSource: previewedSource
+                previewedSource: previewedSource,
+                sessionWorkspaceID: session.matterScopeID,
+                sessionMatterLabel: session.clientLabel
             )
             resultMessage = nil
             return true
@@ -329,6 +331,8 @@ public struct DeanonymizeShell: View {
             return
         case .written(let report):
             showRestoreResult(report, keySource: request.keySource)
+            if let warning = LocalExportHistory.record([report.outputURL], kind: .restored,
+                workspaceID: request.exportWorkspaceID, matterLabel: request.exportMatterLabel) { showFailure(warning) }
         case .failed(let error):
             showFailure(DocumentErrorPresentation.describeOrFallback(error))
         }

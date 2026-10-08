@@ -450,7 +450,7 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Passphrase to protect the mapping. Optional. WARNING: a value passed on the command line is visible in ps output and saved in your shell history; omit it to use the Keychain instead.")
     var passphrase: String?
 
-    @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
+    @Option(name: .long, help: "Path to a GGUF model, or to the LDA V4 model folder (LDA.app/Contents/Resources/LDA-V4), to also detect PERSON/COMPANY/ADDRESS. Optional.")
     var model: String?
 
     @Option(name: .long, help: "Client profile label. The session reuses and extends that client's stored identities (same value, same placeholder, across sessions). Routes through session mode.")
@@ -553,7 +553,7 @@ struct Detect: ParsableCommand {
     @Option(name: .long, help: "Path to the source document.")
     var input: String
 
-    @Option(name: .long, help: "Path to the v2 GGUF model to also detect PERSON/COMPANY/ADDRESS. Optional.")
+    @Option(name: .long, help: "Path to a GGUF model, or to the LDA V4 model folder (LDA.app/Contents/Resources/LDA-V4), to also detect PERSON/COMPANY/ADDRESS. Optional.")
     var model: String?
 
     func run() throws {
@@ -586,6 +586,7 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
     }
 
     private func message(for error: Error) -> String {
+        if let actionable = LocalOperationFailure.message(for: error) { return actionable }
         switch error {
         case let cliError as CLIError:
             return cliError.description

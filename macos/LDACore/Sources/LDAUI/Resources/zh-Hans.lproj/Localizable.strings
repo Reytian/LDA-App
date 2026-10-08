@@ -1069,3 +1069,37 @@
 "Review the Terms of Service and Privacy Policy to begin." = "请阅读服务条款和隐私政策以开始使用。";
 "Legal" = "法律";
 "Contact Support" = "联系支持";
+
+/* Save Redacted progress and destination */
+"Choose Folder" = "选择文件夹";
+"Saving Redacted…" = "正在存储已隐去文档…";
+"Saving the redacted document and its mapping. Large documents can take a little longer." = "正在存储已隐去文档及其映射。较大的文档可能需要更长时间。";
+"Save failed: %@" = "存储失败：%@";
+"%@\n\nSaved in: %@" = "%@\n\n存储位置：%@";
+
+/* Export receipts and history */
+"Export History" = "导出历史记录";
+"Refresh" = "刷新";
+"App and MCP exports. Each Reveal button opens the file recorded on that row." = "应用和 MCP 的导出记录。每个显示按钮均打开该行记录的文件。";
+"No exports recorded" = "暂无导出记录";
+"New App and MCP exports will appear here." = "应用和 MCP 的新导出记录将显示在这里。";
+"Current MCP export" = "当前 MCP 导出";
+"%@ · %@ · %@ · Completed" = "%@ · %@ · %@ · 已完成";
+"MCP" = "MCP";
+"App" = "应用";
+"Matter: %@" = "事项：%@";
+"Redacted" = "已隐去";
+"Restored" = "已恢复";
+"App export saved · %@ · Redacted" = "应用导出已保存 · %@ · 已隐去";
+"Reveal the exact App or MCP export by time, format and Matter" = "按时间、格式和事项显示对应的应用或 MCP 导出文件";
+"Export completed, but history could not be saved. Use this export's Reveal in Finder action." = "导出已完成，但无法保存历史记录。请使用此次导出的“在‘访达’中显示”操作。";
+"Export history could not be opened. Check local file access, then refresh." = "无法打开导出历史记录。请检查本地文件访问权限，然后刷新。";
+"LDA V4" = "LDA V4";
+"Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds." = "随 LDA 一起提供，无需下载。几秒钟内即可找出英文和中文文本中的人名、公司名和地址。";
+"Included" = "内置";
+"Published precedent: %lld party named in its caption is left in clear. Tick it in the list to redact it." = "已公开的判例：其标题中列名的 %lld 个当事人保持原文显示。在列表中勾选即可将其隐去。";
+"Published precedent: %lld parties named in its caption are left in clear. Tick them in the list to redact them." = "已公开的判例：其标题中列名的 %lld 个当事人保持原文显示。在列表中勾选即可将其隐去。";
+"Included · %@" = "内置 · %@";
+"For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "用于“从档案填写”。下载量最小，适用于配备 16 GB 内存的 Mac。";
+"Switch to LDA V4" = "切换到 LDA V4";
+"It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "它会以与文档稍有不同的形式返回部分姓名和地址，因此这些内容不会被隐去，也不会进入审核列表。LDA V4 随应用提供，没有这个问题，而且运行更快。";

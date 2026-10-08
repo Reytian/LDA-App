@@ -131,6 +131,9 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     /// Local review policy, encrypted in the registry and never included in MCP summaries.
     public internal(set) var requiredLocalPatterns: [CustomPattern]? = nil
     public internal(set) var localReviewTextDigest: String? = nil
+    /// An imported edit is still private original content, bound to the locally
+    /// confirmed mapping source. It must never become readable via read_redacted.
+    public internal(set) var editingSourceHandle: String? = nil
 }
 
 // MARK: - Errors
@@ -159,6 +162,9 @@ public enum DocumentVaultError: Error, Equatable {
     case scratchWriteFailed
     /// The cross-process registry transaction lock could not be acquired.
     case crossProcessLockUnavailable
+    case lockTimedOut
+    case filesystemPermissionDenied
+    case stagingCancelled
 
     /// A short, boundary-safe description: code plus handle only.
     public var message: String {
@@ -182,7 +188,13 @@ public enum DocumentVaultError: Error, Equatable {
         case .scratchWriteFailed:
             return "scratch_write_failed: a temporary decrypted copy could not be created"
         case .crossProcessLockUnavailable:
-            return "cross_process_lock_unavailable: could not acquire the vault registry lock"
+            return "cross_process_lock_unavailable: could not open or use the vault lock; check local vault access and retry"
+        case .lockTimedOut:
+            return "vault_busy: timed out waiting for another local vault operation; wait for it to finish, then retry"
+        case .filesystemPermissionDenied:
+            return "filesystem_permission_denied: allow LDA access to the selected file and vault folder, then retry"
+        case .stagingCancelled:
+            return "staging_cancelled: no edited document was registered"
         }
     }
 }
@@ -290,9 +302,13 @@ public struct DocumentVault {
     @discardableResult
     public func stage(fileURL: URL, stagedAtISO8601: String, originalFilename: String? = nil,
                       workspaceID: UUID? = nil, workspaceSelectionIsExplicit: Bool = false,
-                      requiredLocalPatterns: [CustomPattern] = [], localReviewTextDigest: String? = nil) throws -> VaultEntry {
+                      requiredLocalPatterns: [CustomPattern] = [], localReviewTextDigest: String? = nil,
+                      editingSourceHandle: String? = nil,
+                      progress: (VaultStagingPhase) throws -> Void = { _ in }) throws -> VaultEntry {
+        try progress(.reading)
         var isDirectory: ObjCBool = false
         guard
+            fileURL.isFileURL,
             FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
             !isDirectory.boolValue,
             let plaintext = FileManager.default.contents(atPath: fileURL.path)
@@ -310,6 +326,7 @@ public struct DocumentVault {
         // Phase 1 (locked): allocate a fresh handle and reserve its object
         // directory. Fast; the slow encryption below runs UNLOCKED so no
         // other vault user is blocked while a large document is sealed.
+        try progress(.waitingForVault)
         let (handle, storedURL) = try withRegistryTransaction { () -> (String, URL) in
             let registry = try loadRegistryLocked()
             let handle = try allocateHandleLocked(kind: .original, registry: registry)
@@ -317,9 +334,12 @@ public struct DocumentVault {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             return (handle, directory.appendingPathComponent(storedName))
         }
+        var committed = false
+        defer { if !committed { try? FileManager.default.removeItem(at: storedURL.deletingLastPathComponent()) } }
 
         // Unlocked: this handle's directory was just reserved and is unique
         // to this call, so no other process can be writing into it.
+        try progress(.encrypting)
         try sealObjectData(plaintext, to: storedURL)
 
         var entry = VaultEntry(
@@ -341,15 +361,25 @@ public struct DocumentVault {
         entry.workspaceSelectionIsExplicit = workspaceSelectionIsExplicit
         entry.requiredLocalPatterns = requiredLocalPatterns.isEmpty ? nil : requiredLocalPatterns
         entry.localReviewTextDigest = localReviewTextDigest
+        entry.editingSourceHandle = editingSourceHandle
 
         // Phase 2 (locked): reload the registry FRESH, since another process
         // may have appended its own entry while phase 1 ran unlocked, then
         // append this entry and save.
+        try progress(.registering)
         try withRegistryTransaction {
             var registry = try loadRegistryLocked()
+            if let editingSourceHandle {
+                guard let source = registry.entries.first(where: { $0.handle == editingSourceHandle }), source.kind == .redacted else {
+                    throw DocumentVaultError.unknownHandle(editingSourceHandle)
+                }
+                entry.workspaceID = source.workspaceID
+                entry.workspaceSelectionIsExplicit = source.workspaceSelectionIsExplicit
+            }
             registry.entries.append(entry)
             try saveRegistryLocked(registry)
         }
+        committed = true
 
         SecurityEventLog.shared.record(kind: .vaultDocumentStaged, scope: DocumentVault.auditScope)
         return entry
@@ -597,8 +627,14 @@ public struct DocumentVault {
         )
 
         let baseName = exportBaseName(for: found)
-        let destination = firstFreeOutboxURL(base: baseName, ext: found.format)
-        try plaintext.write(to: destination, options: [.atomic])
+        // A separate lock covers name allocation AND publication. Registry
+        // transactions stay short; concurrent exports never overwrite a file.
+        let destination = try VaultCrossProcessLock(lockFileURL: rootDirectory.appendingPathComponent("export.lock")).withLock {
+            let destination = firstFreeOutboxURL(base: baseName, ext: found.format)
+            try plaintext.write(to: destination, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
+            return destination
+        }
         SecurityEventLog.shared.record(kind: .vaultArtifactExported, scope: DocumentVault.auditScope)
         return destination
     }

@@ -14,6 +14,7 @@
 //
 
 import AppKit
+import LDACore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -31,8 +32,13 @@ enum ModelAnnotation {
         switch level {
         case .patternsOnly:
             key = "No model runs. The names of people and organisations are not detected."
+        case .ldaV4:
+            key = "Comes with LDA, so there is nothing to download. Finds people, companies, and addresses in English and Chinese in seconds."
         case .quick:
-            key = "Smallest download. Works on Macs with 16 GB of memory."
+            // Where LDA V4 ships, Quick is kept only for Fill from Profile.
+            key = ModelCatalog.ldaV4Path() != nil
+                ? "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory."
+                : "Smallest download. Works on Macs with 16 GB of memory."
         case .balanced:
             key = "Recommended when memory allows. Fewer findings to dismiss."
         case .mostThorough:
@@ -50,7 +56,8 @@ enum ModelAnnotation {
 
     static func body(for level: DetectionLevel) -> String {
         switch level {
-        case .patternsOnly:
+        case .patternsOnly, .ldaV4:
+            // LDA V4 is not a downloadable row; its one line is summary(for:).
             return ""
         case .quick:
             return "Finds names, companies, and addresses on every kind of contract we "
@@ -183,7 +190,7 @@ public struct ModelManagementView: View {
     /// Injected for the same reason as the installer: a 2.6 GB copy must
     /// survive the user closing this sheet.
     @ObservedObject var importer: ModelImporter
-    @AppStorage(AISettings.detectionLevelKey) private var levelRaw = DetectionLevel.quick.rawValue
+    @AppStorage(AISettings.detectionLevelKey) private var levelRaw = AISettings.defaultLevel().rawValue
     @AppStorage(AISettings.customModelPathKey) private var customModelPath = ""
 
     /// Set while a scan is running, so removal can be refused with a reason.
@@ -213,7 +220,7 @@ public struct ModelManagementView: View {
         self.isBusyElsewhere = isBusyElsewhere
     }
 
-    private var level: DetectionLevel { DetectionLevel(rawValue: levelRaw) ?? .quick }
+    private var level: DetectionLevel { DetectionLevel(rawValue: levelRaw) ?? AISettings.defaultLevel() }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -221,6 +228,10 @@ public struct ModelManagementView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if ModelCatalog.ldaV4Path() != nil {
+                        ldaV4Row
+                        Divider().padding(.vertical, 4)
+                    }
                     ForEach(DetectionLevel.modelLevels, id: \.rawValue) { lvl in
                         if let tier = catalog.tier(for: lvl) {
                             modelRow(lvl, tier)
@@ -354,6 +365,33 @@ public struct ModelManagementView: View {
     }
 
     // MARK: Rows
+
+    /// LDA V4 comes with the app: there is nothing to download, import or
+    /// remove, so its row only names it and says whether it is in use. It is
+    /// rendered only when ModelCatalog.ldaV4Path() finds it in this build.
+    private var ldaV4Row: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(verbatim: LDAV4Extractor.displayName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(CounselTheme.textPrimary)
+                Spacer()
+                tag("Included")
+                if level == .ldaV4 && customModelPath.isEmpty {
+                    tag("Selected", tone: CounselTheme.inkAccent)
+                }
+            }
+            Text(verbatim: ModelAnnotation.summary(for: .ldaV4))
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let size = ModelCatalog.ldaV4SizeDescription() {
+                Text(verbatim: String(format: L10n.string("%@ on disk"), size as NSString))
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+        }
+    }
 
     @ViewBuilder
     private func modelRow(_ lvl: DetectionLevel, _ tier: ModelTier) -> some View {

@@ -56,16 +56,70 @@ final class ExportFlowModel: ObservableObject {
     /// Mac and the file exists to be opened somewhere else.
     @Published var confirmation = ""
 
+    @Published var isChoosingDirectory = false
+    @Published private(set) var isSaving = false
+    @Published private(set) var saveError: String?
+    @Published private(set) var savedExport: ExportResult?
+    @Published var isShowingSuccess = false
+
+    var isBusy: Bool {
+        isChoosingDirectory || isPromptingPassphrase || isSaving || savedExport != nil
+    }
+
+    var savedFiles: [URL] {
+        guard let savedExport else { return [] }
+        return [savedExport.redactedURL] + (savedExport.redactedImageURL.map { [$0] } ?? [])
+    }
+
     /// Bumped by the toolbar to raise the directory picker.
     @Published var requestToken = 0
 
-    func requestExport() { requestToken += 1 }
+    func requestExport() {
+        guard !isBusy else { return }
+        requestToken += 1
+    }
+
+    /// Keep the confirmation visible until the file and its mapping are saved.
+    /// A failure leaves the destination and inputs available for retry.
+    @discardableResult
+    func save(using operation: () async throws -> ExportResult) async -> ExportResult? {
+        guard !isSaving else { return nil }
+        isSaving = true
+        saveError = nil
+        defer { isSaving = false }
+        do {
+            let output = try await operation()
+            savedExport = output
+            isPromptingPassphrase = false
+            pendingExportDir = nil
+            resetInput()
+            return output
+        } catch {
+            saveError = String(
+                format: L10n.string("Save failed: %@"),
+                error.localizedDescription as NSString
+            )
+            return nil
+        }
+    }
+
+    /// Wait for the save sheet to close before presenting another modal.
+    /// Cancelled and failed saves have no completed export to announce.
+    func saveSheetDismissed() {
+        isShowingSuccess = savedExport != nil
+    }
+
+    func dismissSuccess() {
+        isShowingSuccess = false
+        savedExport = nil
+    }
 
     /// Clear everything the sheet collected.
     func resetInput() {
         wantsSidecar = false
         passphrase = ""
         confirmation = ""
+        saveError = nil
     }
 }
 
@@ -98,8 +152,24 @@ struct ExportFlow: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $flow.isPromptingPassphrase) {
+            .sheet(isPresented: $flow.isPromptingPassphrase, onDismiss: flow.saveSheetDismissed) {
                 passphraseSheet
+                    .interactiveDismissDisabled(flow.isSaving)
+            }
+            .l10nAlert("Redacted document saved", isPresented: $flow.isShowingSuccess) {
+                L10n.button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting(flow.savedFiles)
+                    flow.dismissSuccess()
+                }
+                L10n.button("Done", role: .cancel) {
+                    flow.dismissSuccess()
+                }
+            } message: {
+                if let saved = flow.savedExport {
+                    L10n.text("%@\n\nSaved in: %@",
+                              flow.savedFiles.map(\.lastPathComponent).joined(separator: "\n") as NSString,
+                              saved.redactedURL.deletingLastPathComponent().path as NSString)
+                }
             }
             // Two independent triggers, one panel: the toolbar bumps the
             // flow's own token, and the Save Redacted menu command bumps the
@@ -112,9 +182,18 @@ struct ExportFlow: ViewModifier {
 
     private var passphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
-            L10n.text("Where the mapping is kept")
+            L10n.text("Save Redacted")
                 .font(.headline)
                 .foregroundStyle(CounselTheme.textPrimary)
+
+            if let dir = flow.pendingExportDir {
+                Text(verbatim: dir.path)
+                    .font(.caption)
+                    .foregroundStyle(CounselTheme.textSecondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .help(dir.path)
+            }
 
             // Said BEFORE the offer below, because the answer to "can I still
             // restore this?" must not depend on the user opting into anything.
@@ -144,6 +223,25 @@ struct ExportFlow: ViewModifier {
             }
 
             sidecarSection
+                .disabled(flow.isSaving)
+
+            if flow.isSaving {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    L10n.text("Saving the redacted document and its mapping. Large documents can take a little longer.")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityIdentifier("saveRedactedProgress")
+            }
+
+            if let error = flow.saveError {
+                Text(verbatim: error)
+                    .font(.callout)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("saveRedactedError")
+            }
 
             HStack {
                 Spacer()
@@ -151,24 +249,25 @@ struct ExportFlow: ViewModifier {
                     cancelPassphrase()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(flow.isSaving)
 
-                L10n.button("Export") {
+                L10n.button(flow.isSaving ? "Saving Redacted…" : "Save Redacted") {
                     confirmExport()
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(CounselTheme.inkAccentFill)
-                // Disabled only on an INCOMPLETE sidecar passphrase, never on
+                // Disabled while saving or for an INCOMPLETE sidecar passphrase, never on
                 // the save gate: the save gate was already answered before
                 // this sheet appeared, and reading it a second time here is
                 // how the retired Bool gates used to multiply. With the
                 // sidecar toggle off there is no issue and the button is live,
                 // which is the default path.
-                .disabled(sidecarIssue != nil)
+                .disabled(sidecarIssue != nil || flow.isSaving)
             }
         }
         .padding(24)
-        .frame(minWidth: 380)
+        .frame(width: 520)
         .background(CounselTheme.raised)
     }
 
@@ -227,6 +326,7 @@ struct ExportFlow: ViewModifier {
     // MARK: - Export
 
     private func presentExportPanel() {
+        guard !flow.isBusy else { return }
         // Not a bare `guard ... else { return }`. Both triggers watched above
         // can fire while the gate is shut (the flow's own token, and the
         // document's, which the Cmd+E menu command bumps), and a silent return
@@ -239,7 +339,9 @@ struct ExportFlow: ViewModifier {
         }
         report(nil)
         flow.resetInput()
+        flow.isChoosingDirectory = true
         let panel = NSOpenPanel()
+        panel.title = L10n.string("Save Redacted Document…")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
@@ -247,10 +349,17 @@ struct ExportFlow: ViewModifier {
         // No longer promises a mapping in this folder: by default nothing but
         // the redacted document is written here.
         panel.message = L10n.string("Choose a folder for the redacted document.")
-        panel.prompt = L10n.string("Export Here")
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
-        flow.pendingExportDir = dir
-        flow.isPromptingPassphrase = true
+        panel.prompt = L10n.string("Choose Folder")
+        // Do not nest a modal event loop inside SwiftUI's onChange update.
+        // Present the confirmation after the native picker has closed.
+        panel.begin { response in
+            DispatchQueue.main.async {
+                flow.isChoosingDirectory = false
+                guard response == .OK, let dir = panel.url else { return }
+                flow.pendingExportDir = dir
+                flow.isPromptingPassphrase = true
+            }
+        }
     }
 
     private func cancelPassphrase() {
@@ -260,7 +369,6 @@ struct ExportFlow: ViewModifier {
     }
 
     private func confirmExport() {
-        flow.isPromptingPassphrase = false
         guard let dir = flow.pendingExportDir else { return }
 
         // One function decides whether a sidecar is written and under what.
@@ -272,30 +380,31 @@ struct ExportFlow: ViewModifier {
             confirmation: flow.confirmation
         )
         let createdAt = ISO8601DateFormatter().string(from: Date())
-        flow.pendingExportDir = nil
-        flow.resetInput()
-
-        let needsScope = dir.startAccessingSecurityScopedResource()
+        let exportMatterID = session.matterScopeID
+        let exportMatterLabel = session.clientLabel
         Task {
+            let needsScope = dir.startAccessingSecurityScopedResource()
             defer {
                 if needsScope { dir.stopAccessingSecurityScopedResource() }
             }
-            do {
+            guard let outcome = await flow.save(using: {
                 // Through the SESSION, not the model: the mapping's home is a
                 // workspace, and only the session knows the matter, the
                 // overrides, and the document's tray identity that go into one.
-                let outcome = try await session.exportRedacted(
+                return try await session.exportRedacted(
                     to: dir,
                     passphrase: phrase,
                     createdAtISO8601: createdAt
                 )
-                complete(.exported(outcome))
-            } catch {
-                report(String(
-                    format: L10n.string("Export failed: %@"),
-                    error.localizedDescription as NSString
-                ))
-            }
+            }) else { return }
+            complete(.exported(outcome))
+            // Create the local receipt while the selected directory remains accessible.
+            let files = [outcome.redactedURL] + (outcome.redactedImageURL.map { [$0] } ?? [])
+            let warning = await Task.detached(priority: .utility) {
+                LocalExportHistory.record(files, kind: .redacted,
+                    workspaceID: exportMatterID, matterLabel: exportMatterLabel)
+            }.value
+            if let warning { report(warning) }
         }
     }
 

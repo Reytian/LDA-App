@@ -105,7 +105,7 @@ struct AppShellToolbar: ToolbarContent {
                     Button {
                         exportFlow.requestExport()
                     } label: {
-                        L10n.label("Save Redacted", systemImage: "square.and.arrow.up")
+                        L10n.label("Save Redacted", systemImage: "externaldrive.badge.checkmark")
                     }
                     .labelStyle(.titleAndIcon)
                     // Still disabled, and deliberately so: an enabled button that
@@ -113,6 +113,8 @@ struct AppShellToolbar: ToolbarContent {
                     // renders the reason from this same availability value, so the
                     // click that produces nothing is no longer unexplained.
                     .disabled(!model.exportAvailability.isAvailable)
+                    .disabled(exportFlow.isBusy)
+                    .accessibilityIdentifier("saveRedacted")
                     .l10nHelp("Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.")
 
                     Menu {

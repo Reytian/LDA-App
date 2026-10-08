@@ -44,9 +44,20 @@ let package = Package(
             name: "Cllama",
             path: "Frameworks/llama.xcframework"
         ),
+        // The built-in LDA V4 tagger's runtime: tokenizer, Core ML inference,
+        // BIOES decoding and the published-precedent rule. A port of the
+        // tiny-PII reference pipeline, kept in its own module because its type
+        // names (Span, Tokenizer) would collide with LDACore's.
+        .target(
+            name: "TinyPII",
+            path: "Sources/TinyPII",
+            linkerSettings: [
+                .linkedFramework("CoreML")
+            ]
+        ),
         .target(
             name: "LDACore",
-            dependencies: ["ZIPFoundation", "Cllama"],
+            dependencies: ["ZIPFoundation", "Cllama", "TinyPII"],
             path: "Sources/LDACore",
             linkerSettings: [
                 .linkedFramework("Metal"),
@@ -99,7 +110,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LDACoreTests",
-            dependencies: ["LDACore", "LDACLI", "LDAMCP", "LDAUI"],
+            dependencies: ["LDACore", "LDACLI", "LDAMCP", "LDAUI", "TinyPII"],
             path: "Tests/LDACoreTests"
         )
     ]

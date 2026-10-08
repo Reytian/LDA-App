@@ -49,6 +49,7 @@ public enum AppMode: String, Hashable, CaseIterable {
 /// RootShell's @State directly.
 public final class AppModeStore: ObservableObject {
     @Published public var activeMode: AppMode = .anonymize
+    @Published public var requestedExportID: UUID?
 
     public init() {}
 }
@@ -73,6 +74,7 @@ public struct RootShell: View {
     // MARK: - Mode state (shared with LDAApp for command routing)
 
     @ObservedObject private var modeStore: AppModeStore
+    @State private var showsExportHistory = false
 
     // MARK: - Model plumbing
 
@@ -158,6 +160,15 @@ public struct RootShell: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    modeStore.requestedExportID = nil
+                    showsExportHistory = true
+                } label: {
+                    L10n.label("Export History", systemImage: "clock.arrow.circlepath")
+                }
+                    .l10nHelp("Reveal the exact App or MCP export by time, format and Matter")
+            }
             ToolbarItem(placement: .principal) {
                 L10n.picker("Mode", selection: $modeStore.activeMode) {
                     ForEach(AppMode.allCases, id: \.self) { mode in
@@ -173,6 +184,10 @@ public struct RootShell: View {
             // banner (labeled, always visible) and in the Restore copy,
             // NOT here: an icon-only toolbar item reads as a mystery lock and
             // competes for toolbar width on narrow windows.
+        }
+        .onChange(of: modeStore.requestedExportID) { _, id in if id != nil { showsExportHistory = true } }
+        .sheet(isPresented: $showsExportHistory, onDismiss: { modeStore.requestedExportID = nil }) {
+            ExportHistoryView(session: session, selectedExportID: modeStore.requestedExportID)
         }
     }
 }
