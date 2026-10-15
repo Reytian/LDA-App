@@ -659,8 +659,8 @@
 "The AI model file could not be opened (%@), so names, companies, and addresses were not detected." = "无法打开 AI 模型文件（%@），因此未检测姓名、公司和地址。";
 "AI could not fully scan %lld segment; unscanned text may still contain names or companies." = "AI 未能完整扫描 %lld 个片段。未扫描的文本中可能仍有姓名或公司。";
 "AI could not fully scan %lld segments; unscanned text may still contain names or companies." = "AI 未能完整扫描 %lld 个片段。未扫描的文本中可能仍有姓名或公司。";
-"AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies." = "AI 检测到 %lld 个值，但无法在此文档中精确定位。该值仍然存在且未被移除。请检查遗漏的姓名或公司。";
-"AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies." = "AI 检测到 %lld 个值，但无法在此文档中精确定位。这些值仍然存在且未被移除。请检查遗漏的姓名或公司。";
+"AI found %lld value it could not locate exactly in some places, so it was not redacted there. It stays in the document until you protect it." = "AI 找到 %lld 个值，但在部分位置无法精确定位，因此这些位置未能自动隐去。在您保护之前，该值会留在文档中。";
+"AI found %lld values it could not locate exactly in some places, so they were not redacted there. They stay in the document until you protect them." = "AI 找到 %lld 个值，但在部分位置无法精确定位，因此这些位置未能自动隐去。在您保护之前，这些值会留在文档中。";
 "AI detection failed to run; this pass was pattern matching only." = "AI 检测未能运行。本次扫描仅使用规则匹配。";
 "For safety it clears from the clipboard in %lld seconds." = "为安全起见，内容将在 %lld 秒后从剪贴板清除。";
 "\"%@\" was not found in the document (or is already protected)." = "在文档中找不到“%@”，或该内容已受保护。";
@@ -1103,3 +1103,17 @@
 "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "用于“从档案填写”。下载量最小，适用于配备 16 GB 内存的 Mac。";
 "Switch to LDA V4" = "切换到 LDA V4";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "它会以与文档稍有不同的形式返回部分姓名和地址，因此这些内容不会被隐去，也不会进入审核列表。LDA V4 随应用提供，没有这个问题，而且运行更快。";
+
+/* AI scan incomplete: the partial-run headline and the values a pass could not remove (2026-10-15). */
+"AI scan incomplete" = "AI 扫描未完成";
+"Show %lld value" = "显示 %lld 个值";
+"Show %lld values" = "显示 %lld 个值";
+"List the values the AI found but could not remove, so you can protect each one." = "列出 AI 找到但无法移除的值，以便您逐一保护。";
+"Values still in the document" = "仍在文档中的值";
+"The AI found these values in the document but could not redact them in some places, usually because a letter or digit runs into them there. Protect redacts each one where it is written that way." = "AI 在文档中找到了这些值，但部分位置无法自动隐去（通常是因为那里紧挨着字母或数字）。使用“保护”可在这些位置将其逐一隐去。";
+"Protected" = "已保护";
+"Redact this value everywhere a letter or digit runs into it. Undo is in the Edit menu." = "在所有紧挨着字母或数字的位置隐去此值。可在“编辑”菜单中撤销。";
+"Written differently" = "写法不同";
+"Inside other words" = "仅见于其他词中";
+"LDA finds this value only inside longer words, so it leaves those words alone. If the value is a name there, select it in the document and use Protect." = "LDA 只在较长的词中找到此值，因此不会改动这些词。如果此处确实是名称，请在文档中选中它，然后使用“保护”。";
+"The document writes this value differently. Select it there, one line at a time, then use Protect." = "文档中此值的写法不同。请在文档中逐行选中它，然后使用“保护”。";

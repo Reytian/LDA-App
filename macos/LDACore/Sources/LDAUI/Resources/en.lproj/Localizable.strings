@@ -659,8 +659,8 @@
 "The AI model file could not be opened (%@), so names, companies, and addresses were not detected." = "The AI model file could not be opened (%@), so names, companies, and addresses were not detected.";
 "AI could not fully scan %lld segment; unscanned text may still contain names or companies." = "AI could not fully scan %lld segment; unscanned text may still contain names or companies.";
 "AI could not fully scan %lld segments; unscanned text may still contain names or companies." = "AI could not fully scan %lld segments; unscanned text may still contain names or companies.";
-"AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies." = "AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies.";
-"AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies." = "AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies.";
+"AI found %lld value it could not locate exactly in some places, so it was not redacted there. It stays in the document until you protect it." = "AI found %lld value it could not locate exactly in some places, so it was not redacted there. It stays in the document until you protect it.";
+"AI found %lld values it could not locate exactly in some places, so they were not redacted there. They stay in the document until you protect them." = "AI found %lld values it could not locate exactly in some places, so they were not redacted there. They stay in the document until you protect them.";
 "AI detection failed to run; this pass was pattern matching only." = "AI detection failed to run; this pass was pattern matching only.";
 "For safety it clears from the clipboard in %lld seconds." = "For safety it clears from the clipboard in %lld seconds.";
 "\"%@\" was not found in the document (or is already protected)." = "\"%@\" was not found in the document (or is already protected).";
@@ -1103,3 +1103,17 @@
 "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory.";
 "Switch to LDA V4" = "Switch to LDA V4";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster.";
+
+/* AI scan incomplete: the partial-run headline and the values a pass could not remove (2026-10-15). */
+"AI scan incomplete" = "AI scan incomplete";
+"Show %lld value" = "Show %lld value";
+"Show %lld values" = "Show %lld values";
+"List the values the AI found but could not remove, so you can protect each one." = "List the values the AI found but could not remove, so you can protect each one.";
+"Values still in the document" = "Values still in the document";
+"The AI found these values in the document but could not redact them in some places, usually because a letter or digit runs into them there. Protect redacts each one where it is written that way." = "The AI found these values in the document but could not redact them in some places, usually because a letter or digit runs into them there. Protect redacts each one where it is written that way.";
+"Protected" = "Protected";
+"Redact this value everywhere a letter or digit runs into it. Undo is in the Edit menu." = "Redact this value everywhere a letter or digit runs into it. Undo is in the Edit menu.";
+"Written differently" = "Written differently";
+"Inside other words" = "Inside other words";
+"LDA finds this value only inside longer words, so it leaves those words alone. If the value is a name there, select it in the document and use Protect." = "LDA finds this value only inside longer words, so it leaves those words alone. If the value is a name there, select it in the document and use Protect.";
+"The document writes this value differently. Select it there, one line at a time, then use Protect." = "The document writes this value differently. Select it there, one line at a time, then use Protect.";

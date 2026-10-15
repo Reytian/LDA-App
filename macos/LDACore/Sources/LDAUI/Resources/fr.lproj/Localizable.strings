@@ -659,8 +659,8 @@
 "The AI model file could not be opened (%@), so names, companies, and addresses were not detected." = "Le fichier du modèle d’IA n’a pas pu être ouvert (%@). Les noms, sociétés et adresses n’ont donc pas été détectés.";
 "AI could not fully scan %lld segment; unscanned text may still contain names or companies." = "L’IA n’a pas pu analyser entièrement %lld segment. Le texte non analysé peut encore contenir des noms ou des sociétés.";
 "AI could not fully scan %lld segments; unscanned text may still contain names or companies." = "L’IA n’a pas pu analyser entièrement %lld segments. Le texte non analysé peut encore contenir des noms ou des sociétés.";
-"AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies." = "L’IA a détecté %lld valeur sans pouvoir la localiser exactement dans ce document. Elle est toujours présente et n’a pas été supprimée. Recherchez les noms ou sociétés manqués.";
-"AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies." = "L’IA a détecté %lld valeurs sans pouvoir les localiser exactement dans ce document. Elles sont toujours présentes et n’ont pas été supprimées. Recherchez les noms ou sociétés manqués.";
+"AI found %lld value it could not locate exactly in some places, so it was not redacted there. It stays in the document until you protect it." = "L’IA a trouvé %lld valeur qu’elle n’a pas pu localiser exactement à certains endroits. Elle n’y a donc pas été caviardée et reste dans le document tant que vous ne la protégez pas.";
+"AI found %lld values it could not locate exactly in some places, so they were not redacted there. They stay in the document until you protect them." = "L’IA a trouvé %lld valeurs qu’elle n’a pas pu localiser exactement à certains endroits. Elles n’y ont donc pas été caviardées et restent dans le document tant que vous ne les protégez pas.";
 "AI detection failed to run; this pass was pattern matching only." = "La détection par IA n’a pas pu s’exécuter. Cette analyse a utilisé uniquement les règles.";
 "For safety it clears from the clipboard in %lld seconds." = "Par sécurité, le contenu sera effacé du presse-papiers dans %lld secondes.";
 "\"%@\" was not found in the document (or is already protected)." = "« %@ » est introuvable dans le document ou est déjà protégé.";
@@ -1103,3 +1103,17 @@
 "For Fill from Profile. Smallest download, and it works on Macs with 16 GB of memory." = "Pour Remplir depuis un profil. Le plus petit téléchargement ; fonctionne sur les Mac avec 16 Go de mémoire.";
 "Switch to LDA V4" = "Passer à LDA V4";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. LDA V4 comes with the app, does not have this problem, and runs faster." = "Il restitue certains noms et certaines adresses sous une forme légèrement différente de celle du document. Ils ne sont donc jamais caviardés et n’apparaissent jamais dans la liste de vérification. LDA V4, fourni avec l’application, n’a pas ce problème et fonctionne plus vite.";
+
+/* AI scan incomplete: the partial-run headline and the values a pass could not remove (2026-10-15). */
+"AI scan incomplete" = "Analyse par IA incomplète";
+"Show %lld value" = "Afficher %lld valeur";
+"Show %lld values" = "Afficher %lld valeurs";
+"List the values the AI found but could not remove, so you can protect each one." = "Affiche les valeurs que l’IA a trouvées sans pouvoir les supprimer, pour que vous puissiez protéger chacune d’elles.";
+"Values still in the document" = "Valeurs encore présentes dans le document";
+"The AI found these values in the document but could not redact them in some places, usually because a letter or digit runs into them there. Protect redacts each one where it is written that way." = "L’IA a trouvé ces valeurs dans le document sans pouvoir les caviarder à certains endroits, le plus souvent parce qu’une lettre ou un chiffre leur y est accolé. Protéger caviarde chacune d’elles là où elle est écrite ainsi.";
+"Protected" = "Protégée";
+"Redact this value everywhere a letter or digit runs into it. Undo is in the Edit menu." = "Caviarde cette valeur partout où une lettre ou un chiffre lui est accolé. Annuler est disponible dans le menu Édition.";
+"Written differently" = "Écrite autrement";
+"Inside other words" = "Dans d’autres mots";
+"LDA finds this value only inside longer words, so it leaves those words alone. If the value is a name there, select it in the document and use Protect." = "LDA ne trouve cette valeur qu’à l’intérieur de mots plus longs et laisse donc ces mots intacts. S’il s’agit bien d’un nom à cet endroit, sélectionnez-le dans le document, puis utilisez Protéger.";
+"The document writes this value differently. Select it there, one line at a time, then use Protect." = "Le document écrit cette valeur autrement. Sélectionnez-la dans le document, une ligne à la fois, puis utilisez Protéger.";

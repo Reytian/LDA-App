@@ -339,6 +339,85 @@ final class LDAServiceLLMTests: XCTestCase {
         }
     }
 
+    // MARK: - A value that anchors once and is glued elsewhere
+
+    /// Reports both parties as written; the signer is anchored at his first
+    /// mention and glued to a footnote digit at the second.
+    private struct ReportsBothPartiesAsWritten: TextCompleter {
+        func complete(prompt: String, maxTokens: Int?, stop: [String]) throws -> String {
+            return #"{"entities":[{"value":"Acme Corp","type":"COMPANY"},"# +
+                   #"{"value":"Robert King","type":"PERSON"}],"redacted_text":""}"#
+        }
+    }
+
+    private func writeGluedRepeatFixture(_ text: String) throws -> URL {
+        let inputURL = workDir.appendingPathComponent("glued-repeat.txt")
+        try Data(text.utf8).write(to: inputURL)
+        return inputURL
+    }
+
+    func testDetectThrowsWhenAnAnchoredValueIsGluedToADigitElsewhere() throws {
+        // Before, the first mention anchored, the gate passed, and the CLI and
+        // MCP wrote "Robert King2" in clear with no warning.
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: ReportsBothPartiesAsWritten())
+        }
+        let inputURL = try writeGluedRepeatFixture(
+            "The seller is Acme Corp and the signer is Robert King. Witnessed by Robert King2."
+        )
+
+        XCTAssertThrowsError(
+            try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        ) { error in
+            guard case LDAServiceError.unanchoredEntities(let count) = error else {
+                XCTFail("expected LDAServiceError.unanchoredEntities, got \(error)")
+                return
+            }
+            XCTAssertEqual(count, 1)
+        }
+    }
+
+    func testAnonymizeWritesNothingWhenAnAnchoredValueIsGluedToADigitElsewhere() throws {
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: ReportsBothPartiesAsWritten())
+        }
+        let inputURL = try writeGluedRepeatFixture(
+            "The seller is Acme Corp and the signer is Robert King. Witnessed by Robert King2."
+        )
+        let outputDir = workDir.appendingPathComponent("out-glued-repeat", isDirectory: true)
+
+        XCTAssertThrowsError(
+            try LDAService.anonymize(
+                input: inputURL,
+                outputDir: outputDir,
+                protection: MappingProtection.passphrase("a passphrase"),
+                createdAtISO8601: Self.createdAt,
+                llmModelPath: Self.bogusModelPath
+            )
+        ) { error in
+            guard case LDAServiceError.unanchoredEntities = error else {
+                XCTFail("expected LDAServiceError.unanchoredEntities, got \(error)")
+                return
+            }
+        }
+        let written = (try? FileManager.default.contentsOfDirectory(atPath: outputDir.path)) ?? []
+        XCTAssertTrue(written.isEmpty, "nothing may be written: \(written)")
+    }
+
+    func testAnAnchoredValueInsideALongerWordElsewhereDoesNotBlock() throws {
+        // "Robert King" inside "Robert Kingston" is another name, not a glued
+        // mention, so the document is still clean and is written.
+        LDAService.makeExtractorForTesting = { _ in
+            LLMExtractor(completer: ReportsBothPartiesAsWritten())
+        }
+        let inputURL = try writeGluedRepeatFixture(
+            "The seller is Acme Corp and the signer is Robert King. Copied to Robert Kingston."
+        )
+
+        let spans = try LDAService.detect(input: inputURL, llmModelPath: Self.bogusModelPath)
+        XCTAssertTrue(spans.contains { $0.type == .person && $0.text == "Robert King" })
+    }
+
     /// The truncation gate must still win when both failures are present, since
     /// an un-scanned segment makes the unanchored count unreliable anyway.
     func testTruncationIsReportedAheadOfUnanchoredValues() throws {

@@ -83,6 +83,9 @@ extension ReviewModel {
         /// (PrecedentPartyRule), or nil. Their spans are in `spans`; the
         /// caller lists them unticked so the user can still redact them.
         var precedent: PrecedentRelease? = nil
+        /// The values the AI pass found in the document and could not anchor,
+        /// so nothing in `spans` covers them. See LLMPassOutcome.unlocated.
+        var aiUnlocated: [ExtractedEntity] = []
     }
 
     nonisolated static func detect(
@@ -168,7 +171,8 @@ extension ReviewModel {
             aiFailure: llm.failure,
             aiRanPartially: llm.partial,
             cancelled: false,
-            precedent: precedent
+            precedent: precedent,
+            aiUnlocated: llm.unlocated
         )
     }
 
@@ -193,6 +197,13 @@ extension ReviewModel {
         let partial: Bool
         /// True when the user stopped the pass mid-run.
         let cancelled: Bool
+        /// The values the extractor reported that are in the document but
+        /// anchor nowhere (ExtractionResult.unlocatedEntities), so they were
+        /// not redacted. Without them the failure sentence can only count
+        /// what was left in place, and a count is nothing the user can act on.
+        /// Empty unless `partial` is true. Document contents: they are shown
+        /// in Review and never written to a log.
+        var unlocated: [ExtractedEntity] = []
     }
 
     /// Produce the LLM span list. Failures and incomplete coverage degrade to
@@ -243,6 +254,19 @@ extension ReviewModel {
                 extractor = try EntityExtractorFactory.make(modelPath: modelPath, cancelToken: cancel)
             }
             let result = try extractor.extractDetailed(from: text, onProgress: onProgress)
+            // Every segment failed and nothing came back from any of them: the
+            // model examined nothing. That is a pass that did not run, not one
+            // that stopped short, and the headline and the export gate must
+            // say so rather than tell the user some names were found.
+            if result.scannedNothing {
+                return LLMPassOutcome(
+                    spans: [],
+                    attempted: true,
+                    failure: L10n.string("AI detection failed to run; this pass was pattern matching only."),
+                    partial: false,
+                    cancelled: false
+                )
+            }
             guard result.fullyCovered else {
                 return LLMPassOutcome(
                     spans: result.spans,
@@ -257,30 +281,40 @@ extension ReviewModel {
                     ),
                     // The extractor read this document and did not finish it.
                     partial: true,
-                    cancelled: false
+                    cancelled: false,
+                    // A value from a segment that WAS read can still have
+                    // failed to anchor. It is in the document either way.
+                    unlocated: result.unlocatedEntities
                 )
             }
             // The second way a pass can be incomplete: the text was read, but a
-            // value the model reported anchors nowhere, so there is nothing to
-            // redact. Keep the spans that did anchor and say what actually
-            // failed. A truncation message here would misdiagnose it.
+            // value the model reported anchors nowhere, or anchors and is also
+            // written where a digit or a word runs into it, so there is a place
+            // nothing redacts. Keep the spans that did anchor and say what
+            // actually failed. A truncation message here would misdiagnose it.
             guard result.fullyAnchored else {
                 let n = result.unlocatableEntityCount
                 return LLMPassOutcome(
                     spans: result.spans,
                     attempted: true,
+                    // Says what failed (the values could not be located, which
+                    // is not a truncation), covers a value that was redacted
+                    // elsewhere ("in some places"), and is worded to stay true
+                    // after the user protects them from the list beside it.
                     failure: String(
                         format: L10n.string(
                             n == 1
-                                ? "AI detected %lld value it could not locate exactly in this document; it is still present and was not removed. Check for missed names or companies."
-                                : "AI detected %lld values it could not locate exactly in this document; they are still present and were not removed. Check for missed names or companies."
+                                ? "AI found %lld value it could not locate exactly in some places, so it was not redacted there. It stays in the document until you protect it."
+                                : "AI found %lld values it could not locate exactly in some places, so they were not redacted there. They stay in the document until you protect them."
                         ),
                         Int64(n)
                     ),
-                    // Read in full, but a reported value anchors nowhere, so
+                    // Read in full, but a reported value is left somewhere, so
                     // some names were found and one was not removed.
                     partial: true,
-                    cancelled: false
+                    cancelled: false,
+                    // Which ones, so Review can name them next to the count.
+                    unlocated: result.unlocatedEntities
                 )
             }
             return LLMPassOutcome(
@@ -357,7 +391,8 @@ extension ReviewModel {
         style: SubstitutionStyle = .token,
         includeSealCandidates: Bool = true,
         seedMapping: Mapping? = nil,
-        keepVisible: Set<String> = []
+        keepVisible: Set<String> = [],
+        protectedRunIns: [ExtractedEntity] = []
     ) throws -> (export: ExportResult, mapping: Mapping, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
@@ -439,7 +474,11 @@ extension ReviewModel {
             // only in a non-body part mint new tokens that are folded into the
             // mapping below so they persist in the sidecar and restore correctly.
             let detect = Self.nonBodyDetector(
-                useLLM: useLLM, modelPath: modelPath, custom: custom, keepVisible: keepVisible
+                useLLM: useLLM,
+                modelPath: modelPath,
+                custom: custom,
+                keepVisible: keepVisible,
+                protectedRunIns: protectedRunIns
             )
             let outcome = try DocxRedactor.redact(
                 original: source,
@@ -625,15 +664,42 @@ extension ReviewModel {
     /// leaves in clear in the body. They stay in clear in the other parts too:
     /// a token in a header beside the name in clear in the body would
     /// disclose the mapping.
+    ///
+    /// `protectedRunIns` holds the values the user protected in the body
+    /// where a letter or digit runs into them (ReviewModel
+    /// .protectedUnlocatedValues). This pass refuses the same edges the body
+    /// scan refused, so without them "Protected" in Review would not hold for
+    /// a header or footer that writes the value the same way. They are
+    /// redacted here at the same kind of place only
+    /// (EntityLocator.runInOccurrences), never inside an ordinary word.
+    /// Protecting a value ticks it in the body, so it is no longer among the
+    /// precedent names `keepVisible` leaves in clear
+    /// (ReviewModel.precedentValuesLeftVisible).
     nonisolated static func nonBodyDetector(
         useLLM: Bool,
         modelPath: String?,
         custom: [CustomPattern],
-        keepVisible: Set<String> = []
+        keepVisible: Set<String> = [],
+        protectedRunIns: [ExtractedEntity] = []
     ) -> (String) -> [Span] {
         return { text in
+            let nsText = text as NSString
+            let runIns = protectedRunIns.flatMap { value in
+                EntityLocator.runInOccurrences(forValue: value.value, in: text).map { range in
+                    Span(
+                        start: range.location,
+                        end: NSMaxRange(range),
+                        type: value.type,
+                        text: nsText.substring(with: range),
+                        source: .manual,
+                        confidence: 1.0,
+                        priority: ProtectSelectionRules.manualPriority
+                    )
+                }
+            }
             let deterministic = DeterministicEngine().detect(text)
                 + CustomPatternEngine.detect(text, patterns: custom)
+                + runIns
             let merged = SpanMerger.merge(
                 deterministic: deterministic,
                 llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath).spans

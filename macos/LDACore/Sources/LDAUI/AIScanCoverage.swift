@@ -13,6 +13,12 @@
 //  failed or partial scan came back exportable without the warning that had
 //  gated it. Handling the three as one value makes forgetting one impossible.
 //
+//  The values the pass found and could not remove travel in the same value
+//  for the same reason: a cancelled retry that restored the warning ("AI
+//  found 2 values...") without its list would leave the user a count with
+//  nothing to act on. They do NOT travel into a workspace; see
+//  workspaceRecord.
+//
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
@@ -33,10 +39,21 @@ public struct AIScanCoverage: Equatable, Sendable {
     /// examining it. See ReviewModel.aiRanPartially.
     public var aiRanPartially: Bool
 
-    public init(aiActive: Bool, aiWarning: String?, aiRanPartially: Bool) {
+    /// The values the pass reported that are in the document but could not
+    /// be anchored, so they were not redacted. See
+    /// ReviewModel.aiUnlocatedValues.
+    public var unlocatedValues: [ExtractedEntity]
+
+    public init(
+        aiActive: Bool,
+        aiWarning: String?,
+        aiRanPartially: Bool,
+        unlocatedValues: [ExtractedEntity] = []
+    ) {
         self.aiActive = aiActive
         self.aiWarning = aiWarning
         self.aiRanPartially = aiRanPartially
+        self.unlocatedValues = unlocatedValues
     }
 
     /// The coverage of a document that has not been scanned: nothing ran and
@@ -59,6 +76,11 @@ extension AIScanCoverage {
     /// because a colleague's Mac may not be set to the language the scan ran
     /// in. The mapping mirrors ModelSetupPresentation.exportGateReason, so
     /// what the gate would have said before saving is what the record says.
+    ///
+    /// The unlocated values stay behind too. They are document contents, the
+    /// archive format has no place for them, and the record already keeps the
+    /// pass partial, so a restored document is still gated and still warned;
+    /// the reopened copy just cannot name the values until it is scanned again.
     var workspaceRecord: WorkspaceAICoverage {
         if aiActive { return .complete }
         guard aiWarning != nil else { return .notRequested }

@@ -245,6 +245,33 @@ public final class ReviewModel: ObservableObject {
     /// reads as a finished job when it is not.
     @Published public var aiRanPartially: Bool = false
 
+    /// The values the last AI pass reported that are in this document but
+    /// could not be anchored, so the scan left them in place and nothing in
+    /// `entities` covers them. Empty when the pass anchored everything, did
+    /// not run, or was not asked for.
+    ///
+    /// The warning only counts them ("AI found 2 values it could not locate
+    /// exactly"); this names them, so Review can list each one next to the
+    /// warning and the user can protect it. Nothing here is redacted by
+    /// default: a value becomes an entity only when the user protects it.
+    ///
+    /// Document contents. Shown in the window and nowhere else: never logged,
+    /// never in telemetry, and never written into a workspace.
+    @Published public private(set) var aiUnlocatedValues: [ExtractedEntity] = [] {
+        didSet {
+            aiUnlocatedPlacements = aiUnlocatedValues.map {
+                UnlocatedValuePlacement.of($0, in: documentText)
+            }
+        }
+    }
+
+    /// Where each of `aiUnlocatedValues` is still written in the document,
+    /// in the same order. Worked out once each time the list is set, against
+    /// the text the scan read (documentText changes only when a document is
+    /// opened, and opening clears the list), so the review list never
+    /// searches the document again while the user protects values.
+    private(set) var aiUnlocatedPlacements: [UnlocatedValuePlacement] = []
+
     /// One line for the status banner when the document is a published
     /// precedent whose own parties were left in clear, or nil.
     @Published public private(set) var precedentNote: String?
@@ -253,23 +280,25 @@ public final class ReviewModel: ObservableObject {
     /// last scan (PrecedentPartyRule). Their entities are listed unticked.
     public private(set) var precedentRelease: PrecedentRelease?
 
-    /// The three coverage fields as one value. Every path that moves a scan
-    /// result somewhere else (a cancelled retry putting the previous result
-    /// back, a workspace capturing and re-applying it) reads and writes this
-    /// rather than the fields, so it cannot move two of them and drop the
-    /// third. The fields stay published because the window binds to each.
+    /// The coverage fields as one value. Every path that moves a scan result
+    /// somewhere else (a cancelled retry putting the previous result back, a
+    /// workspace capturing and re-applying it) reads and writes this rather
+    /// than the fields, so it cannot move some of them and drop the rest. The
+    /// fields stay published because the window binds to each.
     public var aiCoverage: AIScanCoverage {
         get {
             AIScanCoverage(
                 aiActive: aiActive,
                 aiWarning: aiWarning,
-                aiRanPartially: aiRanPartially
+                aiRanPartially: aiRanPartially,
+                unlocatedValues: aiUnlocatedValues
             )
         }
         set {
             aiActive = newValue.aiActive
             aiWarning = newValue.aiWarning
             aiRanPartially = newValue.aiRanPartially
+            aiUnlocatedValues = newValue.unlocatedValues
         }
     }
 
@@ -560,8 +589,9 @@ public final class ReviewModel: ObservableObject {
         previewMode = .original
         progress = 0
         etaText = nil
-        aiWarning = nil
-        aiRanPartially = false
+        // All of the coverage at once (see aiCoverage): the previous
+        // document's warning and values must never be shown over this one.
+        aiCoverage = .unscanned
         precedentRelease = nil
         precedentNote = nil
         trackedChangeCount = 0
@@ -635,8 +665,9 @@ public final class ReviewModel: ObservableObject {
         progress = 0
         etaText = expectsLLM ? L10n.string("Loading model") : nil
         learningNote = nil
-        aiWarning = nil
-        aiRanPartially = false
+        // All of the coverage at once; coverageBeforeDetecting holds the
+        // previous result for a stopped retry to hand back.
+        aiCoverage = .unscanned
         anonymizeStart = Date()
 
         let report: @Sendable (Int, Int) -> Void = { [weak self] done, total in
@@ -664,7 +695,11 @@ public final class ReviewModel: ObservableObject {
         // here rather than only at export time so the window can state honest
         // coverage while the user is still deciding. It scans only the small
         // supplementary parts with the SAME detector the export uses, so the
-        // preview and the export cannot disagree.
+        // preview and the export cannot disagree. The one exception only
+        // adds: a value the user later protects from the list of values the
+        // pass left (protectedUnlocatedValues) is also redacted where it is
+        // run-in in those parts, which this count, taken before any
+        // protection, does not include.
         let keepVisible = outcome.precedent?.normalizedValues ?? []
         let supplementary = await Task.detached(priority: .utility) {
             Self.supplementaryCount(
@@ -710,9 +745,17 @@ public final class ReviewModel: ObservableObject {
         // AI is only "active" when the pass ran to full coverage; a load
         // failure or partial scan must warn, never silently pose as a clean
         // AI pass.
-        aiActive = outcome.aiRan
-        aiWarning = outcome.aiFailure
-        aiRanPartially = outcome.aiRanPartially
+        //
+        // Assigned whole, so no coverage field can be left from the previous
+        // scan. The unlocated values are listed beside the warning, not added
+        // to `entities`: what is redacted by default is exactly what the pass
+        // anchored.
+        aiCoverage = AIScanCoverage(
+            aiActive: outcome.aiRan,
+            aiWarning: outcome.aiFailure,
+            aiRanPartially: outcome.aiRanPartially,
+            unlocatedValues: outcome.aiUnlocated
+        )
         progress = 1
         etaText = nil
         status = .ready
@@ -1066,6 +1109,9 @@ public final class ReviewModel: ObservableObject {
         // Read the custom vocabulary on the main actor so the non-body detector
         // (built below) uses the same inputs the body detection used.
         let custom = customPatternProvider()
+        // Values the user protected where a letter or digit runs into them:
+        // the non-body parts of a .docx are redacted at the same kind of place.
+        let protectedRunIns = protectedUnlocatedValues
         let shouldUseLLM = useLLM
         let path = modelPath
         let style = outputStyleProvider()
@@ -1109,7 +1155,8 @@ public final class ReviewModel: ObservableObject {
                     style: style,
                     includeSealCandidates: wantsSealCandidates,
                     seedMapping: seedMapping,
-                    keepVisible: keepVisible
+                    keepVisible: keepVisible,
+                    protectedRunIns: protectedRunIns
                 )
             }.value
         } catch let changed as SourceChangedSinceScanError {

@@ -137,4 +137,41 @@ final class LDAV4ExtractorTests: XCTestCase {
             "a court is a keep label and must stay visible"
         )
     }
+
+    func testTheBundledModelListsANameRedactedOnceAndGluedElsewhere() throws {
+        guard let folder = ProcessInfo.processInfo.environment["LDA_V4_MODEL_DIR"] else {
+            throw XCTSkip("set LDA_V4_MODEL_DIR to an LDA V4 model folder to run the live tagger")
+        }
+        // The shape a reviewer reproduced with the shipped model: the first
+        // mention anchors and is redacted, and the footnoted repeat was left
+        // in clear with nothing said. It is listed now, and the service
+        // refuses to write output, as for a value that anchors nowhere.
+        let text = "This Agreement is made between Margaret Ellison and Northwind Lantern Holdings Ltd. "
+            + "Witnessed by Margaret Ellison3 on 3 May."
+        let extractor = try LDAV4Extractor(
+            modelDirectory: URL(fileURLWithPath: folder, isDirectory: true),
+            cancelToken: nil
+        )
+        let result = try extractor.extractDetailed(from: text, onProgress: nil)
+        XCTAssertTrue(
+            result.spans.contains { $0.type == .person && $0.start == (text as NSString).range(of: "Margaret Ellison").location },
+            "the first mention is redacted as before"
+        )
+        XCTAssertTrue(
+            result.unlocatedEntities.contains(ExtractedEntity(value: "Margaret Ellison", type: .person)),
+            "the glued repeat is named: \(result.unlocatedEntities.map(\.type))"
+        )
+        XCTAssertFalse(result.fullyAnchored)
+
+        let root = try temporaryDirectory("live-glued")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("glued.txt")
+        try Data(text.utf8).write(to: input)
+        XCTAssertThrowsError(try LDAService.detect(input: input, llmModelPath: folder)) { error in
+            guard case LDAServiceError.unanchoredEntities = error else {
+                XCTFail("expected LDAServiceError.unanchoredEntities, got \(error)")
+                return
+            }
+        }
+    }
 }

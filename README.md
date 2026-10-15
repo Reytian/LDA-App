@@ -99,7 +99,7 @@ LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, pl
 You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory**.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-1.3.dmg** from **Assets**.
+   and download **LDA-1.3.1.dmg** from **Assets**.
 2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
    Privacy Policy, then choose your language in the setup wizard.

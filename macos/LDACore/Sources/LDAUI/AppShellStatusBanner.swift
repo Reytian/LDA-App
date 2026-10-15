@@ -27,7 +27,14 @@ struct AppShellStatusBanner: View {
 
     @Environment(\.appLanguage) private var appLanguage
 
+    /// The window's undo manager, so protecting a listed value lands in
+    /// Edit > Undo exactly as it does from the sidebar.
+    @Environment(\.undoManager) private var undoManager
+
     @ObservedObject var session: SessionModel
+
+    /// True while the list of values the AI pass could not remove is open.
+    @State private var isShowingUnlocatedValues = false
 
     /// A one-line outcome message shown after an export completes or fails.
     /// Owned by the shell, which shares it with the workspace and report flows.
@@ -227,33 +234,8 @@ struct AppShellStatusBanner: View {
                     .foregroundStyle(CounselTheme.danger)
             }
 
-            if !model.aiActive {
-                // Two different states share this slot and MUST look different.
-                // A deliberate patterns-only run is a normal, informational
-                // choice. An AI pass that was asked for and could not run is a
-                // warning: the user expected names and companies to be found
-                // and they were not. Rendering both as the same red triangle
-                // makes a failed redaction indistinguishable from an intended
-                // one. See docs/design/model-tiers-prd.md section 7.
-                if model.aiWarning == nil {
-                    Label {
-                        L10n.text("Patterns only")
-                    } icon: {
-                        Image(systemName: "info.circle")
-                    }
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .l10nHelp("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model.")
-                } else {
-                    Label {
-                        L10n.text("AI did not run")
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                    }
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(CounselTheme.danger)
-                    .help(model.aiWarning ?? "")
-                }
+            if let headline = AIScanHeadline(model.aiCoverage) {
+                aiHeadline(headline)
             }
 
             if let warning = model.aiWarning {
@@ -262,6 +244,11 @@ struct AppShellStatusBanner: View {
                     .foregroundStyle(CounselTheme.danger)
                     .lineLimit(1)
                     .help(warning)
+            }
+
+            // Beside the warning that counts them: the values themselves.
+            if !model.aiUnlocatedValues.isEmpty {
+                unlocatedValuesButton
             }
 
             if let note = model.learningNote {
@@ -297,6 +284,72 @@ struct AppShellStatusBanner: View {
                 scanAllButton
             }
             scanButton(title: "Re-scan", prominent: false)
+        }
+    }
+
+    // MARK: - AI coverage
+
+    /// The AI coverage headline. Three states share this slot and MUST look
+    /// different (see AIScanHeadline). A deliberate patterns-only run is a
+    /// normal, informational choice. The other two are warnings: the user
+    /// expected names and companies to be found, and either none were looked
+    /// for or some are still in the document. Rendering a failed redaction
+    /// like an intended one, or a partial pass like one that never ran, tells
+    /// the user the wrong thing to fix. See docs/design/model-tiers-prd.md
+    /// section 7.
+    @ViewBuilder
+    private func aiHeadline(_ headline: AIScanHeadline) -> some View {
+        let label = Label {
+            L10n.text(headline.titleKey)
+        } icon: {
+            Image(systemName: headline.systemImage)
+        }
+        if headline.isWarning {
+            label
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(CounselTheme.danger)
+                .help(model.aiWarning ?? "")
+        } else {
+            label
+                .font(.callout)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .l10nHelp("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model.")
+        }
+    }
+
+    /// Opens the list of values the AI pass found and could not remove, each
+    /// with a Protect button. The warning beside it only counts them, and a
+    /// count is not something the user can act on. Its icon turns into a
+    /// shield once every listed value is protected, so the banner shows what
+    /// is left without opening the list.
+    ///
+    /// The values are document contents, so they appear only on request and
+    /// only in this window.
+    private var unlocatedValuesButton: some View {
+        Button {
+            isShowingUnlocatedValues = true
+        } label: {
+            Label {
+                Text(verbatim: AIScanCoveragePresentation.showValuesTitle(
+                    count: model.aiUnlocatedValues.count,
+                    language: appLanguage
+                ))
+            } icon: {
+                Image(systemName: model.allUnlocatedValuesProtected ? "checkmark.shield" : "list.bullet.rectangle")
+            }
+            .font(.callout)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(CounselTheme.inkAccent)
+        .fixedSize()
+        .l10nHelp("List the values the AI found but could not remove, so you can protect each one.")
+        .accessibilityIdentifier("showUnlocatedValues")
+        .popover(isPresented: $isShowingUnlocatedValues, arrowEdge: .bottom) {
+            UnlocatedValuesPopover(model: model, undoManager: undoManager)
+        }
+        // The list belongs to the document it was opened on.
+        .onChange(of: session.activeEntryID) { _, _ in
+            isShowingUnlocatedValues = false
         }
     }
 

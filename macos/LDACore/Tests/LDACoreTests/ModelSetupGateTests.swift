@@ -471,7 +471,9 @@ final class ModelSetupGateTests: XCTestCase {
         )
         let review = try uiSource("ReviewModel.swift")
         XCTAssertTrue(
-            review.contains("aiRanPartially = outcome.aiRanPartially"),
+            // Published as part of the whole coverage value (aiCoverage), so
+            // no field of it can be left from the previous scan.
+            review.contains("aiRanPartially: outcome.aiRanPartially"),
             "the window must publish it"
         )
         let shell = try uiSource("AppShell.swift")

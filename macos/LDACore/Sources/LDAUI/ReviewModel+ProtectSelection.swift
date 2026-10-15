@@ -494,6 +494,78 @@ extension ReviewModel {
         return outcome
     }
 
+    /// Protect a value the last AI pass could not anchor at each place it is
+    /// written run-in (UnlocatedValuePlacement.runIns), as the type it was
+    /// reported as.
+    ///
+    /// Unlike protectValue this does not search the document for the value:
+    /// the places are the ones the locator found and refused, so a wrapped or
+    /// differently cased repeat is covered, and no ordinary word that happens
+    /// to contain the letters is touched. Each new entity carries the
+    /// document's own spelling of its place, which restore depends on. A
+    /// place already inside an accepted entity is left alone; a partial
+    /// overlap gives way to the user's hand, as in protectValue.
+    @discardableResult
+    func protectRunIns(of placement: UnlocatedValuePlacement, undoManager: UndoManager?) -> ProtectOutcome {
+        let value = placement.value.value
+        let type = placement.value.type
+        let nsText = documentText as NSString
+        let before = entities
+        var working = entities
+
+        var added = 0
+        var replaced = 0
+        var skipped = 0
+        var container: String?
+        var firstSurface: String?
+
+        for range in placement.runIns where range.length > 0 && NSMaxRange(range) <= nsText.length {
+            let overlapping = working.filter { Self.overlaps($0.span, range) }
+            if let protected = overlapping.first(where: {
+                $0.accepted && $0.span.start <= range.location && $0.span.end >= NSMaxRange(range)
+            }) {
+                skipped += 1
+                container = container ?? protected.span.text
+                continue
+            }
+            if !overlapping.isEmpty {
+                let removed = Set(overlapping.map(\.id))
+                working.removeAll { removed.contains($0.id) }
+                replaced += removed.count
+            }
+            let surface = nsText.substring(with: range)
+            firstSurface = firstSurface ?? surface
+            working.append(Self.manualEntity(value: surface, type: type, at: range))
+            added += 1
+        }
+
+        guard added > 0 else {
+            let outcome = skipped > 0
+                ? ProtectOutcome.refused(.insideProtected(container: container ?? value), value: value, type: type, skipped: skipped)
+                : ProtectOutcome.refused(.emptySelection, value: value, type: type)
+            if skipped > 0 { postNotice(for: outcome, range: nil) }
+            return outcome
+        }
+
+        let outcome = ProtectOutcome(
+            value: value,
+            type: type,
+            previousType: nil,
+            added: added,
+            replaced: replaced,
+            retyped: 0,
+            skippedInsideProtected: skipped,
+            refusal: nil
+        )
+        entities = working
+        let groupID = Self.groupID(value: firstSurface ?? value, type: type)
+        selectedGroupIDs = [groupID]
+        groupToReveal = groupID
+        registerProtectUndo(restoring: before, reapplying: working, type: type, undoManager: undoManager)
+        postNotice(for: outcome, range: nil)
+        return outcome
+    }
+
     // MARK: - Undo
 
     /// Register one undoable step that puts the entity list back to

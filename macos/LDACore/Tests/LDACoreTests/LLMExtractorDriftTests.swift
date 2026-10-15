@@ -145,7 +145,9 @@ final class LLMExtractorDriftTests: XCTestCase {
 
     func testUnlocatableEntityFailsTheCleanGateEvenWhenEverySegmentWasScanned() {
         let result = ExtractionResult(
-            spans: [], incompleteSegmentCount: 0, unlocatableEntityCount: 1
+            spans: [],
+            incompleteSegmentCount: 0,
+            unlocatedEntities: [ExtractedEntity(value: "Jordan Lee", type: .person)]
         )
         XCTAssertTrue(result.fullyCovered, "no segment was truncated")
         XCTAssertFalse(result.fullyAnchored)
@@ -156,17 +158,13 @@ final class LLMExtractorDriftTests: XCTestCase {
     }
 
     func testTruncatedScanFailsTheCleanGateEvenWhenEveryReportedValueAnchored() {
-        let result = ExtractionResult(
-            spans: [], incompleteSegmentCount: 2, unlocatableEntityCount: 0
-        )
+        let result = ExtractionResult(spans: [], incompleteSegmentCount: 2)
         XCTAssertTrue(result.fullyAnchored, "nothing was left unanchored")
         XCTAssertFalse(result.fullyCovered, "but a segment was never scanned")
     }
 
     func testFullyScannedAndFullyAnchoredResultPassesTheCleanGate() {
-        let result = ExtractionResult(
-            spans: [], incompleteSegmentCount: 0, unlocatableEntityCount: 0
-        )
+        let result = ExtractionResult(spans: [], incompleteSegmentCount: 0)
         XCTAssertTrue(result.fullyCovered)
         XCTAssertTrue(result.fullyAnchored)
     }

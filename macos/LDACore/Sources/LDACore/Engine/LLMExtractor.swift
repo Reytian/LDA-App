@@ -44,13 +44,37 @@ public struct ExtractionResult: Sendable {
     /// retry/splitting, failed at the backend, or answered without an entities
     /// array.
     public let incompleteSegmentCount: Int
-    /// How many distinct reported values are present in the source but could not
-    /// be anchored there, in the reported form or in any whitespace variant of
-    /// it. This is the leak: the text really does contain the value, in a surface
-    /// form the literal locator cannot match, so it is detected and survives
-    /// into the output. A non-zero count means the document is not guaranteed
-    /// PII-free.
-    public let unlocatableEntityCount: Int
+    /// How many segments the pass set out to scan, incomplete ones included.
+    /// 0 when the producer does not say (the built-in tagger, which reads
+    /// every window, and a hand-built result).
+    public let segmentCount: Int
+    /// How many of the incomplete segments the model never answered with an
+    /// entities array at all: the backend threw, or the reply was not an
+    /// entities array. A segment whose reply was cut off at the token cap was
+    /// read by the model and is not counted here.
+    public let unansweredSegmentCount: Int
+    /// How many distinct reported values are present in the source at a place
+    /// they could not be anchored, in the reported form or in any whitespace
+    /// variant of it: anchored nowhere, or anchored but also written where a
+    /// digit or a word runs into them (EntityLocator.runInOccurrences). This is
+    /// the leak: the text really does contain the value, in a surface form the
+    /// literal locator cannot match, so it is detected and survives into the
+    /// output. A non-zero count means the document is not guaranteed PII-free.
+    ///
+    /// Derived from `unlocatedEntities`, so the gating count and the values the
+    /// review window names can never disagree.
+    public var unlocatableEntityCount: Int { unlocatedEntities.count }
+    /// The values behind `unlocatableEntityCount`: one per distinct value, in the
+    /// order they were first reported, each with the type it was reported as
+    /// and its surrounding whitespace trimmed. The built-in LDA V4 tagger
+    /// reports exact slices of the source, so its values occur in the text as
+    /// written; a GGUF model's value may differ from the text in case or
+    /// spacing.
+    ///
+    /// They exist so the review window can name what was left in the document
+    /// instead of only counting it. They are document contents: never write
+    /// them to a log, telemetry, an error message or a report.
+    public let unlocatedEntities: [ExtractedEntity]
     /// How many distinct reported values do not occur in the source at all, in
     /// any surface form. The model invented them. There is nothing in the
     /// document to redact, so this is a quality signal, NOT a safety one, and it
@@ -58,15 +82,26 @@ public struct ExtractionResult: Sendable {
     /// does not contain would refuse clean work for no privacy benefit.
     public let phantomEntityCount: Int
 
+    /// - Parameters:
+    ///   - unlocatedEntities: the values present in the source that anchor
+    ///     nowhere; their number is the gating count.
+    ///   - segmentCount: how many segments the pass set out to scan, or 0 when
+    ///     the producer does not say.
+    ///   - unansweredSegmentCount: how many of them the model never answered
+    ///     with an entities array.
     public init(
         spans: [Span],
         incompleteSegmentCount: Int,
-        unlocatableEntityCount: Int = 0,
-        phantomEntityCount: Int = 0
+        unlocatedEntities: [ExtractedEntity] = [],
+        phantomEntityCount: Int = 0,
+        segmentCount: Int = 0,
+        unansweredSegmentCount: Int = 0
     ) {
         self.spans = spans
         self.incompleteSegmentCount = incompleteSegmentCount
-        self.unlocatableEntityCount = unlocatableEntityCount
+        self.segmentCount = segmentCount
+        self.unansweredSegmentCount = unansweredSegmentCount
+        self.unlocatedEntities = unlocatedEntities
         self.phantomEntityCount = phantomEntityCount
     }
 
@@ -74,6 +109,18 @@ public struct ExtractionResult: Sendable {
     /// segment was truncated, failed, or answered without an entities array,
     /// and the document is not guaranteed PII-free.
     public var fullyCovered: Bool { incompleteSegmentCount == 0 }
+
+    /// True when the pass examined nothing: the model answered none of the
+    /// segments it set out to scan, and nothing came back from any of them.
+    /// That is a pass that did not run, not one that stopped short, and it
+    /// must not be reported as having found some names and left others. A
+    /// reply cut off at the token cap is an answer: the model read the text.
+    public var scannedNothing: Bool {
+        segmentCount > 0
+            && unansweredSegmentCount >= segmentCount
+            && spans.isEmpty
+            && unlocatedEntities.isEmpty
+    }
 
     /// True when no value that the source actually contains was left unanchored.
     /// False means at least one value really in the document cannot be redacted,
@@ -222,17 +269,27 @@ public final class LLMExtractor {
 
         var rawEntities: [ExtractedEntity] = []
         var incompleteSegmentCount = 0
+        var unansweredSegmentCount = 0
         for outcome in outcomes {
             rawEntities.append(contentsOf: outcome.entities)
             if outcome.incomplete {
                 incompleteSegmentCount += 1
+            }
+            if outcome.unanswered {
+                unansweredSegmentCount += 1
             }
         }
         // A stop during the final window must also abort: a cancelled run
         // never returns results, however far it got.
         try throwIfCancelled()
 
-        return Self.locate(rawEntities, in: text, incompleteSegmentCount: incompleteSegmentCount)
+        return Self.locate(
+            rawEntities,
+            in: text,
+            incompleteSegmentCount: incompleteSegmentCount,
+            segmentCount: total,
+            unansweredSegmentCount: unansweredSegmentCount
+        )
     }
 
     // MARK: - Filtering and anchoring
@@ -243,10 +300,17 @@ public final class LLMExtractor {
     /// LDAV4Extractor, so a value the built-in tagger reports passes exactly
     /// the same filters and anchors exactly the same way as one the LLM
     /// reports. The tagger's figures were measured through this path.
+    ///
+    /// `segmentCount` is how many segments the caller set out to scan and
+    /// `unansweredSegmentCount` how many of them the model never answered;
+    /// both are carried into the result so a pass the model answered nowhere
+    /// reads as one that did not run (ExtractionResult.scannedNothing).
     public static func locate(
         _ rawEntities: [ExtractedEntity],
         in text: String,
-        incompleteSegmentCount: Int
+        incompleteSegmentCount: Int,
+        segmentCount: Int = 0,
+        unansweredSegmentCount: Int = 0
     ) -> ExtractionResult {
         // 3. Keep only the fuzzy types LDA owns from the LLM, and drop legal
         //    boilerplate the model over-reports: role labels, defined terms
@@ -272,7 +336,7 @@ public final class LLMExtractor {
         var seenEntities = Set<CanonicalKey>()
         var spans: [Span] = []
         var seenSpans = Set<SpanKey>()
-        var unlocatableEntityCount = 0
+        var unlocatedEntities: [ExtractedEntity] = []
         var phantomEntityCount = 0
         // Whitespace-stripped, lowercased copy of the document, built at most
         // once and only if some value fails to anchor. Used purely to classify a
@@ -281,8 +345,15 @@ public final class LLMExtractor {
         var foldedText: String?
 
         for entity in kept {
+            // One form of the value for everything below: the dedup key, the
+            // search, the leak test and the value the review window lists. A
+            // value reported once with edge whitespace (a tagger slice that
+            // starts at a zero-width space) and once without is one value, not
+            // two rows. EntityLocator trims its needle itself, so the spans are
+            // the same either way.
+            let value = entity.value.trimmingCharacters(in: .whitespacesAndNewlines)
             let key = CanonicalKey(
-                value: entity.value.lowercased(),
+                value: value.lowercased(),
                 type: entity.type
             )
             guard seenEntities.insert(key).inserted else { continue }
@@ -291,12 +362,24 @@ public final class LLMExtractor {
             // every whitespace variant of it in one pass (a line wrap, a page
             // break, CJK script-boundary space drift in either direction), so
             // one exact hit never hides a wrapped repeat mention, and there is
-            // no second mechanism to fall back to.
-            let located = EntityLocator.spans(
-                forValue: entity.value,
+            // no second mechanism to fall back to. The same pass reports where
+            // it refused the value as run into a digit or a word.
+            let anchoring = EntityLocator.anchoring(
+                forValue: value,
                 type: entity.type,
                 in: text
             )
+            let located = anchoring.spans
+            if !located.isEmpty, !anchoring.runIns.isEmpty {
+                // Anchored, but also written where a digit or a word runs into
+                // it ("Jordan Lee signed ... witnessed by Jordan Lee2"), and
+                // the locator refused those places. Each is the same leak as a
+                // value that anchors nowhere: detected, and still in the
+                // output. So it is listed and counted with them, and the
+                // document is not presented as clean (LJE-001). The anchored
+                // mentions are redacted as before.
+                unlocatedEntities.append(ExtractedEntity(value: value, type: entity.type))
+            }
             if located.isEmpty {
                 // Two very different failures look identical here, and only one
                 // is a privacy problem. If the document really does contain this
@@ -310,9 +393,11 @@ public final class LLMExtractor {
                     folded = text.lowercased().filter { !$0.isWhitespace }
                     foldedText = folded
                 }
-                let foldedValue = entity.value.lowercased().filter { !$0.isWhitespace }
+                let foldedValue = value.lowercased().filter { !$0.isWhitespace }
                 if !foldedValue.isEmpty, folded.contains(foldedValue) {
-                    unlocatableEntityCount += 1
+                    // Kept with its type, not only counted: the review window
+                    // names each one so the user can protect it by hand.
+                    unlocatedEntities.append(ExtractedEntity(value: value, type: entity.type))
                 } else {
                     phantomEntityCount += 1
                 }
@@ -328,8 +413,10 @@ public final class LLMExtractor {
         return ExtractionResult(
             spans: spans,
             incompleteSegmentCount: incompleteSegmentCount,
-            unlocatableEntityCount: unlocatableEntityCount,
-            phantomEntityCount: phantomEntityCount
+            unlocatedEntities: unlocatedEntities,
+            phantomEntityCount: phantomEntityCount,
+            segmentCount: segmentCount,
+            unansweredSegmentCount: unansweredSegmentCount
         )
     }
 
@@ -340,6 +427,9 @@ public final class LLMExtractor {
     private struct SegmentOutcome {
         let entities: [ExtractedEntity]
         let incomplete: Bool
+        /// True when the model never answered with an entities array: the
+        /// backend threw, or the reply was something else. Always incomplete.
+        var unanswered: Bool = false
     }
 
     /// Throws ExtractionCancelled once the owner's stop flag fires.
@@ -420,7 +510,7 @@ public final class LLMExtractor {
             // The completer threw, so this segment was never read by the model.
             // A backend failure is not a truncation a larger cap can fix; it is
             // an unscanned segment, and the coverage gate must see it as one.
-            return SegmentOutcome(entities: [], incomplete: true)
+            return SegmentOutcome(entities: [], incomplete: true, unanswered: true)
         }
         let firstParse = EntityJSONParser.parseDetailed(first)
         if firstParse.invalid {
@@ -428,7 +518,7 @@ public final class LLMExtractor {
             // Greedy decoding returns the same reply for the same prompt and a
             // larger cap does not change its shape, so there is no recovery to
             // attempt: keep anything salvaged and report the segment unscanned.
-            return SegmentOutcome(entities: firstParse.entities, incomplete: true)
+            return SegmentOutcome(entities: firstParse.entities, incomplete: true, unanswered: true)
         }
         if !firstParse.truncated {
             return SegmentOutcome(entities: firstParse.entities, incomplete: false)

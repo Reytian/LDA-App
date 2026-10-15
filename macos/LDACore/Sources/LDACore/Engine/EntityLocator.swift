@@ -79,19 +79,43 @@ public enum EntityLocator {
         source: DetectionSource = .llm,
         confidence: Double = 0.7
     ) -> [Span] {
+        anchoring(forValue: value, type: type, in: text, source: source, confidence: confidence).spans
+    }
+
+    /// The two results of one search for a value: the spans the locator
+    /// anchors, and the run-in places it refuses (see runInOccurrences).
+    public struct Anchoring {
+        /// Exactly what `spans(forValue:)` returns.
+        public let spans: [Span]
+        /// Exactly what `runInOccurrences(forValue:in:)` returns.
+        public let runIns: [NSRange]
+    }
+
+    /// `spans(forValue:)` and `runInOccurrences(forValue:in:)` from a single
+    /// search, for a caller that needs both. The anchoring is the search
+    /// `spans(forValue:)` has always run, step for step: recording a refused
+    /// run-in changes neither what is accepted nor where the search resumes.
+    public static func anchoring(
+        forValue value: String,
+        type: EntityType,
+        in text: String,
+        source: DetectionSource = .llm,
+        confidence: Double = 0.7
+    ) -> Anchoring {
         let needle = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else {
-            return []
+            return Anchoring(spans: [], runIns: [])
         }
 
         let haystack = text as NSString
         let length = haystack.length
         guard (needle as NSString).length > 0, length > 0 else {
-            return []
+            return Anchoring(spans: [], runIns: [])
         }
 
         var scan = TwoEngineScan(needle: needle, text: text)
         var result: [Span] = []
+        var runIns: [NSRange] = []
         var searchStart = 0
 
         while searchStart < length {
@@ -107,6 +131,13 @@ public enum EntityLocator {
             // match: a later, boundary-valid occurrence may begin inside the
             // rejected range's tail.
             guard isWordBoundary(in: haystack, start: start, end: end) else {
+                // A refused hit with the shape of a mention run into its
+                // neighbour is kept as a run-in, never as a span. One that
+                // overlaps the previous run-in is the same mention seen again.
+                if isRunIn(in: haystack, start: start, end: end),
+                   runIns.last.map({ start >= NSMaxRange($0) }) ?? true {
+                    runIns.append(found)
+                }
                 searchStart = start + 1
                 continue
             }
@@ -132,7 +163,47 @@ public enum EntityLocator {
             searchStart = end
         }
 
-        return result
+        // A run-in that an anchored span overlaps is already partly redacted;
+        // protecting it would have to cut that span apart, so it is not
+        // offered. Only a value that repeats inside itself can produce one.
+        let free = runIns.filter { runIn in
+            !result.contains { $0.start < NSMaxRange(runIn) && $0.end > runIn.location }
+        }
+        return Anchoring(spans: result, runIns: free)
+    }
+
+    // MARK: - Run-in occurrences
+
+    /// Where `value` is still written in `text` although `spans(forValue:)`
+    /// refuses to anchor it there: a mention that a letter or digit runs into.
+    ///
+    /// The word-boundary guard refuses any hit whose edge falls inside a Latin
+    /// word. That keeps "Ann" from redacting part of "Annex", and it also
+    /// refuses a real mention glued to its neighbour: "Jordan Lee2", where a
+    /// footnote marker follows the name, or "byJordan Lee", where a PDF text
+    /// layer lost a space. A refused hit is returned only when every edge the
+    /// guard refuses has one of those two shapes:
+    /// - a letter beside a digit ("Lee2", "3Acme"), or
+    /// - a lowercase letter followed by an uppercase one, two words run
+    ///   together ("byJordan", "LeeCEO").
+    /// A hit inside an ordinary word has neither ("li" in "compliance", "Lee"
+    /// in "Leeds", "Chan" in "Chancery", "Unit 5" in "Unit 57", "Apartment 5"
+    /// in "Apartment 5A") and is never returned, so a caller that redacts
+    /// these ranges cannot cut words apart.
+    ///
+    /// The search is the one `spans(forValue:)` runs, the case-insensitive
+    /// exact search plus the whitespace variants, so a refused wrapped mention
+    /// ("Jordan\nLee2") is found too. Hits the guard accepts are not returned:
+    /// `spans(forValue:)` anchors those, and run-ins never become spans, so
+    /// anchoring is unchanged. A value can have both: "Jordan Lee signed ...
+    /// witnessed by Jordan Lee2" anchors the first mention and leaves the
+    /// second as a run-in, which is a leak like a value that anchors nowhere.
+    ///
+    /// - Returns: UTF-16 ranges (NSRange-compatible), in document order, never
+    ///   overlapping each other or an anchored span. Empty when value is blank
+    ///   or no refused hit qualifies.
+    public static func runInOccurrences(forValue value: String, in text: String) -> [NSRange] {
+        anchoring(forValue: value, type: .person, in: text).runIns
     }
 
     // MARK: - Two-engine scan
@@ -244,5 +315,52 @@ public enum EntityLocator {
             }
         }
         return true
+    }
+
+    /// True when every edge of the [start, end) match that isWordBoundary
+    /// refuses reads as two tokens run together (see isRunInJoin). An edge the
+    /// guard accepts needs no explanation.
+    private static func isRunIn(in haystack: NSString, start: Int, end: Int) -> Bool {
+        if start > 0 {
+            let before = haystack.character(at: start - 1)
+            let first = haystack.character(at: start)
+            if SegmentPacker.isLatinWordChar(before) && SegmentPacker.isLatinWordChar(first)
+                && !isRunInJoin(left: before, right: first, outsideIsLeft: true) {
+                return false
+            }
+        }
+        if end < haystack.length {
+            let last = haystack.character(at: end - 1)
+            let after = haystack.character(at: end)
+            if SegmentPacker.isLatinWordChar(last) && SegmentPacker.isLatinWordChar(after)
+                && !isRunInJoin(left: last, right: after, outsideIsLeft: false) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// True when two adjacent Latin word characters, one at the edge of the
+    /// match and one just outside it, read as two tokens run together rather
+    /// than as the inside of one word:
+    /// - a digit outside, against a letter of the value: a footnote marker or
+    ///   a list number glued to the name ("Lee2", "3Acme"). A digit of the
+    ///   value against a letter outside is one token ("Apartment 5" in
+    ///   "Apartment 5A", "5th"), and two digits are one number.
+    /// - a lowercase letter followed by an uppercase one: a space lost before
+    ///   a capitalised word ("byJordan", "LeeCEO"). Two letters in the same
+    ///   case are one word.
+    private static func isRunInJoin(left: unichar, right: unichar, outsideIsLeft: Bool) -> Bool {
+        let outside = outsideIsLeft ? left : right
+        let edge = outsideIsLeft ? right : left
+        let outsideIsDigit = (0x30...0x39).contains(outside)
+        let edgeIsDigit = (0x30...0x39).contains(edge)
+        if outsideIsDigit || edgeIsDigit {
+            return outsideIsDigit && !edgeIsDigit
+        }
+        guard let leftScalar = Unicode.Scalar(left), let rightScalar = Unicode.Scalar(right) else {
+            return false
+        }
+        return leftScalar.properties.isLowercase && rightScalar.properties.isUppercase
     }
 }
