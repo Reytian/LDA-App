@@ -149,7 +149,9 @@ public final class LLMExtractor {
     /// patterns do not know (a passport number, a NINO, a HKID) used to be
     /// discarded here and left in the document, and now anchors as the model
     /// reported it.
-    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID]
+    /// TRADEMARK is kept as its own type: LDA V4 tags brands that way, and they
+    /// are redacted without counting as companies.
+    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID, .trademark]
 
     private let completer: TextCompleter
     private let prompts: PromptStore
@@ -295,7 +297,8 @@ public final class LLMExtractor {
     // MARK: - Filtering and anchoring
 
     /// Steps 3 and 4 of extractDetailed: keep the fuzzy types, drop legal
-    /// boilerplate and the document's own defined terms, then anchor each
+    /// boilerplate and the document's own defined terms (except a defined
+    /// term that abbreviates a name the model reported), then anchor each
     /// distinct value at every occurrence in the full text. Shared with
     /// LDAV4Extractor, so a value the built-in tagger reports passes exactly
     /// the same filters and anchors exactly the same way as one the LLM
@@ -320,13 +323,35 @@ public final class LLMExtractor {
         //    defined terms ("Electronic Media Systems" and the like) are
         //    scanned once and dropped; DefinedTermScanner keeps real-name
         //    aliases redactable.
+        //    The scanner reads only the 90 code units before a definition, so
+        //    it takes a party's short name for a generic term when an address
+        //    or registration details separate it from the full name, or when
+        //    the party's description ends right before the "(" ("Brightwater
+        //    Analytics Inc., a Delaware corporation ("Brightwater")"). A
+        //    defined term that abbreviates a name the model reported as the
+        //    same type in this document is that name's short form wherever it
+        //    is defined, so it is kept. Generic terms abbreviate no reported
+        //    name ("the Platform"), or are boilerplate and gone already ("the
+        //    Company").
         let documentTerms = DefinedTermScanner.droppableTerms(in: text)
-        let kept = rawEntities.filter { entity in
-            guard LLMExtractor.keptTypes.contains(entity.type) else { return false }
-            if LegalBoilerplate.shouldDrop(entity.value, type: entity.type) {
-                return false
+        let candidates = rawEntities.filter { entity in
+            LLMExtractor.keptTypes.contains(entity.type)
+                && !LegalBoilerplate.shouldDrop(entity.value, type: entity.type)
+        }
+        let isDefinedTerm = candidates.map { DefinedTermScanner.covers($0.value, terms: documentTerms) }
+        var reportedNames: [EntityType: Set<String>] = [:]
+        for (entity, definedTerm) in zip(candidates, isDefinedTerm) where !definedTerm {
+            reportedNames[entity.type, default: []].insert(entity.value)
+        }
+        var kept: [ExtractedEntity] = []
+        for (entity, definedTerm) in zip(candidates, isDefinedTerm) {
+            if definedTerm {
+                let names = reportedNames[entity.type] ?? []
+                guard names.contains(where: { DefinedTermScanner.isDerivedAlias(entity.value, of: $0) }) else {
+                    continue
+                }
             }
-            return !DefinedTermScanner.covers(entity.value, terms: documentTerms)
+            kept.append(entity)
         }
 
         // 4. Canonicalize and dedup by (lowercased value, type) so the same

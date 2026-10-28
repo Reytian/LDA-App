@@ -110,6 +110,15 @@ public struct AnonymizeResult: Sendable {
     /// all changes before redacting for an exact round trip." Always 0 for
     /// non-DOCX input.
     public var trackedChangeCount: Int
+    /// How many distinct values the model found but the locator could not
+    /// anchor at every place they are written, and that were redacted at their
+    /// run-in places anyway because the run used UnlocatedValuePolicy.protect
+    /// (Review's Protect, applied without asking). Always 0 under the default
+    /// .refuse, which writes nothing instead.
+    public var autoProtectedValueCount: Int = 0
+    /// The body places those values were redacted at. Each is also counted in
+    /// entityCount.
+    public var autoProtectedPlaceCount: Int = 0
 
     public init(
         redactedFileURL: URL,

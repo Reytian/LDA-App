@@ -124,6 +124,11 @@ final class PseudonymGeneratorTests: XCTestCase {
         XCTAssertEqual(mint(.unknown, surface: "机密项目代号", count: 2), ["某某1", "某某2"])
     }
 
+    func testTrademarkFallbacksAreTypeLabeled() {
+        XCTAssertEqual(mint(.trademark, surface: "金莎", count: 2), ["某商标1", "某商标2"])
+        XCTAssertEqual(mint(.trademark, surface: "Starbucks", count: 1), ["Trademark 1"])
+    }
+
     func testEmailSchemeIsAlwaysLatin() {
         let names = mint(.email, surface: "zhang.san@company.cn", count: 2)
         XCTAssertEqual(names, ["contact1@example.com", "contact2@example.com"])

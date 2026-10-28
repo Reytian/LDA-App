@@ -14,7 +14,7 @@ public final class MCPAuditJournal {
         containerDescription: "MCP audit key", auditing: false)
     private static let genesis = String(repeating: "0", count: 64)
     private static let operations: Set<String> = [
-        "prepare_documents", "import_edited_document", "list_pending", "anonymize", "anonymize_session", "read_redacted", "detect_entities",
+        "prepare_documents", "batch_anonymize", "import_edited_document", "list_pending", "anonymize", "anonymize_session", "read_redacted", "detect_entities",
         "restore", "export", "attest", "choose_workspace", "extract_profile", "fill",
         "portfolio_list", "portfolio_show", "anonymize_document", "restore_document", "unknown"
     ]
@@ -105,7 +105,7 @@ public final class MCPAuditJournal {
             cachedKey = (sealed, secret)
             return secret
         }
-        guard creating, identity == nil, cachedKey == nil, !fm.fileExists(atPath: checkpointURL.path), !fm.fileExists(atPath: directory.path) else {
+        guard creating, identity == nil, cachedKey == nil, !fm.fileExists(atPath: checkpointURL.path), try isAbsentOrEmpty(directory) else {
             throw MCPAuditError.integrityFailure
         }
         try fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -183,6 +183,16 @@ public final class MCPAuditJournal {
     private func refuseSymlink(_ url: URL) throws {
         let values = try url.resourceValues(forKeys: [.isSymbolicLinkKey])
         guard values.isSymbolicLink != true else { throw MCPAuditError.integrityFailure }
+    }
+
+    /// A first setup that stopped after creating the record directory, for example when the
+    /// registry or the Keychain refused a write, leaves that directory empty, with no key, no
+    /// checkpoint and no journal ID. No record can exist without the key, so this is the same
+    /// state as a fresh vault. Any file in the directory still blocks initialization.
+    private func isAbsentOrEmpty(_ url: URL) throws -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return true }
+        try refuseSymlink(url)
+        return try FileManager.default.contentsOfDirectory(atPath: url.path).isEmpty
     }
 
     private func secureAndSync(_ url: URL) throws {

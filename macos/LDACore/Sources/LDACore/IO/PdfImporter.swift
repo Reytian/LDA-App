@@ -84,7 +84,11 @@ public struct PdfImporter: DocumentImporter {
             // detection, the redacted edit surface, and the restored output all
             // see the same clean text. normalizeWhitespace below collapses the
             // same artifact so the box locator still matches this repaired text.
-            let pageText = PdfTextNormalizer.normalize(document.page(at: index)?.string ?? "")
+            // Soft line breaks are joined so a name wrapped at the margin reaches
+            // detection, the placeholders and the AI in one piece (PdfLineReflow).
+            let pageText = PdfLineReflow.joinSoftBreaks(
+                PdfTextNormalizer.normalize(document.page(at: index)?.string ?? "")
+            )
             texts.append(pageText)
             if pageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 scannedPages.append(index)

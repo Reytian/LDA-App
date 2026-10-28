@@ -14,7 +14,7 @@ memory**. In the Apple menu, choose **About This Mac** to check your chip, memor
 and macOS version.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest).
-2. Under **Assets**, download **LDA-1.3.1.dmg**. The automatically generated
+2. Under **Assets**, download **LDA-1.4.dmg**. The automatically generated
    **Source code** archives are for developers, not the ready-to-run app.
 3. Double-click the disk image in Finder to open it.
 4. Drag **LDA.app** onto **Applications** and open it from there.
@@ -34,7 +34,7 @@ cd ~/Downloads
 shasum -a 256 -c SHA256SUMS.txt
 ```
 
-The line for **LDA-1.3.1.dmg** should say **OK**. Use the unchanged filenames
+The line for **LDA-1.4.dmg** should say **OK**. Use the unchanged filenames
 and the checksum file for that exact release. A mismatch means you should
 download the files again before opening the app.
 
@@ -186,6 +186,33 @@ Word filling targets supported text blanks. PDF filling targets supported
 AcroForm text fields; a flat scan is not a fillable form. Profiles are encrypted,
 but the completed document contains actual client details.
 
+## 9. Anonymize a whole folder at once
+
+From LDA 1.4, a batch anonymizes every document in a folder with no review
+step.
+
+1. Choose **File > Batch Anonymize...** (Shift-Command-B), or **Batch
+   Anonymize...** on the start screen.
+2. Under **From**, choose the folder of documents (subfolders are included).
+   Under **To**, choose an output folder outside it.
+3. Choose **Start**. Each document gets its own redacted copy and mapping in
+   the same folder layout. **Stop** ends the batch after the current document.
+4. The window then lists only the documents that need attention: those that
+   were not written and why, and the ones to check, such as a review PDF that
+   still shows a value. **Show in Finder** selects `lda-batch-report.txt`,
+   which covers every document.
+
+**More options** sets the output style (by default the one chosen in
+Settings), keeps the mappings under one passphrase you type twice instead of
+in this Mac's Keychain, and redoes documents an earlier run finished.
+
+A value that runs into a number or another word ("Jordan Lee2") is protected
+automatically, as **Protect** would do in a review. A document that still
+cannot be cleaned is not written. Running the same batch again skips the
+documents already finished. Nobody reviews a batch, so check a sample of the
+redacted copies before you share them. The command-line tool runs the same
+batch: `LDA.app/Contents/Helpers/lda batch --input-dir <folder> --output-dir <folder>`.
+
 ## Optional: connect LDA to an AI app
 
 **Requires a setup-enabled build with Settings > MCP Setup, the bundled helper,
@@ -206,6 +233,11 @@ For a compatible Codex build:
 5. Read the protected answer and any coverage warnings. For an answer based on
    one document, ask: `Restore this summary locally and export it.` Review the
    result on your Mac.
+
+To anonymize a whole folder without the AI reading it, ask for a batch, for
+example `/LDA Batch-anonymize a folder.` LDA's Batch Anonymize window opens on
+your Mac; you choose the folders there, and the AI learns only how many
+documents were written, skipped or not written.
 
 Keep separate documents' mappings separate. A combined multi-document answer
 cannot safely use one unrelated mapping. Any Matter name typed in chat is already

@@ -110,6 +110,7 @@ public enum CounselTheme {
         case .wechatID:     return HexPair(light: 0x267A57, dark: 0x60B38C) // sea green
         case .url:          return HexPair(light: 0x2A66A6, dark: 0x7BA5E5) // cerulean
         case .seal:         return HexPair(light: 0xB0402C, dark: 0xE8907A) // vermilion
+        case .trademark:    return HexPair(light: 0x9C4F0B, dark: 0xF0A55F) // burnt orange
         case .unknown:      return HexPair(light: 0x505050, dark: 0xC6C6C6) // neutral
         }
     }

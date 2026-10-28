@@ -481,6 +481,17 @@ public struct DeterministicEngine: Sendable {
     ///     (上海市人民政府令第52号) never match.
     ///   - Building tails must be led by digits or A-Z/甲乙丙丁, so the pattern
     ///     never swallows following prose through a loose 楼/室 suffix.
+    ///
+    /// Traditional script matches as well as simplified, one character at a
+    /// time, so a fully traditional address (深圳市南山區科技路88號) and a mixed
+    /// one (南山区科技路88號) both match. Hong Kong and Taiwan documents cite
+    /// mainland addresses in traditional script, and Vision OCR returns some
+    /// traditional glyphs even when asked for simplified text, so a
+    /// simplified-only rule left those addresses in cleartext whenever no
+    /// model ran. Every character list below carries the traditional forms of
+    /// its characters that differ: the forms ICU's Hans-Hant transform gives,
+    /// plus the variants its Hant-Hans transform folds onto the same character
+    /// (爲 for 为, 係 for the copula 系, and the Hong Kong 綫 for 线).
     private func detectChineseAddress(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
         enumerate(Self.chineseAddressCorePattern, in: ns, range: range) { match in
@@ -510,21 +521,23 @@ public struct DeterministicEngine: Sendable {
     /// excludes these so a core match never starts inside administrative text.
     /// Road markers are included because area names ending in one
     /// (建国门外街道) sit between the administrative segments and the road.
-    private static let segmentBoundaryCharacters = "省市区县镇乡村州盟旗路街道巷"
+    /// The second string holds the traditional forms.
+    private static let segmentBoundaryCharacters = "省市区县镇乡村州盟旗路街道巷" + "區縣鎮鄉"
 
     /// Administrative markers proper. At least one must appear in the walked
     /// prefix for the core to count as an address.
-    private static let adminMarkers: Set<Character> = Set("省市区县镇乡村州盟旗")
+    private static let adminMarkers: Set<Character> = Set("省市区县镇乡村州盟旗" + "區縣鎮鄉")
 
     /// Characters that never belong to a place name, so the walk stops at them.
     /// These are the prose connectors that introduce an address in legal
-    /// Chinese (注册地址为, 住所, 位于, 系).
-    private static let nameStopCharacters = "为于在是的系址所住处至及之等从由"
+    /// Chinese (注册地址为, 住所, 位于, 系), then their traditional forms
+    /// (註冊地址為, 位於, 係).
+    private static let nameStopCharacters = "为于在是的系址所住处至及之等从由" + "為爲於係處從"
 
     /// Number and unit markers. A road name never contains one, so excluding
     /// them stops a greedy road name from reaching back across a preceding
-    /// number or unit word.
-    private static let structuralMarkerCharacters = "号弄线座楼室栋幢层"
+    /// number or unit word. The second string holds the traditional forms.
+    private static let structuralMarkerCharacters = "号弄线座楼室栋幢层" + "號線綫樓棟層"
 
     /// The unambiguous core of a Chinese street address: the road, then a lane
     /// or a street number, then any unit tail. Built once, because detect runs
@@ -543,13 +556,20 @@ public struct DeterministicEngine: Sendable {
     /// is taken only when it does not start a party label, since 甲方 and 乙方
     /// are everywhere in Chinese contracts. It sits after the unit tail so a
     /// letter belonging to a unit (甲栋) is still read as one.
+    ///
+    /// 号 and the unit words take each character in either script (号楼,
+    /// 號樓, 號楼), so OCR that converts only some glyphs still matches. These
+    /// are character classes, not new quantifiers, so the scan stays linear.
     private static let chineseAddressCorePattern: String = {
         let digit = #"[0-9０-９]"#
+        let hao = "[号號]"
         let roadName = #"(?:(?!["# + segmentBoundaryCharacters
             + nameStopCharacters + structuralMarkerCharacters + #"])[一-龥])"#
         let road = "(" + roadName + "{0,12}" + #"(?:路|街|道|巷))"#
-        let number = "(?:" + digit + "{1,5}弄(?:" + digit + "{1,5}号)?|" + digit + "{1,5}号)"
-        let units = "(?:[0-9０-９A-Za-z甲乙丙丁]{1,5}(?:号楼|单元|栋|幢|座|楼|层|室))*"
+        let number = "(?:" + digit + "{1,5}弄(?:" + digit + "{1,5}" + hao + ")?|"
+            + digit + "{1,5}" + hao + ")"
+        let unitWord = "(?:" + hao + "[楼樓]|[单單]元|[栋棟]|幢|座|[楼樓]|[层層]|室)"
+        let units = "(?:[0-9０-９A-Za-z甲乙丙丁]{1,5}" + unitWord + ")*"
         let buildingLetter = #"(?:[甲乙丙丁](?!方))?"#
         return road + number + units + buildingLetter
     }()
@@ -570,10 +590,14 @@ public struct DeterministicEngine: Sendable {
     /// character (大道, 公路 as in the Shanghai address 沪南公路2000号) are
     /// deliberately absent, and so is 街道, which is also an administrative
     /// unit and can carry a street number.
+    ///
+    /// The last line holds the traditional forms of the words that differ.
+    /// The suffix match makes them cover mixed script too: 車道 ends 机动車道.
     private static let genericWayWords = [
         "人行道", "车行道", "机动车道", "非机动车道", "车道", "隧道", "通道", "甬道",
         "跑道", "河道", "轨道", "便道", "匝道", "引道", "坡道", "廊道", "管道",
         "渠道", "步道", "过道", "走道",
+        "車行道", "機動車道", "非機動車道", "車道", "軌道", "過道",
     ]
 
     /// True when the matched road token names a generic way rather than a

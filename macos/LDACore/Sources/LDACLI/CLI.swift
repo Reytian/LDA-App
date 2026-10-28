@@ -150,6 +150,10 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// Always 0 for non-DOCX input. Subtract it from entityCount for the body
     /// half. Absent in older summaries, so it decodes as 0 when missing.
     public let supplementaryEntityCount: Int
+    /// Values redacted at their run-in places without asking (--auto-protect).
+    /// Always 0 without the flag. Absent in older summaries, so it decodes as
+    /// 0 when missing.
+    public let autoProtectedValueCount: Int
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -162,6 +166,7 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.unboxedTokenCount = result.unboxedTokenCount
         self.trackedChangeCount = result.trackedChangeCount
         self.supplementaryEntityCount = result.supplementaryEntityCount
+        self.autoProtectedValueCount = result.autoProtectedValueCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -178,6 +183,10 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         supplementaryEntityCount = try container.decodeIfPresent(
             Int.self,
             forKey: .supplementaryEntityCount
+        ) ?? 0
+        autoProtectedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .autoProtectedValueCount
         ) ?? 0
     }
 }
@@ -237,6 +246,7 @@ public enum LDACLI {
         passphrase: String?,
         llmModelPath: String? = nil,
         style: SubstitutionStyle = .token,
+        unlocatedPolicy: UnlocatedValuePolicy = .refuse,
         timestamp: TimestampProvider = defaultTimestampProvider
     ) throws -> AnonymizeResult {
         try requireExists(input)
@@ -258,7 +268,8 @@ public enum LDACLI {
             protection: protection,
             createdAtISO8601: timestamp(),
             llmModelPath: llmModelPath,
-            style: style
+            style: style,
+            unlocatedPolicy: unlocatedPolicy
         )
     }
 
@@ -423,6 +434,7 @@ struct LDARoot: ParsableCommand {
         abstract: "Legal Document Anonymizer.",
         subcommands: [
             Anonymize.self,
+            Batch.self,
             Restore.self,
             Detect.self,
             ExtractProfile.self,
@@ -459,6 +471,15 @@ struct Anonymize: ParsableCommand {
     @Option(name: .long, help: "Output style: token emits {TYPE_N} placeholders (default). pseudonym emits natural-language stand-ins (Company A, 甲公司, 张某) that survive AI editing. asterisk emits masked values (张*明, 138****5678) for sending to a human reader; colliding masks restore as ambiguous, never guessed.")
     var style: SubstitutionStyle = .token
 
+    @Flag(name: .long, help: "Redact a detected value where a letter or digit runs into it (\"Jordan Lee2\"), as Review's Protect does, instead of refusing the document. One document only; lda batch always does this.")
+    var autoProtect = false
+
+    func validate() throws {
+        if autoProtect, input.count != 1 || client != nil || input.first.map({ ZipImporter.isZip(URL(fileURLWithPath: $0)) }) == true {
+            throw ValidationError("--auto-protect works on one document. For a folder of documents, use lda batch.")
+        }
+    }
+
     func run() throws {
         do {
             // A .zip input expands into a temp directory holding the user's
@@ -475,7 +496,8 @@ struct Anonymize: ParsableCommand {
                     outputDir: URL(fileURLWithPath: outputDir),
                     passphrase: passphrase,
                     llmModelPath: model,
-                    style: style
+                    style: style,
+                    unlocatedPolicy: autoProtect ? .protect : .refuse
                 )
                 print(try CLIJSON.encode(AnonymizeSummaryJSON(result: result)))
                 // The count is in the JSON either way; stderr is what a person

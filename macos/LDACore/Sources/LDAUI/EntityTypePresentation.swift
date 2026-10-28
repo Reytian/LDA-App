@@ -27,6 +27,7 @@ enum EntityTypePresentation {
         case .wechatID: return "WeChat ID"
         case .url: return "URL"
         case .seal: return "Seal"
+        case .trademark: return "Trademark"
         case .unknown: return "Unknown"
         }
     }

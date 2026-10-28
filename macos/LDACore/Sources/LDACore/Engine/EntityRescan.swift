@@ -123,10 +123,16 @@ public enum EntityRescan {
         let ordered = confirmed.sorted { lhs, rhs in
             lhs.start != rhs.start ? lhs.start < rhs.start : lhs.end < rhs.end
         }
+        // A company surface that only ends a longer company or brand surface
+        // (NameHeads) is never a needle: one stray 巧克力 must not be spread.
+        let heads = NameHeads.heads(
+            in: (ordered + knownEntities).map { ($0.text.trimmingCharacters(in: .whitespacesAndNewlines), $0.type) }
+        )
         for span in ordered + knownEntities where span.type == .person || span.type == .company {
             let value = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let key = value.lowercased()
             guard !value.isEmpty, !seenNeedles.contains(key) else { continue }
+            guard span.type == .person || !heads.contains(value) else { continue }
             guard isSafeNeedle(value, type: span.type) else { continue }
             seenNeedles.insert(key)
             needles.append(

@@ -265,6 +265,24 @@ final class PackagingScriptTests: XCTestCase {
         )
     }
 
+    // MARK: - The release binary links AVKit
+
+    func testABinaryThatDoesNotLinkAVKitIsRefused() throws {
+        // On macOS 27 the _AVKit_SwiftUI overlay no longer loads AVKit, so a
+        // binary that does not link it aborts when a walkthrough video opens.
+        let fixture = try PackagingFixture(swiftExitStatus: 0, binaryLinksAVKit: false)
+        defer { fixture.remove() }
+
+        let result = try fixture.run()
+
+        XCTAssertNotEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("LDAApp does not link AVKit"), result.output)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: fixture.distURL.appendingPathComponent("LDA.app").path),
+            result.output
+        )
+    }
+
     func testPackagingPropagatesBuildFailure() throws {
         let fixture = try PackagingFixture(swiftExitStatus: 23)
         defer { fixture.remove() }
@@ -300,7 +318,8 @@ private struct PackagingFixture {
         swiftExitStatus: Int32,
         manifestIsParseable: Bool = true,
         stubShasumToAlwaysAgree: Bool = false,
-        omitLocalization: String? = nil
+        omitLocalization: String? = nil,
+        binaryLinksAVKit: Bool = true
     ) throws {
         let fm = FileManager.default
         rootURL = fm.temporaryDirectory
@@ -348,6 +367,19 @@ private struct PackagingFixture {
             fi
             exit 1
             """
+        )
+        // Stands in for `otool -L` on the release binary, which the real tool
+        // cannot read because the stand-in is a shell script. The AVKit ship
+        // gate reads this listing.
+        let avKitLine = "\t/System/Library/Frameworks/AVKit.framework/Versions/A/AVKit (compatibility version 1.0.0)"
+        try Self.writeExecutable(
+            named: "otool",
+            in: fakeBinURL,
+            contents: """
+            #!/bin/bash
+            printf '%s:\\n' "$2"
+            printf '%s\\n' "\t/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI (compatibility version 1.0.0)"
+            """ + (binaryLinksAVKit ? "\nprintf '%s\\n' \"\(avKitLine)\"" : "") + "\nexit 0\n"
         )
 
         // The stand-in LDA V4 folder and its checksum list, computed from the

@@ -36,6 +36,7 @@ extension MCPServer {
     /// The handle-first tools, in advertisement order.
     static let vaultToolNames: [String] = [
         "prepare_documents",
+        "batch_anonymize",
         "list_pending",
         "choose_workspace",
         "anonymize",
@@ -95,6 +96,15 @@ extension MCPServer {
             "inputSchema": [
                 "type": "object", "additionalProperties": false,
                 "properties": ["workspaceName": ["type": "string", "maxLength": 256, "description": "The workspace name explicitly supplied by the user; confirmed in the local Matters picker."]],
+                "required": [String]()
+            ]
+        ],
+        [
+            "name": "batch_anonymize",
+            "description": "Offer batch processing: open LDA's Batch Anonymize window ON THIS MAC so the person can anonymize a whole folder of documents at once, with no review step. The person chooses the source folder, the output folder, the output style and how mappings are sealed in that window; no argument can choose them. LDA writes one redacted copy and one mapping per document, plus a batch report, into the chosen folder. Values that run into other text are protected automatically; a document that still cannot be cleaned is not written, and the report on the Mac says why. Nothing is staged in the vault and nothing returns to AI except the outcome (finished, stopped, failed, closed, busy, or still_open when the window is still open after 25 minutes) and counts: documentCount, writtenCount, skippedCount (finished in an earlier run), failedCount, autoProtectedValueCount. Nobody reviews batch output. Use prepare_documents instead when the AI must read the redacted text. Allow time for local interaction.",
+            "inputSchema": [
+                "type": "object", "additionalProperties": false,
+                "properties": [String: Any](),
                 "required": [String]()
             ]
         ],

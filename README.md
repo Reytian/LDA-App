@@ -99,7 +99,7 @@ LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, pl
 You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory**.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-1.3.1.dmg** from **Assets**.
+   and download **LDA-1.4.dmg** from **Assets**.
 2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
    Privacy Policy, then choose your language in the setup wizard.
@@ -194,6 +194,21 @@ No. Pattern matching, local models, and OCR can all miss information. Names,
 companies, and addresses require a model. Review detected items, protect missed
 text, and consider the remaining context: unusual facts can identify a matter
 even after names are replaced. Safe Preview is a review view, not a certification.
+
+**Can I anonymize a whole folder at once?**
+
+Yes, from LDA 1.4. **File > Batch Anonymize...** in the app (also a button on
+the start screen), the `batch_anonymize` tool in an AI app connected through
+MCP (it opens the same window and tells the AI only the counts), or
+`lda batch --input-dir <folder> --output-dir <folder>` with the command-line
+tool inside the app (`LDA.app/Contents/Helpers/lda`), writes one redacted copy
+and one encrypted mapping per document, in the same folder layout, with no
+review step. A name the model found but could not match exactly, because a
+footnote number or another word runs into it, is redacted there automatically,
+as Protect would do. A document that still cannot be cleaned is skipped and
+listed in the batch report (`lda-batch-report.txt`), and running the batch again
+resumes where it stopped. Nobody reviews a batch, so check a sample of the
+redacted copies before you share them.
 
 ### Data privacy
 

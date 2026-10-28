@@ -45,9 +45,11 @@ final class NetworkChokepointTests: XCTestCase {
         "NSWorkspace.shared.open": [
             "MCPWorkspaceTools.swift",
             // The application URL comes from the local bundle lookup or a launch-only
-            // fileURLWithPath override. The only delivered URL is ExportReceipt's
-            // fixed lda-mcp://show-export/<UUID> route, never a tool-supplied URL.
-            // MCPExportHandoffTests verifies that route and rejects query/path injection.
+            // fileURLWithPath override. The only delivered URLs are ExportReceipt's
+            // fixed lda-mcp://show-export/<UUID> route and MCPBatchRequest's fixed
+            // lda-mcp://batch-anonymize/<UUID> route, never a tool-supplied URL.
+            // MCPExportHandoffTests and MCPBatchTests verify those routes and reject
+            // query/path injection.
             "MCPLocalHandoff.swift"
         ],
         "String(contentsOf:": [

@@ -128,6 +128,12 @@ public enum LDAService {
     ///     test, so a caller may also observe the set. Nil keeps every span.
     ///   - excludedTypes: entity types left visible on EVERY channel (body,
     ///     docx headers, footers, notes, comments, and the image-PII pass).
+    ///   - unlocatedPolicy: what a value the model found but could not anchor
+    ///     at every place it is written does. The default .refuse throws
+    ///     unanchoredEntities and writes nothing. .protect redacts it where a
+    ///     letter or digit runs into it, as Review's Protect would, and
+    ///     refuses only a value written in no such place (RunInProtection);
+    ///     the result counts what it protected.
     public static func anonymize(
         input: URL,
         outputDir: URL,
@@ -139,20 +145,54 @@ public enum LDAService {
         spanFilter: ((Span) -> Bool)? = nil,
         excludedTypes: Set<EntityType> = [],
         additionalPatterns: [CustomPattern] = [],
+        expectedReviewDigest: String? = nil,
+        unlocatedPolicy: UnlocatedValuePolicy = .refuse
+    ) throws -> AnonymizeResult {
+        // The detector is built first: a requested model that cannot run is
+        // refused before the import pays for OCR, and a later image-PII pass
+        // (Task 6) reuses the already-loaded engine without loading the model
+        // a second time.
+        let detector = try makeDetector(modelPath: llmModelPath, unlocatedPolicy: unlocatedPolicy)
+        return try anonymize(
+            using: detector,
+            input: input,
+            outputDir: outputDir,
+            protection: protection,
+            createdAtISO8601: createdAtISO8601,
+            style: style,
+            includeSealCandidates: includeSealCandidates,
+            spanFilter: spanFilter,
+            excludedTypes: excludedTypes,
+            additionalPatterns: additionalPatterns,
+            expectedReviewDigest: expectedReviewDigest
+        )
+    }
+
+    /// anonymize over a detector the caller already built, so a batch loads
+    /// the model once for all of its documents (BatchAnonymizer). The
+    /// detector's unlocatedPolicy decides what a value it could not anchor
+    /// everywhere does. Everything else is as the public entry point
+    /// documents.
+    internal static func anonymize(
+        using detector: Detector,
+        input: URL,
+        outputDir: URL,
+        protection: MappingProtection,
+        createdAtISO8601: String,
+        style: SubstitutionStyle = .token,
+        includeSealCandidates: Bool = true,
+        spanFilter: ((Span) -> Bool)? = nil,
+        excludedTypes: Set<EntityType> = [],
+        additionalPatterns: [CustomPattern] = [],
         expectedReviewDigest: String? = nil
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
 
         // Detect entities once, then tokenize. The tokenized text and the mapping
-        // drive both the edit surface and the mapping sidecar. The detector is
-        // built first and at function scope: a requested model that cannot run
-        // is refused before the import pays for OCR, and a later image-PII pass
-        // (Task 6) reuses the already-loaded engine without loading the model a
-        // second time. The primary text pass throws if a segment could not be
-        // fully scanned, so the document is never written out as cleanly
-        // anonymized on a partial scan.
-        let detector = try makeDetector(modelPath: llmModelPath)
+        // drive both the edit surface and the mapping sidecar. The primary text
+        // pass throws if a segment could not be fully scanned, so the document
+        // is never written out as cleanly anonymized on a partial scan.
         //
         // A standalone image is extracted ONCE up front: its joined OCR text
         // feeds the same detection pipeline as every other format, and the
@@ -256,7 +296,7 @@ public enum LDAService {
             let sidecarURL = outputDir.appendingPathComponent("\(companionBaseName).ldamap")
             try MappingStore.save(tokenized.mapping, to: sidecarURL, protection: protection)
 
-            return AnonymizeResult(
+            return detector.stamping(AnonymizeResult(
                 redactedFileURL: companionURL,
                 mappingFileURL: sidecarURL,
                 visualPdfURL: nil,
@@ -269,7 +309,7 @@ public enum LDAService {
                 redactedImageURL: imageURL,
                 excludedEntityCount: review.excludedOccurrenceCount,
                 excludedValueCount: review.excludedValueCount
-            )
+            ))
         }
 
         let redactedFileURL: URL
@@ -353,7 +393,7 @@ public enum LDAService {
         let mappingFileURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
         try MappingStore.save(tokenized.mapping, to: mappingFileURL, protection: protection)
 
-        return AnonymizeResult(
+        return detector.stamping(AnonymizeResult(
             redactedFileURL: redactedFileURL,
             mappingFileURL: mappingFileURL,
             visualPdfURL: visualPdfURL,
@@ -369,7 +409,7 @@ public enum LDAService {
             trackedChangeCount: imported.trackedChangeCount,
             supplementaryEntityCount: supplementaryCount,
             supplementaryCountsByType: supplementaryCountsByType
-        )
+        ))
     }
 
     /// Load the mapping sidecar, then restore. See

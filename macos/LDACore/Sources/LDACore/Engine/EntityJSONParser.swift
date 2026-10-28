@@ -596,6 +596,8 @@ public enum EntityJSONParser {
             return .url
         case "SEAL":
             return .seal
+        case "TRADEMARK":
+            return .trademark
         default:
             return .unknown
         }

@@ -25,6 +25,8 @@ final class ImageTextExtractorTests: XCTestCase {
     static let plantedEmail = "zhangwei@example.com"
     // Halfwidth parentheses are legal input to the detector and avoid a
     // known Vision ambiguity between fullwidth parentheses and CJK glyphs.
+    // Vision on macOS 27 still returns this line as （2026）粵03民初12345号,
+    // with the traditional 粵, which the case-number detector accepts.
     static let plantedCaseNumber = "(2026)粤03民初12345号"
 
     static let fixtureLines = [

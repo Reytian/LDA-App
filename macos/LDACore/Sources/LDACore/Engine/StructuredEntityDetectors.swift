@@ -53,6 +53,14 @@ extension DeterministicEngine {
     /// are deliberately out of scope; they remain LLM territory.
     ///
     /// Digits accept the fullwidth forms because scanned filings carry them.
+    ///
+    /// Every character with a different traditional form is accepted in that
+    /// form too (粵 for 粤, 執 for 执, 終 for 终, 兵團 for 兵团, 號 for 号). Vision
+    /// OCR returns some of them even with zh-Hans recognition: on macOS 27 the
+    /// image fixture line (2026)粤03民初12345号 comes back as
+    /// （2026）粵03民初12345号. Hong Kong and Taiwan documents also cite
+    /// mainland cases in traditional script. Either way, one rejected
+    /// character leaves the whole case number in cleartext.
     func detectCaseNumber(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
         enumerate(Self.caseNumberPattern, in: ns, range: range) { match in
@@ -69,27 +77,36 @@ extension DeterministicEngine {
         return out
     }
 
-    /// Province abbreviations used in court codes. Both 贵 and 黔 are listed
-    /// for Guizhou because filings are inconsistent; a slightly wider set is
-    /// acceptable where a miss is a leak.
+    /// Province abbreviations used in court codes, then their traditional
+    /// forms. Both 贵 and 黔 are listed for Guizhou because filings are
+    /// inconsistent; a slightly wider set is acceptable where a miss is a
+    /// leak.
     private static let courtProvinceChars =
         "京津冀晋蒙辽吉黑沪苏浙皖闽赣鲁豫鄂湘粤桂琼渝川黔贵云藏陕甘青宁新"
+        + traditionalProvinceChars
 
-    /// The closed character set the official case-type codes draw from. Kept
-    /// to code characters only: adding prose characters (案, 函, 议) would
-    /// open the government-document false-positive class.
+    /// The traditional forms of the province abbreviations whose simplified
+    /// form differs, shared by the case-number and plate detectors. The others
+    /// (京, 川, 新 and the rest) are written the same in both scripts.
+    private static let traditionalProvinceChars = "晉遼滬蘇閩贛魯粵瓊貴雲陝寧"
+
+    /// The closed character set the official case-type codes draw from, then
+    /// the traditional forms of the ones that differ (執, 終, 轄 and so on).
+    /// Kept to code characters only: adding prose characters (案, 函, 议)
+    /// would open the government-document false-positive class.
     private static let caseTypeChars =
         "民刑行执赔委破财保申再初终监辖催督他撤特认异复恢协准更医救司知港澳台提减假强清"
+        + "執賠財終監轄認異復協醫減強"
 
     /// The assembled case-number pattern. Built once; detect runs per chunk.
     static let caseNumberPattern: String = {
         let digit = "[0-9０-９]"
         let year = "[12１２]" + digit + "{3}"
-        let court = "(?:最高法|(?:[" + courtProvinceChars + "]兵?团?|兵团?|军)" + digit + "{0,4})"
+        let court = "(?:最高法|(?:[" + courtProvinceChars + "]兵?[团團]?|兵[团團]?|[军軍])" + digit + "{0,4})"
         let caseType = "[" + caseTypeChars + "]{1,4}"
         let serial = digit + "{1,8}"
         let subCase = "(?:之[一二三四五六七八九十]{1,3})?"
-        return "[（(]" + year + "[）)]" + court + caseType + serial + "号" + subCase
+        return "[（(]" + year + "[）)]" + court + caseType + serial + "[号號]" + subCase
     }()
 
     // MARK: - LICENSE_PLATE (mainland vehicle plates)
@@ -105,6 +122,10 @@ extension DeterministicEngine {
     /// pattern is case-sensitive on purpose: a lowercase run is prose, not a
     /// plate. Both ends are guarded so the plate is never carved out of a
     /// longer alphanumeric run (asset tags, serial numbers).
+    ///
+    /// The province and special-use characters are also accepted in their
+    /// traditional forms (粵B12345, 滬A·1234學), for the same OCR and
+    /// traditional-script reasons as case numbers.
     func detectLicensePlate(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
         enumerate(Self.licensePlatePattern, in: ns, range: range) { match in
@@ -121,14 +142,16 @@ extension DeterministicEngine {
         return out
     }
 
-    /// Province characters that can open a plate.
+    /// Province characters that can open a plate, then their traditional
+    /// forms.
     private static let plateProvinceChars =
         "京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼"
+        + traditionalProvinceChars
 
     /// The assembled plate pattern. Built once; detect runs per chunk.
     static let licensePlatePattern: String =
         "(?<![A-Za-z0-9])[" + plateProvinceChars + "][A-HJ-NP-Z][·・]?"
-        + "[A-HJ-NP-Z0-9]{4,6}[学警挂领]?(?![0-9A-Za-z])"
+        + "[A-HJ-NP-Z0-9]{4,6}[学警挂领學掛領]?(?![0-9A-Za-z])"
 
     // MARK: - WECHAT_ID (cue-gated WeChat account IDs)
 

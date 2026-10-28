@@ -29,12 +29,19 @@ extension LDAService {
     /// Internal (not private) so LDASessionService.swift can reuse it.
     internal struct Detector {
         let extractor: EntityExtracting?
+        /// What detectText does with a value the model found but the locator
+        /// could not anchor at every place it is written.
+        var unlocatedPolicy: UnlocatedValuePolicy = .refuse
         /// The published-precedent release for the document most recently
         /// passed to detectText. detectForImages reads it, so a party name the
         /// rule leaves visible in the body is not tokenized in a header,
         /// footer, note, comment or image either (a token beside the name in
         /// clear would disclose the mapping).
         let precedent = PrecedentState()
+        /// What detectText protected automatically in the document most
+        /// recently passed to it, under UnlocatedValuePolicy.protect.
+        /// detectForImages reads it, and `stamping` reports it.
+        let autoProtected = AutoProtectState()
 
         /// Primary detection over the main document text. Throws when the
         /// result cannot be presented as cleanly anonymized (LJE-001), so a
@@ -46,13 +53,21 @@ extension LDAService {
         /// unanchored count is drawn from an incomplete sample and reporting it
         /// would be misleading.
         ///
+        /// Under UnlocatedValuePolicy.protect a value that anchored nowhere or
+        /// not everywhere does not refuse the document by itself: its run-in
+        /// places are redacted, as Review's Protect would redact them
+        /// (RunInProtection). Only a value written in no run-in place still
+        /// refuses it, and the error counts those values alone.
+        ///
         /// After the merge, the confirmed spans seed the full-document literal
         /// rescan (EntityRescan.expand): repeat mentions of every confirmed
         /// PERSON and COMPANY surface, and of the document's defined short
         /// names bound to them, are swept in with pure string search. This is
         /// engine-level so the CLI, MCP, and app UI all benefit identically.
         func detectText(_ text: String) throws -> [Span] {
+            autoProtected.set(nil)
             let llm: [Span]
+            var protectedPlaces: [Span] = []
             if let extractor {
                 let result = try extractor.extractDetailed(from: text, onProgress: nil)
                 guard result.fullyCovered else {
@@ -60,16 +75,29 @@ extension LDAService {
                         incompleteSegmentCount: result.incompleteSegmentCount
                     )
                 }
-                guard result.fullyAnchored else {
-                    throw LDAServiceError.unanchoredEntities(
-                        unlocatableEntityCount: result.unlocatableEntityCount
-                    )
+                if !result.fullyAnchored {
+                    let outcome = unlocatedPolicy == .protect
+                        ? RunInProtection.protect(result.unlocatedEntities, in: text)
+                        : nil
+                    guard let outcome, outcome.unprotectedValues.isEmpty else {
+                        throw LDAServiceError.unanchoredEntities(
+                            unlocatableEntityCount: outcome?.unprotectedValues.count
+                                ?? result.unlocatableEntityCount
+                        )
+                    }
+                    protectedPlaces = outcome.spans
+                    autoProtected.set(outcome)
                 }
                 llm = result.spans
             } else {
                 llm = []
             }
-            let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            // Protected places join the deterministic side, as the app's
+            // non-body detector adds the places the user protected.
+            let merged = SpanMerger.merge(
+                deterministic: DeterministicEngine().detect(text) + protectedPlaces,
+                llm: llm
+            )
             let expanded = EntityRescan.expand(merged, in: text)
             // A published precedent's own parties stay visible (PrecedentPartyRule).
             let release = PrecedentPartyRule.release(text: text, spans: expanded)
@@ -90,9 +118,58 @@ extension LDAService {
             } else {
                 llm = []
             }
-            let merged = SpanMerger.merge(deterministic: DeterministicEngine().detect(text), llm: llm)
+            // A value detectText protected is redacted at its run-in places
+            // here too: this pass refuses the same edges the body pass
+            // refused. The app's export does the same for the values the user
+            // protected (ReviewModelDetection.nonBodyDetector).
+            let protectedPlaces = RunInProtection.spans(
+                for: autoProtected.values,
+                in: text,
+                source: .llm
+            )
+            let merged = SpanMerger.merge(
+                deterministic: DeterministicEngine().detect(text) + protectedPlaces,
+                llm: llm
+            )
             guard let release = precedent.release else { return merged }
             return merged.filter { !release.releases($0) }
+        }
+
+        /// `result` with the counts of what detectText protected
+        /// automatically in its document.
+        func stamping(_ result: AnonymizeResult) -> AnonymizeResult {
+            var stamped = result
+            stamped.autoProtectedValueCount = autoProtected.values.count
+            stamped.autoProtectedPlaceCount = autoProtected.placeCount
+            return stamped
+        }
+    }
+
+    /// Holds what detectText protected automatically in one document, for the
+    /// supplementary passes of the same run and for the result's counts. A
+    /// reference type for the same reason as PrecedentState.
+    internal final class AutoProtectState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var currentValues: [ExtractedEntity] = []
+        private var currentPlaceCount = 0
+
+        func set(_ outcome: RunInProtection.Outcome?) {
+            lock.lock()
+            currentValues = outcome?.protectedValues ?? []
+            currentPlaceCount = outcome?.spans.count ?? 0
+            lock.unlock()
+        }
+
+        var values: [ExtractedEntity] {
+            lock.lock()
+            defer { lock.unlock() }
+            return currentValues
+        }
+
+        var placeCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return currentPlaceCount
         }
     }
 
@@ -126,7 +203,10 @@ extension LDAService {
     /// a document with every name still in it and an exit code that says the
     /// run succeeded. Internal (not private) so LDASessionService.swift can
     /// reuse it.
-    internal static func makeDetector(modelPath: String?) throws -> Detector {
+    internal static func makeDetector(
+        modelPath: String?,
+        unlocatedPolicy: UnlocatedValuePolicy = .refuse
+    ) throws -> Detector {
 #if DEBUG
         // An installed seam stands in for the ENGINE LOAD and nothing else:
         // it wins whether or not the path resolves, which is what lets a test
@@ -134,13 +214,19 @@ extension LDAService {
         // around it stays production code under test. This whole branch is
         // absent from release builds.
         if let factory = makeExtractorForTesting {
-            return Detector(extractor: try seamExtractor(factory, modelPath: modelPath))
+            return Detector(
+                extractor: try seamExtractor(factory, modelPath: modelPath),
+                unlocatedPolicy: unlocatedPolicy
+            )
         }
 #endif
         guard let modelPath else {
-            return Detector(extractor: nil)
+            return Detector(extractor: nil, unlocatedPolicy: unlocatedPolicy)
         }
-        return Detector(extractor: try loadExtractor(modelPath: modelPath))
+        return Detector(
+            extractor: try loadExtractor(modelPath: modelPath),
+            unlocatedPolicy: unlocatedPolicy
+        )
     }
 
     /// Load the model at modelPath and wrap it in an extractor, or refuse. A

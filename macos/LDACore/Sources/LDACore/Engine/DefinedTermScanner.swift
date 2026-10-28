@@ -28,11 +28,15 @@
 //  example "Federal Arbitration Act ("FAA")", where the parent is a statute,
 //  so the acronym is boilerplate too).
 //
-//  Residual risk, chosen deliberately: a contract that defines a term
-//  containing the client's name WITHOUT the name appearing right before the
-//  definition parenthetical would have that term dropped. This is rare in
-//  practice, and the review UI surfaces every kept and dropped value for
-//  one-click correction.
+//  The alias test reads only the 90 UTF-16 code units before the "(", so a
+//  short name defined after its party's address or registration details, or
+//  right after a description such as "a Delaware corporation" or "an
+//  individual", is collected here as generic. Party clauses do this
+//  routinely, so LLMExtractor.locate keeps a value this vocabulary covers
+//  when it abbreviates a name the model reported (isDerivedAlias). Residual
+//  risk, chosen deliberately: such a short name is still dropped when the
+//  model did not report the name it abbreviates, and the review UI surfaces
+//  every kept and dropped value for one-click correction.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -321,15 +325,17 @@ public enum DefinedTermScanner {
         return false
     }
 
-    // MARK: - Derivation test (shared with EntityRescan)
+    // MARK: - Derivation test (shared with EntityRescan and LLMExtractor)
 
     /// True when an alias surface is derived from a canonical entity surface:
     /// a CJK alias that is a literal substring of the canonical name, a Latin
     /// alias whose significant words are a subset of the canonical name's
     /// words, or an acronym of them. Used by the recall rescan to keep only
-    /// aliases that actually abbreviate the entity they are bound to; a
-    /// non-derived defined term (目标公司, "the Target") is document
-    /// vocabulary and stays unredacted, per this scanner's philosophy.
+    /// aliases that actually abbreviate the entity they are bound to, and by
+    /// LLMExtractor.locate to keep a reported defined term that abbreviates a
+    /// reported name; a non-derived defined term (目标公司, "the Target") is
+    /// document vocabulary and stays unredacted, per this scanner's
+    /// philosophy.
     static func isDerivedAlias(_ alias: String, of canonical: String) -> Bool {
         let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -342,9 +348,11 @@ public enum DefinedTermScanner {
             // 智能 interrupts the run. A contiguous-only test rejected exactly
             // these, and every mention of such a short name then leaked
             // (release QA, High). Over-acceptance is bounded elsewhere: this
-            // test only ever runs on aliases BOUND by a definition
-            // parenthetical, and generic terms are refused by the boilerplate
-            // and role-label gates before derivation is consulted.
+            // test only runs on aliases BOUND by a definition parenthetical
+            // (EntityRescan) or on defined terms the model itself reported as
+            // a name (LLMExtractor.locate), and generic terms are refused by
+            // the boilerplate and role-label gates before derivation is
+            // consulted.
             if canonical.contains(trimmed) { return true }
             return isOrderedCharacterSubsequence(trimmed, of: canonical)
         }

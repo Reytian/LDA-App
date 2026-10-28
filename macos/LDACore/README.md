@@ -50,8 +50,17 @@ values (emails, phones, dates, amounts, ID and case numbers).
   windows with a 64-token stride, constrained BIOES Viterbi decoding and window
   merging. `LDAV4Extractor` turns the tagger's spans into values and hands them
   to `LLMExtractor.locate`, the same filters and locator an LLM tier's values
-  go through. Brands and vessels are replaced as COMPANY. It runs on the CPU,
-  where the Swift runtime matches the reference pipeline bit for bit.
+  go through. Brands get their own `{TRADEMARK_N}` placeholder, so they never
+  count as companies; vessels are replaced as COMPANY. Spans of one name that
+  the tagger reports end to end are joined first, and a short generic word that
+  only ends a longer name (巧克力 in 费列罗巧克力, `NameHeads`) is redacted
+  where it was found but never spread to its other occurrences. It runs on the
+  CPU, where the Swift runtime matches the reference pipeline bit for bit.
+- **PDF line breaks.** A PDF's text layer ends every printed line with a line
+  break. `PdfLineReflow` joins the breaks the layout shows to be wraps (the line
+  runs to the page's measure and the next line is neither blank, indented nor a
+  heading), so a name wrapped at the margin is one value. The review PDF finds
+  its boxes by searching each value's text, so it does not depend on offsets.
 - **Where it lives.** Every packaged build carries it in
   `LDA.app/Contents/Resources/LDA-V4` (`LDA-V4.mlmodelc`, `runtime.json`,
   `tokenizer/`). The packaging script verifies the source files against
@@ -93,6 +102,61 @@ body. Witnesses, judges, counsel and short forms the caption does not spell
 stay redacted, and a value another document of the session redacts is never
 released. The app lists the released names unticked and says so in the status
 line; ticking one redacts it everywhere.
+
+## Batch anonymization
+
+`BatchAnonymizer` anonymizes every supported document under one folder
+(`.txt`, `.docx`, `.pdf`, `.png`, `.jpg`, `.jpeg`, subfolders included) into
+the same layout under an output folder: one redacted copy and one mapping per
+document, with no review and no confirmation step. Hidden files, packages,
+symlinks and Word's `~$` owner files are skipped, and so is the output folder
+when it sits inside the source folder.
+
+- **No manual step.** A value the model found but could not anchor everywhere,
+  because a letter or digit runs into it ("Jordan Lee2", "byJordan Lee"), is
+  redacted at exactly the places Review's Protect would cover
+  (`UnlocatedValuePolicy.protect`, `RunInProtection`), in the body and in a
+  DOCX's headers, footers, notes and comments. A document whose value is
+  written only inside longer words, a corrupt file, or any other failure is
+  left without output and listed in the report; the batch carries on.
+- **One model load.** The detector is built once for the whole batch.
+- **Layout.** Two documents in one folder with the same base name
+  (`lease.docx`, `lease.pdf`) each get a subfolder (`lease (docx)`,
+  `lease (pdf)`), because both would write `lease_redacted.ldamap`.
+- **Report.** `lda-batch-report.json` and `lda-batch-report.txt` in the output
+  folder: counts, every failure with its reason, and the documents to check
+  (review PDFs that still show a value, unscanned embedded images, tracked
+  changes). They hold relative paths and counts, never document text.
+- **Resume.** A second run with the same settings into the same output folder
+  skips every document whose source is unchanged and whose outputs are still
+  there. `--redo` (CLI) or the window's checkbox processes everything again.
+
+From the command line, the model defaults to the LDA V4 folder of the app the
+tool sits in:
+
+```bash
+/Applications/LDA.app/Contents/Helpers/lda batch --input-dir ~/Cases/Incoming --output-dir ~/Cases/Redacted
+```
+
+Without `--ask-passphrase`, each mapping's key goes into the login keychain
+under the same account `lda anonymize` uses, one item per document, so
+`lda restore` finds it on this Mac. With it, one passphrase typed at a prompt
+(never on the command line) seals every mapping, and nothing is added to the
+keychain. Exit status 2 means the batch finished but some documents were not
+written. `lda anonymize --auto-protect` applies the same protection to a single
+document.
+
+In the app, **File > Batch Anonymize...** (Shift-Command-B), or the
+**Batch Anonymize...** button on the start screen, opens a window that runs the
+same batch with the built-in LDA V4. Its Keychain mappings use the app's
+account rule, so they restore in the app's Restore on this Mac.
+
+Through MCP, the `batch_anonymize` tool opens that window on the Mac
+(`lda-mcp://batch-anonymize/<id>`, `MCPBatchBridge`). The person chooses the
+folders and options there; the tool takes no arguments. The next batch run in
+the window answers the request with an outcome and counts only (`MCPBatchReply`):
+no path, file name, reason or text reaches the AI, and nothing is staged in the
+vault. The tool waits up to 25 minutes, then reports `still_open`.
 
 ## Installing a larger detection model
 
@@ -330,6 +394,7 @@ launch); exports land only in the vault's own `outbox/`.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `prepare_documents` | `workspaceName?` | local document picker, optional additional PII review, and Matter confirmation; returns redacted/source handles, `format`, `sourceFormat`, `kind`, counts, detection mode, review status and an optional opaque workspace ID |
+| `batch_anonymize` | none | opens the app's Batch Anonymize window, where the person chooses the folders and options; `outcome` (`finished`, `stopped`, `failed`, `closed`, `busy` or `still_open`), `documentCount`, `writtenCount`, `skippedCount`, `failedCount`, `autoProtectedValueCount`; the redacted copies, mappings and report stay in the chosen folder |
 | `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (occurrences the review step left visible, on every channel; 0 means fully redacted) |
 | `choose_workspace` | `handle` | local LDA Matter picker; only `handle`, `assigned`, and an optional opaque `workspaceID` return to the host |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
@@ -347,7 +412,8 @@ Error results are boundary-safe codes plus handles: `unknown_handle`,
 `entity_ids_not_supported`, `not_an_edit_surface`, `unsupported_format`,
 `no_placeholders_found`,
 `mapping_mismatch`, `local_approval_required`, `audit_unavailable`,
-`workspace_unavailable`, `workspace_selection_cancelled`, `preparation_cancelled`, plus argument errors for an
+`workspace_unavailable`, `workspace_selection_cancelled`, `preparation_cancelled`,
+`batch_unavailable`, plus argument errors for an
 unknown `excludeTypes` value, an unknown `style`, and `editedText` given
 together with `editedHandle`.
 

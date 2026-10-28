@@ -375,22 +375,7 @@ public struct ModelCatalog: Sendable {
         return total
     }()
 
-    private static let bundledLDAV4: String? = {
-        var candidates: [URL] = []
-        if let resources = Bundle.main.resourceURL {
-            candidates.append(resources.appendingPathComponent(LDAV4Extractor.bundleFolderName))
-        }
-        if let executable = Bundle.main.executableURL {
-            candidates.append(
-                executable
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("Resources")
-                    .appendingPathComponent(LDAV4Extractor.bundleFolderName)
-            )
-        }
-        return candidates.map { $0.path }.first { LDAV4Extractor.isModelDirectory($0) }
-    }()
+    private static let bundledLDAV4: String? = LDAV4Extractor.bundledModelPath()
 
     /// A downloaded copy of a tier that ALSO ships inside the app.
     ///

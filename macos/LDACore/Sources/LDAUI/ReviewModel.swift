@@ -968,7 +968,7 @@ public final class ReviewModel: ObservableObject {
     /// The fixed type ordering for sidebar sections and keyboard navigation,
     /// so the walk order always matches what the sidebar shows.
     public static let groupTypeOrder: [EntityType] = [
-        .person, .company, .address, .email, .phone,
+        .person, .company, .trademark, .address, .email, .phone,
         .bankAccount, .nationalID, .uscc,
         .caseNumber, .licensePlate, .wechatID, .url, .seal,
         .amount, .date, .unknown

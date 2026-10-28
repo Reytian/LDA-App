@@ -75,6 +75,22 @@ final class PrecedentPartyRuleTests: XCTestCase {
         XCTAssertEqual(Set(kept), ["李明", "大华公司"], "the witness and the unspelled short form stay redacted")
     }
 
+    func testAPartyNameTheCaptionWrapsAcrossLinesIsStillReleased() throws {
+        // A PDF title set larger than the body keeps its line breaks, so the
+        // caption can break inside a party's name.
+        let text = """
+        指导案例96号：宋文军诉西安市大华餐饮有
+        限公司股东资格确认纠纷案
+        （最高人民法院审判委员会讨论通过 2018年6月20日发布）
+        关键词 民事/股东资格确认
+        基本案情
+        原告宋文军诉称，西安市大华餐饮有限公司（以下简称大华公司）未向其返还出资。
+        """
+        let all = spans(text, [("宋文军", .person), ("西安市大华餐饮有限公司", .company), ("大华公司", .company)])
+        let release = try XCTUnwrap(PrecedentPartyRule.release(text: text, spans: all))
+        XCTAssertEqual(Set(release.values), ["宋文军", "西安市大华餐饮有限公司"])
+    }
+
     func testAPublishedUSOpinionReleasesItsPartiesButNotTheJudge() throws {
         let text = """
         UNITED STATES COURT OF APPEALS FOR THE FIFTH CIRCUIT

@@ -190,6 +190,85 @@ final class StructuredEntityDetectorTests: XCTestCase {
         }
     }
 
+    // MARK: - CASE_NUMBER traditional forms
+
+    /// The exact line Vision OCR returned on macOS 27 for the image fixture's
+    /// (2026)粤03民初12345号: the province comes back as its traditional form
+    /// 粵 while the rest stays simplified. Missing it left the case number in
+    /// the redacted image.
+    func testCaseNumberAsVisionOCRReadsIt() {
+        let text = "案号：（2026）粵03民初12345号"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .caseNumber, text: "（2026）粵03民初12345号")
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// Every province abbreviation whose traditional form differs opens a case
+    /// number, in a citation written fully in traditional script, the way Hong
+    /// Kong and Taiwan documents cite mainland cases.
+    func testCaseNumberEveryTraditionalProvince() {
+        for province in "晉遼滬蘇閩贛魯粵瓊貴雲陝寧" {
+            let caseNumber = "（2021）\(province)01民終123號"
+            let text = "參見\(caseNumber)民事判決書。"
+            let spans = engine.detect(text)
+
+            assertHasSpan(spans, type: .caseNumber, text: caseNumber)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// Every case-type code character whose traditional form differs is in
+    /// the type set.
+    func testCaseNumberEveryTraditionalTypeCharacter() {
+        for typeCharacter in "執賠財終監轄認異復協醫減強" {
+            let caseNumber = "（2021）京01\(typeCharacter)1號"
+            let text = "參見\(caseNumber)。"
+            let spans = engine.detect(text)
+
+            assertHasSpan(spans, type: .caseNumber, text: caseNumber)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// Traditional type codes in context, the XPCC and military court words
+    /// (兵團, 軍), the Supreme People's Court code, and the sub-case suffix
+    /// after the terminal 號.
+    func testCaseNumberTraditionalCodesAndCourtWords() {
+        let text = """
+        執行案件（2020）京01執688號之二已終結。
+        另有（2023）粵03破申56號、（2024）蘇05財保102號、（2019）京民轄終23號、
+        （2019）最高法民申1234號、（2022）兵團01刑終9號、（2018）軍民初7號在辦。
+        """
+        let spans = engine.detect(text)
+
+        for expected in [
+            "（2020）京01執688號之二",
+            "（2023）粵03破申56號",
+            "（2024）蘇05財保102號",
+            "（2019）京民轄終23號",
+            "（2019）最高法民申1234號",
+            "（2022）兵團01刑終9號",
+            "（2018）軍民初7號",
+        ] {
+            assertHasSpan(spans, type: .caseNumber, text: expected)
+        }
+        assertOffsetsSliceBack(spans, in: text)
+    }
+
+    /// The traditional forms do not open the government-document class: the
+    /// same silhouettes in traditional script still carry no court plus
+    /// case-type code between the year and the serial.
+    func testTraditionalGovernmentDocumentNumbersAreNotCaseNumbers() {
+        for text in [
+            "依據國辦發（2016）12號文件執行。",
+            "按滬府規（2020）12號的規定辦理。",
+            "粵府辦（2019）35號另有規定。",
+        ] {
+            assertNoSpan(engine.detect(text), type: .caseNumber, in: text)
+        }
+    }
+
     // MARK: - LICENSE_PLATE golden hits
 
     /// A standard blue plate, with and without the interpunct separator, and a
@@ -251,6 +330,30 @@ final class StructuredEntityDetectorTests: XCTestCase {
 
         let nationalID = "身份证号11010519491231002X。"
         assertNoSpan(engine.detect(nationalID), type: .licensePlate, in: nationalID)
+    }
+
+    // MARK: - LICENSE_PLATE traditional forms
+
+    /// Traditional province characters open plates too, since OCR can read
+    /// 粤 as 粵 and Hong Kong and Taiwan documents write mainland plates in
+    /// traditional script. The special-use suffix may be traditional as well.
+    func testPlatesWithTraditionalCharacters() {
+        for province in "晉遼滬蘇閩贛魯粵瓊貴雲陝寧" {
+            let plate = "\(province)B12345"
+            let text = "肇事車輛\(plate)已扣押。"
+            let spans = engine.detect(text)
+
+            assertHasSpan(spans, type: .licensePlate, text: plate)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+
+        let text = "教練車滬A·1234學與掛車遼B5678掛及京A1234領均在現場。"
+        let spans = engine.detect(text)
+
+        assertHasSpan(spans, type: .licensePlate, text: "滬A·1234學")
+        assertHasSpan(spans, type: .licensePlate, text: "遼B5678掛")
+        assertHasSpan(spans, type: .licensePlate, text: "京A1234領")
+        assertOffsetsSliceBack(spans, in: text)
     }
 
     // MARK: - WECHAT_ID golden hits

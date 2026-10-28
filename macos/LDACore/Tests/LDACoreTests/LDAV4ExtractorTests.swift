@@ -51,14 +51,33 @@ final class LDAV4ExtractorTests: XCTestCase {
         XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "PERSON"), .person)
         XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "COMPANY"), .company)
         XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "ADDRESS"), .address)
-        // LDA has no trademark or vessel placeholder type, so both are replaced
-        // as COMPANY, the way the model was evaluated.
-        XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "TRADEMARK"), .company)
+        // Brands get their own placeholder type, so they never count as
+        // companies; they are still redacted, as the model was evaluated.
+        XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "TRADEMARK"), .trademark)
+        // LDA has no vessel placeholder type, so vessels are replaced as COMPANY.
         XCTAssertEqual(LDAV4Extractor.entityType(forTaggerLabel: "VESSEL"), .company)
         // Courts, agencies and jurisdictions are kept, never redacted.
         XCTAssertNil(LDAV4Extractor.entityType(forTaggerLabel: "KEEP_ORG"))
         XCTAssertNil(LDAV4Extractor.entityType(forTaggerLabel: "KEEP_PLACE"))
         XCTAssertNil(LDAV4Extractor.entityType(forTaggerLabel: "O"))
+    }
+
+    // MARK: - Spans the tagger reports end to end
+
+    func testTouchingSpansOfOneTypeAreJoined() {
+        let joined = LDAV4Extractor.joiningTouchingSpans([(10, 15, .company), (15, 18, .company), (30, 33, .company)])
+        XCTAssertEqual(joined.map { [$0.start, $0.end] }, [[10, 18], [30, 33]])
+    }
+
+    func testABrandTouchingACompanyJoinsAsTheLaterType() {
+        let joined = LDAV4Extractor.joiningTouchingSpans([(0, 3, .trademark), (3, 6, .company), (6, 8, .person)])
+        XCTAssertEqual(joined.map { [$0.start, $0.end] }, [[0, 6], [6, 8]])
+        XCTAssertEqual(joined.map(\.type), [.company, .person], "a person is never joined to a name")
+    }
+
+    func testSpansWithAGapStayApart() {
+        let joined = LDAV4Extractor.joiningTouchingSpans([(0, 3, .company), (4, 6, .company)])
+        XCTAssertEqual(joined.count, 2)
     }
 
     // MARK: - Model folder

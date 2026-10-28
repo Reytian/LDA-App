@@ -35,6 +35,9 @@ public enum EntityType: String, Codable, Sendable, CaseIterable {
     case wechatID = "WECHAT_ID"
     case url = "URL"
     case seal = "SEAL"
+    /// A brand or product name LDA V4 tags as TRADEMARK. Its own type, so
+    /// brands never count as companies in a review or in the placeholders.
+    case trademark = "TRADEMARK"
     case unknown = "UNKNOWN"
 }
 

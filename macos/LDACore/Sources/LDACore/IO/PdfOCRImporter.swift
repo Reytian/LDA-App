@@ -83,7 +83,7 @@ public struct PdfOCRImporter: DocumentImporter {
 
             let cgImage = try Self.render(page: page)
             let lines = try Self.recognizeLines(in: cgImage)
-            pageTexts.append(lines.joined(separator: "\n"))
+            pageTexts.append(PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n")))
         }
 
         let fullText = pageTexts.joined(separator: "\n\n")
@@ -123,7 +123,7 @@ public struct PdfOCRImporter: DocumentImporter {
             }
             let cgImage = try render(page: page)
             let lines = try recognizeLines(in: cgImage)
-            result[pageIndex] = lines.joined(separator: "\n")
+            result[pageIndex] = PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n"))
         }
         return result
     }

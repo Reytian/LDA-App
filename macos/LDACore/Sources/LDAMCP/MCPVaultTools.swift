@@ -141,11 +141,17 @@ enum MCPVaultToolError: Error {
     case wordEditRequired
     case unresolvedTrackedChanges(Int)
     case invalidImportArguments
+    case invalidBatchArguments
+    case batchWindowUnavailable
 
     var message: String {
         switch self {
         case .invalidImportArguments:
             return "invalid_arguments: import_edited_document accepts only redactedHandle; choose the file and confirm locally"
+        case .invalidBatchArguments:
+            return "invalid_arguments: batch_anonymize takes no arguments; the person chooses the folders and options in LDA's Batch Anonymize window"
+        case .batchWindowUnavailable:
+            return "batch_unavailable: LDA's Batch Anonymize window did not open or did not answer; open LDA on this Mac, accept its terms if it asks, and try again; no batch result is available"
         case .localHandoffUnavailable:
             return "local_handoff_unavailable: open LDA on this Mac and retry from a local desktop MCP session"
         case .wordEditRequired:

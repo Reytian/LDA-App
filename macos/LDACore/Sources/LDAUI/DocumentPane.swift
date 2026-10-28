@@ -44,6 +44,9 @@ public struct DocumentPane: View {
     /// The window's undo manager, so a Protect action lands in Edit > Undo.
     @Environment(\.undoManager) private var undoManager
 
+    /// Opens the batch window from the start screen.
+    @Environment(\.openWindow) private var openWindow
+
     /// True while a draggable document hovers over the drop zone.
     @State private var isDropTargeted = false
 
@@ -186,6 +189,18 @@ public struct DocumentPane: View {
                         .accessibilityIdentifier("chooseDocuments")
 
                         L10n.text("Add several files to review them together. You can add more later.")
+                            .font(CounselTheme.Typography.supporting)
+                            .foregroundStyle(CounselTheme.textSecondary)
+
+                        Button {
+                            openWindow(id: LDAWindowID.batch)
+                        } label: {
+                            L10n.label("Batch Anonymize…", systemImage: "square.stack.3d.down.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("batchAnonymize")
+
+                        L10n.text("Or anonymize every document in a folder at once, with no review step.")
                             .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }

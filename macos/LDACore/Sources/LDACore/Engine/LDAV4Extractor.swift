@@ -14,9 +14,9 @@
 //  the configuration LDA V4 was evaluated in ("value mode + rules"), so the
 //  app reproduces the measured behaviour rather than a variant of it.
 //
-//  Labels: PERSON, COMPANY and ADDRESS map to their own types. TRADEMARK and
-//  VESSEL are redaction classes LDA has no placeholder type for yet, so they
-//  are replaced as COMPANY. KEEP_ORG (courts, agencies) and KEEP_PLACE
+//  Labels: PERSON, COMPANY, ADDRESS and TRADEMARK map to their own types.
+//  VESSEL is a redaction class LDA has no placeholder type for yet, so it is
+//  replaced as COMPANY. KEEP_ORG (courts, agencies) and KEEP_PLACE
 //  (jurisdictions) are never redacted.
 //
 //  The model directory holds runtime.json, the tokenizer assets and the
@@ -61,6 +61,27 @@ public final class LDAV4Extractor: EntityExtracting {
         self.cancelToken = cancelToken
     }
 
+    /// The model folder inside the running LDA.app, or nil outside the app.
+    /// Found from the app itself (Contents/Resources) or from a helper tool
+    /// in it (Contents/Helpers/lda, through any symlink), so the app and its
+    /// command-line tool resolve the same folder.
+    public static func bundledModelPath(bundle: Bundle = .main) -> String? {
+        var candidates: [URL] = []
+        if let resources = bundle.resourceURL {
+            candidates.append(resources.appendingPathComponent(bundleFolderName))
+        }
+        if let executable = bundle.executableURL?.resolvingSymlinksInPath() {
+            candidates.append(
+                executable
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("Resources")
+                    .appendingPathComponent(bundleFolderName)
+            )
+        }
+        return candidates.map { $0.path }.first { isModelDirectory($0) }
+    }
+
     /// True when path is a folder with everything the tagger loads.
     public static func isModelDirectory(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
@@ -85,13 +106,41 @@ public final class LDAV4Extractor: EntityExtracting {
         switch label {
         case "PERSON":
             return .person
-        case "COMPANY", "TRADEMARK", "VESSEL":
+        case "COMPANY", "VESSEL":
             return .company
+        case "TRADEMARK":
+            return .trademark
         case "ADDRESS":
             return .address
         default:
             return nil
         }
+    }
+
+    /// Spans the tagger reports end to end, with no character between them,
+    /// joined into one when they are the same type, or a company and a brand.
+    /// The decoder sometimes ends a name early and starts a second span on its
+    /// tail ("金莎TRESOR DORE" then "巧克力", or the brand "费列罗" then
+    /// "巧克力" as a company). Value mode then anchors that tail at every
+    /// occurrence, so a generic word was redacted throughout the document as a
+    /// company of its own. A joined company and brand take the later span's
+    /// type: a Chinese name ends in its head (费列罗巧克力 is a chocolate,
+    /// 星巴克公司 a company).
+    static func joiningTouchingSpans(
+        _ ranges: [(start: Int, end: Int, type: EntityType)]
+    ) -> [(start: Int, end: Int, type: EntityType)] {
+        let names: Set<EntityType> = [.company, .trademark]
+        var joined: [(start: Int, end: Int, type: EntityType)] = []
+        for range in ranges.sorted(by: { ($0.start, $0.end) < ($1.start, $1.end) }) {
+            if let last = joined.last, last.end == range.start,
+               last.type == range.type || (names.contains(last.type) && names.contains(range.type)) {
+                joined[joined.count - 1].end = range.end
+                joined[joined.count - 1].type = range.type
+            } else {
+                joined.append(range)
+            }
+        }
+        return joined
     }
 
     public func extract(from text: String, onProgress: ((Int, Int) -> Void)?) throws -> [Span] {
@@ -104,17 +153,42 @@ public final class LDAV4Extractor: EntityExtracting {
         let predicted = try Self.predict(text, with: tagger)
         try throwIfCancelled()
         let ns = text as NSString
-        var entities: [ExtractedEntity] = []
+        var ranges: [(start: Int, end: Int, type: EntityType)] = []
         for item in predicted {
             guard let type = Self.entityType(forTaggerLabel: item.span.label),
                   item.end16 > item.start16 else { continue }
-            let value = ns.substring(with: NSRange(location: item.start16, length: item.end16 - item.start16))
-            entities.append(ExtractedEntity(value: value, type: type))
+            ranges.append((item.start16, item.end16, type))
         }
+        let reported = Self.joiningTouchingSpans(ranges).map { range in
+            (range: range, value: ns.substring(with: NSRange(location: range.start, length: range.end - range.start)))
+        }
+        let heads = NameHeads.heads(in: reported.map { (value: $0.value, type: $0.range.type) })
+        let entities = reported
+            .filter { !heads.contains($0.value) || !NameHeads.nameTypes.contains($0.range.type) }
+            .map { ExtractedEntity(value: $0.value, type: $0.range.type) }
         onProgress?(1, 1)
         // The tagger reads every window of the document, so nothing is left
         // unscanned; anchoring figures come from the shared locator.
-        return LLMExtractor.locate(entities, in: text, incompleteSegmentCount: 0)
+        let located = LLMExtractor.locate(entities, in: text, incompleteSegmentCount: 0)
+        // A head (NameHeads) stays redacted where the model reported it, and
+        // only there.
+        let headSpans = reported.compactMap { item -> Span? in
+            guard heads.contains(item.value), NameHeads.nameTypes.contains(item.range.type),
+                  !LegalBoilerplate.shouldDrop(item.value, type: item.range.type) else { return nil }
+            return Span(
+                start: item.range.start, end: item.range.end, type: item.range.type, text: item.value,
+                source: .llm, confidence: 0.7, priority: EntityLocator.llmPriority
+            )
+        }
+        guard !headSpans.isEmpty else { return located }
+        return ExtractionResult(
+            spans: located.spans + headSpans,
+            incompleteSegmentCount: located.incompleteSegmentCount,
+            unlocatedEntities: located.unlocatedEntities,
+            phantomEntityCount: located.phantomEntityCount,
+            segmentCount: located.segmentCount,
+            unansweredSegmentCount: located.unansweredSegmentCount
+        )
     }
 
     private func throwIfCancelled() throws {

@@ -107,7 +107,7 @@ struct DocumentTrayRow: View {
 enum AssignableEntityTypes {
     /// Kinds assignable to a manually protected item.
     static let manual: [EntityType] = [
-        .person, .company, .address, .email, .phone,
+        .person, .company, .trademark, .address, .email, .phone,
         .bankAccount, .nationalID, .uscc,
         .caseNumber, .licensePlate, .wechatID, .url, .seal,
         .amount, .date
@@ -314,6 +314,8 @@ struct AddTermPopover: View {
 /// menu-bar companion.
 public enum LDAWindowID {
     public static let main = "main"
+    /// File > Batch Anonymize... (BatchAnonymizeView).
+    public static let batch = "batch"
 }
 
 /// The menu-bar companion (auxiliary posture): quick clipboard redact and the

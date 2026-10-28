@@ -1019,6 +1019,263 @@ final class DeterministicEngineTests: XCTestCase {
         assertOffsetsSliceBack(spans, in: text)
     }
 
+    // MARK: - ADDRESS in traditional and mixed script (2026-10-28)
+
+    /// Hong Kong and Taiwan documents cite mainland addresses in traditional
+    /// script. The core used to require the simplified 号, so under Patterns
+    /// only every one of these stayed in cleartext, and 區 and 為 were not
+    /// read as a boundary and a connector.
+    func testTraditionalScriptAddressDetection() {
+        for (text, expected) in [
+            ("住所：廣東省深圳市南山區科技路88號。", "廣東省深圳市南山區科技路88號"),
+            ("註冊地址為上海市浦東新區張江高科技園區碧波路690號。", "上海市浦東新區張江高科技園區碧波路690號"),
+            ("住址為北京市海淀區中關村南大街5號3號樓2單元801室，郵編100081。", "北京市海淀區中關村南大街5號3號樓2單元801室"),
+            ("公司位於上海市靜安區南京西路1266弄15號。", "上海市靜安區南京西路1266弄15號"),
+            ("註冊地址為上海市靜安區南京西路1266弄。", "上海市靜安區南京西路1266弄"),
+            ("地址：浙江省杭州市西湖區轉塘鎮雙流村路100號。", "浙江省杭州市西湖區轉塘鎮雙流村路100號"),
+            ("住所：浙江省溫州市永嘉縣甌北鎮羅浮大街100號。", "浙江省溫州市永嘉縣甌北鎮羅浮大街100號"),
+            ("住址為江西省九江市修水縣黃沙鄉幸福路8號。", "江西省九江市修水縣黃沙鄉幸福路8號"),
+            ("住所：四川省成都市武侯區桐梓林北路8號18棟2單元3層。", "四川省成都市武侯區桐梓林北路8號18棟2單元3層"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+
+        // The line from the report. 住所地 is a label, but 地 is also a
+        // place-name character, so the walk takes it exactly as it does in
+        // simplified script. What matters is that the address is covered.
+        let reported = "住所地廣東省深圳市南山區科技路88號。"
+        let spans = engine.detect(reported)
+        let addresses = spans.filter { $0.type == .address }
+        XCTAssertTrue(
+            addresses.contains { $0.text.hasSuffix("廣東省深圳市南山區科技路88號") },
+            "the reported address must be covered; got \(addresses.map { $0.text })"
+        )
+        assertOffsetsSliceBack(spans, in: reported)
+    }
+
+    /// Vision OCR returns some traditional glyphs even when asked for
+    /// simplified text (a case number came back with 粵 for 粤), so one
+    /// address can mix scripts: only the street number's 号 read as 號, or
+    /// only the district's 区 as 區. Each character matches in either form.
+    func testMixedScriptAddressDetection() {
+        for (text, expected) in [
+            ("住所：广东省深圳市南山区科技路88號。", "广东省深圳市南山区科技路88號"),
+            ("住所：廣東省深圳市南山區科技路88号。", "廣東省深圳市南山區科技路88号"),
+            ("住址为北京市海淀区中关村南大街5號3号樓2單元801室，邮编100081。", "北京市海淀区中关村南大街5號3号樓2單元801室"),
+            ("公司位于上海市静安區南京西路1266弄15號。", "上海市静安區南京西路1266弄15號"),
+            ("住所：上海市浦东新区碧波路６９０號。", "上海市浦东新区碧波路６９０號"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// The traditional connectors stop the walk as the simplified ones do, so
+    /// the label never becomes part of the span. 係 is the copula of Taiwan
+    /// legal prose and 爲 a common Hong Kong form of 為, although ICU's
+    /// Hans-Hant transform never produces either (it maps 为 to 為 and leaves
+    /// 系 alone).
+    func testTraditionalConnectorsStayOutsideTheSpan() {
+        for (prefix, suffix) in [
+            ("住址為", "。"),
+            ("住址爲", "。"),
+            ("本公司位於", "。"),
+            ("被告住所係", "。"),
+            ("被告現住處", "。"),
+            ("原告已從", "遷出。"),
+        ] {
+            // The simplified address isolates the connector from the 號 fix.
+            for address in ["北京市朝陽區建國路88號", "北京市朝阳区建国路88号"] {
+                let text = prefix + address + suffix
+                let spans = engine.detect(text)
+                assertHasSpan(spans, type: .address, text: address)
+                assertOffsetsSliceBack(spans, in: text)
+            }
+        }
+    }
+
+    /// A metro line between the district and the road (地鐵2號線) must not let
+    /// the road name reach back across it, in either script and in the Hong
+    /// Kong form 綫, or the span starts at 號線 instead of at the road.
+    func testTraditionalStructuralMarkersKeepTheRoadStart() {
+        for (text, expected) in [
+            ("上海市浦東新區地鐵2號線碧波路690號出口", "碧波路690號"),
+            ("上海市浦東新區地鐵2號綫碧波路690號出口", "碧波路690號"),
+            ("上海市浦东新区地铁2號线碧波路690号出口", "碧波路690号"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// The bare building letter and the party-label guard behave the same in
+    /// traditional script: 690號甲 is No. 690-A, while 甲方 is Party A.
+    func testTraditionalScriptBareBuildingLetterSuffix() {
+        for (text, expected) in [
+            ("住址為上海市浦東新區碧波路690號甲。", "上海市浦東新區碧波路690號甲"),
+            ("住址為上海市浦東新區碧波路690號甲方應當履行義務。", "上海市浦東新區碧波路690號"),
+            ("住址為上海市浦東新區碧波路690號甲棟。", "上海市浦東新區碧波路690號甲棟"),
+        ] {
+            let spans = engine.detect(text)
+            assertHasSpan(spans, type: .address, text: expected)
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// Near misses in traditional and mixed script: a city with no road,
+    /// regulation numbers, a road with no administrative context, context
+    /// from too far away, and generic ways, including the traditional and
+    /// mixed forms of 机动车道, 车行道, 轨道 and 过道.
+    func testTraditionalScriptNearMissesAreNotAddresses() {
+        for text in [
+            "本協議適用上海市有關法規。",
+            "合同在北京市簽署。",
+            "依據上海市人民政府令第52號執行。",
+            "上海市市場監督管理局第9號文件另有規定。",
+            "沿建國路88號方向前進。",
+            "上海市有關規定如下。" + String(repeating: "本條款適用於全部情形。", count: 6)
+                + "建國路88號方向前進。",
+            "上海市浦東新區人行道12號護欄損壞待修。",
+            "上海市浦東新區地下停車庫機動車道90號車位。",
+            "上海市浦东新区地下停车库机动車道90号车位。",
+            "上海市浦東新區車行道3號標線重劃。",
+            "上海市浦東新區軌道12號檢修。",
+            "上海市浦東新區過道5號雜物間。",
+            "北京市朝陽區管道2號閥門檢修。",
+        ] {
+            let spans = engine.detect(text)
+            let addresses = spans.filter { $0.type == .address }
+            XCTAssertTrue(
+                addresses.isEmpty,
+                "Expected no ADDRESS in \"\(text)\"; got \(addresses.map { $0.text })"
+            )
+            assertOffsetsSliceBack(spans, in: text)
+        }
+    }
+
+    /// ICU's Hans-Hant transform is the oracle for which characters differ.
+    /// Every simplified golden and guard from the tests above must give the
+    /// same result after conversion: the converted address for a golden,
+    /// nothing for a guard. A form the rule does not list fails here even if
+    /// no hand-written case uses it. Converting only every other character
+    /// stands in for OCR that mixes scripts.
+    func testSimplifiedGoldensMatchAfterConversionToTraditional() {
+        let goldens = [
+            ("甲方：上海明川科技有限公司，注册地址为上海市浦东新区张江高科技园区碧波路690号。", "上海市浦东新区张江高科技园区碧波路690号"),
+            ("乙方：王雨桐，身份证号 110101199003071233，住址为北京市朝阳区建国路88号。", "北京市朝阳区建国路88号"),
+            ("公司位于上海市静安区南京西路1266弄15号。", "上海市静安区南京西路1266弄15号"),
+            ("住所：北京市海淀区中关村南大街5号3号楼2单元801室，邮编100081。", "北京市海淀区中关村南大街5号3号楼2单元801室"),
+            ("北京市朝阳区建国门外街道建国路88号", "北京市朝阳区建国门外街道建国路88号"),
+            ("上海市浦东新区唐镇小湾村路100号", "上海市浦东新区唐镇小湾村路100号"),
+            ("青岛市市南区香港中路12号", "青岛市市南区香港中路12号"),
+            ("地址：郑州航空港经济综合实验区华夏大道1号。", "郑州航空港经济综合实验区华夏大道1号"),
+            ("注册地址为上海市静安区南京西路1266弄。", "上海市静安区南京西路1266弄"),
+            ("地址：天津市和平区和平路120号。", "天津市和平区和平路120号"),
+            ("上海市浦东新区地铁2号线碧波路690号出口", "碧波路690号"),
+            ("北京市朝阳区A座建国路88号", "建国路88号"),
+            ("住址为上海市浦东新区沪南公路2000号。", "上海市浦东新区沪南公路2000号"),
+            ("住址为上海市浦东新区碧波路690号甲。", "上海市浦东新区碧波路690号甲"),
+            ("住址为上海市浦东新区碧波路690号甲方应当履行义务。", "上海市浦东新区碧波路690号"),
+            ("住址为上海市浦东新区碧波路690号甲栋。", "上海市浦东新区碧波路690号甲栋"),
+            ("内蒙古自治区呼和浩特市赛罕区大学东街5号", "内蒙古自治区呼和浩特市赛罕区大学东街5号"),
+        ]
+        let guards = [
+            "本协议适用上海市有关法规。",
+            "合同在北京市签署。",
+            "依据上海市人民政府令第52号执行。",
+            "上海市市场监督管理局第9号文件另有规定。",
+            "沿建国路88号方向前进。",
+            "上海市有关规定如下。" + String(repeating: "本条款适用于全部情形。", count: 6)
+                + "建国路88号方向前进。",
+            "上海市浦东新区人行道12号护栏损坏待修。",
+            "上海市浦东新区地下停车库机动车道90号车位。",
+            "上海市浦东新区隧道3号出口。",
+            "北京市朝阳区管道2号阀门检修。",
+        ]
+
+        // Character by character, so positions line up between the simplified
+        // text and every converted copy.
+        let hansToHant = StringTransform("Hans-Hant")
+        func converted(_ text: String, where convert: (Int) -> Bool) -> [Character] {
+            text.enumerated().map { index, character in
+                guard convert(index),
+                      let hant = String(character).applyingTransform(hansToHant, reverse: false),
+                      hant.count == 1 else { return character }
+                return hant.first!
+            }
+        }
+        let mixes: [(String, (Int) -> Bool)] = [
+            ("all", { _ in true }),
+            ("even", { $0 % 2 == 0 }),
+            ("odd", { $0 % 2 == 1 }),
+        ]
+
+        for (text, expected) in goldens {
+            guard let range = text.range(of: expected) else {
+                XCTFail("golden \"\(expected)\" is not in \"\(text)\"")
+                continue
+            }
+            let lower = text.distance(from: text.startIndex, to: range.lowerBound)
+            for (mix, convert) in mixes {
+                let characters = converted(text, where: convert)
+                let input = String(characters)
+                let address = String(characters[lower..<(lower + expected.count)])
+                let spans = engine.detect(input)
+                XCTAssertNotNil(
+                    firstSpan(spans, type: .address, text: address),
+                    "\(mix): expected ADDRESS \"\(address)\" in \"\(input)\"; got \(spans.filter { $0.type == .address }.map { $0.text })"
+                )
+                assertOffsetsSliceBack(spans, in: input)
+            }
+        }
+
+        for text in guards {
+            for (mix, convert) in mixes {
+                let input = String(converted(text, where: convert))
+                let spans = engine.detect(input)
+                let addresses = spans.filter { $0.type == .address }
+                XCTAssertTrue(
+                    addresses.isEmpty,
+                    "\(mix): expected no ADDRESS in \"\(input)\"; got \(addresses.map { $0.text })"
+                )
+                assertOffsetsSliceBack(spans, in: input)
+            }
+        }
+    }
+
+    /// The traditional forms must not reopen the backtracking blowup the core
+    /// pattern was split to avoid. 區 is now a boundary exactly as 区 is, and
+    /// 号 and every unit word take two forms, so runs of them, alone and in
+    /// long tails after a real address, must still return at once. Same loose
+    /// budget as the simplified test above.
+    func testAdversarialTraditionalRunsDoNotBlowUpDetection() {
+        let inputs = [
+            String(repeating: "區", count: 200),
+            String(repeating: "區", count: 120) + "路號",
+            String(repeating: "上海市浦東新區", count: 60),
+            String(repeating: "省市區縣鎮鄉村", count: 60),
+            String(repeating: "北京市朝陽區建國路88號", count: 60),
+            String(repeating: "号號", count: 300),
+            String(repeating: "建國路", count: 200) + "88號",
+            String(repeating: "為爲於係處從", count: 80) + "北京市朝陽區建國路88號",
+            "北京市朝陽區建國路88號" + String(repeating: "1樓", count: 300),
+            "北京市朝陽區建國路" + String(repeating: "8號", count: 300),
+        ]
+
+        for input in inputs {
+            let finished = expectation(description: "detect returns for a \(input.count) char input")
+            DispatchQueue.global().async {
+                _ = self.engine.detect(input)
+                finished.fulfill()
+            }
+            wait(for: [finished], timeout: 5.0)
+        }
+    }
+
     // MARK: - Role-label suppression
 
     func testRoleLabelSuppression() {

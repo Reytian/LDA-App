@@ -92,7 +92,7 @@ private struct TutorialPlayer: View {
                 L10n.button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             if let player {
-                VideoPlayer(player: player)
+                TutorialVideoView(player: player)
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .accessibilityLabel(L10n.string(tutorial.title))
             } else {
@@ -130,5 +130,29 @@ private struct TutorialPlayer: View {
             player?.replaceCurrentItem(with: nil)
             player = nil
         }
+    }
+}
+
+/// AVKit's own player view, wrapped here rather than through SwiftUI's
+/// VideoPlayer. VideoPlayer comes from the _AVKit_SwiftUI overlay, which on
+/// macOS 27 no longer loads AVKit, and a binary that names no AVKit symbol
+/// does not link it: opening a walkthrough aborted the app. Naming
+/// AVPlayerView keeps AVKit linked; package-app.sh refuses a binary without it.
+private struct TutorialVideoView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.player = player
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player = nil
     }
 }

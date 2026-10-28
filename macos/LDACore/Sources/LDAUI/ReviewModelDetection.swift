@@ -683,20 +683,14 @@ extension ReviewModel {
         protectedRunIns: [ExtractedEntity] = []
     ) -> (String) -> [Span] {
         return { text in
-            let nsText = text as NSString
-            let runIns = protectedRunIns.flatMap { value in
-                EntityLocator.runInOccurrences(forValue: value.value, in: text).map { range in
-                    Span(
-                        start: range.location,
-                        end: NSMaxRange(range),
-                        type: value.type,
-                        text: nsText.substring(with: range),
-                        source: .manual,
-                        confidence: 1.0,
-                        priority: ProtectSelectionRules.manualPriority
-                    )
-                }
-            }
+            // The same places a batch protects without asking
+            // (RunInProtection), marked as the user's own decision.
+            let runIns = RunInProtection.spans(
+                for: protectedRunIns,
+                in: text,
+                source: .manual,
+                priority: ProtectSelectionRules.manualPriority
+            )
             let deterministic = DeterministicEngine().detect(text)
                 + CustomPatternEngine.detect(text, patterns: custom)
                 + runIns

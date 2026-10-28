@@ -152,6 +152,15 @@ if nm "$BIN" 2>/dev/null | grep -qi "ForTesting"; then
   exit 1
 fi
 
+# Ship gate: on macOS 27 the _AVKit_SwiftUI overlay no longer loads AVKit, so
+# the walkthrough player aborts the app unless LDAApp links AVKit itself. The
+# unit suite cannot see which libraries a release binary links; this check can.
+echo "==> Verifying the release binary links AVKit"
+if ! otool -L "$BIN" | grep -q '/AVKit.framework/'; then
+  echo "!! LDAApp does not link AVKit, so the walkthrough videos would crash; refusing to package." >&2
+  exit 1
+fi
+
 echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

@@ -78,16 +78,26 @@ public enum MCPWorkspaceBridge {
 
     /// Called by the sandboxed GUI. Its application-support URL is container-scoped.
     public static func reply(_ response: MCPWorkspaceReply) throws {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = base.appendingPathComponent("LDA").appendingPathComponent(directoryName)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let file = directory.appendingPathComponent(response.requestID.uuidString.lowercased() + ".json")
-        try JSONEncoder().encode(response).write(to: file, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try write(try JSONEncoder().encode(response), requestID: response.requestID, directoryName: directoryName)
     }
 
     /// The headless host can read opaque replies from either a packaged or a development GUI.
     public static func replyLocations(for requestID: UUID) -> [URL] {
+        replyLocations(for: requestID, directoryName: directoryName)
+    }
+
+    /// One reply file in `directoryName`, replacing an earlier reply to the
+    /// same request. Shared with MCPBatchBridge.
+    static func write(_ data: Data, requestID: UUID, directoryName: String) throws {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let directory = base.appendingPathComponent("LDA").appendingPathComponent(directoryName)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let file = directory.appendingPathComponent(requestID.uuidString.lowercased() + ".json")
+        try data.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    static func replyLocations(for requestID: UUID, directoryName: String) -> [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let bases = [
             home.appendingPathComponent("Library/Containers/com.haotianyi.LDA/Data/Library/Application Support/LDA"),

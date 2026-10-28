@@ -35,6 +35,15 @@ enum MCPLocalHandoff {
         var finished = false
     }
 
+    /// Opens LDA's Batch Anonymize window for batch_anonymize. The URL is
+    /// MCPBatchRequest's fixed lda-mcp://batch-anonymize/<UUID> route, never
+    /// a tool-supplied URL.
+    static func openBatchWindow(_ request: MCPBatchRequest, appURL: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open([request.url], withApplicationAt: appURL, configuration: configuration)
+    }
+
     static func presentExport(_ receipt: ExportReceipt, historySaved: Bool, appURL: URL? = nil) -> String {
         guard canPresent else { return "unavailable" }
         if historySaved, let app = appURL {

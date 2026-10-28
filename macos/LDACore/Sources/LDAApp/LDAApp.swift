@@ -169,12 +169,19 @@ struct LDAApp: App {
                 .sheet(item: $mcpWorkspaceRequest) { request in
                     MCPWorkspacePicker(request: request, session: sessionModel)
                 }
+                .background(MCPBatchWindowOpener())
                 .onOpenURL { url in
                     // External requests cannot present document or integration UI
                     // over the first-use agreement. The caller can retry afterward.
                     guard legalAcceptance.hasAcceptedCurrentDocuments else { return }
                     if let exportID = ExportReceipt.requestedID(from: url) {
                         modeStore.requestedExportID = exportID
+                        return
+                    }
+                    if let request = MCPBatchRequest(url: url) {
+                        // batch_anonymize: the batch window opens and its
+                        // next batch answers with counts only.
+                        MCPBatchHandoff.shared.receive(request)
                         return
                     }
                     if let request = MCPWorkspaceRequest(url: url) {
@@ -255,6 +262,12 @@ struct LDAApp: App {
                     presentReportOpenPanel()
                 }
                 .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
+
+                // A whole folder, one redacted copy and mapping per document,
+                // with no review step. Its own window, so the main window's
+                // review session is untouched while a batch runs.
+                BatchAnonymizeMenuButton(title: localized("Batch Anonymize\u{2026}"))
+                    .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
             }
 
             CommandGroup(after: .saveItem) {
@@ -372,6 +385,23 @@ struct LDAApp: App {
                         // Removing a model while scanning cannot reclaim its space.
                         isScanning: sessionModel.entries.contains { $0.model.status == .detecting }
                     )
+                } else {
+                    LegalConsentView(acceptance: legalAcceptance)
+                }
+            }
+                .preferredColorScheme(colorScheme)
+                .environment(\.locale, appLocale)
+                .environment(\.appLanguage, appLanguage)
+        }
+
+        // Batch anonymization: a folder in, one redacted copy and mapping per
+        // document out, no review (BatchAnonymizeView). Gated on the same
+        // agreement as the main window, since a restored window can open at
+        // launch before it is accepted.
+        Window(localized("Batch Anonymize"), id: LDAWindowID.batch) {
+            Group {
+                if legalAcceptance.hasAcceptedCurrentDocuments {
+                    BatchAnonymizeView()
                 } else {
                     LegalConsentView(acceptance: legalAcceptance)
                 }

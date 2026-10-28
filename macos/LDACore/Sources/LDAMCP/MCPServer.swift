@@ -91,6 +91,7 @@ public struct MCPServer {
     var selectEditedDocumentForTesting: ((VaultEntry) throws -> URL?)?
     var runEditedImportForTesting: (((@escaping (VaultStagingPhase) throws -> Void) throws -> VaultEntry) throws -> VaultEntry)?
     var presentExportForTesting: ((ExportReceipt, Bool) -> String)?
+    var batchAnonymizeForTesting: ((MCPBatchRequest) throws -> MCPBatchReply?)?
     #endif
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -234,6 +235,8 @@ public struct MCPServer {
                 switch name {
                 case "prepare_documents":
                     summary = try callPrepareDocuments(arguments)
+                case "batch_anonymize":
+                    summary = try callBatchAnonymize(arguments)
                 case "import_edited_document":
                     summary = try callImportEditedDocument(arguments)
                 case "list_pending":

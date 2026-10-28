@@ -86,6 +86,22 @@ final class MCPAuditJournalTests: XCTestCase {
         XCTAssertThrowsError(try append())
     }
 
+    func testEmptyRecordDirectoryFromAnInterruptedFirstSetupStartsFresh() throws {
+        // A first setup that stopped after creating the directory left it empty, with no key,
+        // checkpoint or journal ID. Every later call used to fail with audit_unavailable.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("mcp-audit"), withIntermediateDirectories: true)
+        try append()
+        XCTAssertEqual(try MCPAuditJournal(vault: VaultTestSupport.vault(root: root)).verify().records.count, 1)
+    }
+
+    func testAnyFileInARecordDirectoryWithoutKeyStillBlocksInitialization() throws {
+        let directory = root.appendingPathComponent("mcp-audit")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("stray".utf8).write(to: directory.appendingPathComponent(".DS_Store"))
+        XCTAssertThrowsError(try append())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("mcp-audit-key.sealed").path))
+    }
+
     func testTwoInstancesPreserveAllRecords() throws {
         let other = MCPAuditJournal(vault: VaultTestSupport.vault(root: root))
         try append("first")
