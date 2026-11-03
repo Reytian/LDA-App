@@ -96,7 +96,7 @@ LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, pl
 
 ## Install the macOS app
 
-You need an **Apple Silicon Mac, macOS 14 or later, and at least 16 GB of memory**.
+You need an **Apple Silicon Mac with macOS 14 or later**. The included **LDA V4** detection model works on Macs with **8 GB of memory**. Larger optional models need more memory; LDA shows their requirements in Settings.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
    and download **LDA-2.0.dmg** from **Assets**.

@@ -9,9 +9,10 @@ require a build that includes them; see the separate integration section below.
 
 ## 1. Install LDA
 
-You need an Apple Silicon Mac with **macOS 14 or later and at least 16 GB of
-memory**. In the Apple menu, choose **About This Mac** to check your chip, memory,
-and macOS version.
+You need an Apple Silicon Mac with **macOS 14 or later**. The included **LDA V4**
+detection model works on Macs with **8 GB of memory**. Larger optional models
+need more memory; LDA shows their requirements in Settings. In the Apple menu,
+choose **About This Mac** to check your chip, memory, and macOS version.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest).
 2. Under **Assets**, download **LDA-2.0.dmg**. The automatically generated
