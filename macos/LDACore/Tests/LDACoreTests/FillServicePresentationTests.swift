@@ -9,7 +9,7 @@ final class FillServicePresentationTests: XCTestCase {
             "duplicate location": "Duplicate field location",
             "confirmed without a value": "Confirmed without a value",
             "rejected by reviewer": "Rejected during review",
-            "no matching field": "No matching portfolio field",
+            "no matching field": "No matching profile field",
             "not confirmed": "Not confirmed",
             "manual widget type": "Requires manual input"
         ]
@@ -156,7 +156,7 @@ final class FillServicePresentationTests: XCTestCase {
                 "no matching field",
                 language: .traditionalChinese
             ),
-            "沒有相符的資料集欄位"
+            "沒有相符的資料卡欄位"
         )
     }
 

@@ -30,6 +30,8 @@ trap 'rm -rf "$STAGE"' EXIT
 echo "==> Staging LDA.app $VERSION"
 ditto "$APP" "$STAGE/LDA.app"
 ln -s /Applications "$STAGE/Applications"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ditto "$SCRIPT_DIR/Install LDA.html" "$STAGE/Install LDA.html"
 
 echo "==> Creating $DMG"
 rm -f "$DMG"

@@ -27,17 +27,16 @@ extension FillShell {
     var importProfileSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Import portfolio")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             HStack {
                 Spacer()
@@ -57,7 +56,7 @@ extension FillShell {
             }
         }
         .padding(24)
-        .frame(minWidth: 380)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 
@@ -93,11 +92,11 @@ extension FillShell {
     var exportProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Protect the export")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -106,14 +105,13 @@ extension FillShell {
                     "This folder syncs to iCloud. The encrypted file will be uploaded with it.",
                     systemImage: "icloud.and.arrow.up"
                 )
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
             L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             HStack {
                 Spacer()
@@ -134,7 +132,7 @@ extension FillShell {
             }
         }
         .padding(24)
-        .frame(minWidth: 380)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 
@@ -163,11 +161,11 @@ extension FillShell {
     var saveProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Protect the profile")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("Enter an optional passphrase to encrypt the profile. Leave it blank to protect it with the system Keychain.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -176,14 +174,13 @@ extension FillShell {
                     "This folder syncs to iCloud. The encrypted profile will be uploaded with it.",
                     systemImage: "icloud.and.arrow.up"
                 )
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
             L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             HStack {
                 Spacer()
@@ -203,7 +200,7 @@ extension FillShell {
             }
         }
         .padding(24)
-        .frame(minWidth: 380)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 
@@ -235,17 +232,16 @@ extension FillShell {
     var loadProfilePassphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Profile passphrase")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("If this profile was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             L10n.secureField("Passphrase (optional)", text: $passphraseInput)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             HStack {
                 Spacer()
@@ -265,7 +261,7 @@ extension FillShell {
             }
         }
         .padding(24)
-        .frame(minWidth: 380)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 

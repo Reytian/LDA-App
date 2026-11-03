@@ -266,6 +266,21 @@ final class FillModelLibraryTests: XCTestCase {
 
     // MARK: - Library: saveToLibrary create-then-update round trip
 
+    func testRepeatedSaveClickCreatesOnlyOneLibraryEntry() async throws {
+        let lib = try makeLibrarySeam()
+        let model = FillModel(modelPath: nil)
+        await model.createPortfolio(kind: .company, label: "Repeated save fixture", fromScratch: true,
+                                    createdAtISO8601: "2026-11-03T00:00:00Z")
+        model.addField(key: .companyName, value: "Synthetic company")
+        let first = Task { await model.saveToLibrary(modifiedAtISO8601: "2026-11-03T01:00:00Z") }
+        let second = Task { await model.saveToLibrary(modifiedAtISO8601: "2026-11-03T01:00:00Z") }
+        await first.value
+        await second.value
+        XCTAssertFalse(model.isSavingProfile)
+        XCTAssertFalse(model.profileDirty)
+        XCTAssertEqual(try lib.list().count, 1)
+    }
+
     func testSaveToLibraryCreateThenUpdateRoundTrip() async throws {
         let lib = try makeLibrarySeam()
         let model = FillModel(modelPath: nil)

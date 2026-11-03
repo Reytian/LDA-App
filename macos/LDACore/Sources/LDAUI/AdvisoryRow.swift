@@ -44,8 +44,9 @@ struct AdvisoryRow<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
+                .accessibilityHidden(true)
             Text(verbatim: advice)
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
@@ -59,8 +60,7 @@ struct AdvisoryRow<Trailing: View>: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(verbatim: advice))
+        .accessibilityElement(children: .contain)
     }
 }
 

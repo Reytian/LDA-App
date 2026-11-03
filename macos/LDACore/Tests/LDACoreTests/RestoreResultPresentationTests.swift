@@ -169,7 +169,7 @@ final class RestoreResultPresentationTests: XCTestCase {
 
         XCTAssertEqual(
             sentence,
-            "1 個遮罩形式由多個實體共用：張*明。該位置保持原樣，未作猜測；請根據您自己的記錄進行核對。"
+            "1 個遮罩形式由多項資訊共用：張*明。該位置保持原樣，未作猜測；請根據你自己的記錄進行核對。"
         )
     }
 
@@ -186,7 +186,7 @@ final class RestoreResultPresentationTests: XCTestCase {
 
         XCTAssertEqual(
             result,
-            "已恢复 1 个值，但有警告。 \(problem) 未作任何猜测；请在 \(fileName) 中检查这些内容并手动修正。"
+            "已还原 1 项内容，但有警告。 \(problem) 未作任何猜测；请在 \(fileName) 中检查这些内容并手动修正。"
         )
     }
 

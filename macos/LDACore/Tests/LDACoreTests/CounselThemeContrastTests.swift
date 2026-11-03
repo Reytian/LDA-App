@@ -92,6 +92,17 @@ final class CounselThemeContrastTests: XCTestCase {
         }
     }
 
+    func testErrorTextClearsTheTextFloorOnEverySurfaceInBothAppearances() {
+        for surface in [CounselTheme.paperHex, CounselTheme.raisedHex, CounselTheme.appSurfaceHex] {
+            XCTAssertGreaterThanOrEqual(
+                WCAGContrast.ratio(CounselTheme.dangerHex.light, surface.light), Self.textFloor
+            )
+            XCTAssertGreaterThanOrEqual(
+                WCAGContrast.ratio(CounselTheme.dangerHex.dark, surface.dark), Self.textFloor
+            )
+        }
+    }
+
     // MARK: - Distinctness and reserved roles
 
     func testNoTwoEntityTypesShareAHexInEitherAppearance() {

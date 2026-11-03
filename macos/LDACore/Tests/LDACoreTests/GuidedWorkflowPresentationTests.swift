@@ -452,7 +452,7 @@ final class GuidedWorkflowPresentationTests: XCTestCase {
                 style: .pseudonym,
                 language: .simplifiedChinese
             ).text,
-            "无法显示隐去预览：无法验证能否正确恢复。"
+            "无法显示脱敏预览：无法验证能否正确恢复。"
         )
     }
 

@@ -17,27 +17,27 @@
 "%lld/%lld" = "%lld/%lld";
 "(from %@)" = "(from %@)";
 ".*" = ".*";
-"AI" = "AI";
+"AI" = "Detection";
 "AI did not run" = "AI did not run";
 "Aa" = "Aa";
 "About %lld seconds for a short agreement." = "About %lld seconds for a short agreement.";
 "Accept" = "Accept";
 "Accept All Proposed" = "Accept All Proposed";
 "Accept Blank" = "Accept Blank";
-"Accepted findings replaced" = "Accepted findings replaced";
+"Accepted findings replaced" = "Selected details replaced";
 "Active %lld" = "Active %lld";
 "Add .txt, .docx, .pdf documents or a .zip to the session" = "Add .txt, .docx, .pdf documents or a .zip to the session";
 "Add Field" = "Add Field";
 "Add Sources" = "Add Sources";
 "Add Term" = "Add Term";
-"Add source documents and click Extract, or load a saved .ldaprofile." = "Add source documents and click Extract, or load a saved .ldaprofile.";
+"Add source documents and click Extract, or load a saved .ldaprofile." = "Add documents to extract the information you need, or open a saved profile.";
 "Add source documents to extract profile fields from (PDF, Word, or plain text)" = "Add source documents to extract profile fields from (PDF, Word, or plain text)";
 "Add source documents, then click Extract to build a profile." = "Add source documents, then click Extract to build a profile.";
 "Add the model file to use this setting." = "Add the model file to use this setting.";
 "After Export for AI, this page will show the documents and counts for the handoff." = "After Export for AI, this page will show the documents and counts for the handoff.";
 "Always redact these" = "Always redact these";
-"Anonymize" = "De-identify";
-"Anonymize Documents" = "De-identify Documents";
+"Anonymize" = "Redact";
+"Anonymize Documents" = "Redact documents";
 "Anonymize workflow, current step %@" = "De-identify workflow, current step %@";
 "Appearance" = "Appearance";
 "Apply Fill" = "Apply Fill";
@@ -55,7 +55,7 @@
 "Bulk actions for %@" = "Bulk actions for %@";
 "Cancel" = "Cancel";
 "Cannot run on this Mac, so it is not offered for download." = "Cannot run on this Mac, so it is not offered for download.";
-"Canonical field" = "Canonical field";
+"Canonical field" = "Standard field";
 "Case sensitive" = "Case sensitive";
 "Checking the file is exactly what it should be" = "Checking the file is exactly what it should be";
 "Choose Another Target" = "Choose Another Target";
@@ -81,10 +81,10 @@
 "Export for AI…" = "Export for AI…";
 "Could not rename matter" = "Could not rename matter";
 "Could not update matter" = "Could not update matter";
-"Create a new client portfolio" = "Create a new client portfolio";
-"Create a new portfolio or import an existing .ldaprofile file." = "Create a new portfolio or import an existing .ldaprofile file.";
-"Create an empty portfolio and add fields manually" = "Create an empty portfolio and add fields manually";
-"Create this portfolio then add source documents to extract fields" = "Create this portfolio then add source documents to extract fields";
+"Create a new client portfolio" = "Create a new client profile";
+"Create a new portfolio or import an existing .ldaprofile file." = "Create a new profile or import an existing .ldaprofile file.";
+"Create an empty portfolio and add fields manually" = "Create an empty profile and add fields manually";
+"Create this portfolio then add source documents to extract fields" = "Create this profile then add source documents to extract fields";
 "Custom (enter name below)" = "Custom (enter name below)";
 "Custom model" = "Custom model";
 "Delete" = "Delete";
@@ -104,7 +104,7 @@
 "Download %@" = "Download %@";
 "Download, remove, or choose a different detection model" = "Download, remove, or choose a different detection model";
 "Downloaded and verified." = "Downloaded and verified.";
-"Drop documents to anonymize" = "Drop documents to de-identify";
+"Drop documents to anonymize" = "Drop your files here";
 "Drop documents to anonymize, or choose files" = "Drop documents to de-identify, or choose files";
 "Edit replacement for %@" = "Edit replacement for %@";
 "Edit the replacement text used for this value" = "Edit the replacement text used for this value";
@@ -133,14 +133,14 @@
 "Go back to the model for the selected setting" = "Go back to the model for the selected setting";
 "Go to Restore" = "Go to Restore";
 "History" = "History";
-"How hard should LDA look?" = "How hard should LDA look?";
+"How hard should LDA look?" = "Choose how to detect sensitive information";
 "Import" = "Import";
 "Import Profile" = "Import Profile";
-"Import a portfolio from an .ldaprofile file" = "Import a portfolio from an .ldaprofile file";
-"Import portfolio" = "Import portfolio";
+"Import a portfolio from an .ldaprofile file" = "Import a profile from an .ldaprofile file";
+"Import portfolio" = "Import profile";
 "Importing document" = "Importing document";
 "Importing source documents" = "Importing source documents";
-"Invalid regular expression" = "Invalid regular expression";
+"Invalid regular expression" = "This pattern is incomplete or invalid. Correct it before it can match any text.";
 "Items you rejected remain readable in this preview and in the saved document" = "Items you rejected remain readable in this preview and in the saved document";
 "Keep All %@ Visible" = "Keep All %@ Visible";
 "Keep Visible" = "Keep Visible";
@@ -153,9 +153,8 @@
 "Label" = "Label";
 "Language" = "Language";
 "Last activity %@" = "Last activity %@";
-"Learned" = "Learned";
+"Learned" = "Remembered choices";
 "Leave editor?" = "Leave editor?";
-"Literal terms or regular expressions (for example a matter number M-\\d{5}). Useful for project codenames, client names, and internal labels." = "Literal terms or regular expressions (for example a matter number M-\\d{5}). Useful for project codenames, client names, and internal labels.";
 "Load" = "Load";
 "Load Profile" = "Load Profile";
 "Local workspaces" = "Local workspaces";
@@ -173,7 +172,7 @@
 "More profile actions" = "More profile actions";
 "New Matter" = "New Matter";
 "New Matter…" = "New Matter…";
-"New Portfolio" = "New Portfolio";
+"New Portfolio" = "New Profile";
 "New matter" = "New matter";
 "Next Blank" = "Next Blank";
 "Next Entity" = "Next Entity";
@@ -181,9 +180,9 @@
 "No archived matters" = "No archived matters";
 "No blanks detected" = "No blanks detected";
 "No match" = "No match";
-"No portfolios yet" = "No portfolios yet";
+"No portfolios yet" = "No profiles yet";
 "No profile fields available" = "No profile fields available";
-"No profile yet" = "No profile yet";
+"No profile yet" = "Prepare information to fill";
 "No protected handoffs recorded yet." = "No protected handoffs recorded yet.";
 "No sessions recorded yet. Records appear after your first Export for AI." = "No sessions recorded yet. Records appear after your first Export for AI.";
 "No sources added" = "No sources added";
@@ -207,7 +206,7 @@
 "Passphrase (optional)" = "Passphrase (optional)";
 "Patterns only" = "Patterns only";
 "Planning fill" = "Planning fill";
-"Portfolio type" = "Portfolio type";
+"Portfolio type" = "Profile type";
 "Previous Blank" = "Previous Blank";
 "Previous Entity" = "Previous Entity";
 "Prior handoffs will stay together under the new name. Protected identities remain encrypted." = "Prior handoffs will stay together under the new name. Protected identities remain encrypted.";
@@ -228,7 +227,7 @@
 "Redacted document saved" = "Redacted document saved";
 "Regular expression" = "Regular expression";
 "Reject" = "Reject";
-"Rejected: this will remain visible in the exported document" = "Rejected: this will remain visible in the exported document";
+"Rejected: this will remain visible in the exported document" = "Kept visible in the exported document";
 "Remove" = "Remove";
 "Remove downloaded copy" = "Remove downloaded copy";
 "Remove from Session" = "Remove from Session";
@@ -246,11 +245,11 @@
 "Restore this matter before starting another protected handoff." = "Restore this matter before starting another protected handoff.";
 "Restore to Active" = "Restore to Active";
 "Retry" = "Retry";
-"Return to the portfolio library" = "Return to the portfolio library";
-"Return to the profile builder" = "Return to the profile builder";
+"Return to the portfolio library" = "Return to the profile library";
+"Return to the profile builder" = "Return to the profile editor";
 "Reveal in Finder" = "Reveal in Finder";
 "Review" = "Review";
-"Review matters, anonymize documents, restore protected values, or fill a form" = "Review matters, de-identify documents, restore protected values, or fill a form";
+"Review matters, anonymize documents, restore protected values, or fill a form" = "Review matters, redact documents, restore protected values, or fill a form";
 "Redacted file saved" = "Redacted file saved";
 "Save" = "Save";
 "Save Current Work First…" = "Save Current Work First…";
@@ -261,7 +260,7 @@
 "Save to Library" = "Save to Library";
 "Scan All" = "Scan All";
 "Scan every document in the session that has not been scanned yet, one after another" = "Scan every document in the session that has not been scanned yet, one after another";
-"Scan for PII" = "Scan for PII";
+"Scan for PII" = "Scan Document";
 "Session history" = "Session history";
 "Settings" = "Settings";
 "Share or move your setup" = "Share or move your setup";
@@ -291,7 +290,7 @@
 "This action cannot be undone." = "This action cannot be undone.";
 "This folder syncs to iCloud. The encrypted file will be uploaded with it." = "This folder syncs to iCloud. The encrypted file will be uploaded with it.";
 "This folder syncs to iCloud. The encrypted profile will be uploaded with it." = "This folder syncs to iCloud. The encrypted profile will be uploaded with it.";
-"This portfolio has unresolved field conflicts" = "This portfolio has unresolved field conflicts";
+"This portfolio has unresolved field conflicts" = "This profile has unresolved field conflicts";
 "This removes the matter's encrypted identities, local history, and matter-only rules from LDA. Saved or exported workspace, redacted, report, and restored files are not affected." = "This removes the matter's encrypted identities, local history, and matter-only rules from LDA. Saved or exported workspace, redacted, report, and restored files are not affected.";
 "Tip: Command-click or Shift-click extra findings, then keep them visible together." = "Tip: Command-click or Shift-click extra findings, then keep them visible together.";
 "Tip: select several extra findings to keep them visible together." = "Tip: select several extra findings to keep them visible together.";
@@ -300,11 +299,11 @@
 "Treat the term as a regular expression" = "Treat the term as a regular expression";
 "Try Again" = "Try Again";
 "Type the exact text as it appears in the document. Every occurrence will be redacted." = "Type the exact text as it appears in the document. Every occurrence will be redacted.";
-"Unlock your portfolio library?" = "Unlock your portfolio library?";
+"Unlock your portfolio library?" = "Unlock your profile library?";
 "Unverified" = "Unverified";
 "Unverified. Extracted from: %@" = "Unverified. Extracted from: %@";
 "Unverified: the value was not confirmed verbatim in the source" = "Unverified: the value was not confirmed verbatim in the source";
-"Use AI on confidential documents, safely" = "Use AI on confidential documents, safely";
+"Use AI on confidential documents, safely" = "Prepare documents for AI";
 "Use Automatic" = "Use Automatic";
 "Use This Text" = "Use This Text";
 "Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders." = "Use a client or matter name you will recognize. The app will start a De-identify session with consistent protected placeholders.";
@@ -313,13 +312,13 @@
 "Verified" = "Verified";
 "Verified. Source: %@" = "Verified. Source: %@";
 "Verified: the value was found verbatim in the source document" = "Verified: the value was found verbatim in the source document";
-"Vocabulary" = "Vocabulary";
+"Vocabulary" = "Custom vocabulary";
 "What LDA has learned" = "What LDA has learned";
 "Which should I choose?" = "Which should I choose?";
 "Will remain visible" = "Will remain visible";
 "Will save as:" = "Will save as:";
 "Work under a matter keeps the same placeholders for the same values, every time" = "Work under a matter keeps the same placeholders for the same values, every time";
-"You have unsaved changes to this portfolio." = "You have unsaved changes to this portfolio.";
+"You have unsaved changes to this portfolio." = "You have unsaved changes to this profile.";
 "Your chosen model leaves some names in the document" = "Your chosen model leaves some names in the document";
 "Your organisation has set this and it cannot be changed here." = "Your organisation has set this and it cannot be changed here.";
 "e.g. Acme Corp, John Smith" = "e.g. Acme Corp, John Smith";
@@ -328,7 +327,7 @@
 "·  %lld unmatched" = "·  %lld unmatched";
 "·  %lld will remain visible" = "·  %lld will remain visible";
 "×%lld" = "×%lld";
-"Choose the language LDA uses for its interface. Follow System uses your Mac language." = "Choose the language LDA uses for its interface. Follow System uses your Mac language.";
+"Choose the language LDA uses for its interface. Follow System uses your Mac language." = "Choose a language for menus and buttons. You can change it later in Settings. Follow System uses your Mac’s language.";
 "System" = "System";
 "Light" = "Light";
 "Dark" = "Dark";
@@ -336,14 +335,12 @@
 "Pseudonyms" = "Pseudonyms";
 "Asterisks" = "Asterisks";
 "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored." = "Protected values become placeholders like {PERSON_1}. Exact and compact, but an external AI sometimes rewrites the braces, and a rewritten placeholder cannot be restored.";
-"Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing." = "Protected values become natural stand-in names like Company A or 甲公司. AI tools treat them as names and leave them alone, so documents come back restorable even after heavy editing.";
-"Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore." = "Protected values are masked in place, like 张*明 or 138****5678, the form courts and regulators expect. Best for sending to a person; if two values share one mask, that mask is reported instead of guessed at restore.";
-"Bring documents in" = "Bring documents in";
-"Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect." = "Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect.";
-"Hand the safe copy to any AI" = "Hand the safe copy to any AI";
-"Export for AI saves a redacted Markdown file. Upload it to ChatGPT, Claude, or any tool, with your instructions." = "Export for AI saves a redacted Markdown file. Upload it to ChatGPT, Claude, or any tool, with your instructions.";
-"Bring the answer back" = "Bring the answer back";
-"Restore takes the file the AI gave back and puts the real values in, flagging anything it cannot match with certainty. Save the final document in its original format." = "Restore takes the file the AI gave back and puts the real values in, flagging anything it cannot match with certainty. Save the final document in its original format.";
+"Bring documents in" = "Add files and review";
+"Drop Word, PDF, or text files (or a .zip). The app finds names, companies, dates, amounts, emails, phones, and IDs, and you review what it will protect." = "Add Word, PDF, text, or ZIP files. LDA looks for names, companies, dates, amounts, emails, phone numbers, and IDs. Review what to replace before sharing.";
+"Hand the safe copy to any AI" = "Share the redacted copy";
+"Export for AI saves a redacted Markdown file. Upload it to ChatGPT, Claude, or any tool, with your instructions." = "Export for AI saves a redacted Markdown file. Upload that copy to your AI app with your instructions.";
+"Bring the answer back" = "Restore the original details";
+"Restore takes the file the AI gave back and puts the real values in, flagging anything it cannot match with certainty. Save the final document in its original format." = "Open the returned file in Restore to put the original details back. LDA flags uncertain matches for you to check. Save the result in the file’s original format.";
 "LDA processes document contents and stores the encrypted mapping on this Mac. If you ask it to download a detection model, it connects to the model host. Copying or exporting a document lets you send it to a service you choose, so review that service's privacy settings first." = "LDA processes document contents and stores the encrypted mapping on this Mac. If you ask it to download a detection model, it connects to the model host. Copying or exporting a document lets you send it to a service you choose, so review that service's privacy settings first.";
 "Anything you choose to keep visible stays visible in the exported document." = "Anything you choose to keep visible stays visible in the exported document.";
 "Restore Clipboard, in the menu-bar icon, is the one action that puts real values on your clipboard; it tries to clear them again about %lld seconds later, so paste promptly and do not rely on the clearing." = "Restore Clipboard, in the menu-bar icon, is the one action that puts real values on your clipboard; it tries to clear them again about %lld seconds later, so paste promptly and do not rely on the clearing.";
@@ -416,12 +413,12 @@
 "Individual" = "Individual";
 "Corporate entity: company name, registration, directors, shareholders, capital structure." = "Corporate entity: company name, registration, directors, shareholders, capital structure.";
 "Natural person: name, date of birth, nationality, passport, national ID, address, contact." = "Natural person: name, date of birth, nationality, passport, national ID, address, contact.";
-"Covers both corporate and personal field sets. Use when a portfolio spans both." = "Covers both corporate and personal field sets. Use when a portfolio spans both.";
-"Extract Profile" = "Extract Profile";
+"Covers both corporate and personal field sets. Use when a portfolio spans both." = "Covers both corporate and personal field sets. Use when a profile spans both.";
+"Extract Profile" = "Extract information";
 "Save & Choose Target" = "Save & Choose Target";
 "Choose Target" = "Choose Target";
 "Add source documents to build a client profile" = "Add source documents to build a client profile";
-"Save this portfolio, then choose the Word or PDF document to fill" = "Save this portfolio, then choose the Word or PDF document to fill";
+"Save this portfolio, then choose the Word or PDF document to fill" = "Save this profile, then choose the Word or PDF document to fill";
 "Choose the Word or PDF document to fill" = "Choose the Word or PDF document to fill";
 "Original" = "Original";
 "Safe Preview" = "Safe Preview";
@@ -492,7 +489,7 @@
 "Needs %lld GB of memory. This Mac has %lld GB." = "Needs %lld GB of memory. This Mac has %lld GB.";
 "Needs more memory than this Mac has. This Mac has %lld GB." = "Needs more memory than this Mac has. This Mac has %lld GB.";
 "Delete \"%@\"?" = "Delete \"%@\"?";
-"Delete portfolio?" = "Delete portfolio?";
+"Delete portfolio?" = "Delete profile?";
 "Unknown date" = "Unknown date";
 "Modified %@" = "Modified %@";
 "Add at least one source document first" = "Add at least one source document first";
@@ -532,7 +529,7 @@
 "This text stands in for the value in the safe copy. It cannot already appear in the session documents." = "This text stands in for the value in the safe copy. It cannot already appear in the session documents.";
 "Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version." = "Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version.";
 "The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):" = "The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):";
-"Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once." = "Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once.";
+"Your portfolio library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once." = "Your profile library is encrypted with a key stored in your macOS Keychain. macOS will confirm with Touch ID (or your password); the key never leaves this Mac. You will only see this explanation once.";
 "Some sources could not be imported: %@" = "Some sources could not be imported: %@";
 "If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain." = "If this file was saved with a passphrase, enter it. Leave it blank if it uses the Keychain.";
 "Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain." = "Enter an optional passphrase to encrypt the exported file. Leave it blank to protect it with the system Keychain.";
@@ -544,7 +541,7 @@
 "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app." = "A downloaded copy of %@ is also on this Mac. It is not needed because %@ is built into the app.";
 "%@ of %@" = "%@ of %@";
 "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac." = "Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.";
-"Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.";
+"Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac." = "Choose how LDA looks for names, companies, and addresses. The selected model runs on this Mac. Larger models take longer.";
 "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed." = "It reports a portion of the names and addresses it finds in a slightly different form from your document, so those are never redacted and never reach your review list. The Quick model does not have this problem and runs at the same speed.";
 "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above." = "LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.";
 "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it." = "The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.";
@@ -553,8 +550,8 @@
 "%lld redacted documents are in %@. Upload it to your AI tool, then bring the answer back in Restore." = "%lld redacted documents are in %@. Upload it to your AI tool, then bring the answer back in Restore.";
 "%lld unscanned document was not included." = "%lld unscanned document was not included.";
 "%lld unscanned documents were not included." = "%lld unscanned documents were not included.";
-"Spotting PII %lld%%" = "Spotting PII %lld%%";
-"Spotting PII %lld%%  ·  %@" = "Spotting PII %lld%%  ·  %@";
+"Spotting PII %lld%%" = "Scanning %lld%%";
+"Spotting PII %lld%%  ·  %@" = "Scanning %lld%%  ·  %@";
 "Save the redacted text as one Markdown file to upload to any AI tool." = "Save the redacted text as one Markdown file to upload to any AI tool.";
 "Save the redacted text from %lld of %lld documents (only the ones already scanned are included) as one Markdown file to upload to any AI tool." = "Save the redacted text from %lld of %lld documents (only the ones already scanned are included) as one Markdown file to upload to any AI tool.";
 "Warning: %lld embedded image was copied without scanning." = "Warning: %lld embedded image was copied without scanning.";
@@ -588,8 +585,8 @@
 "Passphrase protected" = "Passphrase protected";
 "Loading model" = "Loading model";
 "Stopping" = "Stopping";
-"Document ready. Click Scan for PII to spot names, companies, and other personal data." = "Document ready. Click Scan for PII to spot names, companies, and other personal data.";
-"Spotting PII" = "Spotting PII";
+"Document ready. Click Scan for PII to spot names, companies, and other personal data." = "Document ready. Click Scan Document to spot names, companies, and other personal data.";
+"Spotting PII" = "Scanning";
 "Ready for review" = "Ready for review";
 "%@ still contains 1 name protected elsewhere in this session. Run Scan on it again, then export again." = "%@ still contains 1 name protected elsewhere in this session. Run Scan on it again, then export again.";
 "%@ still contains %lld names protected elsewhere in this session. Run Scan on it again, then export again." = "%@ still contains %lld names protected elsewhere in this session. Run Scan on it again, then export again.";
@@ -680,13 +677,13 @@
 "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back." = "Resumed your last session. When the AI answer is ready, use Restore to bring the real values back.";
 "Could not change the matter scope. %@" = "Could not change the matter scope. %@";
 "Could not export the redacted file. %@" = "Could not export the redacted file. %@";
-"The file could not be read. %@" = "The file could not be read. %@";
-"Unsupported format. %@" = "Unsupported format. %@";
-"The file is corrupt. %@" = "The file is corrupt. %@";
+"The file could not be read. %@" = "The file could not be read. Check that you can open it, or try a copy in another folder. %@";
+"Unsupported format. %@" = "This file format is not supported here. Choose a compatible file and try again. %@";
+"The file is corrupt. %@" = "This file appears to be damaged. Try opening it in its original app or use another copy. %@";
 "OCR is unavailable on this system." = "OCR is unavailable on this system.";
-"The document could not be decrypted." = "The document could not be decrypted.";
-"A Keychain error occurred (status %lld)." = "A Keychain error occurred (status %lld).";
-"That file is too large to open. %@" = "That file is too large to open. %@";
+"The document could not be decrypted." = "This document could not be unlocked. Check the password and try again. If it still fails, try another copy of the file.";
+"A Keychain error occurred (status %lld)." = "LDA could not access the Keychain. Unlock your Mac and try again (status %lld).";
+"That file is too large to open. %@" = "This file is too large to open. Try a smaller file or split it into shorter documents. %@";
 "None of the source documents could be imported." = "None of the source documents could be imported.";
 "The target document changed since planning. %@" = "The target document changed since planning. %@";
 "The output path must differ from the source path." = "The output path must differ from the source path.";
@@ -695,8 +692,8 @@
 "The requested detection model could not be run, so nothing was written." = "The requested detection model could not be run, so nothing was written.";
 "%lld detected value could not be matched exactly in the document, so it could not be removed." = "%lld detected value could not be matched exactly in the document, so it could not be removed.";
 "%lld detected values could not be matched exactly in the document, so they could not be removed." = "%lld detected values could not be matched exactly in the document, so they could not be removed.";
-"The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "The portfolio index was rebuilt; the list was rebuilt from the portfolio files.";
-"Portfolio list changes may not persist; check Keychain access and disk space." = "Portfolio list changes may not persist; check Keychain access and disk space.";
+"The portfolio index was rebuilt; the list was rebuilt from the portfolio files." = "The profile list was rebuilt from your saved profile files.";
+"Portfolio list changes may not persist; check Keychain access and disk space." = "Profile list changes may not persist; check Keychain access and disk space.";
 "Report file" = "Report file";
 "Workspace file" = "Workspace file";
 "Parked session" = "Parked session";
@@ -706,7 +703,7 @@
 "Matter workspace metadata" = "Matter workspace metadata";
 "Vault object" = "Vault object";
 "Vault registry" = "Vault registry";
-"Portfolio index" = "Portfolio index";
+"Portfolio index" = "Profile index";
 "Mapping sidecar" = "Mapping sidecar";
 "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt." = "Touch ID could not be applied to %@. Those keys are still protected by your login keychain, but they unlock without a Touch ID prompt.";
 "Keychain reported: %@." = "Keychain reported: %@.";
@@ -747,15 +744,15 @@
 "Duplicate field location" = "Duplicate field location";
 "Confirmed without a value" = "Confirmed without a value";
 "Rejected during review" = "Rejected during review";
-"No matching portfolio field" = "No matching portfolio field";
+"No matching portfolio field" = "No matching profile field";
 "Not confirmed" = "Not confirmed";
 "Requires manual input" = "Requires manual input";
 "No target document loaded." = "No target document loaded.";
 "No blanks detected in this document." = "No blanks detected in this document.";
 "Open for editing" = "Open for editing";
-"Fill a document from this portfolio" = "Fill a document from this portfolio";
+"Fill a document from this portfolio" = "Fill a document from this profile";
 "Export as .ldaprofile" = "Export as .ldaprofile";
-"Delete this portfolio" = "Delete this portfolio";
+"Delete this portfolio" = "Delete this profile";
 "Restored %lld value." = "Restored %lld value.";
 "Restored %lld values." = "Restored %lld values.";
 "That passphrase did not open this workspace file." = "That passphrase did not open this workspace file.";
@@ -786,7 +783,7 @@
 "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document." = "Choose or drop the file that came back: the Markdown you exported for the AI, or a redacted Word document you saved. The mapping is found automatically from this session or from the .ldamap saved next to the file. Formatting is kept when the file is a Word document.";
 "Pick the file that came back, review the restored document, then save it (Cmd+R)" = "Pick the file that came back, review the restored document, then save it (Cmd+R)";
 "Pick the file that came back and write the restored document (Cmd+R)" = "Pick the file that came back and write the restored document (Cmd+R)";
-"Bring the real values back. Restore runs on this Mac." = "Bring the real values back. Restore runs on this Mac.";
+"Bring the real values back. Restore runs on this Mac." = "Bring the original information back, on this Mac.";
 "Choose Mapping…" = "Choose Mapping…";
 "This mapping was protected with a passphrase. Enter it to restore." = "This mapping was protected with a passphrase. Enter it to restore.";
 "Word output from Markdown carries plain formatting." = "Word output from Markdown carries plain formatting.";
@@ -884,7 +881,7 @@
 "The model for the detection level you chose is not installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings." = "The model for the detection level you chose is not installed, so this scan will not look for people's names or company names, and it matches an address only in the Chinese street form. It still finds emails, phones, dates, amounts, ID numbers, and case numbers. Add that model, or choose an installed level in Settings.";
 "Patterns only is selected and no detection model is installed, so no scan on this Mac looks for people's names or company names. Those names stay in the document. Add a model, then choose a detection level in Settings." = "Patterns only is selected and no detection model is installed, so no scan on this Mac looks for people's names or company names. Those names stay in the document. Add a model, then choose a detection level in Settings.";
 "This Mac does not have the memory to run a detection model, so scans here match patterns only. People's names and company names stay in the document." = "This Mac does not have the memory to run a detection model, so scans here match patterns only. People's names and company names stay in the document.";
-"Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model." = "Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model.";
+"Document ready. Click Scan for PII to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model." = "Document ready. Click Scan Document to spot dates, amounts, emails, phones, and ID numbers. Names and company names need a detection model.";
 "Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model." = "Spot PII in the open document: dates, amounts, emails, phones, ID numbers (Cmd+Shift+S). People's names and company names need a detection model.";
 "Drop Word, PDF, or text files (or a .zip). The app scans each one and you review what it will protect. Which kinds of value it can find depends on the detection model above." = "Drop Word, PDF, or text files (or a .zip). The app scans each one and you review what it will protect. Which kinds of value it can find depends on the detection model above.";
 "Export a copy where the AI pass did not run?" = "Export a copy where the AI pass did not run?";
@@ -914,13 +911,13 @@
 "No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document." = "No model runs. In our own test on two agreements, a scan with no model missed 32 of the 36 names, organisations, and addresses. Fixed formats are still found, and LDA asks again before the first scan of each document.";
 "Downloading the detection model." = "Downloading the detection model.";
 "Installed and in use. Scans will now find the names of people and organisations." = "Installed and in use. Scans will now find the names of people and organisations.";
-"LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "LDA protects client information before it reaches an AI tool, and puts it back afterwards.";
+"LDA protects client information before it reaches an AI tool, and puts it back afterwards." = "Replace sensitive details before sharing a document, then restore them in the AI’s response.";
 "Re-scan" = "Re-scan";
 "matter" = "matter";
 "Save Redacted and Save Workspace need a document. Click Open to add one." = "Save Redacted and Save Workspace need a document. Click Open to add one.";
 "Save Redacted waits for this document to finish opening." = "Save Redacted waits for this document to finish opening.";
 "Save Redacted waits for this scan to finish." = "Save Redacted waits for this scan to finish.";
-"Save Redacted needs a finished scan. Click Scan for PII first." = "Save Redacted needs a finished scan. Click Scan for PII first.";
+"Save Redacted needs a finished scan. Click Scan for PII first." = "Save Redacted needs a finished scan. Click Scan Document first.";
 "This document did not open, so there is nothing to save. Open the file again." = "This document did not open, so there is nothing to save. Open the file again.";
 "Export Report covers an Export for AI handoff. Run one first." = "Export Report covers an Export for AI handoff. Run one first.";
 "Review the restored document" = "Review the restored document";
@@ -963,9 +960,9 @@
 
 "Add documents, evidence images, or a ZIP to the session" = "Add documents, evidence images, or a ZIP to the session";
 "Save a workspace or export a review report" = "Save a workspace or export a review report";
-"Add your files, review sensitive details, then export a redacted copy." = "Add your files, review sensitive details, then export a redacted copy.";
-"PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives." = "PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives.";
-"Add several files to review them together. You can add more later." = "Add several files to review them together. You can add more later.";
+"Add your files, review sensitive details, then export a redacted copy." = "Add files, check what should be hidden, then save a redacted copy.";
+"PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives." = "PDF, Word, text, PNG/JPEG images, or ZIP archives.";
+"Add several files to review them together. You can add more later." = "Add several files together, or add more as you go.";
 "Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy." = "Choose or drop a redacted Word, Markdown, or text file. Review the restored values before saving a new copy.";
 "Choose File & Preview…" = "Choose File & Preview…";
 "LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting." = "LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting.";
@@ -1002,26 +999,25 @@
 /* Optional AI client and command-line setup. */
 "AI app" = "AI app";
 "After installing the shortcut, run these commands in Terminal. If lda is not found, use ~/.local/bin/lda or add ~/.local/bin to PATH." = "After installing the shortcut, run these commands in Terminal. If lda is not found, use ~/.local/bin/lda or add ~/.local/bin to PATH.";
-"After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection." = "After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection.";
+"After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection." = "Restart your AI app and check its MCP status. Then ask it to run LDA’s connection check (attest).";
 "Ask your AI app to use LDA to prepare documents for your named workspace, then give your document instruction. Shortcut syntax depends on the app." = "Ask your AI app to use LDA to prepare documents for your named workspace, then give your document instruction. Shortcut syntax depends on the app.";
-"CLI Setup" = "CLI Setup";
+"CLI Setup" = "Command line";
 "CLI output can include original values and filenames. Do not paste it into an AI chat when working with confidential documents. Use MCP for the protected document workflow." = "CLI output can include original values and filenames. Do not paste it into an AI chat when working with confidential documents. Use MCP for the protected document workflow.";
 "Choose LDA from the slash-command menu, or use $lda in Codex. The workspace name is an LDA Matter, separate from your Codex project. Choose documents locally and turn on the optional PII review if you want to add protection." = "Choose LDA from the slash-command menu, or use $lda in Codex. The workspace name is an LDA Matter, separate from your Codex project. Choose documents locally and turn on the optional PII review if you want to add protection.";
-"Choose MCP Helper" = "Choose MCP Helper";
-"Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time." = "Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time.";
+"Choose MCP Helper" = "Choose Connection Helper";
+"Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time." = "Choose your AI app and save the setup script. Open that file in Terminal, then restart your AI app. You can return here from Settings.";
 "Configuration copied." = "Configuration copied.";
-"Connect LDA to your AI app" = "Connect LDA to your AI app";
 "Copy Configuration" = "Copy Configuration";
 "Do not attach originals, mapping files or passwords to the AI chat. Any workspace name you type into chat is visible to that AI service." = "Do not attach originals, mapping files or passwords to the AI chat. Any workspace name you type into chat is visible to that AI service.";
 "In an app that supports local STDIO MCP, add a server named lda. Use the command and environment below. Merge the lda entry into existing settings instead of replacing the whole file. Browser-only apps that require an HTTP address cannot use this local server directly." = "In an app that supports local STDIO MCP, add a server named lda. Use the command and environment below. Merge the lda entry into existing settings instead of replacing the whole file. Browser-only apps that require an HTTP address cannot use this local server directly.";
 "Keep LDA.app in its final location before setting up a connection." = "Keep LDA.app in its final location before setting up a connection.";
-"MCP Setup" = "MCP Setup";
-"MCP helper is ready" = "MCP helper is ready";
+"MCP Setup" = "AI assistants";
+"MCP helper is ready" = "Connection helper is ready";
 "Open the saved script in Terminal. It creates ~/.local/bin/lda and preserves any existing command." = "Open the saved script in Terminal. It creates ~/.local/bin/lda and preserves any existing command.";
 "Other AI app" = "Other AI app";
 "Requested workspace: %@" = "Requested workspace: %@";
 "Save CLI Setup Script" = "Save CLI Setup Script";
-"Save LDA Skill" = "Save LDA Skill";
+"Save LDA Skill" = "Save LDA Instructions";
 "Save Setup Script" = "Save Setup Script";
 "Save this file inside the lda skill folder for your AI app. Preserve any existing custom skill before replacing it." = "Save this file inside the lda skill folder for your AI app. Preserve any existing custom skill before replacing it.";
 "Set Up Later" = "Set Up Later";
@@ -1038,7 +1034,6 @@
 
 // Offline video tutorials
 "Watch the walkthroughs" = "Watch the walkthroughs";
-"Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline." = "Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline.";
 "Use the LDA app" = "Use the LDA app";
 "Use LDA in Codex" = "Use LDA in Codex";
 "Scan, review, export and restore." = "Scan, review, export and restore.";
@@ -1128,11 +1123,11 @@
 "Choose…" = "Choose…";
 "Document %lld of %lld: %@" = "Document %lld of %lld: %@";
 "Finished in an earlier run" = "Finished in an earlier run";
-"Keychain on this Mac" = "Keychain on this Mac";
-"Mapping keys" = "Mapping keys";
+"Keychain on this Mac" = "Use this Mac’s Keychain";
+"Mapping keys" = "Restore file protection";
 "No folder chosen" = "No folder chosen";
 "Not written: %@" = "Not written: %@";
-"One passphrase for every mapping" = "One passphrase for every mapping";
+"One passphrase for every mapping" = "Use one passphrase for all restore files";
 "Show in Finder" = "Show in Finder";
 "Start" = "Start";
 "Stopped before every document was processed." = "Stopped before every document was processed.";
@@ -1152,4 +1147,48 @@
 "Values the review PDF still shows: %lld. Share the redacted text, not the review PDF." = "Values the review PDF still shows: %lld. Share the redacted text, not the review PDF.";
 "Embedded images copied without scanning, such as signatures or stamps: %lld." = "Embedded images copied without scanning, such as signatures or stamps: %lld.";
 "Tracked changes: %lld. Accept them before redacting for an exact round trip." = "Tracked changes: %lld. Accept them before redacting for an exact round trip.";
-"Or anonymize every document in a folder at once, with no review step." = "Or anonymize every document in a folder at once, with no review step.";
+"Or anonymize every document in a folder at once, with no review step." = "Process a whole folder at once, without reviewing each document.";
+
+/* Start-page audit: accessible batch controls and validation. */
+"Choose source folder" = "Choose source folder";
+"Choose output folder" = "Choose output folder";
+"Choose an output folder different from the source folder." = "Choose an output folder different from the source folder.";
+"The passphrases do not match. Check them under More options." = "The passphrases do not match. Check them under More options.";
+
+"Everyday settings" = "Everyday settings";
+
+"Advanced tools" = "Advanced tools";
+
+"Pattern match" = "Pattern match";
+
+"Local detection" = "Local detection";
+
+"Added by you" = "Added by you";
+
+"More detection options" = "More detection options";
+
+"Built-in detection" = "Built-in detection";
+
+"Back" = "Back";
+"Privacy and clipboard details" = "Privacy and clipboard details";
+"Connect your AI workstation through MCP" = "Connect your AI workstation through MCP";
+"You can use LDA on its own: export a redacted copy, then upload it to the AI app you choose." = "You can use LDA on its own: export a redacted copy, then upload it to the AI app you choose.";
+"MCP lets your AI workstation ask LDA to prepare documents. You still choose the files on this Mac." = "MCP lets your AI workstation ask LDA to prepare documents. You still choose the files on this Mac.";
+"Set up a connection" = "Set up a connection";
+"You can do this later in Settings > AI Assistants. Choose Get Started to open LDA." = "You can do this later in Settings > AI assistants. Choose Get Started to open LDA.";
+"Open Setup Guide" = "Open Setup Guide";
+
+"Expanded" = "Expanded";
+
+"Collapsed" = "Collapsed";
+"Show password" = "Show password";
+"Hide password" = "Hide password";
+"Use a pattern" = "Use a pattern";
+"Match case" = "Match case";
+"Remove term" = "Remove term";
+"Loading export history" = "Loading export history";
+"Export reference" = "Export reference";
+"Add names, project labels, or phrases that LDA should always hide. Advanced matching is optional." = "Add names, project labels, or phrases that LDA should always hide. Advanced matching is optional.";
+"Protected values become readable stand-in names like Company A. Keep these names unchanged when editing or using AI so LDA can restore the originals." = "Protected values become readable stand-in names like Company A. Keep these names unchanged when editing or using AI so LDA can restore the originals.";
+"Protected values are partly hidden with asterisks, such as J*** or 212****1234. Some characters remain visible. If two values share one mask, LDA reports the conflict instead of guessing when restoring." = "Protected values are partly hidden with asterisks, such as J*** or 212****1234. Some characters remain visible. If two values share one mask, LDA reports the conflict instead of guessing when restoring.";
+"Saving profile…" = "Saving profile…";

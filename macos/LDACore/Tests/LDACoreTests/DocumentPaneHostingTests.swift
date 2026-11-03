@@ -65,6 +65,72 @@ final class DocumentPaneHostingTests: XCTestCase {
         return nil
     }
 
+    func testPopulatedReviewKeepsBothColumnsInsideTheWindowAfterResize() async throws {
+        let source = workDir.appendingPathComponent("Resize sample.txt")
+        let text = "张明 works at Example LLC. Email demo@example.test on 2026-11-03."
+        try text.write(to: source, atomically: true, encoding: .utf8)
+        let session = SessionModel(makeModel: { ReviewModel(modelPath: nil) },
+                                   clientStore: { try ClientMappingStore(rootDirectory: self.workDir.appendingPathComponent("clients")) })
+        await session.addDocuments([source])
+        let model = session.activeModel
+        let suiteName = TestNamespace.suiteName("ReviewResizeTests")
+        let preferences = UserDefaults(suiteName: suiteName)!
+        defer { preferences.removePersistentDomain(forName: suiteName) }
+        preferences.set(true, forKey: "com.haotianyi.LDA.hasCompletedFirstRun")
+        let importer = ModelImporter(catalog: ModelCatalog(tiers: []),
+                                     fileManager: ModelContainerStub(supportRoot: workDir))
+        let modes = AppModeStore()
+        let shell = RootShell(session: session, fillModel: FillModel(modelPath: nil), modeStore: modes,
+                              installer: ModelInstaller(), importer: importer)
+            .defaultAppStorage(preferences)
+            .environment(\.appLanguage, .simplifiedChinese)
+        let host = NSHostingView(rootView: GeometryReader { geometry in
+            shell.frame(width: geometry.size.width, height: geometry.size.height)
+        })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1307, height: 904),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        settle(host)
+        let ns = text as NSString
+        model.entities = [("张明", EntityType.person), ("Example LLC", .company),
+                          ("demo@example.test", .email), ("2026-11-03", .date)].map { value, type in
+            let range = ns.range(of: value)
+            return ReviewEntity(span: Span(start: range.location, end: NSMaxRange(range), type: type,
+                                           text: value, source: .manual, confidence: 1, priority: 30), accepted: true)
+        }
+        model.status = .ready
+        model.previewMode = .safePreview
+        for size in [NSSize(width: 2560, height: 1300), NSSize(width: 1307, height: 904), NSSize(width: 1100, height: 720)] {
+            window.setContentSize(size)
+            settle(host)
+            let split = try XCTUnwrap(Self.find(NSSplitView.self, in: host))
+            let bounds = split.convert(split.bounds, to: host)
+            XCTAssertGreaterThanOrEqual(bounds.minX, -1, "The sidebar must not slide beyond the window edge.")
+            XCTAssertLessThanOrEqual(bounds.maxX, size.width + 1, "Review content must not expand its native split view.")
+            let textView = try XCTUnwrap(Self.find(ProtectableTextView.self, in: host))
+            let scroll = try XCTUnwrap(textView.enclosingScrollView)
+            let scrollBounds = scroll.convert(scroll.bounds, to: host)
+            XCTAssertGreaterThanOrEqual(scrollBounds.minX, 0)
+            XCTAssertLessThanOrEqual(scrollBounds.maxX, size.width + 1)
+        }
+        func splitViews(in view: NSView) -> [NSSplitView] {
+            (view as? NSSplitView).map { [$0] } ?? []
+                + view.subviews.flatMap { splitViews(in: $0) }
+        }
+        XCTAssertEqual(splitViews(in: host).count, 1, "Only the active mode may attach a native split view.")
+        modes.activeMode = .deanonymize
+        settle(host)
+        XCTAssertEqual(splitViews(in: host).count, 0)
+        modes.activeMode = .anonymize
+        settle(host)
+        XCTAssertEqual(splitViews(in: host).count, 1)
+        XCTAssertEqual(model.entities.count, 4)
+        XCTAssertEqual(model.previewMode, .safePreview)
+        XCTAssertTrue(try XCTUnwrap(Self.find(ProtectableTextView.self, in: host)).string.contains("{PERSON_1}"))
+        window.contentView = nil
+    }
+
     func testHostedPaneRendersSelectableTextAndProtectsFromTheContextMenu() throws {
         let text = "甲方：张三。联系人 张三，邮箱 zhang.san@example.com。张三签署。"
         let model = ReviewModel(modelPath: nil)

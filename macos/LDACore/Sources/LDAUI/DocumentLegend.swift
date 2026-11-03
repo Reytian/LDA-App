@@ -218,12 +218,12 @@ struct DocumentLegend: View {
                     .frame(width: 8, height: 8)
                 if labeled {
                     L10n.text(EntityTypePresentation.key(for: item.type))
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.textPrimary)
                         .lineLimit(1)
                 }
                 Text(verbatim: String(item.valueCount))
-                    .font(.caption.monospacedDigit())
+                    .font(CounselTheme.Typography.metadata.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .padding(.horizontal, 6)
@@ -255,7 +255,7 @@ struct DocumentLegend: View {
             legendMenuItems(items)
         } label: {
             Text(verbatim: "+" + String(items.count))
-                .font(.caption.monospacedDigit())
+                .font(CounselTheme.Typography.metadata.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
         }
         .menuStyle(.borderlessButton)
@@ -273,7 +273,7 @@ struct DocumentLegend: View {
             } icon: {
                 Image(systemName: "circle.grid.2x2")
             }
-            .font(.caption)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(CounselTheme.textSecondary)
         }
         .menuStyle(.borderlessButton)

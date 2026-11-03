@@ -2,7 +2,7 @@
 //  DocumentPane.swift
 //  LDAUI
 //
-//  The paper-forward document pane: the serif reading surface where the
+//  The paper-forward document pane: the multilingual reading surface where the
 //  imported text is shown with review highlights, and a Safe Preview mode that
 //  renders the actual protected body text before the user exports it.
 //
@@ -154,89 +154,12 @@ public struct DocumentPane: View {
     /// Scrollable intake keeps the primary button reachable in short windows.
     /// The native button remains a separate keyboard and accessibility target.
     private var dropZone: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 24) {
-                    VStack(spacing: 8) {
-                        L10n.text("Anonymize Documents")
-                            .font(CounselTheme.Typography.pageTitle)
-                            .foregroundStyle(CounselTheme.textPrimary)
-                        L10n.text("Add your files, review sensitive details, then export a redacted copy.")
-                            .font(CounselTheme.Typography.readingBody)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                    }
-
-                    VStack(spacing: 18) {
-                        Image(systemName: "tray.and.arrow.down")
-                            .font(.system(size: 42, weight: .light))
-                            .foregroundStyle(CounselTheme.inkAccent)
-                            .accessibilityHidden(true)
-
-                        L10n.text("Drop documents to anonymize")
-                            .font(CounselTheme.Typography.sectionTitle)
-                            .foregroundStyle(CounselTheme.textPrimary)
-                        L10n.text("PDF, Word (.docx), plain text, PNG or JPEG images, and ZIP archives.")
-                            .font(.callout)
-                            .foregroundStyle(CounselTheme.textSecondary)
-
-                        Button(action: presentOpenPanel) {
-                            L10n.label("Choose Files", systemImage: "plus")
-                                .padding(.horizontal, 12)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .tint(CounselTheme.inkAccentFill)
-                        .accessibilityIdentifier("chooseDocuments")
-
-                        L10n.text("Add several files to review them together. You can add more later.")
-                            .font(CounselTheme.Typography.supporting)
-                            .foregroundStyle(CounselTheme.textSecondary)
-
-                        Button {
-                            openWindow(id: LDAWindowID.batch)
-                        } label: {
-                            L10n.label("Batch Anonymize…", systemImage: "square.stack.3d.down.right")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("batchAnonymize")
-
-                        L10n.text("Or anonymize every document in a folder at once, with no review step.")
-                            .font(CounselTheme.Typography.supporting)
-                            .foregroundStyle(CounselTheme.textSecondary)
-                    }
-                    .padding(32)
-                    .frame(maxWidth: .infinity)
-                    .background(CounselTheme.raised, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(
-                                isDropTargeted ? CounselTheme.inkAccent : CounselTheme.hairline,
-                                style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1.5, dash: [8, 6])
-                            )
-                    }
-
-                    L10n.label("Detection and redaction run on this Mac.", systemImage: "lock.shield")
-                        .font(CounselTheme.Typography.supporting)
-                        .foregroundStyle(CounselTheme.textSecondary)
-
-                    if case .failed(let detail) = model.status {
-                        Label {
-                            Text(verbatim: detail)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
-                        }
-                        .font(.callout)
-                        .foregroundStyle(CounselTheme.danger)
-                    }
-                }
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 560)
-                .padding(32)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: geometry.size.height)
-            }
-        }
+        DocumentIntakeView(
+            isDropTargeted: isDropTargeted,
+            errorMessage: { if case .failed(let detail) = model.status { return detail }; return nil }(),
+            onChooseFiles: presentOpenPanel,
+            onBatch: { openWindow(id: LDAWindowID.batch) }
+        )
         .dropDestination(for: URL.self) { urls, _ in
             guard !urls.isEmpty else { return false }
             openURLs(urls)
@@ -312,44 +235,23 @@ public struct DocumentPane: View {
     }
 
     private var previewHeader: some View {
-        HStack(spacing: HeaderLayout.spacing) {
-            L10n.picker("Document preview", selection: $model.previewMode) {
-                ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
-                    L10n.text(mode.rawValue).tag(mode)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: HeaderLayout.spacing) {
+                previewModePicker
+                previewStatus.fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 0)
+                headerLegend
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: HeaderLayout.pickerWidth)
-
-            if model.previewMode == .safePreview {
-                if model.visibleCount > 0 {
-                    L10n.label(
-                        "%lld kept visible",
-                        systemImage: "eye.trianglebadge.exclamationmark",
-                        model.visibleCount
-                    )
-                    .foregroundStyle(CounselTheme.danger)
-                    .l10nHelp("Items you rejected remain readable in this preview and in the saved document")
-                } else {
-                    L10n.label("Accepted findings replaced", systemImage: "checkmark.shield")
-                        .foregroundStyle(CounselTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: HeaderLayout.spacing) {
+                    previewModePicker
+                    Spacer(minLength: 0)
+                    headerLegend
                 }
-            } else if model.entities.isEmpty {
-                // The legend replaces this caption as soon as findings exist.
-                L10n.text("Original text with review highlights")
-                    .foregroundStyle(CounselTheme.textSecondary)
+                previewStatus.fixedSize(horizontal: false, vertical: true)
             }
-
-            Spacer(minLength: 0)
-
-            DocumentLegend(
-                model: model,
-                isNarrow: isWindowNarrow,
-                availableWidth: legendAvailableWidth
-            )
         }
-        .font(.callout)
+        .font(CounselTheme.Typography.supporting)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: HeaderWidthKey.self, value: proxy.size.width)
@@ -358,11 +260,46 @@ public struct DocumentPane: View {
         .onPreferenceChange(HeaderWidthKey.self) { headerWidth = $0 }
         .background(WindowNarrownessReader(isNarrow: $isWindowNarrow).frame(width: 0, height: 0))
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.vertical, 12)
         .background(CounselTheme.raised)
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
         }
+    }
+
+    private var previewModePicker: some View {
+        L10n.picker("Document preview", selection: $model.previewMode) {
+            ForEach(DocumentPreviewMode.allCases, id: \.self) { mode in
+                L10n.text(mode.rawValue)
+                    .font(CounselTheme.Typography.supporting)
+                    .tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+        .frame(width: HeaderLayout.pickerWidth)
+    }
+
+    @ViewBuilder
+    private var previewStatus: some View {
+        if model.previewMode == .safePreview {
+            if model.visibleCount > 0 {
+                L10n.label("%lld kept visible", systemImage: "eye.trianglebadge.exclamationmark", model.visibleCount)
+                    .foregroundStyle(CounselTheme.danger)
+                    .l10nHelp("Items you rejected remain readable in this preview and in the saved document")
+            } else {
+                L10n.label("Accepted findings replaced", systemImage: "checkmark.shield")
+                    .foregroundStyle(CounselTheme.textSecondary)
+            }
+        } else if model.entities.isEmpty {
+            L10n.text("Original text with review highlights")
+                .foregroundStyle(CounselTheme.textSecondary)
+        }
+    }
+
+    private var headerLegend: some View {
+        DocumentLegend(model: model, isNarrow: isWindowNarrow, availableWidth: legendAvailableWidth)
     }
 
     /// The room left for the legend after the picker and the status label.
@@ -412,7 +349,7 @@ public struct DocumentPane: View {
                 .accessibilityHidden(true)
 
             Text(verbatim: notice.message)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -465,13 +402,13 @@ public struct DocumentPane: View {
                 model.protectNotice = nil
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
             .l10nAccessibilityLabel("Dismiss")
         }
-        .font(.callout)
+        .font(CounselTheme.Typography.supporting)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(CounselTheme.raised)
@@ -525,7 +462,7 @@ public struct DocumentPane: View {
                 .tint(CounselTheme.inkAccent)
 
             L10n.text("Importing document")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -536,11 +473,11 @@ public struct DocumentPane: View {
 
     private enum HeaderLayout {
         /// The segmented Original / Safe Preview picker.
-        static let pickerWidth: CGFloat = 250
+        static let pickerWidth: CGFloat = 300
         /// Spacing between the header's elements.
         static let spacing: CGFloat = 14
         /// Room reserved for the Safe Preview status label beside the legend.
-        static let safePreviewLabelEstimate: CGFloat = 220
+        static let safePreviewLabelEstimate: CGFloat = 300
     }
 
     private enum NoticeTiming {

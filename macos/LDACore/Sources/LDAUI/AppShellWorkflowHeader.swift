@@ -19,6 +19,7 @@ import LDACore
 /// One row of workflow steps, with the current step emphasised.
 struct AppShellWorkflowHeader: View {
 
+    @Environment(\.appLanguage) private var language
     @ObservedObject var session: SessionModel
 
     /// Whether this document reached the Share step. Tracked by the shell
@@ -51,8 +52,8 @@ struct AppShellWorkflowHeader: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 9)
+        .padding(.horizontal, CounselTheme.Space.xl)
+        .padding(.vertical, CounselTheme.Space.lg)
         .background(CounselTheme.appSurface)
         .overlay(alignment: .bottom) {
             Rectangle().fill(CounselTheme.hairline).frame(height: 1)
@@ -60,7 +61,7 @@ struct AppShellWorkflowHeader: View {
         .accessibilityElement(children: .ignore)
         .l10nAccessibilityLabel(
             "Anonymize workflow, current step %@",
-            L10n.string(current.title)
+            L10n.string(current.title, language: language)
         )
     }
 
@@ -73,12 +74,12 @@ struct AppShellWorkflowHeader: View {
 
         return HStack(spacing: 6) {
             Image(systemName: completed ? "checkmark.circle.fill" : step.systemImage)
-                .font(.system(size: 13, weight: active ? .semibold : .regular))
+                .font(.system(size: 15, weight: active ? .semibold : .regular))
                 .foregroundStyle(active || completed
                     ? CounselTheme.inkAccent
                     : CounselTheme.textSecondary)
             L10n.text(step.title)
-                .font(.caption.weight(active ? .semibold : .regular))
+                .font(CounselTheme.Typography.supporting.weight(active ? .semibold : .regular))
                 .foregroundStyle(active
                     ? CounselTheme.textPrimary
                     : CounselTheme.textSecondary)

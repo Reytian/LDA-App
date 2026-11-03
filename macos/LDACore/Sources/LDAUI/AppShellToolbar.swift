@@ -57,6 +57,9 @@ struct AppShellToolbar: ToolbarContent {
     @ToolbarContentBuilder
     var body: some ToolbarContent {
         if isActive {
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .navigation)
+            }
             ToolbarItemGroup(placement: .navigation) {
                 if !session.entries.isEmpty {
                     Button(action: onToggleFindings) {

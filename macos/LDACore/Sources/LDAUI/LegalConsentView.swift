@@ -8,6 +8,8 @@ public struct LegalConsentView: View {
     @State private var acceptsTerms = false
     @State private var acceptsPrivacy = false
     @State private var saveFailed = false
+    @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
+    @Environment(\.appLanguage) private var language
 
     public init(acceptance: LegalAcceptanceStore) {
         self.acceptance = acceptance
@@ -17,15 +19,23 @@ public struct LegalConsentView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .font(.largeTitle)
+                    .font(CounselTheme.Typography.pageTitle)
                     .foregroundStyle(CounselTheme.textSecondary)
                 VStack(alignment: .leading, spacing: 4) {
                     L10n.text("Before you begin")
-                        .font(.system(.title, design: .serif).weight(.semibold))
+                        .font(CounselTheme.Typography.pageTitle.weight(.semibold))
                     L10n.text("Please review and accept both documents to continue using LDA.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                 }
             }
+
+            L10n.picker("Language", selection: $languageRaw) {
+                ForEach(AppLanguage.allCases) { option in
+                    Text(verbatim: option.nativeName(language: language)).tag(option.rawValue)
+                }
+            }
+            .frame(maxWidth: 360, alignment: .leading)
+            .accessibilityIdentifier("legal.language")
 
             LegalDocumentsView(documents: acceptance.documents)
 
@@ -41,14 +51,14 @@ public struct LegalConsentView: View {
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("legal.acceptPrivacy")
                 L10n.text("Acceptance is saved only on this Mac. It does not authorize optional sharing or future data uses.")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if saveFailed {
                 L10n.text("Acceptance could not be saved. Please try again.")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CounselTheme.danger)
             }
 
             HStack {
@@ -92,7 +102,7 @@ struct LegalDocumentsView: View {
 
             if let documents {
                 L10n.text("These documents are in English. You can save a copy for your records.")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
 
                 ScrollView {
@@ -101,15 +111,15 @@ struct LegalDocumentsView: View {
                             .components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, paragraph in
                             if paragraph.hasPrefix("# ") {
                                 Text(verbatim: String(paragraph.dropFirst(2)))
-                                    .font(.title2.weight(.semibold))
+                                    .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                                     .accessibilityAddTraits(.isHeader)
                             } else if paragraph.hasPrefix("## ") {
                                 Text(verbatim: String(paragraph.dropFirst(3)))
-                                    .font(.headline)
+                                    .font(CounselTheme.Typography.heading)
                                     .accessibilityAddTraits(.isHeader)
                             } else {
                                 Text(verbatim: paragraph)
-                                    .font(.body)
+                                    .font(CounselTheme.Typography.readingBody)
                                     .lineSpacing(3)
                             }
                         }
@@ -133,8 +143,8 @@ struct LegalDocumentsView: View {
                 }
                 if exportFailed {
                     L10n.text("The document could not be saved. Choose another location and try again.")
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(CounselTheme.Typography.metadata)
+                        .foregroundStyle(CounselTheme.danger)
                 }
             } else {
                 L10n.text("The legal documents could not be loaded. Please reinstall LDA from its official distribution.")
@@ -168,7 +178,7 @@ struct LegalSettingsView: View {
                     L10n.text("Accepted on this Mac:")
                     Text(receipt.acceptedAt, style: .date)
                 }
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
             }
         }

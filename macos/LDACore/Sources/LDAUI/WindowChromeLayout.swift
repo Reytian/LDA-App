@@ -14,8 +14,8 @@ import AppKit
 import SwiftUI
 
 enum WindowChromeLayoutPolicy {
-    static func topInset(windowFrameHeight: CGFloat, contentLayoutHeight: CGFloat) -> CGFloat {
-        max(0, windowFrameHeight - contentLayoutHeight)
+    static func topInset(viewTop: CGFloat, contentLayoutTop: CGFloat) -> CGFloat {
+        max(0, viewTop - contentLayoutTop)
     }
 }
 
@@ -107,9 +107,11 @@ final class WindowContentInsetView: NSView {
 
     func reportCurrentInset() {
         guard let window else { return }
+        // Reserve only the overlap of this view with the native chrome. A
+        // SwiftUI safe area may already place the view below the toolbar.
         let topInset = WindowChromeLayoutPolicy.topInset(
-            windowFrameHeight: window.frame.height,
-            contentLayoutHeight: window.contentLayoutRect.height
+            viewTop: convert(bounds, to: nil).maxY,
+            contentLayoutTop: window.contentLayoutRect.maxY
         )
         onInsetChange?(topInset)
     }

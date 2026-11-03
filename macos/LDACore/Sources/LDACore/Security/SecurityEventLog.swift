@@ -152,11 +152,19 @@ public final class SecurityEventLog {
     public static let flushThreshold = 16
 
     /// File name of the encrypted log inside the log directory.
-    public static let fileName = "security-events.ldaaudit"
+    public static let fileName = "security-events" + installationSuffix + ".ldaaudit"
+
+    /// A separately installed test app must not request the production app's audit keys.
+    /// Keep the production identity and existing log untouched, including older test logs.
+    private static let installationSuffix = storageSuffix(bundleIdentifier: Bundle.main.bundleIdentifier)
+
+    static func storageSuffix(bundleIdentifier: String?) -> String {
+        bundleIdentifier == "com.haotianyi.LDA.test" ? ".test" : ""
+    }
 
     /// The Keychain service every audit key lives under: the log's own
     /// encryption key and the subject digest key.
-    static let keychainService = "ai.openclaw.lda.audit"
+    static let keychainService = "ai.openclaw.lda.audit" + installationSuffix
 
     /// The Keychain account holding the log's own encryption key.
     static let keychainAccount = "security-event-log"

@@ -61,14 +61,14 @@ struct HandoffCompletionCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
+                .font(CounselTheme.Typography.sectionTitle)
                 .foregroundStyle(CounselTheme.inkAccent)
 
             switch completion {
             case .exportedForAI(let result):
                 VStack(alignment: .leading, spacing: 3) {
                     L10n.text("App export saved · %@ · Redacted", "Markdown" as NSString)
-                        .font(.callout.weight(.semibold))
+                        .font(CounselTheme.Typography.supporting.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text(verbatim: AnonymizeWorkflowPresentation.exportCompletionDetail(
                         documentCount: result.documentCount,
@@ -162,7 +162,7 @@ struct HandoffCompletionCard: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             L10n.text("App export saved · %@ · Redacted", result.redactedURL.pathExtension.uppercased() as NSString)
-                .font(.callout.weight(.semibold))
+                .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             completionFileLine(
                 String(
@@ -226,7 +226,7 @@ struct HandoffCompletionCard: View {
     /// One written-file line: single line, middle-truncated, full name on hover.
     private func completionFileLine(_ text: String, help: String) -> some View {
         Text(verbatim: text)
-            .font(.caption)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(CounselTheme.textSecondary)
             .lineLimit(1)
             .truncationMode(.middle)

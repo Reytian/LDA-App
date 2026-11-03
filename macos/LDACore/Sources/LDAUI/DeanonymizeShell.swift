@@ -119,6 +119,7 @@ public struct DeanonymizeShell: View {
                 }
             }
         }
+        .modifier(ActiveModeNavigationTitle(title: "Restore", isActive: isActive, localized: true))
         .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
         .onChange(of: model.restoreRequestToken) { _, _ in
             presentRestore()
@@ -164,7 +165,7 @@ public struct DeanonymizeShell: View {
             action: presentRestore
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(isDropTargeted ? CounselTheme.inkAccent : .clear, lineWidth: 2)
         )
         // Dropping a file starts the same flow as the button.
@@ -191,20 +192,24 @@ public struct DeanonymizeShell: View {
             L10n.text(body)
                 .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textSecondary)
-                .lineSpacing(2)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             Group {
                 if isProminent {
                     Button(action: action) {
-                        L10n.text(buttonTitle).frame(maxWidth: .infinity)
+                        L10n.text(buttonTitle)
+                            .font(CounselTheme.Typography.readingBody.weight(.medium))
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
                 } else {
                     Button(action: action) {
-                        L10n.text(buttonTitle).frame(maxWidth: .infinity)
+                        L10n.text(buttonTitle)
+                            .font(CounselTheme.Typography.readingBody.weight(.medium))
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -212,7 +217,7 @@ public struct DeanonymizeShell: View {
             .controlSize(.large)
             .help(L10n.string(buttonHelp))
 
-            DisclosureGroup {
+            FullRowDisclosure {
                 L10n.text("LDA looks for the mapping in this session, the document workspace, or a .ldamap beside the file. If needed, you can choose a mapping file. Word documents keep their formatting.")
                     .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
@@ -226,9 +231,9 @@ public struct DeanonymizeShell: View {
         }
         .padding(24)
         .frame(minHeight: 240)
-        .background(CounselTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+        .background(CounselTheme.raised, in: RoundedRectangle(cornerRadius: 14))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(CounselTheme.hairline, lineWidth: 1)
         )
     }

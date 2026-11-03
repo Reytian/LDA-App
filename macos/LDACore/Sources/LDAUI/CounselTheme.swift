@@ -45,7 +45,7 @@ public enum CounselTheme {
     static let textPrimaryHex = HexPair(light: 0x2B2E33, dark: 0xE9EAED)
     static let textSecondaryHex = HexPair(light: 0x5F636B, dark: 0x9CA1A9)
     static let hairlineHex = HexPair(light: 0xE2E4E8, dark: 0x3A3C41)
-    static let dangerHex = HexPair(light: 0xB05F5C, dark: 0xD98B88)
+    static let dangerHex = HexPair(light: 0xA45451, dark: 0xD98B88)
 
     /// The single ink-blue accent for focus, selection, dots, and small marks.
     public static let inkAccent = dynamic(inkAccentHex)
@@ -139,14 +139,19 @@ public enum CounselTheme {
         public static let xl: CGFloat = 24
     }
 
-    /// Scalable semantic roles for readable copy. Metadata stays compact while
-    /// instructions and explanatory prose use the system reading size.
+    /// Stable reading sizes, independent of window width. The system family
+    /// supplies native CJK glyphs instead of mixing serif and sans fallbacks.
     public enum Typography {
-        public static let pageTitle = Font.system(.title, design: .serif).weight(.semibold)
-        public static let sectionTitle = Font.title3.weight(.semibold)
-        public static let readingBody = Font.body
-        public static let supporting = Font.callout
-        public static let metadata = Font.caption
+        public static let bodySize: CGFloat = 16
+        public static let supportingSize: CGFloat = 15
+        public static let metadataSize: CGFloat = 14
+        public static let documentSize: CGFloat = 17
+        public static let pageTitle = Font.system(size: 28, weight: .semibold)
+        public static let sectionTitle = Font.system(size: 20, weight: .semibold)
+        public static let heading = Font.system(size: 16, weight: .semibold)
+        public static let readingBody = Font.system(size: bodySize)
+        public static let supporting = Font.system(size: supportingSize)
+        public static let metadata = Font.system(size: metadataSize)
     }
 
     /// Corner radii.

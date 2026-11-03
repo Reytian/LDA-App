@@ -277,7 +277,7 @@ public struct ModelManagementView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 L10n.text("Models")
-                    .font(.system(.title2, design: .serif))
+                    .font(CounselTheme.Typography.sectionTitle)
                     .foregroundStyle(CounselTheme.textPrimary)
                 Spacer()
                 L10n.button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -293,7 +293,7 @@ public struct ModelManagementView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     L10n.text("Offline mode")
-                        .font(.callout.weight(.semibold))
+                        .font(CounselTheme.Typography.supporting.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     L10n.text("Refuse all network requests, including model downloads. This is a setting inside LDA, not a firewall.")
                         .font(CounselTheme.Typography.supporting)
@@ -307,7 +307,7 @@ public struct ModelManagementView: View {
                   : "Stop LDA making any network request")
 
             L10n.text("Which should I choose?")
-                .font(.callout.weight(.semibold))
+                .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             if let recommended = OnboardingPresentation.recommendedLevel(
                 catalog: catalog, installedGB: installedGB
@@ -331,7 +331,7 @@ public struct ModelManagementView: View {
     private var footer: some View {
         HStack {
             Text(footerText)
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
             Spacer()
         }
@@ -373,7 +373,7 @@ public struct ModelManagementView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Text(verbatim: LDAV4Extractor.displayName)
-                    .font(.body.weight(.semibold))
+                    .font(CounselTheme.Typography.readingBody.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Spacer()
                 tag("Included")
@@ -404,11 +404,11 @@ public struct ModelManagementView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 L10n.text(lvl.displayName)
-                    .font(.body.weight(.semibold))
+                    .font(CounselTheme.Typography.readingBody.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text(tier.fileName.replacingOccurrences(of: "-Q4_K_M.gguf", with: "")
                         .replacingOccurrences(of: "-UD-Q3_K_XL.gguf", with: ""))
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer()
                 if bundled { tag("Built in") }
@@ -442,7 +442,7 @@ public struct ModelManagementView: View {
                                  ? CounselTheme.textSecondary : CounselTheme.danger)
             }
 
-            DisclosureGroup {
+            FullRowDisclosure {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(verbatim: ModelAnnotation.localizedBody(for: lvl))
                         .font(CounselTheme.Typography.supporting)
@@ -517,7 +517,7 @@ public struct ModelManagementView: View {
                             countStyle: .file
                         ) as NSString
                     ))
-                        .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                        .font(CounselTheme.Typography.metadata).foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
                     L10n.button("Cancel") { installer.cancel(tier) }
                 }
@@ -581,7 +581,7 @@ public struct ModelManagementView: View {
     private var verifiedImportSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             L10n.text("Already have the model file?")
-                .font(.body.weight(.semibold))
+                .font(CounselTheme.Typography.readingBody.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
                 L10n.text("If you downloaded the model on another Mac, add the file here. LDA checks it against the checksum published with this version and copies it into its own folder, so it works exactly like a download.")
@@ -631,7 +631,7 @@ public struct ModelManagementView: View {
                             fromByteCount: expected, countStyle: .file
                         ) as NSString
                     ))
-                        .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                        .font(CounselTheme.Typography.metadata).foregroundStyle(CounselTheme.textSecondary)
                     Spacer()
                     L10n.button("Cancel") { importer.cancel() }
                 }
@@ -670,7 +670,7 @@ public struct ModelManagementView: View {
                 .foregroundStyle(CounselTheme.textSecondary)
             HStack(spacing: 8) {
                 Text(verbatim: page)
-                    .font(.caption2)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -730,7 +730,7 @@ public struct ModelManagementView: View {
     private var customModelSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             L10n.text("Use your own model, unchecked")
-                .font(.body.weight(.semibold))
+                .font(CounselTheme.Typography.readingBody.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             HStack(alignment: .top) {
                 L10n.text("Any local GGUF file. LDA does not check this file and does not copy it: it stays where it is and is used as it is. LDA cannot tell you how well it will work, how long it will take, or how much memory it needs.")
@@ -743,7 +743,7 @@ public struct ModelManagementView: View {
             if !customModelPath.isEmpty {
                 HStack(spacing: 10) {
                     Text(verbatim: (customModelPath as NSString).lastPathComponent)
-                        .font(.caption2).foregroundStyle(CounselTheme.textSecondary)
+                        .font(CounselTheme.Typography.metadata).foregroundStyle(CounselTheme.textSecondary)
                     L10n.button("Stop Using It") {
                         AISettings.setCustomModel(url: nil)
                         customModelPath = ""
@@ -756,7 +756,7 @@ public struct ModelManagementView: View {
 
     private func tag(_ text: String, tone: Color = CounselTheme.textSecondary) -> some View {
         L10n.text(text)
-            .font(.caption2).foregroundStyle(tone)
+            .font(CounselTheme.Typography.metadata).foregroundStyle(tone)
             .padding(.horizontal, 6).padding(.vertical, 1)
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(tone.opacity(0.4), lineWidth: 1))
     }

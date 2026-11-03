@@ -15,7 +15,7 @@
 //    hairline cannot show hue; a 0.10 to 0.20 fill cannot tell 16 hues apart.
 //  - The fill carries state only: the hue at 0.18 behind text that will be
 //    redacted, nothing behind text kept visible.
-//  - Original mode keeps the body serif face. Safe Preview tokens take the
+//  - Original mode keeps the system reading face. Safe Preview tokens take the
 //    parsed type hue at 0.24 in the monospaced chip face.
 //  - Every highlighted range carries a tooltip naming the type, the detection
 //    source, and how often the value occurs in this document: the discoverable,
@@ -49,12 +49,11 @@ enum DocumentTextStyler {
 
     // MARK: - Reading typography
 
-    /// Extra leading between wrapped lines of serif body text.
+    /// Extra leading keeps Chinese and mixed-script documents comfortable to read.
     static let lineSpacing: CGFloat = 6
 
-    /// The serif reading face at the system body size (matches the SwiftUI
-    /// `.system(.body, design: .serif)` the pane used before).
-    static let bodyFont: NSFont = font(design: .serif)
+    /// System glyph fallback and a stable size for multilingual document review.
+    static let bodyFont = NSFont.systemFont(ofSize: CounselTheme.Typography.documentSize)
 
     /// The monospaced chip face for Safe Preview tokens, at the body size.
     /// The dedicated constructor is used because the design-derived SF Mono
@@ -214,14 +213,4 @@ enum DocumentTextStyler {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    /// The body-size font in a system design, falling back to the plain
-    /// system font if the design is unavailable.
-    private static func font(design: NSFontDescriptor.SystemDesign) -> NSFont {
-        let descriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
-        guard let designed = descriptor.withDesign(design),
-              let font = NSFont(descriptor: designed, size: 0) else {
-            return NSFont.preferredFont(forTextStyle: .body)
-        }
-        return font
-    }
 }

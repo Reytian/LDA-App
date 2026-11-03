@@ -284,6 +284,12 @@ final class SecurityEventLogTests: XCTestCase {
         XCTAssertEqual(digest, expected, "the digest must be exactly the truncated HMAC")
     }
 
+    func testTestInstallationUsesSeparateAuditStorageWithoutChangingProduction() {
+        XCTAssertEqual(SecurityEventLog.storageSuffix(bundleIdentifier: "com.haotianyi.LDA"), "")
+        XCTAssertEqual(SecurityEventLog.storageSuffix(bundleIdentifier: nil), "")
+        XCTAssertEqual(SecurityEventLog.storageSuffix(bundleIdentifier: "com.haotianyi.LDA.test"), ".test")
+    }
+
     func testThePersistentDigestKeyRoundTripsThroughTheKeychain() throws {
         // The one test of the real Keychain path, run under a process-unique
         // account rather than the install-wide one. Two concurrent runs of this

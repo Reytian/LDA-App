@@ -213,7 +213,7 @@ struct RestorePreviewSheet: View {
     private var restoredTextPane: some View {
         ScrollView {
             Text(verbatim: livePreview.restoredText)
-                .font(.system(.body, design: .monospaced))
+                .font(CounselTheme.Typography.readingBody.monospaced())
                 .foregroundStyle(CounselTheme.textPrimary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -253,7 +253,7 @@ struct RestorePreviewSheet: View {
         HStack(alignment: .firstTextBaseline, spacing: CounselTheme.Space.md) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(verbatim: entry.replacement)
-                    .font(.system(.callout, design: .monospaced))
+                    .font(CounselTheme.Typography.supporting.monospaced())
                     .foregroundStyle(CounselTheme.textPrimary)
                 Text(verbatim: EntityTypePresentation.localizedName(
                     for: entry.type,

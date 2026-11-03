@@ -463,6 +463,7 @@ enum AnonymizeWorkflowPresentation {
 }
 
 enum FillProfilePrimaryAction: Equatable {
+    case addField
     case addSources
     case extract
     case saveAndChooseTarget
@@ -471,11 +472,13 @@ enum FillProfilePrimaryAction: Equatable {
     static func resolve(
         hasProfile: Bool,
         hasSources: Bool,
-        needsSave: Bool
+        needsSave: Bool,
+        hasFields: Bool = true
     ) -> FillProfilePrimaryAction {
         guard hasProfile else {
             return hasSources ? .extract : .addSources
         }
+        guard hasFields else { return hasSources ? .extract : .addField }
         return needsSave ? .saveAndChooseTarget : .chooseTarget
     }
 

@@ -182,7 +182,9 @@ extension FillModel {
     ///
     /// modifiedAtISO8601 is supplied by the caller per the purity rule.
     public func saveToLibrary(modifiedAtISO8601: String) async {
-        guard var p = profile else { return }
+        guard !isSavingProfile, var p = profile else { return }
+        isSavingProfile = true
+        defer { isSavingProfile = false }
         p.modifiedAtISO8601 = modifiedAtISO8601
         profile = p
         let generation = editorGeneration
@@ -199,7 +201,8 @@ extension FillModel {
             }.value
             guard generation == editorGeneration else { return }
             currentPortfolioID = savedID
-            profileDirty = false
+            // A value typed while the write was in flight still needs saving.
+            profileDirty = profile != p
 
             // Refresh summaries so the shell's list stays current.
             let refreshed = try await Task.detached(priority: .userInitiated) {

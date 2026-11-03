@@ -111,6 +111,7 @@ struct PortalLibraryBody: View {
                 isShowingNewPortfolio = true
             } label: {
                 L10n.label("New Portfolio", systemImage: "plus.circle")
+                    .font(CounselTheme.Typography.supporting.weight(.medium))
             }
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
@@ -120,6 +121,7 @@ struct PortalLibraryBody: View {
                 onImport()
             } label: {
                 L10n.label("Import", systemImage: "tray.and.arrow.down")
+                    .font(CounselTheme.Typography.supporting)
             }
             .l10nHelp("Import a portfolio from an .ldaprofile file")
 
@@ -173,7 +175,7 @@ struct PortalLibraryBody: View {
 
             VStack(spacing: 6) {
                 L10n.text("No portfolios yet")
-                    .font(.system(.title3, design: .serif))
+                    .font(CounselTheme.Typography.sectionTitle)
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Create a new portfolio or import an existing .ldaprofile file.")
                     .font(CounselTheme.Typography.readingBody)
@@ -185,6 +187,7 @@ struct PortalLibraryBody: View {
                 isShowingNewPortfolio = true
             } label: {
                 L10n.label("New Portfolio", systemImage: "plus.circle")
+                    .font(CounselTheme.Typography.supporting.weight(.medium))
             }
             .buttonStyle(.borderedProminent)
             .tint(CounselTheme.inkAccentFill)
@@ -201,7 +204,7 @@ struct PortalLibraryBody: View {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(CounselTheme.danger)
             Text(detail)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -224,7 +227,7 @@ struct PortalLibraryBody: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(CounselTheme.danger)
             Text(notice)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(3)
             Spacer(minLength: 0)
@@ -232,7 +235,7 @@ struct PortalLibraryBody: View {
                 libraryNoticeDismissed = true
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
@@ -251,7 +254,7 @@ struct PortalLibraryBody: View {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(CounselTheme.danger)
             L10n.text("Export failed: %@", error)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -300,7 +303,7 @@ struct PortfolioRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(summary.label)
-                        .font(.system(.body, design: .serif))
+                        .font(CounselTheme.Typography.readingBody)
                         .foregroundStyle(CounselTheme.textPrimary)
                         .lineLimit(1)
 
@@ -312,7 +315,7 @@ struct PortfolioRow: View {
                 }
 
                 Text(modifiedDateLabel)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
@@ -359,7 +362,7 @@ struct PortfolioRow: View {
 
     private var kindBadge: some View {
         L10n.text(kindLabel)
-            .font(.caption2.weight(.medium))
+            .font(CounselTheme.Typography.metadata.weight(.medium))
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -369,7 +372,7 @@ struct PortfolioRow: View {
 
     private var conflictBadge: some View {
         L10n.label("Conflict", systemImage: "exclamationmark.triangle.fill")
-            .font(.caption2.weight(.medium))
+            .font(CounselTheme.Typography.metadata.weight(.medium))
             .foregroundStyle(CounselTheme.danger)
             .labelStyle(.iconOnly)
             .l10nHelp("This portfolio has unresolved field conflicts")
@@ -524,7 +527,6 @@ struct NewPortfolioSheet: View {
             L10n.label("From Documents", systemImage: "doc.badge.plus")
         }
         .l10nHelp("Create this portfolio then add source documents to extract fields")
-        .keyboardShortcut(.return, modifiers: [])
     }
 
     private var fromScratchButton: some View {
@@ -536,6 +538,7 @@ struct NewPortfolioSheet: View {
         .buttonStyle(.borderedProminent)
         .tint(CounselTheme.inkAccentFill)
         .l10nHelp("Create an empty portfolio and add fields manually")
+        .keyboardShortcut(.defaultAction)
     }
 
     private func createPortfolio(fromScratch: Bool) {
@@ -629,13 +632,13 @@ struct AddFieldSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Add Field")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             // Canonical key list.
             VStack(alignment: .leading, spacing: 6) {
                 L10n.text("Canonical field")
-                    .font(.callout.weight(.medium))
+                    .font(CounselTheme.Typography.supporting.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
                 ScrollView(.vertical) {
@@ -645,12 +648,12 @@ struct AddFieldSheet: View {
                         } label: {
                             HStack {
                                 L10n.text("Custom (enter name below)")
-                                    .font(.callout)
+                                    .font(CounselTheme.Typography.supporting)
                                     .foregroundStyle(CounselTheme.textPrimary)
                                 Spacer()
                                 if selectedCanonical == nil {
                                     Image(systemName: "checkmark")
-                                        .font(.caption)
+                                        .font(CounselTheme.Typography.metadata)
                                         .foregroundStyle(CounselTheme.inkAccent)
                                 }
                             }
@@ -667,12 +670,12 @@ struct AddFieldSheet: View {
                             } label: {
                                 HStack {
                                     Text(verbatim: ProfileFieldPresentation.localizedName(for: key))
-                                        .font(.callout)
+                                        .font(CounselTheme.Typography.supporting)
                                         .foregroundStyle(CounselTheme.textPrimary)
                                     Spacer()
                                     if selectedCanonical == key {
                                         Image(systemName: "checkmark")
-                                            .font(.caption)
+                                            .font(CounselTheme.Typography.metadata)
                                             .foregroundStyle(CounselTheme.inkAccent)
                                     }
                                 }
@@ -698,7 +701,7 @@ struct AddFieldSheet: View {
             if selectedCanonical == nil {
                 VStack(alignment: .leading, spacing: 6) {
                     L10n.text("Field name")
-                        .font(.callout.weight(.medium))
+                        .font(CounselTheme.Typography.supporting.weight(.medium))
                         .foregroundStyle(CounselTheme.textPrimary)
 
                     L10n.textField("e.g. Trustee name", text: $customName)
@@ -709,20 +712,21 @@ struct AddFieldSheet: View {
             // Value field.
             VStack(alignment: .leading, spacing: 6) {
                 L10n.text("Value")
-                    .font(.callout.weight(.medium))
+                    .font(CounselTheme.Typography.supporting.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
 
-                TextField(text: $value) { EmptyView() }
+                L10n.textField("Value", text: $value)
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
             }
 
             // Live key preview.
             HStack(spacing: 6) {
                 L10n.text("Will save as:")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Text(resolvedKeyPreview)
-                    .font(.caption.monospaced())
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.inkAccent)
             }
 

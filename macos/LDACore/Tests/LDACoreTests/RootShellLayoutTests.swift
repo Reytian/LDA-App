@@ -10,16 +10,16 @@ import XCTest
 // the bare SwiftUI form would now be pinning a site that renders in the
 // system language instead of the picked one. See LocalizationRoutingTests.
 final class RootShellLayoutTests: XCTestCase {
-    func testModePickerUsesCompactControlSize() throws {
+    func testModePickerUsesReadableNativeControlSize() throws {
         let source = try String(contentsOf: Self.sourceURL, encoding: .utf8)
-        let modePickerStart = try XCTUnwrap(source.range(of: #"L10n.picker("Mode""#))
+        let modePickerStart = try XCTUnwrap(source.range(of: "struct AppModePicker: View"))
         let modePickerEnd = try XCTUnwrap(
             source.range(of: ".l10nHelp(", range: modePickerStart.lowerBound..<source.endIndex)
         )
         let modePicker = source[modePickerStart.lowerBound..<modePickerEnd.lowerBound]
 
         XCTAssertTrue(
-            modePicker.contains(".controlSize(.small)"),
+            modePicker.contains(".controlSize(.regular)"),
             "The principal mode picker must stay compact so it does not overlap "
                 + "window content when macOS collapses the toolbar height."
         )
@@ -85,19 +85,9 @@ final class RootShellLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testCompactModePickerFitsNativeTwentyPointToolbarBudget() {
-        let picker = Picker("Mode", selection: .constant("Anonymize")) {
-            Text("Matters").tag("Matters")
-            Text("Anonymize").tag("Anonymize")
-            Text("Restore").tag("Restore")
-            Text("Fill").tag("Fill")
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
-        .frame(width: 430)
-
-        let hostingView = NSHostingView(rootView: picker)
-        XCTAssertLessThanOrEqual(hostingView.fittingSize.height, 20)
+    func testModePickerFitsNativeToolbarBudget() {
+        let hostingView = NSHostingView(rootView: AppModePicker(selection: .constant(.anonymize), compact: false))
+        XCTAssertLessThanOrEqual(hostingView.fittingSize.height, 28)
     }
 
     func testWorkflowHeaderFitsMinimumWindowWithWidestSidebar() throws {
@@ -105,7 +95,11 @@ final class RootShellLayoutTests: XCTestCase {
         let shellSource = try String(contentsOf: Self.appShellSourceURL, encoding: .utf8)
         let headerSource = try String(contentsOf: Self.workflowHeaderSourceURL, encoding: .utf8)
 
-        XCTAssertTrue(appSource.contains(".frame(minWidth: 1100, minHeight: 720)"))
+        XCTAssertTrue(appSource.contains(".frame(minWidth: minimumWindowSize.width, minHeight: minimumWindowSize.height)"))
+        XCTAssertEqual(
+            MainWindowLayout.minimumSize(mode: .anonymize, hasDocuments: true, needsLegalConsent: false),
+            CGSize(width: 1100, height: 720)
+        )
         XCTAssertTrue(shellSource.contains("min: 260, ideal: 320, max: 420"))
         XCTAssertTrue(headerSource.contains(".frame(maxWidth: 72)"))
 
@@ -115,7 +109,7 @@ final class RootShellLayoutTests: XCTestCase {
         }
         let stepIconsAndSpacing: CGFloat = 4 * (13 + 6)
         let connectors: CGFloat = 3 * (72 + 16)
-        let outerPadding: CGFloat = 40
+        let outerPadding: CGFloat = 2 * CounselTheme.Space.xl
         let conservativeHeaderWidth = textWidth + stepIconsAndSpacing + connectors + outerPadding
         let minimumDetailWidth: CGFloat = 1100 - 420
 
@@ -159,13 +153,13 @@ final class RootShellLayoutTests: XCTestCase {
             #"columnHeader("Field", width: 180)"#,
             #"columnHeader("Value", minWidth: 200)"#,
             #"columnHeader("Source", width: 160)"#,
-            #"columnHeader("Confidence", width: 100)"#,
+            #"columnHeader("Confidence", width: 128)"#,
             #"columnHeader("", width: 24)"#
         ] {
             XCTAssertTrue(fillSource.contains(marker), "Missing Fill layout marker: \(marker)")
         }
         let fillSidebarWidth: CGFloat = 220
-        let fillTableWidth: CGFloat = 180 + 200 + 160 + 100 + 24
+        let fillTableWidth: CGFloat = 180 + 200 + 160 + 128 + 24
         XCTAssertLessThan(fillSidebarWidth + fillTableWidth, 1100)
     }
 
@@ -296,15 +290,15 @@ final class RootShellLayoutTests: XCTestCase {
 
     func testWindowChromeInsetPolicyUsesTheNativeContentLayoutDifference() {
         XCTAssertEqual(
-            WindowChromeLayoutPolicy.topInset(windowFrameHeight: 772, contentLayoutHeight: 720),
+            WindowChromeLayoutPolicy.topInset(viewTop: 772, contentLayoutTop: 720),
             52
         )
         XCTAssertEqual(
-            WindowChromeLayoutPolicy.topInset(windowFrameHeight: 772, contentLayoutHeight: 772),
+            WindowChromeLayoutPolicy.topInset(viewTop: 772, contentLayoutTop: 772),
             0
         )
         XCTAssertEqual(
-            WindowChromeLayoutPolicy.topInset(windowFrameHeight: 720, contentLayoutHeight: 772),
+            WindowChromeLayoutPolicy.topInset(viewTop: 720, contentLayoutTop: 772),
             0
         )
     }
@@ -347,7 +341,7 @@ final class RootShellLayoutTests: XCTestCase {
             defer: false
         )
         window.toolbar = NSToolbar(identifier: "RootShellLayoutTests.DeferredToolbar")
-        let probe = WindowContentInsetView(frame: .zero)
+        let probe = WindowContentInsetView(frame: try XCTUnwrap(window.contentView).bounds)
         var reportedInset: CGFloat?
         probe.onInsetChange = { reportedInset = $0 }
 
@@ -358,7 +352,7 @@ final class RootShellLayoutTests: XCTestCase {
         await fulfillment(of: [drained], timeout: 2)
 
         XCTAssertEqual(try XCTUnwrap(reportedInset),
-                       window.frame.height - window.contentLayoutRect.height,
+                       max(0, probe.convert(probe.bounds, to: nil).maxY - window.contentLayoutRect.maxY),
                        accuracy: 0.5)
         probe.removeFromSuperview()
     }
@@ -373,7 +367,7 @@ final class RootShellLayoutTests: XCTestCase {
         )
         window.toolbar = NSToolbar(identifier: "RootShellLayoutTests.Toolbar")
 
-        let probe = WindowContentInsetView(frame: .zero)
+        let probe = WindowContentInsetView(frame: try XCTUnwrap(window.contentView).bounds)
         var reportedInset: CGFloat?
         probe.onInsetChange = { reportedInset = $0 }
         try XCTUnwrap(window.contentView).addSubview(probe)
@@ -382,8 +376,8 @@ final class RootShellLayoutTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(reportedInset),
             WindowChromeLayoutPolicy.topInset(
-                windowFrameHeight: window.frame.height,
-                contentLayoutHeight: window.contentLayoutRect.height
+                viewTop: probe.convert(probe.bounds, to: nil).maxY,
+                contentLayoutTop: window.contentLayoutRect.maxY
             ),
             accuracy: 0.5
         )

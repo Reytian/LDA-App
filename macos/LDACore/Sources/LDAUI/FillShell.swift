@@ -209,7 +209,7 @@ public struct FillShell: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
         .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
-        .l10nNavigationTitle("Fill from Profile")
+        .modifier(ActiveModeNavigationTitle(title: "Fill from Profile", isActive: isActive, localized: true))
         .toolbar { toolbarContent }
         .sheet(isPresented: $isSavingWithPassphrase) {
             saveProfilePassphraseSheet
@@ -488,7 +488,9 @@ public struct FillShell: View {
 
     private var profileBuilderView: some View {
         VStack(spacing: 0) {
-            profileStatusBanner
+            if !model.sourcePaths.isEmpty || model.profile != nil || model.stage != .idle {
+                profileStatusBanner
+            }
             ProfileBuilderBody(
                 model: model,
                 sourcePaths: model.sourcePaths,
@@ -505,14 +507,21 @@ public struct FillShell: View {
 
     @ViewBuilder
     private var profileStatusBanner: some View {
-        if case .extracting = model.stage {
+        if model.isSavingProfile {
+            bannerChrome {
+                ProgressView().controlSize(.small)
+                L10n.text("Saving profile…")
+                    .font(CounselTheme.Typography.supporting)
+                Spacer(minLength: 0)
+            }
+        } else if case .extracting = model.stage {
             bannerChrome {
                 ProgressView(value: model.progress)
                     .progressViewStyle(.linear)
                     .tint(CounselTheme.inkAccent)
                     .frame(maxWidth: 300)
                 Text(verbatim: extractingLabel)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
@@ -522,7 +531,7 @@ public struct FillShell: View {
                 ProgressView()
                     .controlSize(.small)
                 L10n.text("Importing source documents")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -535,7 +544,7 @@ public struct FillShell: View {
                         format: L10n.string("Some sources could not be imported: %@"),
                         model.sourceWarnings.prefix(3).joined(separator: "; ") as NSString
                     ))
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.danger)
                         .lineLimit(2)
                     Spacer(minLength: 0)
@@ -545,7 +554,7 @@ public struct FillShell: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(CounselTheme.danger)
                     L10n.text("Extraction could not fully scan all segments. Some fields may be missing.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.danger)
                     Spacer(minLength: 0)
                 }
@@ -557,7 +566,7 @@ public struct FillShell: View {
             // Empty state hint (when not booted yet)
             bannerChrome {
                 L10n.text("Add source documents, then click Extract to build a profile.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -566,7 +575,7 @@ public struct FillShell: View {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(CounselTheme.danger)
                 Text(detail)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .lineLimit(2)
                 Spacer(minLength: 0)
@@ -587,7 +596,7 @@ public struct FillShell: View {
                 ),
                 names as NSString
             ))
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -617,7 +626,7 @@ public struct FillShell: View {
                 ProgressView()
                     .controlSize(.small)
                 L10n.text("Planning fill")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -626,7 +635,7 @@ public struct FillShell: View {
                 ProgressView()
                     .controlSize(.small)
                 L10n.text("Applying fill")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -639,11 +648,11 @@ public struct FillShell: View {
                     fileName: report.outputURL.lastPathComponent,
                     skipped: report.skipped.count
                 ))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textPrimary)
                 if let msg = applyMessage {
                     Text(msg)
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .lineLimit(1)
                 }
@@ -654,7 +663,7 @@ public struct FillShell: View {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(CounselTheme.danger)
                 Text(detail)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .lineLimit(2)
                 Spacer(minLength: 0)
@@ -670,12 +679,12 @@ public struct FillShell: View {
                     total: total,
                     confirmed: confirmed
                 ))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textPrimary)
                 if unmatched > 0 {
                     L10n.text("\u{00B7}  %lld unmatched", unmatched)
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .monospacedDigit()
                         .foregroundStyle(CounselTheme.danger)
                 }
@@ -731,7 +740,7 @@ public struct FillShell: View {
     /// this is a new portfolio that exists only in memory and is always saveable when
     /// conflict-free).
     private var canSaveToLibrary: Bool {
-        guard let profile = model.profile else { return false }
+        guard !model.isSavingProfile, let profile = model.profile else { return false }
         guard profile.conflictedKeys.isEmpty else { return false }
         guard FillProfilePrimaryAction.allowsProfilePersistence(during: model.stage) else {
             return false
@@ -753,12 +762,14 @@ public struct FillShell: View {
         FillProfilePrimaryAction.resolve(
             hasProfile: model.profile != nil,
             hasSources: !model.sourcePaths.isEmpty,
-            needsSave: profileNeedsSave
+            needsSave: profileNeedsSave,
+            hasFields: model.profile?.fields.isEmpty == false
         )
     }
 
     private var profilePrimaryActionLabel: String {
         switch profilePrimaryAction {
+        case .addField: return "Add Field"
         case .addSources: return "Add Sources"
         case .extract: return "Extract Profile"
         case .saveAndChooseTarget: return "Save & Choose Target"
@@ -768,6 +779,7 @@ public struct FillShell: View {
 
     private var profilePrimaryActionIcon: String {
         switch profilePrimaryAction {
+        case .addField: return "plus.circle"
         case .addSources: return "doc.badge.plus"
         case .extract: return "text.magnifyingglass"
         case .saveAndChooseTarget: return "arrow.right.doc.on.clipboard"
@@ -777,6 +789,7 @@ public struct FillShell: View {
 
     private var canRunProfilePrimaryAction: Bool {
         switch profilePrimaryAction {
+        case .addField: return model.stage != .importingSources && model.stage != .extracting
         case .addSources: return true
         case .extract: return canExtract
         case .saveAndChooseTarget: return canSaveToLibrary
@@ -786,6 +799,8 @@ public struct FillShell: View {
 
     private var profilePrimaryActionHelp: String {
         switch profilePrimaryAction {
+        case .addField:
+            return "Add Field"
         case .addSources:
             return "Add source documents to build a client profile"
         case .extract:
@@ -799,6 +814,8 @@ public struct FillShell: View {
 
     private func runProfilePrimaryAction() {
         switch profilePrimaryAction {
+        case .addField:
+            isAddingField = true
         case .addSources:
             presentAddSources()
         case .extract:

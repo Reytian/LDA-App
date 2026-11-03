@@ -193,20 +193,27 @@ struct MatterWorkspaceView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
-                .toolbar(removing: isActive ? nil : .sidebarToggle)
-        } detail: {
-            // The window-level inset reader below serves both columns, so the
-            // detail column reserves its own clearance here at the route owner.
-            // Doing it in either routed leaf would cover only one of the two
-            // states. The strip paints paper because both leaves paint paper,
-            // unlike the split view's own appSurface background.
-            VStack(spacing: 0) {
-                WindowChromeTopSpacer(height: windowChromeTopInset,
-                                      background: CounselTheme.paper)
-                detail
+        Group {
+            // Keep this shell's state and flow handlers alive, but attach only
+            // the active native split view to the window. Hidden split views
+            // otherwise reserve competing sidebar and toolbar geometry.
+            if isActive {
+                NavigationSplitView {
+                    sidebar
+                        .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 340)
+                        .toolbar(removing: isActive ? nil : .sidebarToggle)
+                } detail: {
+                    // The window-level inset reader below serves both columns, so the
+                    // detail column reserves its own clearance here at the route owner.
+                    // Doing it in either routed leaf would cover only one of the two
+                    // states. The strip paints paper because both leaves paint paper,
+                    // unlike the split view's own appSurface background.
+                    VStack(spacing: 0) {
+                        WindowChromeTopSpacer(height: windowChromeTopInset,
+                                              background: CounselTheme.paper)
+                        detail
+                    }
+                }
             }
         }
         .background(CounselTheme.appSurface)
@@ -364,7 +371,7 @@ struct MatterWorkspaceView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                     L10n.text("Matters")
-                        .font(.system(.title3, design: .serif).weight(.semibold))
+                        .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Text(
                         MatterWorkspaceLocalization.localWorkspaceSummary(
@@ -404,7 +411,7 @@ struct MatterWorkspaceView: View {
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(CounselTheme.textSecondary)
                     L10n.text(emptySidebarTitleKey)
-                        .font(.callout.weight(.semibold))
+                        .font(CounselTheme.Typography.supporting.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     if searchText.isEmpty {
                         L10n.text(emptySidebarMessageKey)
@@ -466,9 +473,9 @@ struct MatterWorkspaceView: View {
                         .foregroundStyle(CounselTheme.textSecondary)
                     VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                         L10n.text(loadFailureTitleKey)
-                            .font(.caption.weight(.semibold))
+                            .font(CounselTheme.Typography.metadata.weight(.semibold))
                         L10n.button("Try Again") { reload() }
-                            .font(.caption)
+                            .font(CounselTheme.Typography.metadata)
                             .buttonStyle(.link)
                     }
                 }
@@ -690,7 +697,7 @@ private struct MatterSidebarRow: View {
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary.label)
-                    .font(.callout.weight(.medium))
+                    .font(CounselTheme.Typography.supporting.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(1)
                 Text(activityLine)
@@ -744,26 +751,22 @@ private struct MatterDetailView: View {
             HStack(alignment: .top, spacing: CounselTheme.Space.lg) {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                     HStack(spacing: CounselTheme.Space.sm) {
-                        L10n.text("MATTER WORKSPACE")
-                            .font(.caption.weight(.semibold))
-                            .tracking(0.8)
-                            .foregroundStyle(CounselTheme.inkAccent)
                         if summary.isArchived {
                             L10n.label("Archived", systemImage: "archivebox.fill")
-                                .font(.caption.weight(.semibold))
+                                .font(CounselTheme.Typography.metadata.weight(.semibold))
                                 .foregroundStyle(CounselTheme.textSecondary)
                         }
                     }
                     Text(summary.label)
-                        .font(.system(size: 30, weight: .semibold, design: .serif))
+                        .font(CounselTheme.Typography.pageTitle)
                         .foregroundStyle(CounselTheme.textPrimary)
                     if let stamp = summary.lastActivityISO8601 {
                         L10n.text("Last activity %@", MatterDateFormatter.full(stamp))
-                            .font(.callout)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     } else {
                         L10n.text("No protected handoffs recorded yet.")
-                            .font(.callout)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                 }
@@ -791,7 +794,7 @@ private struct MatterDetailView: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
-                        .font(.title3)
+                        .font(CounselTheme.Typography.sectionTitle)
                 }
                 .menuStyle(.borderlessButton)
                 .l10nHelp("Matter actions")
@@ -805,7 +808,7 @@ private struct MatterDetailView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(CounselTheme.inkAccentFill)
                     L10n.text("Restore this matter before starting another protected handoff.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
             } else {
@@ -861,7 +864,7 @@ private struct MatterDetailView: View {
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.md) {
             L10n.text("Recent activity")
-                .font(.system(.title3, design: .serif).weight(.semibold))
+                .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
 
             if !historyAvailable {
@@ -869,17 +872,17 @@ private struct MatterDetailView: View {
                     "Some recent activity could not be unlocked. Readable handoffs remain below.",
                     systemImage: "exclamationmark.lock"
                 )
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
             }
 
             if records.isEmpty, historyAvailable {
                 VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                     L10n.text("Start with an anonymized handoff")
-                        .font(.callout.weight(.semibold))
+                        .font(CounselTheme.Typography.supporting.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     L10n.text("After Export for AI, this page will show the documents and counts for the handoff.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
                 .padding(CounselTheme.Space.lg)
@@ -925,7 +928,7 @@ private struct MatterMetricCard: View {
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .foregroundStyle(CounselTheme.textPrimary)
             L10n.text(label)
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
         }
         .padding(CounselTheme.Space.lg)
@@ -951,11 +954,11 @@ private struct MatterActivityRow: View {
             VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                 HStack {
                     Text(MatterDateFormatter.full(record.createdAtISO8601))
-                        .font(.callout.weight(.semibold))
+                        .font(CounselTheme.Typography.supporting.weight(.semibold))
                         .foregroundStyle(CounselTheme.textPrimary)
                     Spacer()
                     L10n.text("%lld protected", record.protectedValueCount)
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
                 Text(documentLine)
@@ -1011,10 +1014,10 @@ private struct MatterWorkspaceEmptyView: View {
                 L10n.text(
                     MatterWorkspaceLocalization.emptyDetailTitleKey(scope: scope)
                 )
-                    .font(.system(.title2, design: .serif).weight(.semibold))
+                    .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text(emptyMessageKey)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
@@ -1048,7 +1051,7 @@ private struct NewMatterSheet: View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.lg) {
             VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                 L10n.text("New matter")
-                    .font(.system(.title2, design: .serif).weight(.semibold))
+                    .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Use a client or matter name you will recognize. The app will start an Anonymize session with consistent protected placeholders.")
                     .font(CounselTheme.Typography.readingBody)
@@ -1118,10 +1121,10 @@ private struct RenameMatterSheet: View {
         VStack(alignment: .leading, spacing: CounselTheme.Space.lg) {
             VStack(alignment: .leading, spacing: CounselTheme.Space.xs) {
                 L10n.text("Rename matter")
-                    .font(.system(.title2, design: .serif).weight(.semibold))
+                    .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Prior handoffs will stay together under the new name. Protected identities remain encrypted.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

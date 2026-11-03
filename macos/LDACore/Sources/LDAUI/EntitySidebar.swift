@@ -90,14 +90,14 @@ public struct EntitySidebar: View {
                 } header: {
                     HStack(spacing: 8) {
                         Image(systemName: "tray.full")
-                            .font(.caption)
+                            .font(CounselTheme.Typography.metadata)
                             .foregroundStyle(CounselTheme.textSecondary)
                         L10n.text("Documents")
-                            .font(.caption.weight(.semibold))
+                            .font(CounselTheme.Typography.metadata.weight(.semibold))
                             .foregroundStyle(CounselTheme.textSecondary)
                         Spacer(minLength: 8)
                         L10n.text("%lld", session.entries.count)
-                            .font(.caption.monospacedDigit())
+                            .font(CounselTheme.Typography.metadata.monospacedDigit())
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                     .textCase(nil)
@@ -311,7 +311,7 @@ public struct EntitySidebar: View {
     private var batchSelectionBar: some View {
         HStack(spacing: 8) {
             L10n.text("%lld selected", model.selectedGroupIDs.count)
-                .font(.caption.weight(.semibold))
+                .font(CounselTheme.Typography.metadata.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Spacer(minLength: 4)
@@ -333,7 +333,7 @@ public struct EntitySidebar: View {
                 model.selectedGroupIDs = []
             } label: {
                 Image(systemName: "xmark")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .buttonStyle(.borderless)
@@ -349,7 +349,7 @@ public struct EntitySidebar: View {
                 .font(.system(size: 26, weight: .light))
                 .foregroundStyle(CounselTheme.textSecondary)
             Text(verbatim: L10n.string(emptyStateTitle))
-                .font(.callout.weight(.semibold))
+                .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             Text(verbatim: localizedEmptyStateDetail)
                 .font(CounselTheme.Typography.supporting)
@@ -427,18 +427,18 @@ private struct SectionHeader: View {
                 .fill(CounselTheme.color(for: type))
                 .frame(width: 7, height: 7)
             L10n.text(EntityTypePresentation.key(for: type))
-                .font(.caption.weight(.semibold))
+                .font(CounselTheme.Typography.metadata.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
             Spacer(minLength: 8)
             L10n.text("%lld", count)
-                .font(.caption.monospacedDigit())
+                .font(CounselTheme.Typography.metadata.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
 
             Menu {
                 EntityTypeBulkActions(type: type, onSetAllAccepted: onSetAllAccepted)
             } label: {
                 Image(systemName: "ellipsis.circle")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .menuStyle(.borderlessButton)
@@ -514,7 +514,7 @@ private struct EntityGroupRow: View {
 
             if !accepted {
                 Image(systemName: "eye")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.danger)
                     .l10nHelp("Rejected: this will remain visible in the exported document")
                     .l10nAccessibilityLabel("Will remain visible")
@@ -542,14 +542,14 @@ private struct EntityGroupRow: View {
     private var valueLine: some View {
         HStack(spacing: 6) {
             Text(group.value)
-                .font(.system(.callout, design: .serif))
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             if group.occurrences > 1 {
                 L10n.text("\u{00D7}%lld", group.occurrences)
-                    .font(.caption2.monospacedDigit())
+                    .font(CounselTheme.Typography.metadata.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -569,7 +569,7 @@ private struct EntityGroupRow: View {
                     isEditingReplacement = true
                 } label: {
                     Image(systemName: "pencil")
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
@@ -589,7 +589,7 @@ private struct EntityGroupRow: View {
     private func replacementPopover(_ editing: PseudonymEditingContext) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             L10n.text("Replacement for \"%@\"", group.value)
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -647,7 +647,7 @@ private struct EntityGroupRow: View {
             EntityTypePresentation.localizedName(for: group.type) as NSString,
             EntityTypePresentation.sourceLabel(for: group.source) as NSString
         ))
-            .font(.caption2)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(CounselTheme.textSecondary)
             .lineLimit(1)
     }
@@ -673,7 +673,7 @@ private struct TokenChip: View {
 
     var body: some View {
         Text(displayToken)
-            .font(.caption2.monospaced())
+            .font(CounselTheme.Typography.metadata.monospaced())
             .foregroundStyle(CounselTheme.textPrimary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

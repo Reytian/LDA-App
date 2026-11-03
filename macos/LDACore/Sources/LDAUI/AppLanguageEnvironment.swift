@@ -219,8 +219,36 @@ private struct L10nSecureFieldView: View {
     let key: String
     let text: Binding<String>
 
+    @State private var isVisible = false
+
     var body: some View {
-        SecureField(L10n.string(key, language: language), text: text)
+        VStack(alignment: .leading, spacing: 6) {
+            L10n.text(key)
+                .font(CounselTheme.Typography.supporting.weight(.medium))
+            HStack(spacing: 8) {
+                Group {
+                    if isVisible {
+                        TextField(L10n.string(key, language: language), text: text)
+                    } else {
+                        SecureField(L10n.string(key, language: language), text: text)
+                    }
+                }
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .privacySensitive()
+                Button {
+                    isVisible.toggle()
+                } label: {
+                    Image(systemName: isVisible ? "eye.slash" : "eye")
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.string(isVisible ? "Hide password" : "Show password", language: language))
+                .help(L10n.string(isVisible ? "Hide password" : "Show password", language: language))
+            }
+            .controlSize(.large)
+        }
     }
 }
 

@@ -642,8 +642,8 @@ final class AIScanIncompleteReviewTests: XCTestCase {
         XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .english), "Show 2 values")
         XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .french), "Afficher 2 valeurs")
         XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 1, language: .french), "Afficher 1 valeur")
-        XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .simplifiedChinese), "显示 2 个值")
-        XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .traditionalChinese), "顯示 2 個值")
+        XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .simplifiedChinese), "显示 2 项内容")
+        XCTAssertEqual(AIScanCoveragePresentation.showValuesTitle(count: 2, language: .traditionalChinese), "顯示 2 項內容")
 
         // Keys chosen by a ternary are invisible to LocalizationRoutingTests'
         // literal scan, so they are checked here.

@@ -6,7 +6,7 @@
 //  selection but cannot report its range, and "select a word, then protect it"
 //  needs the range, so the reading column is a non-editable, selectable
 //  NSTextView inside its own NSScrollView (never nested in a SwiftUI
-//  ScrollView). It reproduces the pane's reading column: the serif body,
+//  ScrollView). It reproduces the pane's reading column: the system body,
 //  the capped measure centered with a minimum gutter, and the extra leading,
 //  all through DocumentTextStyler's attributes and the text container inset.
 //
@@ -33,12 +33,12 @@ import LDACore
 
 /// The reading column geometry, shared with the tests.
 enum DocumentTextLayout {
-    /// The capped reading measure for the serif body column.
+    /// The capped reading measure for the system body column.
     static let columnWidth: CGFloat = 680
     /// Minimum horizontal gutter on each side of the column.
-    static let gutter: CGFloat = 48
+    static let gutter: CGFloat = 28
     /// Vertical inset above and below the column body.
-    static let columnVerticalInset: CGFloat = 56
+    static let columnVerticalInset: CGFloat = 32
 }
 
 // MARK: - Context menu

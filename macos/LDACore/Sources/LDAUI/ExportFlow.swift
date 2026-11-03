@@ -183,12 +183,12 @@ struct ExportFlow: ViewModifier {
     private var passphraseSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Save Redacted")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             if let dir = flow.pendingExportDir {
                 Text(verbatim: dir.path)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
@@ -198,7 +198,7 @@ struct ExportFlow: ViewModifier {
             // Said BEFORE the offer below, because the answer to "can I still
             // restore this?" must not depend on the user opting into anything.
             L10n.text("LDA keeps this document's mapping in a workspace on this Mac, named after the document. Restore finds it there, so the redacted document you send carries no key beside it.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -209,7 +209,7 @@ struct ExportFlow: ViewModifier {
                 redactedCount: model.totalRedactedCount,
                 visibleCount: model.visibleCount
             )
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -217,7 +217,7 @@ struct ExportFlow: ViewModifier {
                 count: model.supplementaryRedactedCount
             ) {
                 Text(note)
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -229,7 +229,7 @@ struct ExportFlow: ViewModifier {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     L10n.text("Saving the redacted document and its mapping. Large documents can take a little longer.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityIdentifier("saveRedactedProgress")
@@ -237,7 +237,7 @@ struct ExportFlow: ViewModifier {
 
             if let error = flow.saveError {
                 Text(verbatim: error)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("saveRedactedError")
@@ -283,7 +283,7 @@ struct ExportFlow: ViewModifier {
 
             if flow.wantsSidecar {
                 L10n.text("Only this file can restore the document on another Mac. Send it to someone who should be able to, and give them the passphrase separately.")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -298,24 +298,22 @@ struct ExportFlow: ViewModifier {
                     } icon: {
                         Image(systemName: "icloud.and.arrow.up")
                     }
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                 }
 
                 L10n.secureField("Passphrase", text: $flow.passphrase)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 320)
                 L10n.secureField("Confirm passphrase", text: $flow.confirmation)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 320)
 
                 // Suppressed until something has been typed, exactly as
                 // WorkspaceSaveSheet does it: nagging an untouched field
                 // reads as an error the user caused.
                 if !flow.passphrase.isEmpty, let issue = sidecarIssue {
                     Text(verbatim: MappingSidecarPresentation.message(for: issue))
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
                 }

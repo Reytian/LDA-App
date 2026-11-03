@@ -12,7 +12,9 @@
 //
 //  All child views are kept alive at all times in a ZStack so switching modes
 //  does not tear down in-progress work; only the active shell is visible
-//  (opacity 1) and interactive. Each shell receives isActive and contributes
+//  (opacity 1) and interactive. Native split views mount only in the active
+//  shell so hidden sidebars cannot influence window geometry. Each shell
+//  receives isActive and contributes
 //  its toolbar ONLY while active: SwiftUI merges toolbar items from every
 //  live layer, so without the guard the Anonymize buttons would clutter the
 //  other modes' toolbars (and vice versa).
@@ -29,6 +31,7 @@
 //  House rules: English only. No em-dash or en-dash-as-separator.
 //
 
+import AppKit
 import SwiftUI
 import LDACore
 
@@ -75,6 +78,7 @@ public struct RootShell: View {
 
     @ObservedObject private var modeStore: AppModeStore
     @State private var showsExportHistory = false
+    @State private var usesCompactModePicker = true
 
     // MARK: - Model plumbing
 
@@ -125,6 +129,7 @@ public struct RootShell: View {
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .opacity(modeStore.activeMode == .matters ? 1 : 0)
                 .disabled(modeStore.activeMode != .matters)
+                .accessibilityHidden(modeStore.activeMode != .matters)
 
                 // Anonymize layer.
                 // .disabled(true) on the inactive layer resigns any first responder
@@ -142,6 +147,7 @@ public struct RootShell: View {
                     .frame(width: size.width, height: size.height, alignment: .top)
                     .opacity(modeStore.activeMode == .anonymize ? 1 : 0)
                     .disabled(modeStore.activeMode != .anonymize)
+                .accessibilityHidden(modeStore.activeMode != .anonymize)
 
                 // Restore layer.
                 DeanonymizeShell(
@@ -151,16 +157,21 @@ public struct RootShell: View {
                 .frame(width: size.width, height: size.height, alignment: .top)
                 .opacity(modeStore.activeMode == .deanonymize ? 1 : 0)
                 .disabled(modeStore.activeMode != .deanonymize)
+                .accessibilityHidden(modeStore.activeMode != .deanonymize)
 
                 // Fill layer.
                 FillShell(model: fillModel, isActive: modeStore.activeMode == .fill)
                     .frame(width: size.width, height: size.height, alignment: .top)
                     .opacity(modeStore.activeMode == .fill ? 1 : 0)
                     .disabled(modeStore.activeMode != .fill)
+                .accessibilityHidden(modeStore.activeMode != .fill)
+            }
+            .onChange(of: size.width, initial: true) { _, width in
+                usesCompactModePicker = MainWindowLayout.usesCompactModePicker(width: width)
             }
         }
         .toolbar {
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     modeStore.requestedExportID = nil
                     showsExportHistory = true
@@ -170,15 +181,10 @@ public struct RootShell: View {
                     .l10nHelp("Reveal the exact App or MCP export by time, format and Matter")
             }
             ToolbarItem(placement: .principal) {
-                L10n.picker("Mode", selection: $modeStore.activeMode) {
-                    ForEach(AppMode.allCases, id: \.self) { mode in
-                        L10n.text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .frame(width: 430)
-                .l10nHelp("Review matters, anonymize documents, restore protected values, or fill a form")
+                AppModePicker(selection: $modeStore.activeMode, compact: usesCompactModePicker)
+            }
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             // The On-device privacy indicator lives in the Anonymize status
             // banner (labeled, always visible) and in the Restore copy,
@@ -189,5 +195,124 @@ public struct RootShell: View {
         .sheet(isPresented: $showsExportHistory, onDismiss: { modeStore.requestedExportID = nil }) {
             ExportHistoryView(session: session, selectedExportID: modeStore.requestedExportID)
         }
+    }
+}
+
+/// Hidden modes retain their state without overriding the active window title.
+struct ActiveModeNavigationTitle: ViewModifier {
+    let title: String
+    let isActive: Bool
+    var localized = false
+    @Environment(\.appLanguage) private var language
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isActive {
+            content.navigationTitle(localized ? L10n.string(title, language: language) : title)
+        } else {
+            content
+        }
+    }
+}
+
+/// A native pop-up keeps every mode reachable when the start page is narrow.
+struct AppModePicker: View {
+    @Binding var selection: AppMode
+    @Environment(\.appLanguage) private var language
+    let compact: Bool
+
+    var body: some View {
+        Group {
+            if compact {
+                NativeModeMenu(selection: $selection, language: language)
+                    .frame(width: 200, height: 28)
+            } else {
+                NativeModeSegments(selection: $selection, language: language)
+                    .frame(width: 500, height: 28)
+            }
+        }
+        .controlSize(.regular)
+        .l10nHelp("Review matters, anonymize documents, restore protected values, or fill a form")
+    }
+}
+
+/// Explicit native control fonts avoid toolbar styles shrinking CJK labels.
+private struct NativeModeSegments: NSViewRepresentable {
+    @Binding var selection: AppMode
+    let language: AppLanguage
+
+    func makeCoordinator() -> ModeSelectionCoordinator { ModeSelectionCoordinator(selection: $selection) }
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.segmentCount = AppMode.allCases.count
+        control.trackingMode = .selectOne
+        control.segmentStyle = .rounded
+        control.target = context.coordinator
+        control.action = #selector(ModeSelectionCoordinator.selectSegment(_:))
+        return control
+    }
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.controlSize = .regular
+        control.font = NSFont.systemFont(ofSize: CounselTheme.Typography.supportingSize, weight: .medium)
+        for (index, mode) in AppMode.allCases.enumerated() {
+            control.setLabel(L10n.string(mode.rawValue, language: language), forSegment: index)
+            control.setWidth(120, forSegment: index)
+        }
+        control.selectedSegment = AppMode.allCases.firstIndex(of: selection) ?? 1
+        control.setAccessibilityLabel(L10n.string("Mode", language: language))
+    }
+}
+
+private struct NativeModeMenu: NSViewRepresentable {
+    @Binding var selection: AppMode
+    let language: AppLanguage
+
+    func makeCoordinator() -> ModeSelectionCoordinator { ModeSelectionCoordinator(selection: $selection) }
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let control = NSPopUpButton(frame: .zero, pullsDown: false)
+        control.target = context.coordinator
+        control.action = #selector(ModeSelectionCoordinator.selectMenu(_:))
+        return control
+    }
+    func updateNSView(_ control: NSPopUpButton, context: Context) {
+        context.coordinator.selection = $selection
+        let titles = AppMode.allCases.map { L10n.string($0.rawValue, language: language) }
+        if control.itemTitles != titles {
+            control.removeAllItems()
+            control.addItems(withTitles: titles)
+        }
+        control.font = NSFont.systemFont(ofSize: CounselTheme.Typography.supportingSize, weight: .medium)
+        control.selectItem(at: AppMode.allCases.firstIndex(of: selection) ?? 1)
+        control.setAccessibilityLabel(L10n.string("Mode", language: language))
+    }
+}
+
+private final class ModeSelectionCoordinator: NSObject {
+    var selection: Binding<AppMode>
+    init(selection: Binding<AppMode>) { self.selection = selection }
+    @objc func selectSegment(_ sender: NSSegmentedControl) { select(sender.selectedSegment) }
+    @objc func selectMenu(_ sender: NSPopUpButton) { select(sender.indexOfSelectedItem) }
+    private func select(_ index: Int) {
+        guard AppMode.allCases.indices.contains(index) else { return }
+        selection.wrappedValue = AppMode.allCases[index]
+    }
+}
+
+/// Only the empty intake page uses the compact window budget. Loaded review,
+/// other modes, and legal consent retain their established layout space.
+public enum MainWindowLayout {
+    public static func minimumSize(
+        mode: AppMode, hasDocuments: Bool, needsLegalConsent: Bool
+    ) -> CGSize {
+        if mode == .anonymize && !hasDocuments && !needsLegalConsent {
+            return CGSize(width: 640, height: 560)
+        }
+        return CGSize(width: 1100, height: 720)
+    }
+
+    static func usesCompactModePicker(width: CGFloat) -> Bool {
+        // Reserve room for the sidebar, document title and export actions.
+        width < 1_600
     }
 }

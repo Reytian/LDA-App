@@ -4,12 +4,13 @@ import SwiftUI
 
 /// Bundled, offline tutorials shared by onboarding and integration setup.
 struct TutorialGallery: View {
+    @Environment(\.appLanguage) private var language
     @State private var selected: LDATutorial?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             L10n.text("Watch the walkthroughs")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
             // Only an explicit click opens this fixed page in the user's browser.
             Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {
                 Label {
@@ -18,10 +19,7 @@ struct TutorialGallery: View {
                     Image(systemName: "arrow.up.right.square")
                 }
             }
-            .accessibilityHint(L10n.string("Open both video walkthroughs in your browser"))
-            L10n.text("Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            .accessibilityHint(L10n.string("Open both video walkthroughs in your browser", language: language))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), alignment: .top)], spacing: 12) {
                 ForEach(LDATutorial.allCases) { tutorial in
                     Button { selected = tutorial } label: {
@@ -43,9 +41,9 @@ struct TutorialGallery: View {
                                     .accessibilityHidden(true)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 8))
-                            L10n.text(tutorial.title).font(.callout.weight(.semibold))
+                            L10n.text(tutorial.title).font(CounselTheme.Typography.supporting.weight(.semibold))
                             L10n.text(tutorial.summary)
-                                .font(.caption)
+                                .font(CounselTheme.Typography.metadata)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -55,8 +53,8 @@ struct TutorialGallery: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(L10n.string(tutorial.title))
-                    .accessibilityHint(L10n.string("Open the offline video player"))
+                    .accessibilityLabel(L10n.string(tutorial.title, language: language))
+                    .accessibilityHint(L10n.string("Open the offline video player", language: language))
                 }
             }
         }
@@ -79,6 +77,7 @@ private enum LDATutorial: String, CaseIterable, Identifiable {
 }
 
 private struct TutorialPlayer: View {
+    @Environment(\.appLanguage) private var language
     let tutorial: LDATutorial
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
@@ -87,22 +86,20 @@ private struct TutorialPlayer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                L10n.text(tutorial.title).font(.title2.weight(.semibold))
+                L10n.text(tutorial.title).font(CounselTheme.Typography.sectionTitle.weight(.semibold))
                 Spacer()
                 L10n.button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             if let player {
                 TutorialVideoView(player: player)
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .accessibilityLabel(L10n.string(tutorial.title))
+                    .accessibilityLabel(L10n.string(tutorial.title, language: language))
             } else {
                 L10n.text("This tutorial is missing from the app. Reinstall a complete LDA release.")
                     .frame(maxWidth: .infinity, minHeight: 240)
             }
-            L10n.text("Illustrated examples with fictional data. Silent videos with English subtitles. Plays offline.")
-                .font(.callout).foregroundStyle(.secondary)
             if let transcript {
-                DisclosureGroup {
+                FullRowDisclosure {
                     ScrollView {
                         Text(verbatim: transcript)
                             .textSelection(.enabled)
@@ -113,6 +110,7 @@ private struct TutorialPlayer: View {
                 } label: { L10n.text("Read the transcript") }
             }
         }
+        .disclosureGroupStyle(FullRowDisclosureStyle())
         .padding(24)
         .frame(minWidth: 640, idealWidth: 960, minHeight: 480)
         .onAppear {

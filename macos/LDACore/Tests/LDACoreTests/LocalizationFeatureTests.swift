@@ -28,10 +28,10 @@ final class LocalizationFeatureTests: XCTestCase {
 
     func testRepresentativeWorkflowLabelsResolveInEveryLanguage() {
         let expected: [(AppLanguage, [String])] = [
-            (.english, ["Matters", "De-identify", "Restore", "Fill"]),
-            (.french, ["Dossiers", "Désidentifier", "Restaurer", "Remplir"]),
-            (.simplifiedChinese, ["事项", "脱敏", "恢复", "填写"]),
-            (.traditionalChinese, ["案件", "脫敏", "還原", "填寫"])
+            (.english, ["Matters", "Redact", "Restore", "Fill"]),
+            (.french, ["Dossiers", "Masquer", "Restaurer", "Remplir"]),
+            (.simplifiedChinese, ["项目", "脱敏", "还原", "填写"]),
+            (.traditionalChinese, ["專案", "遮蔽", "還原", "填寫"])
         ]
 
         for (language, labels) in expected {
@@ -53,7 +53,7 @@ final class LocalizationFeatureTests: XCTestCase {
         XCTAssertEqual(L10n.string("Restore", defaults: defaults), "Restaurer")
 
         AppLanguage.select(.simplifiedChinese, defaults: defaults)
-        XCTAssertEqual(L10n.string("Restore", defaults: defaults), "恢复")
+        XCTAssertEqual(L10n.string("Restore", defaults: defaults), "还原")
 
         AppLanguage.select(.traditionalChinese, defaults: defaults)
         XCTAssertEqual(L10n.string("Restore", defaults: defaults), "還原")
@@ -70,7 +70,7 @@ final class LocalizationFeatureTests: XCTestCase {
         )
         XCTAssertEqual(
             L10n.string("Restore", language: .system, preferredLanguages: ["zh-Hans-TW"]),
-            "恢复",
+            "还原",
             "An explicit Chinese script must take priority over the region."
         )
         XCTAssertEqual(
@@ -174,6 +174,12 @@ final class LocalizationFeatureTests: XCTestCase {
                     value.contains("\u{2014}") || value.contains("\u{2013}"),
                     "\(identifier) uses a prohibited dash character in \(key)."
                 )
+                let tokenPattern = try NSRegularExpression(pattern: #"\.lda[a-z]+"#)
+                let reference = (english[key] ?? "") as NSString
+                for match in tokenPattern.matches(in: reference as String, range: NSRange(location: 0, length: reference.length)) {
+                    let token = reference.substring(with: match.range)
+                    XCTAssertTrue(value.contains(token), "\(identifier) changed file type \(token) in \(key)")
+                }
                 XCTAssertEqual(
                     Self.formatSpecifiers(in: value),
                     Self.formatSpecifiers(in: key),
@@ -398,7 +404,7 @@ final class LocalizationFeatureTests: XCTestCase {
             fileName: "Redacted for AI.md",
             language: .french
         )
-        XCTAssertTrue(completion.contains("documents caviardés"), completion)
+        XCTAssertTrue(completion.contains("documents masqués"), completion)
         XCTAssertTrue(completion.contains("1 document non analysé"), completion)
 
         let detecting = AnonymizeWorkflowPresentation.detectingLabel(
@@ -434,7 +440,7 @@ final class LocalizationFeatureTests: XCTestCase {
                 language: .simplifiedChinese
             )
         )
-        XCTAssertTrue(warning.contains("1 个已隐去值"), warning)
+        XCTAssertTrue(warning.contains("1 项已脱敏内容"), warning)
         XCTAssertFalse(warning.contains("Warning:"), warning)
     }
 

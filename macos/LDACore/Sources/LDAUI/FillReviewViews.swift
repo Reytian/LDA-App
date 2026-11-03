@@ -70,7 +70,7 @@ struct FillReviewBody: View {
         VStack(spacing: 12) {
             ProgressView().controlSize(.regular)
             L10n.text("Planning fill")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,7 +83,7 @@ struct FillReviewBody: View {
                 .foregroundStyle(CounselTheme.danger)
             if case .failed(let detail) = model.stage {
                 Text(detail)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
@@ -156,7 +156,7 @@ struct BlankSidebar: View {
 
     private var blankEmptyState: some View {
         L10n.text("No blanks detected")
-            .font(.callout)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(12)
     }
@@ -181,7 +181,7 @@ struct BlankSidebar: View {
             if !model.blanks.isEmpty {
                 let confirmedCount = model.blanks.filter { $0.status == .confirmed }.count
                 L10n.text("%lld/%lld", confirmedCount, model.blanks.count)
-                    .font(.caption.monospacedDigit())
+                    .font(CounselTheme.Typography.metadata.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(.trailing, 4)
             }
@@ -285,7 +285,7 @@ struct BlankRow: View {
 
     private var labelLine: some View {
         Text(verbatim: displayLabel)
-            .font(.system(.callout, design: .serif))
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textPrimary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -299,17 +299,17 @@ struct BlankRow: View {
                 // Format-adapted: show adapted value BESIDE the verbatim profile value.
                 HStack(spacing: 6) {
                     Text(proposed)
-                        .font(.caption.monospaced())
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.inkAccent)
                         .lineLimit(1)
                     L10n.text("(from %@)", verbatim)
-                        .font(.caption2)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .lineLimit(1)
                 }
             } else {
                 Text(proposed)
-                    .font(.caption.monospaced())
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(
                         blank.status == .confirmed
                             ? CounselTheme.inkAccent
@@ -322,7 +322,7 @@ struct BlankRow: View {
             L10n.text(
                 blank.status == .unmatched ? "No match" : "Tap to choose"
             )
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary.opacity(0.7))
         }
     }
@@ -356,7 +356,7 @@ struct FieldPickerPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             L10n.text("Choose a field")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, 8)
@@ -376,10 +376,10 @@ struct FieldPickerPopover: View {
                                         Text(verbatim: ProfileFieldPresentation.localizedName(
                                             for: field.key
                                         ))
-                                            .font(.callout)
+                                            .font(CounselTheme.Typography.supporting)
                                             .foregroundStyle(CounselTheme.textPrimary)
                                         Text(field.value)
-                                            .font(.caption.monospaced())
+                                            .font(CounselTheme.Typography.supporting)
                                             .foregroundStyle(CounselTheme.textSecondary)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
@@ -387,7 +387,7 @@ struct FieldPickerPopover: View {
                                     Spacer(minLength: 0)
                                     if blank.proposedFieldID == field.id {
                                         Image(systemName: "checkmark")
-                                            .font(.caption)
+                                            .font(CounselTheme.Typography.metadata)
                                             .foregroundStyle(CounselTheme.inkAccent)
                                     }
                                 }
@@ -403,7 +403,7 @@ struct FieldPickerPopover: View {
                 .frame(maxHeight: 280)
             } else {
                 L10n.text("No profile fields available")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(16)
             }
@@ -503,7 +503,7 @@ struct BlankDocumentPane: View {
     private var fullTextDocxView: some View {
         ScrollView(.vertical) {
             Text(styledFull)
-                .font(.system(.body, design: .serif))
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(6)
@@ -588,7 +588,7 @@ struct BlankDocumentPane: View {
     private var fallbackContextList: some View {
         ScrollView(.vertical) {
             Text(contextListAttributed)
-                .font(.system(.body, design: .serif))
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .textSelection(.enabled)
                 .lineSpacing(6)
@@ -624,10 +624,10 @@ struct BlankDocumentPane: View {
 
             VStack(spacing: 6) {
                 L10n.text("PDF target")
-                    .font(.system(.title3, design: .serif))
+                    .font(CounselTheme.Typography.sectionTitle)
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Review and confirm blanks in the sidebar. Full PDF rendering is planned for a future version.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -658,14 +658,14 @@ struct FillReportPane: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         L10n.text("Fill complete")
-                            .font(.system(.title2, design: .serif))
+                            .font(CounselTheme.Typography.sectionTitle)
                             .foregroundStyle(CounselTheme.textPrimary)
                         Text(verbatim: FillStatusPresentation.completed(
                             filled: report.filledCount,
                             fileName: report.outputURL.lastPathComponent,
                             skipped: 0
                         ))
-                            .font(.callout)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                     }
                 }
@@ -674,13 +674,13 @@ struct FillReportPane: View {
                 if !report.skipped.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         L10n.text("Skipped (%lld)", report.skipped.count)
-                            .font(.callout.weight(.semibold))
+                            .font(CounselTheme.Typography.supporting.weight(.semibold))
                             .foregroundStyle(CounselTheme.textSecondary)
 
                         ForEach(report.skipped, id: \.label) { skipped in
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "minus.circle")
-                                    .font(.caption)
+                                    .font(CounselTheme.Typography.metadata)
                                     .foregroundStyle(CounselTheme.textSecondary)
                                     .padding(.top, 2)
                                 VStack(alignment: .leading, spacing: 1) {
@@ -690,7 +690,7 @@ struct FillReportPane: View {
                                         )
                                         : skipped.label
                                     Text(verbatim: label)
-                                        .font(.callout)
+                                        .font(CounselTheme.Typography.supporting)
                                         .foregroundStyle(CounselTheme.textPrimary)
                                     Text(verbatim: FillServicePresentation.skippedReason(
                                         skipped.reason
@@ -707,21 +707,21 @@ struct FillReportPane: View {
                 if !manualWidgetNames.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         L10n.text("Manual input required (%lld)", manualWidgetNames.count)
-                            .font(.callout.weight(.semibold))
+                            .font(CounselTheme.Typography.supporting.weight(.semibold))
                             .foregroundStyle(CounselTheme.danger)
 
                         L10n.text("The following AcroForm fields were not auto-filled (checkboxes, radio buttons, and drop-downs require manual input):")
-                            .font(.callout)
+                            .font(CounselTheme.Typography.supporting)
                             .foregroundStyle(CounselTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
 
                         ForEach(manualWidgetNames, id: \.self) { name in
                             HStack(spacing: 8) {
                                 Image(systemName: "pencil.and.scribble")
-                                    .font(.caption)
+                                    .font(CounselTheme.Typography.metadata)
                                     .foregroundStyle(CounselTheme.danger)
                                 Text(name)
-                                    .font(.callout.monospaced())
+                                    .font(CounselTheme.Typography.supporting.monospaced())
                                     .foregroundStyle(CounselTheme.textPrimary)
                             }
                         }

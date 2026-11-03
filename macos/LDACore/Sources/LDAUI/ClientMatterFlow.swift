@@ -40,6 +40,7 @@ final class ClientMatterFlowModel: ObservableObject {
 /// extends that client's identities, or work without one.
 struct ClientMatterMenu: View {
 
+    @Environment(\.appLanguage) private var language
     @ObservedObject var session: SessionModel
     @ObservedObject var flow: ClientMatterFlowModel
 
@@ -84,7 +85,7 @@ struct ClientMatterMenu: View {
             }
         } label: {
             Label(
-                session.clientLabel ?? L10n.string("No Matter"),
+                session.clientLabel ?? L10n.string("No Matter", language: language),
                 systemImage: "person.crop.square"
             )
         }

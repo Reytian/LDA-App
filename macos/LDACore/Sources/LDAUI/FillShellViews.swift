@@ -36,17 +36,22 @@ struct ProfileBuilderBody: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SourceListPane(sourcePaths: sourcePaths)
-                .frame(width: 220)
-                .background(CounselTheme.appSurface)
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(CounselTheme.hairline).frame(width: 1)
-                }
+            if !sourcePaths.isEmpty {
+                SourceListPane(sourcePaths: sourcePaths)
+                    .frame(width: 220)
+                    .background(CounselTheme.appSurface)
+                    .overlay(alignment: .trailing) {
+                        Rectangle().fill(CounselTheme.hairline).frame(width: 1)
+                    }
+            }
 
             if let profile = model.profile {
                 ProfileFieldTable(model: model, profile: profile)
             } else {
-                profileEmptyState
+                ScrollView {
+                    profileEmptyState
+                }
+                .background(CounselTheme.paper)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,15 +60,16 @@ struct ProfileBuilderBody: View {
     private var profileEmptyState: some View {
         VStack(spacing: 18) {
             Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 46, weight: .light))
+                .accessibilityHidden(true)
+                .font(.system(size: 40, weight: .regular))
                 .foregroundStyle(CounselTheme.inkAccent.opacity(0.8))
 
             VStack(spacing: 6) {
                 L10n.text("No profile yet")
-                    .font(.system(.title3, design: .serif))
+                    .font(CounselTheme.Typography.sectionTitle)
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Add source documents and click Extract, or load a saved .ldaprofile.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -80,8 +86,8 @@ struct ProfileBuilderBody: View {
                     .multilineTextAlignment(.center)
             }
         }
-        .frame(maxWidth: 400)
-        .padding(48)
+        .frame(maxWidth: 560)
+        .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -89,6 +95,7 @@ struct ProfileBuilderBody: View {
     private var emptyStateActions: some View {
         Button(action: onPrimaryAction) {
             L10n.text(primaryActionTitle)
+                .font(CounselTheme.Typography.readingBody.weight(.medium))
         }
         .buttonStyle(.borderedProminent)
         .tint(CounselTheme.inkAccentFill)
@@ -98,6 +105,7 @@ struct ProfileBuilderBody: View {
 
         Button(action: onLoadProfile) {
             L10n.text("Load Profile")
+                .font(CounselTheme.Typography.readingBody)
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
@@ -114,7 +122,7 @@ struct SourceListPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             L10n.text("Sources")
-                .font(.caption.weight(.semibold))
+                .font(CounselTheme.Typography.metadata.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -125,7 +133,7 @@ struct SourceListPane: View {
 
             if sourcePaths.isEmpty {
                 L10n.text("No sources added")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .padding(12)
             } else {
@@ -133,7 +141,7 @@ struct SourceListPane: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(sourcePaths, id: \.absoluteString) { url in
                             Label(url.lastPathComponent, systemImage: "doc.text")
-                                .font(.callout)
+                                .font(CounselTheme.Typography.supporting)
                                 .foregroundStyle(CounselTheme.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -189,7 +197,7 @@ struct ProfileFieldTable: View {
             columnHeader("Field", width: 180)
             columnHeader("Value", minWidth: 200)
             columnHeader("Source", width: 160)
-            columnHeader("Confidence", width: 100)
+            columnHeader("Confidence", width: 128)
             columnHeader("", width: 24) // verified badge column
         }
         .background(CounselTheme.raised)
@@ -204,7 +212,7 @@ struct ProfileFieldTable: View {
         minWidth: CGFloat? = nil
     ) -> some View {
         L10n.text(key)
-            .font(.caption.weight(.semibold))
+            .font(CounselTheme.Typography.metadata.weight(.semibold))
             .foregroundStyle(CounselTheme.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -227,19 +235,15 @@ struct ProfileFieldRow: View {
     let isConflicted: Bool
     let conflictCandidates: [ProfileField]
 
-    @State private var editedValue: String
-
-    init(
-        model: FillModel,
-        field: ProfileField,
-        isConflicted: Bool,
-        conflictCandidates: [ProfileField]
-    ) {
-        self.model = model
-        self.field = field
-        self.isConflicted = isConflicted
-        self.conflictCandidates = conflictCandidates
-        self._editedValue = State(initialValue: field.value)
+    /// Keep edits in the model immediately so Save includes the focused field.
+    var valueBinding: Binding<String> {
+        Binding(
+            get: { model.profile?.fields.first(where: { $0.id == field.id })?.value ?? field.value },
+            set: { value in
+                guard model.profile?.fields.first(where: { $0.id == field.id })?.value != value else { return }
+                model.updateField(id: field.id, value: value)
+            }
+        )
     }
 
     var body: some View {
@@ -248,11 +252,11 @@ struct ProfileFieldRow: View {
             HStack(spacing: 6) {
                 if isConflicted {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .foregroundStyle(CounselTheme.danger)
                 }
                 Text(verbatim: ProfileFieldPresentation.localizedName(for: field.key))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(isConflicted ? CounselTheme.danger : CounselTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -266,22 +270,18 @@ struct ProfileFieldRow: View {
                     // Conflict: show value + a resolve menu
                     conflictValueCell
                 } else {
-                    TextField(text: $editedValue) { EmptyView() }
+                    TextField(text: valueBinding) {
+                        Text(verbatim: ProfileFieldPresentation.localizedName(for: field.key))
+                    }
+                        .labelsHidden()
                         .textFieldStyle(.plain)
-                        .font(.callout.monospaced())
+                        .font(CounselTheme.Typography.readingBody)
                         .foregroundStyle(
                             field.userEdited
                                 ? CounselTheme.inkAccent
                                 : CounselTheme.textPrimary
                         )
-                        .onSubmit {
-                            if editedValue != field.value {
-                                model.updateField(id: field.id, value: editedValue)
-                            }
-                        }
-                        .onChange(of: field.value) { _, newVal in
-                            editedValue = newVal
-                        }
+
                 }
             }
             .padding(.horizontal, 12)
@@ -291,17 +291,18 @@ struct ProfileFieldRow: View {
             Text(verbatim: FillServicePresentation.sourceDocumentName(
                 for: field
             ))
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .padding(.horizontal, 12)
                 .frame(width: 160, alignment: .leading)
+                .help(FillServicePresentation.sourceDocumentName(for: field))
 
             // Confidence bar
             ConfidenceBar(confidence: field.confidence)
                 .padding(.horizontal, 12)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 128, alignment: .leading)
 
             // Verified badge, with source snippet as tooltip
             verifiedBadge
@@ -315,7 +316,7 @@ struct ProfileFieldRow: View {
     private var conflictValueCell: some View {
         HStack(spacing: 8) {
             Text(field.value)
-                .font(.callout.monospaced())
+                .font(CounselTheme.Typography.readingBody)
                 .foregroundStyle(CounselTheme.danger)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -335,7 +336,7 @@ struct ProfileFieldRow: View {
                 }
             } label: {
                 L10n.label("Resolve", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.danger)
             }
             .menuStyle(.borderlessButton)
@@ -352,7 +353,7 @@ struct ProfileFieldRow: View {
     private var verifiedBadge: some View {
         if field.snippetVerified {
             Image(systemName: "checkmark.seal.fill")
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.inkAccent)
                 .help(field.sourceSnippet.isEmpty
                     ? L10n.string("Verified: the value was found verbatim in the source document")
@@ -363,7 +364,7 @@ struct ProfileFieldRow: View {
                 .l10nAccessibilityLabel("Verified")
         } else {
             Image(systemName: "questionmark.circle")
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary.opacity(0.5))
                 .help(field.sourceSnippet.isEmpty
                     ? L10n.string("Unverified: the value was not confirmed verbatim in the source")

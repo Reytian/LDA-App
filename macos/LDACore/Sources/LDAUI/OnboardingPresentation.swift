@@ -18,7 +18,7 @@ enum OnboardingPresentation {
     // MARK: - Page sequence
 
     /// Which page is on screen.
-    enum Page: Equatable {
+    enum Page: Hashable {
         case language
         case model
         case steps
@@ -47,6 +47,17 @@ enum OnboardingPresentation {
         case (.model, .modelAskOnly): return nil
         case (.steps, .firstRun): return .integrations
         case (.steps, .modelAskOnly), (.integrations, _): return nil
+        }
+    }
+
+    /// Going back never changes a model setup answer or cancels a transfer.
+    static func previousPage(before page: Page, mode: OnboardingView.Mode, hasModel: Bool) -> Page? {
+        guard mode == .firstRun else { return nil }
+        switch page {
+        case .language: return nil
+        case .model: return .language
+        case .steps: return hasModel ? .language : .model
+        case .integrations: return .steps
         }
     }
 

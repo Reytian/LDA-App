@@ -33,15 +33,15 @@ struct ExportHistoryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                L10n.text("Export History").font(.title2.bold())
+                L10n.text("Export History").font(CounselTheme.Typography.sectionTitle.bold())
                 Spacer()
-                if loading { ProgressView().controlSize(.small) }
+                if loading { ProgressView().controlSize(.small).l10nAccessibilityLabel("Loading export history") }
                 L10n.button("Refresh") { refresh() }.disabled(loading)
                 L10n.button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             L10n.text("App and MCP exports. Each Reveal button opens the file recorded on that row.")
                 .foregroundStyle(.secondary)
-            if let failure { Text(verbatim: failure).foregroundStyle(.red) }
+            if let failure { Text(verbatim: failure).foregroundStyle(CounselTheme.danger) }
             if receipts.isEmpty && !loading && failure == nil {
                 ContentUnavailableView {
                     L10n.label("No exports recorded", systemImage: "tray")
@@ -53,15 +53,23 @@ struct ExportHistoryView: View {
                     List(orderedReceipts) { receipt in
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 4) {
-                                if receipt.id == selectedExportID { L10n.text("Current MCP export").foregroundStyle(.tint).font(.headline) }
-                                Text(verbatim: receipt.fileURL.lastPathComponent).font(.headline).textSelection(.enabled)
+                                if receipt.id == selectedExportID { L10n.text("Current MCP export").foregroundStyle(.tint).font(CounselTheme.Typography.heading) }
+                                Text(verbatim: receipt.fileURL.lastPathComponent).font(CounselTheme.Typography.heading).textSelection(.enabled)
                                 L10n.text("%@ · %@ · %@ · Completed",
                                     L10n.string(receipt.origin == .mcp ? "MCP" : "App", language: language) as NSString,
                                     receipt.format.uppercased() as NSString, kindName(receipt.kind) as NSString)
                                 Text(verbatim: receipt.createdAt.formatted(
                                     Date.FormatStyle(date: .abbreviated, time: .standard).locale(language.locale)))
                                 L10n.text("Matter: %@", matterName(receipt) as NSString)
-                                Text(verbatim: receipt.exportID).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                                FullRowDisclosure {
+                                    Text(verbatim: receipt.exportID)
+                                        .font(CounselTheme.Typography.metadata.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                } label: {
+                                    L10n.text("Export reference")
+                                        .font(CounselTheme.Typography.metadata)
+                                }
                             }
                             Spacer()
                             L10n.button("Reveal in Finder") { reveal(receipt) }

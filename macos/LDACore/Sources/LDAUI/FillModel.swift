@@ -113,6 +113,7 @@ public final class FillModel: ObservableObject {
     /// True when the profile has unsaved user edits (field updates, removals, or
     /// a setProfile call). Cleared by loadProfile.
     @Published public var profileDirty: Bool = false
+    @Published public internal(set) var isSavingProfile = false
 
     /// The detected blanks from the most recent planFill call.
     @Published public var blanks: [Blank] = []

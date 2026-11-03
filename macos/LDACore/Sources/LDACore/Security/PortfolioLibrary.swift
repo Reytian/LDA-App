@@ -219,8 +219,10 @@ public final class PortfolioLibrary {
 
     // MARK: - Keychain accounts (fixed)
 
-    private static let portfolioAccount = "library"
-    private static let indexAccount = "index"
+    // A separate test installation must not reuse the production library's fixed keys.
+    private static let installationSuffix = SecurityEventLog.storageSuffix(bundleIdentifier: Bundle.main.bundleIdentifier)
+    private static let portfolioAccount = "library" + installationSuffix
+    private static let indexAccount = "index" + installationSuffix
 
     // MARK: - File naming
 
@@ -247,7 +249,7 @@ public final class PortfolioLibrary {
             )
             self.root = appSupport
                 .appendingPathComponent("LDA", isDirectory: true)
-                .appendingPathComponent("Portfolios", isDirectory: true)
+                .appendingPathComponent("Portfolios" + Self.installationSuffix, isDirectory: true)
         }
         try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true)
     }

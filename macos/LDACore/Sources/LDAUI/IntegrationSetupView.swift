@@ -10,7 +10,11 @@ public struct MCPSetupView: View {
     @State private var status: String?
     @State private var failed = false
 
-    public init() {}
+    let showsIntroduction: Bool
+
+    public init(showsIntroduction: Bool = true) {
+        self.showsIntroduction = showsIntroduction
+    }
 
     private var helper: URL {
         helperOverride ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/lda-mcp")
@@ -23,9 +27,10 @@ public struct MCPSetupView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            L10n.text("Connect LDA to your AI app")
-                .font(.system(.title2, design: .serif).weight(.semibold))
-            TutorialGallery()
+            if showsIntroduction {
+                L10n.text("Connect your AI workstation through MCP")
+                    .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
+            }
             L10n.text("Choose an app, save its setup script, then open the script in Terminal. Setup is optional; you can return here from Settings at any time.")
                 .foregroundStyle(.secondary)
             Picker(selection: $client) {
@@ -43,24 +48,23 @@ public struct MCPSetupView: View {
                 L10n.button("Choose MCP Helper") { chooseHelper() }
             }
             L10n.text("Keep LDA.app in its final location before setting up a connection.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(CounselTheme.Typography.supporting).foregroundStyle(.secondary)
             if AISettings.resolveModelPath() == nil {
                 L10n.text("This connection will use Patterns only. Set up a detection model in AI Settings for names, companies and addresses, then export setup again.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(CounselTheme.Typography.supporting).foregroundStyle(.secondary)
             }
             if client == .other {
                 L10n.text("In an app that supports local STDIO MCP, add a server named lda. Use the command and environment below. Merge the lda entry into existing settings instead of replacing the whole file. Browser-only apps that require an HTTP address cannot use this local server directly.")
             } else {
                 L10n.text("The script adds only LDA, backs up changed settings, and preserves existing server entries and skills. If LDA is already configured, update its command and environment in your AI app using the configuration below.")
             }
-            HStack {
-                L10n.button("Copy Configuration") { copyConfiguration() }.disabled(!ready)
-                L10n.button("Save Setup Script") { saveScript() }.disabled(!ready || client == .other)
-                L10n.button("Save LDA Skill") { saveSkill() }.disabled(client == .claudeDesktop || client == .other)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { setupActions }
+                VStack(alignment: .leading, spacing: 10) { setupActions }
             }
-            DisclosureGroup {
+            FullRowDisclosure {
                 Text(verbatim: (try? plan.configuration()) ?? "")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(CounselTheme.Typography.metadata.monospaced())
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } label: { L10n.text("View Configuration") }
@@ -68,18 +72,35 @@ public struct MCPSetupView: View {
             L10n.text("After setup, restart your AI app and check its MCP status. Ask LDA to attest to confirm the connection.")
             if client == .codex || client == .claudeCode {
                 Text(verbatim: "/LDA \"Workspace name\" Review these documents and summarize the risks.")
-                    .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                    .font(CounselTheme.Typography.supporting.monospaced()).textSelection(.enabled)
                 L10n.text("Choose LDA from the slash-command menu, or use $lda in Codex. The workspace name is an LDA Matter, separate from your Codex project. Choose documents locally and turn on the optional PII review if you want to add protection.")
             } else {
                 L10n.text("Ask your AI app to use LDA to prepare documents for your named workspace, then give your document instruction. Shortcut syntax depends on the app.")
             }
             L10n.text("Do not attach originals, mapping files or passwords to the AI chat. Any workspace name you type into chat is visible to that AI service.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(CounselTheme.Typography.supporting).foregroundStyle(.secondary)
             if let status {
                 Text(verbatim: status).foregroundStyle(failed ? CounselTheme.danger : CounselTheme.textSecondary)
             }
         }
+        .font(CounselTheme.Typography.readingBody)
+        .controlSize(.large)
+        .disclosureGroupStyle(FullRowDisclosureStyle())
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var setupActions: some View {
+        if client != .other {
+            L10n.button("Save Setup Script") { saveScript() }
+                .buttonStyle(.borderedProminent)
+                .tint(CounselTheme.inkAccentFill)
+                .disabled(!ready)
+        }
+        L10n.button("Copy Configuration") { copyConfiguration() }.disabled(!ready)
+        if client != .claudeDesktop, client != .other {
+            L10n.button("Save LDA Skill") { saveSkill() }.disabled(!ready)
+        }
     }
 
     private func chooseHelper() {
@@ -136,7 +157,7 @@ public struct CLISetupView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Use LDA from Terminal")
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .font(CounselTheme.Typography.sectionTitle.weight(.semibold))
             L10n.text("The CLI runs locally and supports detection, redaction, restoration, vault staging and audit verification.")
             if FileManager.default.isExecutableFile(atPath: helper.path) {
                 L10n.button("Save CLI Setup Script") {
@@ -147,13 +168,13 @@ public struct CLISetupView: View {
                     catch { status = L10n.string("Setup could not be saved. Choose a writable location and try again.") }
                 }
                 Text(verbatim: AIClientSetup.shellQuote(helper.path) + " --help")
-                    .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    .font(CounselTheme.Typography.metadata.monospaced()).textSelection(.enabled)
             } else {
                 L10n.text("This build has no bundled CLI helper. Use lda from an LDA release package.")
             }
             L10n.text("After installing the shortcut, run these commands in Terminal. If lda is not found, use ~/.local/bin/lda or add ~/.local/bin to PATH.")
             Text(verbatim: "lda --help\nlda detect --input '/path/to/document.docx'\nlda vault stage '/path/to/document.docx'\nlda vault list\nlda vault audit verify\nlda vault audit export '/path/to/unused-audit.json'")
-                .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                .font(CounselTheme.Typography.supporting.monospaced()).textSelection(.enabled)
             L10n.text("Use lda anonymize --help and lda restore --help for redaction and restoration options. Keep mappings and passphrases local.")
             L10n.text("CLI output can include original values and filenames. Do not paste it into an AI chat when working with confidential documents. Use MCP for the protected document workflow.")
                 .foregroundStyle(.secondary)

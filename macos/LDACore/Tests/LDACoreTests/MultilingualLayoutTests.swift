@@ -13,7 +13,7 @@ final class MultilingualLayoutTests: XCTestCase {
 
     @MainActor
     func testMainModePickerFitsItsProductionWidthInEveryLanguage() {
-        let productionWidth: CGFloat = 430
+        let productionWidth: CGFloat = 500
 
         for language in Self.interfaceLanguages {
             let intrinsicPicker = NSHostingView(
@@ -26,7 +26,7 @@ final class MultilingualLayoutTests: XCTestCase {
                 intrinsicSize.width,
                 productionWidth,
                 "The \(language.rawValue) mode labels need \(intrinsicSize.width) pt, "
-                    + "which would truncate inside the 430 pt toolbar picker."
+                    + "which would truncate inside the 500 pt toolbar picker."
             )
 
             let productionPicker = NSHostingView(
@@ -38,7 +38,7 @@ final class MultilingualLayoutTests: XCTestCase {
             XCTAssertEqual(productionSize.width, productionWidth, accuracy: 0.5)
             XCTAssertLessThanOrEqual(
                 productionSize.height,
-                20.5,
+                28.5,
                 "The \(language.rawValue) mode picker exceeds the native toolbar height."
             )
         }
@@ -269,16 +269,9 @@ final class MultilingualLayoutTests: XCTestCase {
 
 private struct ModePickerProbe: View {
     let language: AppLanguage
-    @State private var selection = "Anonymize"
-
     var body: some View {
-        Picker(L10n.string("Mode", language: language), selection: $selection) {
-            ForEach(["Matters", "Anonymize", "Restore", "Fill"], id: \.self) { key in
-                Text(verbatim: L10n.string(key, language: language)).tag(key)
-            }
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.small)
+        AppModePicker(selection: .constant(.anonymize), compact: false)
+            .environment(\.appLanguage, language)
     }
 }
 

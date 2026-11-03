@@ -20,13 +20,13 @@ public struct MCPWorkspacePicker: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             L10n.text("Choose a Matter for this document")
-                .font(.title2)
+                .font(CounselTheme.Typography.sectionTitle)
             L10n.text("New redacted and restored versions inherit this choice. Matter names stay on this Mac.")
                 .foregroundStyle(.secondary)
-            Text(request.handle).font(.caption.monospaced()).foregroundStyle(.secondary)
+            Text(request.handle).font(CounselTheme.Typography.metadata.monospaced()).foregroundStyle(.secondary)
             if let hint = request.workspaceHint {
                 L10n.text("Requested workspace: %@", hint as NSString)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
             }
             if failed {
                 L10n.text("Your Matters could not be unlocked. Cancel and unlock them in LDA, then try again.")

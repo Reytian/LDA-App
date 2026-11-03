@@ -46,11 +46,11 @@ struct UnlocatedValuesPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             L10n.text("Values still in the document")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("The AI found these values in the document but could not redact them in some places, usually because a letter or digit runs into them there. Protect redacts each one where it is written that way.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -88,13 +88,13 @@ struct UnlocatedValuesPopover: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: placement.value.value)
-                    .font(.system(.callout, design: .serif))
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
                 L10n.text(EntityTypePresentation.key(for: placement.value.type))
-                    .font(.caption)
+                    .font(CounselTheme.Typography.metadata)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
@@ -116,7 +116,7 @@ struct UnlocatedValuesPopover: View {
             } icon: {
                 Image(systemName: "checkmark.shield")
             }
-            .font(.caption)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize()
         case .exposed:
@@ -131,13 +131,13 @@ struct UnlocatedValuesPopover: View {
             .l10nAccessibilityLabel("Protect “%@”", placement.value.value)
         case .insideOtherWords:
             L10n.text("Inside other words")
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize()
                 .l10nHelp("LDA finds this value only inside longer words, so it leaves those words alone. If the value is a name there, select it in the document and use Protect.")
         case .writtenDifferently:
             L10n.text("Written differently")
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize()
                 .l10nHelp("The document writes this value differently. Select it there, one line at a time, then use Protect.")

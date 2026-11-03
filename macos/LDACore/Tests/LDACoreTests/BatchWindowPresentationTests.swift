@@ -43,6 +43,47 @@ final class BatchWindowPresentationTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFolderConflictExplainsTheStartGateAndClearsWhenCorrected() {
+        let model = BatchAnonymizeModel(modelPath: { nil }, style: .token)
+        XCTAssertFalse(model.hasFolderConflict)
+        XCTAssertFalse(model.canStart)
+
+        model.sourceFolder = URL(fileURLWithPath: "/tmp/batch-source")
+        XCTAssertFalse(model.hasFolderConflict)
+        model.outputFolder = URL(fileURLWithPath: "/tmp/batch-source/../batch-source")
+        XCTAssertTrue(model.hasFolderConflict)
+        XCTAssertFalse(model.canStart)
+
+        model.outputFolder = URL(fileURLWithPath: "/tmp/batch-output")
+        XCTAssertFalse(model.hasFolderConflict)
+        XCTAssertTrue(model.canStart)
+    }
+
+    @MainActor
+    func testPassphraseFeedbackFollowsTheGateAndRecoversWithoutLosingInput() {
+        let model = BatchAnonymizeModel(modelPath: { nil }, style: .token)
+        model.sourceFolder = URL(fileURLWithPath: "/tmp/batch-source")
+        model.outputFolder = URL(fileURLWithPath: "/tmp/batch-output")
+        model.keyMode = .passphrase
+        XCTAssertFalse(model.canStart)
+        XCTAssertEqual(model.passphraseValidationKey, "Type the passphrase twice under More options.")
+
+        model.passphrase = "audit-test-only"
+        model.passphraseConfirmation = "different-test-value"
+        XCTAssertFalse(model.canStart)
+        XCTAssertEqual(model.passphraseValidationKey, "The passphrases do not match. Check them under More options.")
+
+        model.passphraseConfirmation = model.passphrase
+        XCTAssertNil(model.passphraseValidationKey)
+        XCTAssertTrue(model.canStart)
+        model.passphraseConfirmation = ""
+        model.keyMode = .keychain
+        XCTAssertNil(model.passphraseValidationKey)
+        XCTAssertTrue(model.canStart)
+        XCTAssertEqual(model.passphrase, "audit-test-only")
+    }
+
     func testSummaryLeavesOutTheCountsThatAreZero() {
         let clean = report([item("a.txt", .done), item("b.txt", .done)])
         XCTAssertEqual(BatchAnonymizeModel.summary(for: clean, language: .english), "2 written")

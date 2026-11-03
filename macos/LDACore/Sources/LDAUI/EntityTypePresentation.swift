@@ -45,11 +45,11 @@ enum EntityTypePresentation {
     static func sourceLabel(for source: DetectionSource) -> String {
         switch source {
         case .deterministic:
-            return L10n.string("regex")
+            return L10n.string("Pattern match")
         case .llm:
-            return L10n.string("LLM")
+            return L10n.string("Local detection")
         case .manual:
-            return L10n.string("manual")
+            return L10n.string("Added by you")
         }
     }
 

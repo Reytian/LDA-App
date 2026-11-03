@@ -26,6 +26,11 @@ public struct SettingsView: View {
     @ObservedObject private var legalAcceptance: LegalAcceptanceStore
     /// True while a scan is running, which gates model removal.
     private let isScanning: Bool
+    private let guideCatalog = ModelCatalog.load()
+    @State private var showsSetupGuide = false
+    @State private var showsGuideModels = false
+    @State private var pendingGuideModels = false
+
 
     public init(
         patterns: CustomPatternStore,
@@ -44,40 +49,63 @@ public struct SettingsView: View {
     }
 
     public var body: some View {
-        TabView {
-            GeneralTab()
-                .tabItem { Label { L10n.text("General") } icon: { Image(systemName: "gearshape") } }
-            AITab(installer: installer, importer: importer, isScanning: isScanning)
-                .tabItem { Label { L10n.text("AI") } icon: { Image(systemName: "cpu") } }
-            VocabularyTab(store: patterns)
-                .tabItem { Label { L10n.text("Vocabulary") } icon: { Image(systemName: "text.book.closed") } }
-            LearnedTab(store: learning)
-                .tabItem { Label { L10n.text("Learned") } icon: { Image(systemName: "brain") } }
-            SharingTab(patterns: patterns, learning: learning)
-                .tabItem { Label { L10n.text("Sharing") } icon: { Image(systemName: "square.and.arrow.up.on.square") } }
-            ScrollView { MCPSetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
-                .tabItem { Label { L10n.text("MCP Setup") } icon: { Image(systemName: "point.3.connected.trianglepath.dotted") } }
-            ScrollView { CLISetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
-                .tabItem { Label { L10n.text("CLI Setup") } icon: { Image(systemName: "terminal") } }
-            ScrollView { TutorialGallery().padding(24) }
-                .tabItem { Label { L10n.text("Tutorials") } icon: { Image(systemName: "play.rectangle") } }
-            HistoryTab()
-                .tabItem { Label { L10n.text("History") } icon: { Image(systemName: "clock.arrow.circlepath") } }
-            LegalSettingsView(acceptance: legalAcceptance)
-                .tabItem { Label { L10n.text("Legal") } icon: { Image(systemName: "doc.text") } }
+        SettingsNavigation { section in
+            settingsPage(section)
         }
-        // Resizable, from the UI/UX audit on feat/lda-macos-core. Kept through
-        // the merge: the model ladder makes this panel taller, so a fixed
-        // 440pt height would clip the lowest rung.
-        .frame(
-            minWidth: 720,
-            idealWidth: 860,
-            maxWidth: .infinity,
-            minHeight: 440,
-            idealHeight: 540,
-            maxHeight: .infinity
-        )
+        .frame(minWidth: 820, idealWidth: 980, maxWidth: .infinity,
+               minHeight: 560, idealHeight: 680, maxHeight: .infinity)
         .background(CounselTheme.appSurface)
+        .sheet(isPresented: $showsSetupGuide, onDismiss: {
+            if pendingGuideModels {
+                pendingGuideModels = false
+                showsGuideModels = true
+            }
+        }) {
+            OnboardingView(isPresented: $showsSetupGuide,
+                hasModel: AISettings.hasAnyModelAvailable(catalog: guideCatalog),
+                installer: installer, catalog: guideCatalog,
+                canRunAModel: AISettings.canRunAnyModel(catalog: guideCatalog),
+                onOpenModelManagement: {
+                    pendingGuideModels = true
+                    showsSetupGuide = false
+                })
+        }
+        .sheet(isPresented: $showsGuideModels) {
+            ModelManagementView(installer: installer, importer: importer, isBusyElsewhere: isScanning)
+        }
+    }
+
+    @ViewBuilder
+    private func settingsPage(_ section: SettingsSection) -> some View {
+        switch section {
+        case .general:
+            ScrollView { GeneralTab() }
+        case .detection:
+            AITab(installer: installer, importer: importer, isScanning: isScanning)
+        case .vocabulary:
+            VocabularyTab(store: patterns)
+        case .learned:
+            LearnedTab(store: learning)
+        case .history:
+            HistoryTab()
+        case .tutorials:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    L10n.button("Open Setup Guide") { showsSetupGuide = true }
+                        .controlSize(.large)
+                    TutorialGallery()
+                }
+                .padding(24)
+            }
+        case .sharing:
+            SharingTab(patterns: patterns, learning: learning)
+        case .assistants:
+            ScrollView { MCPSetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+        case .commandLine:
+            ScrollView { CLISetupView().padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+        case .legal:
+            LegalSettingsView(acceptance: legalAcceptance)
+        }
     }
 }
 
@@ -93,10 +121,10 @@ private struct HistoryTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             L10n.text("Session history")
-                .font(.system(.headline, design: .serif))
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
             L10n.text("Each round-trip records what was protected and what was restored. Records never contain the sensitive values themselves and stay encrypted on this Mac.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -109,7 +137,7 @@ private struct HistoryTab: View {
                         L10n.text("No sessions recorded yet. Records appear after your first Export for AI.")
                     }
                 }
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 Spacer()
@@ -120,11 +148,11 @@ private struct HistoryTab: View {
                             Text(verbatim: SettingsHistoryPresentation.displayDate(
                                 record.createdAtISO8601
                             ))
-                                .font(.callout.weight(.semibold))
+                                .font(CounselTheme.Typography.supporting.weight(.semibold))
                                 .foregroundStyle(CounselTheme.textPrimary)
                             if let client = record.clientLabel {
                                 L10n.text("\u{00B7}  %@", client as NSString)
-                                    .font(.callout)
+                                    .font(CounselTheme.Typography.supporting)
                                     .foregroundStyle(CounselTheme.textSecondary)
                             }
                             Spacer()
@@ -132,7 +160,7 @@ private struct HistoryTab: View {
                                 delete(record)
                             } label: {
                                 Image(systemName: "trash")
-                                    .font(.caption)
+                                    .font(CounselTheme.Typography.metadata)
                             }
                             .buttonStyle(.borderless)
                             .l10nHelp("Delete this record")
@@ -213,6 +241,7 @@ private struct AITab: View {
 
     @State private var showLdaV2Notice = false
     @State private var showManageModels = false
+    @State private var showsAdvancedDetection = false
 
     private let catalog = ModelCatalog.load()
     private let installedGB = MemoryGate.installedGB()
@@ -242,48 +271,56 @@ private struct AITab: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
                     L10n.text("How hard should LDA look?")
-                        .font(.system(.headline, design: .serif))
+                        .font(CounselTheme.Typography.heading)
                         .foregroundStyle(CounselTheme.textPrimary)
                     L10n.text("Higher settings find more names, companies, and addresses, and take longer. Detection uses the selected model on this Mac.")
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if showLdaV2Notice { ldaV2Notice }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(DetectionLevel.detectionRungs(), id: \.rawValue) { rung in
-                        rungRow(rung)
-                    }
-                }
+                rungRow(.ldaV4)
 
-                if !customModelPath.isEmpty {
-                    Divider()
-                    customModelRow
-                }
-
-                Divider()
-
-                HStack(spacing: 12) {
-                    Button {
-                        showManageModels = true
-                    } label: {
-                        Label {
-                            L10n.text("Manage Models\u{2026}")
-                        } icon: {
-                            Image(systemName: "square.and.arrow.down")
+                FullRowDisclosure(isExpanded: $showsAdvancedDetection) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ForEach(DetectionLevel.detectionRungs().filter { $0 != .ldaV4 }, id: \.rawValue) { rung in
+                            rungRow(rung)
                         }
-                    }
-                    .l10nHelp("Download, remove, or choose a different detection model")
-
-                    if !customModelPath.isEmpty {
-                        L10n.button("Stop Using It") {
-                            AISettings.setCustomModel(url: nil)
-                            customModelPath = ""
+                        if !customModelPath.isEmpty {
+                            Divider()
+                            customModelRow
                         }
-                        .l10nHelp("Go back to the model for the selected setting")
+
+                        Divider()
+
+                        HStack(spacing: 12) {
+                            Button {
+                                showManageModels = true
+                            } label: {
+                                Label {
+                                    L10n.text("Manage Models\u{2026}")
+                                } icon: {
+                                    Image(systemName: "square.and.arrow.down")
+                                }
+                            }
+                            .l10nHelp("Download, remove, or choose a different detection model")
+
+                            if !customModelPath.isEmpty {
+                                L10n.button("Stop Using It") {
+                                    AISettings.setCustomModel(url: nil)
+                                    customModelPath = ""
+                                }
+                                .l10nHelp("Go back to the model for the selected setting")
+                            }
+                        }
+
                     }
+                    .padding(.top, 16)
+                } label: {
+                    L10n.text("More detection options")
+                        .font(CounselTheme.Typography.supporting)
                 }
 
                 Label {
@@ -311,7 +348,10 @@ private struct AITab: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .onAppear { migrateOnAppear() }
+        .onAppear {
+            migrateOnAppear()
+            if level != .ldaV4 || !customModelPath.isEmpty { showsAdvancedDetection = true }
+        }
         .sheet(isPresented: $showManageModels) {
             // Both arguments are required by design: a default would let a call
             // site silently reintroduce the dead-parameter bug this replaced.
@@ -366,17 +406,10 @@ private struct AITab: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         L10n.text(rung.displayName)
-                            .font(.body.weight(.medium))
+                            .font(CounselTheme.Typography.readingBody.weight(.medium))
                             .foregroundStyle(selectable ? CounselTheme.textPrimary : CounselTheme.textSecondary)
                         if rung == .ldaV4, selectable {
-                            if let size = ModelCatalog.ldaV4SizeDescription() {
-                                verbatimBadge(
-                                    String(format: L10n.string("Included · %@"), size as NSString),
-                                    tone: CounselTheme.textSecondary
-                                )
-                            } else {
-                                badge("Included", tone: CounselTheme.textSecondary)
-                            }
+                            badge("Included", tone: CounselTheme.textSecondary)
                         } else if tier != nil, installed {
                             badge("Installed", tone: CounselTheme.textSecondary)
                         } else if let tier {
@@ -428,7 +461,7 @@ private struct AITab: View {
     private var ldaV2Notice: some View {
         VStack(alignment: .leading, spacing: 8) {
             L10n.text("Your chosen model leaves some names in the document")
-                .font(.callout.weight(.semibold))
+                .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             // Where LDA V4 ships, Quick is not a detection level, so the
             // offer is LDA V4 (see DetectionLevel.detectionRungs).
@@ -482,12 +515,12 @@ private struct AITab: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 L10n.text("Custom model")
-                    .font(.body.weight(.medium))
+                    .font(CounselTheme.Typography.readingBody.weight(.medium))
                     .foregroundStyle(CounselTheme.textPrimary)
                 badge("In use", tone: CounselTheme.inkAccent)
             }
             Text(verbatim: (customModelPath as NSString).lastPathComponent)
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
             L10n.text("LDA cannot estimate speed or memory for a model it does not know. It overrides the setting above.")
                 .font(CounselTheme.Typography.supporting)
@@ -498,7 +531,7 @@ private struct AITab: View {
 
     private func badge(_ text: String, tone: Color) -> some View {
         L10n.text(text)
-            .font(.caption2)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(tone)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
@@ -507,7 +540,7 @@ private struct AITab: View {
 
     private func verbatimBadge(_ text: String, tone: Color) -> some View {
         Text(verbatim: text)
-            .font(.caption2)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(tone)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
@@ -529,10 +562,10 @@ private struct SharingTab: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 L10n.text("Share or move your setup")
-                    .font(.system(.headline, design: .serif))
+                    .font(CounselTheme.Typography.heading)
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("Export your custom vocabulary and learned terms to one file. Share it with your team or import it on another Mac. Importing merges into what you already have; nothing is overwritten or removed.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -566,7 +599,7 @@ private struct SharingTab: View {
 
             if let status {
                 Text(verbatim: status)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -646,7 +679,7 @@ private struct GeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Language")
-                .font(.system(.headline, design: .serif))
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Picker(selection: languageBinding) {
@@ -657,17 +690,18 @@ private struct GeneralTab: View {
                 L10n.text("Language")
             }
             .pickerStyle(.menu)
+            .labelsHidden()
             .frame(maxWidth: 320, alignment: .leading)
 
             L10n.text("Choose the language LDA uses for its interface. Follow System uses your Mac language.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
             L10n.text("Appearance")
-                .font(.system(.headline, design: .serif))
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Picker(selection: appearanceBinding) {
@@ -682,14 +716,14 @@ private struct GeneralTab: View {
             .frame(maxWidth: 320, alignment: .leading)
 
             L10n.text("System follows your Mac's light or dark setting. Choose Light or Dark to override it.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
             L10n.text("Output style")
-                .font(.system(.headline, design: .serif))
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             Picker(selection: outputStyleBinding) {
@@ -707,7 +741,7 @@ private struct GeneralTab: View {
                 Self.explanation(for: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token),
                 language: appLanguage
             ))
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -756,13 +790,9 @@ private struct GeneralTab: View {
                 + "but an external AI sometimes rewrites the braces, and a rewritten "
                 + "placeholder cannot be restored."
         case .pseudonym:
-            return "Protected values become natural stand-in names like Company A or 甲公司. "
-                + "AI tools treat them as names and leave them alone, so documents come back "
-                + "restorable even after heavy editing."
+            return "Protected values become readable stand-in names like Company A. Keep these names unchanged when editing or using AI so LDA can restore the originals."
         case .asterisk:
-            return "Protected values are masked in place, like 张*明 or 138****5678, the form "
-                + "courts and regulators expect. Best for sending to a person; if two values "
-                + "share one mask, that mask is reported instead of guessed at restore."
+            return "Protected values are partly hidden with asterisks, such as J*** or 212****1234. Some characters remain visible. If two values share one mask, LDA reports the conflict instead of guessing when restoring."
         }
     }
 }
@@ -776,10 +806,10 @@ private struct VocabularyTab: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 L10n.text("Always redact these")
-                    .font(.system(.headline, design: .serif))
+                    .font(CounselTheme.Typography.heading)
                     .foregroundStyle(CounselTheme.textPrimary)
-                L10n.text("Literal terms or regular expressions (for example a matter number M-\\d{5}). Useful for project codenames, client names, and internal labels.")
-                    .font(.callout)
+                L10n.text("Add names, project labels, or phrases that LDA should always hide. Advanced matching is optional.")
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -790,7 +820,11 @@ private struct VocabularyTab: View {
             } else {
                 List {
                     ForEach($store.patterns) { $pattern in
-                        PatternRow(pattern: $pattern)
+                        PatternRow(pattern: $pattern) {
+                            if let index = store.patterns.firstIndex(where: { $0.id == pattern.id }) {
+                                store.remove(atOffsets: IndexSet(integer: index))
+                            }
+                        }
                     }
                     .onDelete { store.remove(atOffsets: $0) }
                 }
@@ -809,7 +843,7 @@ private struct VocabularyTab: View {
                     .tint(CounselTheme.inkAccentFill)
                 Spacer()
                 L10n.text("%lld active", Int64(store.activePatterns.count))
-                    .font(.caption.monospacedDigit())
+                    .font(CounselTheme.Typography.metadata.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             .padding(16)
@@ -821,60 +855,47 @@ private struct VocabularyTab: View {
 
 /// One editable vocabulary row: the term, a regex toggle, its token type, and a
 /// case toggle. A failing regex is flagged.
-private struct PatternRow: View {
+struct PatternRow: View {
     @Environment(\.appLanguage) private var appLanguage
-
     @Binding var pattern: CustomPattern
-
-    private static let assignableTypes: [EntityType] = AssignableEntityTypes.vocabulary
+    var onDelete: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 8) {
-            Group {
-                if pattern.isRegex {
-                    TextField(L10n.string("Regular expression", language: appLanguage), text: $pattern.text)
-                } else {
-                    TextField(L10n.string("Term to redact", language: appLanguage), text: $pattern.text)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                L10n.textField(pattern.isRegex ? "Regular expression" : "Term to redact", text: $pattern.text)
+                    .textFieldStyle(.roundedBorder)
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .l10nAccessibilityLabel("Remove term")
+                .l10nHelp("Remove term")
             }
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 170)
-                .overlay(alignment: .trailing) {
-                    if pattern.isInvalidRegex {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(CounselTheme.danger)
-                            .l10nHelp("Invalid regular expression")
-                            .accessibilityLabel(Text(verbatim: L10n.string("Invalid regular expression", language: appLanguage)))
-                            .padding(.trailing, 6)
-                    }
-                }
-
-            Toggle(isOn: $pattern.isRegex) {
-                Text(verbatim: ".*")
-            }
-                .toggleStyle(.button)
-                .l10nHelp("Treat the term as a regular expression")
-                .accessibilityLabel(Text(verbatim: L10n.string("Regular expression", language: appLanguage)))
-
-            Picker(selection: $pattern.type) {
-                ForEach(Self.assignableTypes, id: \.self) {
+            L10n.picker("Token type", selection: $pattern.type) {
+                ForEach(AssignableEntityTypes.vocabulary, id: \.self) {
                     Text(verbatim: EntityTypePresentation.localizedName(for: $0, language: appLanguage)).tag($0)
                 }
-            } label: {
-                EmptyView()
             }
-            .labelsHidden()
-            .frame(width: 140)
-            .accessibilityLabel(Text(verbatim: L10n.string("Token type", language: appLanguage)))
-
-            Toggle(isOn: $pattern.caseSensitive) {
-                Text(verbatim: "Aa")
+            .frame(maxWidth: 320, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) { matchingOptions }
+            if pattern.isInvalidRegex {
+                L10n.label("Invalid regular expression", systemImage: "exclamationmark.triangle.fill")
+                    .font(CounselTheme.Typography.supporting)
+                    .foregroundStyle(CounselTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-                .toggleStyle(.button)
-                .l10nHelp("Match letter case exactly")
-                .accessibilityLabel(Text(verbatim: L10n.string("Case sensitive", language: appLanguage)))
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder private var matchingOptions: some View {
+        L10n.toggle("Use a pattern", isOn: $pattern.isRegex)
+            .l10nHelp("Treat the term as a regular expression")
+        L10n.toggle("Match case", isOn: $pattern.caseSensitive)
+            .l10nHelp("Match letter case exactly")
     }
 }
 
@@ -887,10 +908,10 @@ private struct LearnedTab: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 L10n.text("What LDA has learned")
-                    .font(.system(.headline, design: .serif))
+                    .font(CounselTheme.Typography.heading)
                     .foregroundStyle(CounselTheme.textPrimary)
                 L10n.text("LDA remembers what you accept and reject. Accepted names get auto-redacted next time; rejected ones stop appearing. Forget any entry to undo it.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -938,7 +959,7 @@ private struct LearnedRow: View {
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: term.value)
-                    .font(.system(.callout, design: .serif))
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(1)
                 Text(verbatim: String(
@@ -947,7 +968,7 @@ private struct LearnedRow: View {
                     Int64(term.acceptCount),
                     Int64(term.rejectCount)
                 ))
-                    .font(.caption2.monospacedDigit())
+                    .font(CounselTheme.Typography.metadata.monospacedDigit())
                     .foregroundStyle(CounselTheme.textSecondary)
             }
             Spacer(minLength: 8)
@@ -979,7 +1000,7 @@ private struct LearnedRow: View {
 
     private func badge(_ text: String, _ color: Color) -> some View {
         L10n.text(text)
-            .font(.caption2.weight(.medium))
+            .font(CounselTheme.Typography.metadata.weight(.medium))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
@@ -996,7 +1017,7 @@ private func placeholder(_ text: String, systemImage: String) -> some View {
             .font(.system(size: 28, weight: .light))
             .foregroundStyle(CounselTheme.textSecondary)
         L10n.text(text)
-            .font(.callout)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textSecondary)
             .multilineTextAlignment(.center)
     }

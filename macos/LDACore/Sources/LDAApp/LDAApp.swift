@@ -128,6 +128,14 @@ struct LDAApp: App {
 
     @State private var mcpWorkspaceRequest: MCPWorkspaceRequest?
 
+    private var minimumWindowSize: CGSize {
+        MainWindowLayout.minimumSize(
+            mode: modeStore.activeMode,
+            hasDocuments: !sessionModel.entries.isEmpty,
+            needsLegalConsent: !legalAcceptance.hasAcceptedCurrentDocuments
+        )
+    }
+
     var body: some Scene {
         Window("LDA", id: LDAWindowID.main) {
             Group {
@@ -143,7 +151,8 @@ struct LDAApp: App {
                     LegalConsentView(acceptance: legalAcceptance)
                 }
             }
-                .frame(minWidth: 1100, minHeight: 720)
+                .frame(minWidth: minimumWindowSize.width, minHeight: minimumWindowSize.height)
+                .font(CounselTheme.Typography.readingBody)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
                 .environment(\.appLanguage, appLanguage)
@@ -230,6 +239,8 @@ struct LDAApp: App {
                     SecurityEventLog.shared.flush()
                 }
         }
+
+        .windowToolbarStyle(.unified)
 
         .commands {
             // File > Open. This is audit item F2's real closure: the document
@@ -389,10 +400,12 @@ struct LDAApp: App {
                     LegalConsentView(acceptance: legalAcceptance)
                 }
             }
+                .font(CounselTheme.Typography.readingBody)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
                 .environment(\.appLanguage, appLanguage)
         }
+        .windowToolbarStyle(.unifiedCompact)
 
         // Batch anonymization: a folder in, one redacted copy and mapping per
         // document out, no review (BatchAnonymizeView). Gated on the same
@@ -406,6 +419,7 @@ struct LDAApp: App {
                     LegalConsentView(acceptance: legalAcceptance)
                 }
             }
+                .font(CounselTheme.Typography.readingBody)
                 .preferredColorScheme(colorScheme)
                 .environment(\.locale, appLocale)
                 .environment(\.appLanguage, appLanguage)

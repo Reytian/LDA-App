@@ -77,7 +77,7 @@ struct AppShellStatusBanner: View {
                     .tint(CounselTheme.inkAccent)
                     .frame(maxWidth: 300)
                 Text(verbatim: detectingLabel)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .monospacedDigit()
                     .foregroundStyle(CounselTheme.textSecondary)
                 Spacer(minLength: 0)
@@ -89,7 +89,7 @@ struct AppShellStatusBanner: View {
                     } icon: {
                         Image(systemName: "stop.circle")
                     }
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -106,7 +106,7 @@ struct AppShellStatusBanner: View {
                         .controlSize(.small)
                 }
                 Text(verbatim: text)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(bannerIsError
                         ? CounselTheme.danger
                         : CounselTheme.textSecondary)
@@ -131,7 +131,7 @@ struct AppShellStatusBanner: View {
                 // nagging about a save the user has not reached for yet.
                 if let notice = saveBlockNotice {
                     L10n.text("\u{00B7}  %@", notice as NSString)
-                        .font(.callout)
+                        .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                         .lineLimit(2)
                         .help(notice)
@@ -225,12 +225,12 @@ struct AppShellStatusBanner: View {
             Image(systemName: "checkmark.seal")
                 .foregroundStyle(CounselTheme.inkAccent)
             L10n.text("%lld to redact", model.totalRedactedCount)
-                .font(.callout).monospacedDigit()
+                .font(CounselTheme.Typography.supporting).monospacedDigit()
                 .foregroundStyle(CounselTheme.textPrimary)
 
             if model.visibleCount > 0 {
                 L10n.text("\u{00B7}  %lld will remain visible", model.visibleCount)
-                    .font(.callout).monospacedDigit()
+                    .font(CounselTheme.Typography.supporting).monospacedDigit()
                     .foregroundStyle(CounselTheme.danger)
             }
 
@@ -240,7 +240,7 @@ struct AppShellStatusBanner: View {
 
             if let warning = model.aiWarning {
                 L10n.text("\u{00B7}  %@", warning as NSString)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .lineLimit(1)
                     .help(warning)
@@ -253,13 +253,13 @@ struct AppShellStatusBanner: View {
 
             if let note = model.learningNote {
                 L10n.text("\u{00B7}  %@", note as NSString)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             }
 
             if let note = model.precedentNote {
                 L10n.text("\u{00B7}  %@", note as NSString)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(1)
                     .help(note)
@@ -273,7 +273,7 @@ struct AppShellStatusBanner: View {
 
             if let exportMessage {
                 Text(verbatim: exportMessage)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -306,12 +306,12 @@ struct AppShellStatusBanner: View {
         }
         if headline.isWarning {
             label
-                .font(.callout.weight(.semibold))
+                .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.danger)
                 .help(model.aiWarning ?? "")
         } else {
             label
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .l10nHelp("Emails, phones, dates, amounts, and ID numbers were detected. Names, companies, and addresses were not, because this detection level does not run the AI model.")
         }
@@ -337,7 +337,7 @@ struct AppShellStatusBanner: View {
             } icon: {
                 Image(systemName: model.allUnlocatedValuesProtected ? "checkmark.shield" : "list.bullet.rectangle")
             }
-            .font(.callout)
+            .font(CounselTheme.Typography.supporting)
         }
         .buttonStyle(.borderless)
         .foregroundStyle(CounselTheme.inkAccent)
@@ -363,7 +363,7 @@ struct AppShellStatusBanner: View {
             L10n.text(ImageExportPresentation.sealCandidateToggleTitle)
         }
         .toggleStyle(.checkbox)
-        .font(.callout)
+        .font(CounselTheme.Typography.supporting)
         .foregroundStyle(CounselTheme.textSecondary)
         .l10nHelp(ImageExportPresentation.sealCandidateToggleHelp)
     }
@@ -398,7 +398,7 @@ struct AppShellStatusBanner: View {
                 Image(systemName: "lock.laptopcomputer")
             }
             .labelStyle(.titleAndIcon)
-            .font(.caption)
+            .font(CounselTheme.Typography.metadata)
             .foregroundStyle(CounselTheme.textSecondary)
             .l10nHelp("Detection and redaction run on this Mac. A detection-model download uses a network connection while it runs.")
             .accessibilityLabel(Text(verbatim: L10n.string("On-device detection and redaction")))

@@ -97,9 +97,23 @@ final class BatchAnonymizeModel: ObservableObject {
         keyMode == .keychain || (!passphrase.isEmpty && passphrase == passphraseConfirmation)
     }
 
+    /// The visible error and the Start gate use the same folder comparison.
+    var hasFolderConflict: Bool {
+        guard let sourceFolder, let outputFolder else { return false }
+        return sourceFolder.standardizedFileURL == outputFolder.standardizedFileURL
+    }
+
+    var passphraseValidationKey: String? {
+        guard !passphraseIsUsable else { return nil }
+        if passphrase.isEmpty || passphraseConfirmation.isEmpty {
+            return "Type the passphrase twice under More options."
+        }
+        return "The passphrases do not match. Check them under More options."
+    }
+
     var canStart: Bool {
-        guard !isRunning, let sourceFolder, let outputFolder else { return false }
-        return sourceFolder.standardizedFileURL != outputFolder.standardizedFileURL && passphraseIsUsable
+        !isRunning && sourceFolder != nil && outputFolder != nil
+            && !hasFolderConflict && passphraseIsUsable
     }
 
     // MARK: Folders
@@ -354,7 +368,8 @@ public struct BatchAnonymizeView: View {
     public init() {}
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
             if handoff.pending != nil {
                 Label {
                     L10n.text("Your AI assistant asked LDA to open this window. When the batch ends, it receives only counts, never file names or document text.")
@@ -362,7 +377,7 @@ public struct BatchAnonymizeView: View {
                 } icon: {
                     Image(systemName: "sparkles")
                 }
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
@@ -370,14 +385,29 @@ public struct BatchAnonymizeView: View {
             L10n.text("Anonymize every document in a folder. No review step.")
                 .fixedSize(horizontal: false, vertical: true)
             folders
+            if model.hasFolderConflict {
+                validationNotice("Choose an output folder different from the source folder.")
+            }
             options
             controls
             outcome
         }
-        .padding(20)
+        .padding(24)
+        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(CounselTheme.Typography.readingBody)
+        .background(CounselTheme.paper)
         // Fill the window and start at its top: a window restored at a
         // larger size otherwise floats the short content in its middle.
         .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: model.hasFolderConflict) { _, conflicts in
+            if conflicts {
+                AccessibilityNotification.Announcement(L10n.string(
+                    "Choose an output folder different from the source folder.", language: language
+                )).post()
+            }
+        }
         .onDisappear { handoff.windowClosed() }
     }
 
@@ -386,13 +416,21 @@ public struct BatchAnonymizeView: View {
             GridRow {
                 L10n.text("From")
                 folderName(model.sourceFolder)
-                L10n.button("Choose…") { model.chooseSourceFolder() }
+                Button { model.chooseSourceFolder() } label: {
+                    L10n.text("Choose…").font(CounselTheme.Typography.supporting.weight(.medium))
+                }
+                    .l10nAccessibilityLabel("Choose source folder")
+                    .accessibilityValue(model.sourceFolder?.path ?? L10n.string("No folder chosen", language: language))
                     .disabled(model.isRunning)
             }
             GridRow {
                 L10n.text("To")
                 folderName(model.outputFolder)
-                L10n.button("Choose…") { model.chooseOutputFolder() }
+                Button { model.chooseOutputFolder() } label: {
+                    L10n.text("Choose…").font(CounselTheme.Typography.supporting.weight(.medium))
+                }
+                    .l10nAccessibilityLabel("Choose output folder")
+                    .accessibilityValue(model.outputFolder?.path ?? L10n.string("No folder chosen", language: language))
                     .disabled(model.isRunning)
             }
         }
@@ -415,51 +453,43 @@ public struct BatchAnonymizeView: View {
     }
 
     private var options: some View {
-        DisclosureGroup(isExpanded: $showsOptions) {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
-                GridRow {
+        FullRowDisclosure(isExpanded: $showsOptions) {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
                     L10n.text("Output style")
+                        .font(CounselTheme.Typography.heading)
                     Picker(selection: $model.style) {
                         ForEach(SubstitutionStyle.allCases, id: \.self) { style in
-                            Text(verbatim: L10n.string(BatchAnonymizeModel.styleLabel(style), language: language))
-                                .tag(style)
+                            Text(verbatim: L10n.string(BatchAnonymizeModel.styleLabel(style), language: language)).tag(style)
                         }
-                    } label: {
-                        EmptyView()
-                    }
+                    } label: { L10n.text("Output style") }
                     .labelsHidden()
-                    .fixedSize()
                 }
-                GridRow {
+                VStack(alignment: .leading, spacing: 10) {
                     L10n.text("Mapping keys")
+                        .font(CounselTheme.Typography.heading)
                     Picker(selection: $model.keyMode) {
                         Text(verbatim: L10n.string("Keychain on this Mac", language: language))
                             .tag(BatchAnonymizeModel.KeyMode.keychain)
                         Text(verbatim: L10n.string("One passphrase for every mapping", language: language))
                             .tag(BatchAnonymizeModel.KeyMode.passphrase)
-                    } label: {
-                        EmptyView()
-                    }
+                    } label: { L10n.text("Mapping keys") }
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
-                }
-                if model.keyMode == .passphrase {
-                    GridRow {
-                        Color.clear.frame(width: 1, height: 1)
-                        VStack(alignment: .leading, spacing: 6) {
+                    if model.keyMode == .passphrase {
+                        VStack(alignment: .leading, spacing: 10) {
                             L10n.secureField("Passphrase", text: $model.passphrase)
                             L10n.secureField("Type the passphrase again", text: $model.passphraseConfirmation)
                         }
-                        .frame(maxWidth: 320)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 400)
                     }
                 }
-                GridRow {
-                    Color.clear.frame(width: 1, height: 1)
-                    L10n.toggle("Redo documents finished earlier", isOn: $model.redoFinished)
-                }
+                L10n.toggle("Redo documents finished earlier", isOn: $model.redoFinished)
             }
+            .controlSize(.large)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 8)
+            .padding(.top, 16)
             .disabled(model.isRunning)
         } label: {
             L10n.text("More options")
@@ -467,23 +497,34 @@ public struct BatchAnonymizeView: View {
     }
 
     private var controls: some View {
-        HStack {
-            // A passphrase chosen and then folded away is the one reason
-            // Start can be off with both folders chosen.
-            if !showsOptions, !model.passphraseIsUsable {
-                L10n.text("Type the passphrase twice under More options.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline) {
+            if let key = model.passphraseValidationKey {
+                validationNotice(key)
             }
             Spacer()
             if model.isRunning {
-                L10n.button("Stop") { model.stop() }
+                Button { model.stop() } label: {
+                    L10n.text("Stop").font(CounselTheme.Typography.supporting.weight(.medium))
+                }
             } else {
-                L10n.button("Start") { model.start() }
+                Button { model.start() } label: {
+                    L10n.text("Start").font(CounselTheme.Typography.supporting.weight(.medium))
+                }
+                    .buttonStyle(.borderedProminent)
+                    .tint(CounselTheme.inkAccentFill)
+                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.canStart)
             }
         }
+    }
+
+    private func validationNotice(_ key: String) -> some View {
+        L10n.label(key, systemImage: "exclamationmark.circle")
+            .font(CounselTheme.Typography.supporting)
+            .foregroundStyle(CounselTheme.danger)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -493,7 +534,7 @@ public struct BatchAnonymizeView: View {
                 ProgressView(value: Double(model.completed), total: Double(max(model.total, 1)))
                 if let current = model.currentSource {
                     L10n.text("Document %lld of %lld: %@", Int64(model.completed + 1), Int64(model.total), current)
-                        .font(.caption)
+                        .font(CounselTheme.Typography.metadata)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -508,7 +549,7 @@ public struct BatchAnonymizeView: View {
             }
             if report.autoProtectedValueCount > 0 {
                 L10n.text("Values protected automatically: %lld", Int64(report.autoProtectedValueCount))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(.secondary)
             }
             if report.cancelled {
@@ -536,7 +577,7 @@ public struct BatchAnonymizeView: View {
                                 Text(verbatim: problem.source)
                                 ForEach(problem.lines, id: \.self) { line in
                                     Text(verbatim: line)
-                                        .font(.caption)
+                                        .font(CounselTheme.Typography.metadata)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }

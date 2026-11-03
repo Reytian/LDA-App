@@ -27,11 +27,11 @@ struct DocumentTrayRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text")
-                .font(.caption)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(isSelected ? CounselTheme.inkAccent : CounselTheme.textSecondary)
 
             Text(verbatim: name)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -65,7 +65,7 @@ struct DocumentTrayRow: View {
             // The whole document's coverage, headers and footers included,
             // so the tray chip and the review banner say the same thing.
             L10n.text("%lld", model.totalRedactedCount)
-                .font(.caption2.monospacedDigit())
+                .font(CounselTheme.Typography.metadata.monospacedDigit())
                 .foregroundStyle(CounselTheme.textSecondary)
                 .help(String(
                     format: L10n.string("%lld values will be protected"),
@@ -73,11 +73,11 @@ struct DocumentTrayRow: View {
                 ))
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.danger)
         case .idle, .imported:
             Image(systemName: "circle.dotted")
-                .font(.caption2)
+                .font(CounselTheme.Typography.metadata)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .l10nHelp("Not anonymized yet")
         }
@@ -167,21 +167,21 @@ struct AddTermPopover: View {
         VStack(alignment: .leading, spacing: 12) {
             if let selection {
                 Text(verbatim: ProtectSelectionPresentation.chooserTitle(value: selection, variant: variant))
-                    .font(.headline)
+                    .font(CounselTheme.Typography.heading)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .lineLimit(2)
                     .truncationMode(.middle)
 
                 Text(verbatim: ProtectSelectionPresentation.chooserSubtitle(occurrences: occurrences))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
             } else {
                 L10n.text("Protect a missed item")
-                    .font(.headline)
+                    .font(CounselTheme.Typography.heading)
                     .foregroundStyle(CounselTheme.textPrimary)
 
                 L10n.text("Type the exact text as it appears in the document. Every occurrence will be redacted.")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -190,14 +190,14 @@ struct AddTermPopover: View {
             }
 
             L10n.text("Kind")
-                .font(.caption.weight(.semibold))
+                .font(CounselTheme.Typography.metadata.weight(.semibold))
                 .foregroundStyle(CounselTheme.textSecondary)
 
             kindGrid
 
             if let feedback {
                 Text(verbatim: feedback)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -218,7 +218,8 @@ struct AddTermPopover: View {
             }
         }
         .padding(16)
-        .frame(width: 340)
+        .frame(width: 420)
+        .controlSize(.large)
     }
 
     /// Two columns of kinds, each with its hue dot; the selected one is marked.
@@ -257,7 +258,7 @@ struct AddTermPopover: View {
                 .frame(width: 8, height: 8)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
             L10n.text(EntityTypePresentation.key(for: kind))
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)

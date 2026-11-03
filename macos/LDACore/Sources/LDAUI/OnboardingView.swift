@@ -2,13 +2,14 @@
 //  OnboardingView.swift
 //  LDAUI
 //
-//  First-run pages: language, the model ask, the document workflow, and
-//  optional AI client setup. Dismissing leaves the user at the drop zone.
+//  First-run pages: language, the document workflow, and optional AI setup.
+//  Installs without a usable detection model also show the model choice.
+//  Dismissing leaves the user at the document intake screen.
 //
 //  Language is page 1 because a lawyer who reads Chinese must be able to read
 //  every page that follows it, including the ask. The model page exists
 //  because the app cannot find people's names or company names without a
-//  detection model, and no model ships inside the app. It is a CHOICE among
+//  detection model. Current releases include LDA V4. It is a CHOICE among
 //  four routes (three rungs, an import, or defer), not a consent ritual:
 //  there is no acknowledgement checkbox, because a tick box before a lawyer's
 //  first document buys a defensible log entry rather than an informed
@@ -55,8 +56,8 @@ public struct OnboardingView: View {
     /// Whether THIS MAC has any detection model: a tier installed in the app
     /// container, one inside the app bundle, or a custom model that resolves.
     ///
-    /// No model ships inside the app, so false is the ordinary state of a fresh
-    /// install rather than a packaging accident. It asks about the machine, not
+    /// Current releases include LDA V4, so the model ask is a fallback for
+    /// installations without a usable model. It asks about the machine, not
     /// about the selected rung: someone who deliberately chose Patterns only
     /// and has a model installed must not be told to add one.
     let hasModel: Bool
@@ -120,39 +121,22 @@ public struct OnboardingView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if let chip = OnboardingPresentation.stepChip(
-                    position: OnboardingPresentation.position(of: page, mode: mode, hasModel: hasModel),
-                    count: OnboardingPresentation.pageCount(mode: mode, hasModel: hasModel),
-                    language: currentLanguage
-                ) {
-                    Text(verbatim: chip)
-                        .font(CounselTheme.Typography.supporting)
-                        .foregroundStyle(CounselTheme.textSecondary)
-                }
-
-                switch page {
-                case .language: languagePage
-                case .model: modelAskPage
-                case .steps: stepsPage
-                case .integrations: integrationPage
-                }
+        OnboardingPageLayout(pageID: page) {
+            switch page {
+            case .language: languagePage
+            case .model: modelAskPage
+            case .steps: stepsPage
+            case .integrations: integrationPage
             }
-            .padding(28)
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity)
+        } footer: {
+            navigationFooter
         }
-        .frame(
-            minWidth: 520,
-            idealWidth: 620,
-            minHeight: 500,
-            idealHeight: 620
-        )
-        .background(CounselTheme.raised)
-        // No exit that is not an answer, except on the Mac that has nothing to
-        // answer: there every page is (or leads only to) a statement, so
-        // Escape is the same as working through to its single Continue.
+        // macOS otherwise presents the sheet at its minimum size. Keep a
+        // comfortable initial reading width; the content scrolls independently.
+        .frame(width: 680, height: 640)
+        .font(CounselTheme.Typography.readingBody)
+        .controlSize(.large)
+        .environment(\.appLanguage, currentLanguage)
         .interactiveDismissDisabled(page != .steps && page != .integrations && route != .unavailable)
     }
 
@@ -166,10 +150,10 @@ public struct OnboardingView: View {
     private var languagePage: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text(verbatim: OnboardingPresentation.languageStepTitle(language: currentLanguage))
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .font(CounselTheme.Typography.pageTitle)
                 .foregroundStyle(CounselTheme.textPrimary)
             Text(verbatim: OnboardingPresentation.languageStepExplanation(language: currentLanguage))
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -179,17 +163,6 @@ public struct OnboardingView: View {
                 }
             }
 
-            HStack {
-                Spacer()
-                Button {
-                    advance()
-                } label: {
-                    Text(verbatim: L10n.string("Continue", language: currentLanguage))
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
         }
     }
 
@@ -201,13 +174,19 @@ public struct OnboardingView: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(isSelected ? CounselTheme.inkAccent : CounselTheme.textSecondary)
+                    .accessibilityHidden(true)
                 Text(verbatim: language.nativeName(language: currentLanguage))
                     .foregroundStyle(CounselTheme.textPrimary)
                 Spacer()
             }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(isSelected ? CounselTheme.inkAccent.opacity(0.08) : .clear,
+                        in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     // MARK: - Page 2: the model ask
@@ -277,20 +256,29 @@ public struct OnboardingView: View {
         Label {
             VStack(alignment: .leading, spacing: 10) {
                 Text(verbatim: L10n.string(ModelSetupPresentation.askTitleKey(route: route), language: currentLanguage))
-                    .font(.system(.title2, design: .serif).weight(.semibold))
+                    .font(CounselTheme.Typography.pageTitle)
                     .foregroundStyle(CounselTheme.textPrimary)
 
                 Text(verbatim: ModelSetupPresentation.askBody(route: route, language: currentLanguage).first ?? "")
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if route == .unavailable {
-                    unavailableActions
+                    if let tier = quickTier {
+                        Text(verbatim: MemoryGate.localizedRequirementText(for: tier, language: currentLanguage))
+                            .font(CounselTheme.Typography.supporting)
+                            .foregroundStyle(CounselTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     optionsList
-                    askActions
+                    if isBusy { progressLine }
                     footnotes
+                    Text(verbatim: ModelSetupPresentation.deferConsequenceLine(language: currentLanguage))
+                        .font(CounselTheme.Typography.supporting)
+                        .foregroundStyle(CounselTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         } icon: {
@@ -311,12 +299,12 @@ public struct OnboardingView: View {
             ForEach(selectableLevels, id: \.rawValue) { level in
                 rungRow(level)
             }
-            DisclosureGroup {
+            FullRowDisclosure {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(selectableLevels, id: \.rawValue) { level in
                         if let tier = catalog.tier(for: level) {
                             VStack(alignment: .leading, spacing: 4) {
-                                L10n.text(level.displayName).font(.callout.weight(.medium))
+                                L10n.text(level.displayName).font(CounselTheme.Typography.supporting.weight(.medium))
                                 Text(verbatim: ModelAnnotation.localizedFacts(
                                     for: tier, bundled: false, language: currentLanguage
                                 ))
@@ -368,11 +356,11 @@ public struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         L10n.text(level.displayName)
-                            .font(.body.weight(.medium))
+                            .font(CounselTheme.Typography.readingBody.weight(.medium))
                             .foregroundStyle(CounselTheme.textPrimary)
                         if isRecommended {
                             Text(verbatim: ModelSetupPresentation.recommendedBadge(language: currentLanguage))
-                                .font(.caption2.weight(.medium))
+                                .font(CounselTheme.Typography.metadata.weight(.medium))
                                 .foregroundStyle(CounselTheme.inkAccent)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
@@ -430,12 +418,13 @@ public struct OnboardingView: View {
         .disabled(isBusy)
     }
 
-    /// The primary action, then the defer link with its one consequence line.
-    /// The fix is first and owns the default action, so Return spends
-    /// bandwidth rather than confidentiality.
+    /// The model action owns Return. Deferring remains a separate explicit
+    /// answer, with its consequences in the scrollable content above.
     @ViewBuilder
     private var askActions: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 12) {
+            L10n.button("Not Now") { decline() }
+                .buttonStyle(.bordered)
             switch phase {
             case .waiting, .cancelled:
                 if route == .download {
@@ -466,17 +455,9 @@ public struct OnboardingView: View {
                     .tint(CounselTheme.inkAccentFill)
                 }
             default:
-                progressLine
+                continueButton
             }
 
-            HStack(spacing: 8) {
-                L10n.button("Not Now") { decline() }
-                    .buttonStyle(.link)
-                Text(verbatim: ModelSetupPresentation.deferConsequenceLine(language: currentLanguage))
-                    .font(CounselTheme.Typography.supporting)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -486,12 +467,6 @@ public struct OnboardingView: View {
     @ViewBuilder
     private var unavailableActions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let tier = quickTier {
-                Text(verbatim: MemoryGate.localizedRequirementText(for: tier, language: currentLanguage))
-                    .font(CounselTheme.Typography.supporting)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             Button {
                 AISettings.recordModelSetupAnswer(.unavailable)
                 advance()
@@ -531,7 +506,7 @@ public struct OnboardingView: View {
             switch phase {
             case let .downloading(fraction, received, expected):
                 Text(verbatim: ModelSetupPresentation.modelDownloadingLine(language: currentLanguage))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ProgressView(value: fraction)
@@ -550,7 +525,6 @@ public struct OnboardingView: View {
                     Spacer()
                     L10n.button("Cancel") { cancelDownload() }
                 }
-                continueButton
             case .verifying:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -558,7 +532,6 @@ public struct OnboardingView: View {
                         .font(CounselTheme.Typography.supporting)
                         .foregroundStyle(CounselTheme.textSecondary)
                 }
-                continueButton
             case let .failed(error):
                 Text(verbatim: error.localizedMessage())
                     .font(CounselTheme.Typography.supporting)
@@ -570,13 +543,11 @@ public struct OnboardingView: View {
                     }
                     L10n.button("Manage Models\u{2026}") { openModelManagement() }
                 }
-                continueButton
             case .installed:
                 Text(verbatim: ModelSetupPresentation.modelInstalledLine(language: currentLanguage))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                continueButton
             case .waiting, .cancelled:
                 EmptyView()
             }
@@ -598,115 +569,48 @@ public struct OnboardingView: View {
     // MARK: - Page 3: what the app does
 
     private var stepsPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            TutorialGallery()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: OnboardingPresentation.stepsTitle(language: currentLanguage))
-                    .font(.system(.title2, design: .serif).weight(.semibold))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                Text(verbatim: OnboardingPresentation.stepsLede(language: currentLanguage))
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
-
-            VStack(alignment: .leading, spacing: 14) {
-                step(
-                    number: "1",
-                    icon: "tray.and.arrow.down",
-                    title: OnboardingPresentation.step1Title(language: currentLanguage),
-                    // Without a model the shipped sentence promises names
-                    // three lines below the block that says they are not
-                    // found. Which kinds of value a scan can find is exactly
-                    // what the model page above decides.
-                    text: OnboardingPresentation.step1Text(hasModel: hasModel, language: currentLanguage)
-                )
-                step(
-                    number: "2",
-                    icon: "doc.richtext",
-                    title: OnboardingPresentation.step2Title(language: currentLanguage),
-                    text: OnboardingPresentation.step2Text(language: currentLanguage)
-                )
-                step(
-                    number: "3",
-                    icon: "doc.badge.arrow.up",
-                    title: OnboardingPresentation.step3Title(language: currentLanguage),
-                    text: OnboardingPresentation.step3Text(language: currentLanguage)
-                )
-            }
-
-            Divider()
-
-            // The privacy summary distinguishes LDA's own processing from the
-            // external services a user may choose for an exported document.
-            Label {
-                Text(verbatim: OnboardingPresentation.privacyParagraph(language: currentLanguage))
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "lock.laptopcomputer")
-                    .foregroundStyle(CounselTheme.inkAccent)
-            }
-
-            // The cautions, visually separate from the promise and with their
-            // own icon.
-            //
-            // The clipboard sentence is scoped to the MENU-BAR companion on
-            // purpose. It is the only path in the app that puts real values on
-            // the clipboard; Restore's own file flow writes a file and never
-            // touches it. An unscoped version told every user that
-            // the flow this sheet just taught them produces something that
-            // evaporates, which is both untrue and needlessly alarming. It also
-            // avoids promising the clearing outright, because quitting the app
-            // inside the window defeats the timer.
-            Label {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: OnboardingPresentation.visibilityCaution(language: currentLanguage))
-                    Text(verbatim: OnboardingPresentation.clipboardCaution(
-                        autoClearSeconds: Int(SensitiveClipboard.autoClearAfter),
-                        language: currentLanguage
-                    ))
-                }
-                .font(.callout)
-                .foregroundStyle(CounselTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: "hand.raised")
-                    .foregroundStyle(CounselTheme.textSecondary)
-            }
-
-            HStack {
-                // A one-click route back for someone who pressed Not Now, so
-                // the decision is reversible without hunting through chrome.
-                if !hasModel, canRunAModel {
-                    L10n.button("Set Up a Model\u{2026}") { openModelManagement() }
-                        .controlSize(.small)
-                }
-                Spacer()
-                Button {
-                    advance()
-                } label: {
-                    Text(verbatim: L10n.string("Continue", language: currentLanguage))
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(CounselTheme.inkAccentFill)
-            }
-        }
+        OnboardingWorkflowContent(hasModel: hasModel, language: currentLanguage)
     }
 
     private var integrationPage: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            MCPSetupView()
-            HStack {
-                L10n.button("Set Up Later") { isPresented = false }
-                Spacer()
-                L10n.button("Get Started") { isPresented = false }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .tint(CounselTheme.inkAccentFill)
+        OnboardingConnectionContent()
+    }
+
+    private var navigationFooter: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let chip = OnboardingPresentation.stepChip(
+                position: OnboardingPresentation.position(of: page, mode: mode, hasModel: hasModel),
+                count: OnboardingPresentation.pageCount(mode: mode, hasModel: hasModel),
+                language: currentLanguage
+            ) {
+                Text(verbatim: chip)
+                    .font(CounselTheme.Typography.metadata)
+                    .foregroundStyle(CounselTheme.textSecondary)
             }
+            HStack(spacing: 12) {
+                if let previous = OnboardingPresentation.previousPage(before: page, mode: mode, hasModel: hasModel) {
+                    L10n.button("Back") { page = previous }
+                }
+                if !hasModel, page == .steps, canRunAModel {
+                    L10n.button("Set Up a Model\u{2026}") { openModelManagement() }
+                }
+                Spacer(minLength: 8)
+                if page == .model {
+                    if route == .unavailable { unavailableActions }
+                    else { askActions }
+                } else if page == .integrations {
+                    L10n.button("Get Started") { isPresented = false }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .tint(CounselTheme.inkAccentFill)
+                } else if page != .model {
+                    L10n.button("Continue") { advance() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .tint(CounselTheme.inkAccentFill)
+                }
+            }
+            .font(CounselTheme.Typography.supporting)
         }
     }
 
@@ -760,26 +664,4 @@ public struct OnboardingView: View {
         page = next
     }
 
-    private func step(
-        number: String,
-        icon: String,
-        title: String,
-        text: String
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .light))
-                .foregroundStyle(CounselTheme.inkAccent)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                (Text(verbatim: number) + Text(verbatim: ". ") + Text(verbatim: title))
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(CounselTheme.textPrimary)
-                Text(verbatim: text)
-                    .font(.callout)
-                    .foregroundStyle(CounselTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
 }

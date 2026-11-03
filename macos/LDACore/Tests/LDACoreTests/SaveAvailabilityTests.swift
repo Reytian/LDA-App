@@ -192,7 +192,7 @@ final class SaveAvailabilityTests: XCTestCase {
         )
         let sentence = try? XCTUnwrap(SaveAvailabilityPresentation.notice(openedButNotScanned))
         XCTAssertEqual(
-            sentence, "Save Redacted needs a finished scan. Click Scan for PII first.",
+            sentence, "Save Redacted needs a finished scan. Click Scan Document first.",
             "the sentence must name the button and the next action"
         )
     }
@@ -277,8 +277,9 @@ final class SaveAvailabilityTests: XCTestCase {
         for reason in SaveBlockReason.allCases {
             let english = SaveAvailabilityPresentation.sentence(for: reason, language: .english)
             XCTAssertEqual(
-                english, SaveAvailabilityPresentation.reasonKey(reason),
-                "the English value must be the key itself"
+                english, SaveAvailabilityPresentation.reasonKey(reason)
+                    .replacingOccurrences(of: "Scan for PII", with: "Scan Document"),
+                "the English copy must name the visible action"
             )
             for language in [AppLanguage.french, .simplifiedChinese, .traditionalChinese] {
                 let translated = SaveAvailabilityPresentation.sentence(

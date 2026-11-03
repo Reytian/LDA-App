@@ -43,11 +43,11 @@ struct ComplianceReportExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text(ComplianceReportPresentation.exportHeadline)
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text(ComplianceReportPresentation.exportExplanation)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -61,7 +61,7 @@ struct ComplianceReportExportSheet: View {
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -79,7 +79,7 @@ struct ComplianceReportExportSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 440)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 
@@ -102,30 +102,28 @@ struct ComplianceReportExportSheet: View {
     @ViewBuilder
     private var passphraseFields: some View {
         L10n.text(ComplianceReportPresentation.encryptedOptionNote)
-            .font(.callout)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
         L10n.secureField("Passphrase", text: $flow.passphrase)
             .textFieldStyle(.roundedBorder)
-            .frame(width: 320)
 
         L10n.secureField("Confirm passphrase", text: $flow.confirmation)
             .textFieldStyle(.roundedBorder)
-            .frame(width: 320)
 
         Label {
             L10n.text(ComplianceReportPresentation.irrecoverabilityNote)
         } icon: {
             Image(systemName: "key.fill")
         }
-        .font(.callout)
+        .font(CounselTheme.Typography.supporting)
         .foregroundStyle(CounselTheme.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
         if let issue, !flow.passphrase.isEmpty {
             Text(verbatim: ComplianceReportPresentation.message(for: issue))
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.danger)
         }
     }
@@ -141,21 +139,20 @@ struct ComplianceReportOpenSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text(ComplianceReportPresentation.openHeadline)
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text(ComplianceReportPresentation.openExplanation)
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             if let message = flow.sheetMessage {
                 Text(verbatim: message)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -173,7 +170,7 @@ struct ComplianceReportOpenSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 400)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 }

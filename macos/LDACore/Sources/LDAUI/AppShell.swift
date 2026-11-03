@@ -190,64 +190,78 @@ public struct AppShell: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $findingsVisibility) {
-            EntitySidebar(session: session, model: model)
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
-                // This sidebar has an explicit, mode-aware toolbar control.
-                .toolbar(removing: .sidebarToggle)
-        } detail: {
-            VStack(spacing: 0) {
-                if WindowLayoutPolicy.showsWorkflowProgress(isWindowNarrow: isWindowNarrow) {
-                    AppShellWorkflowHeader(
-                        session: session,
-                        hasSharedOutput: hasSharedOutput
-                    )
+        Group {
+            // Keep this shell's state and flow handlers alive, but attach only
+            // the active native split view to the window. Hidden split views
+            // otherwise reserve competing sidebar and toolbar geometry.
+            if isActive {
+                NavigationSplitView(columnVisibility: $findingsVisibility) {
+                    EntitySidebar(session: session, model: model)
+                        .background(FindingsSidebarWidth())
+                        .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
+                        // This sidebar has an explicit, mode-aware toolbar control.
+                        .toolbar(removing: .sidebarToggle)
+                } detail: {
+                    // The detail column proposes its actual width before headers choose
+                    // their layout. Intrinsic toolbar or legend widths must not enlarge
+                    // the native split view and move its sidebar outside the window.
+                    GeometryReader { detail in
+                        VStack(spacing: 0) {
+                            if WindowLayoutPolicy.showsWorkflowProgress(isWindowNarrow: isWindowNarrow) {
+                                AppShellWorkflowHeader(
+                                    session: session,
+                                    hasSharedOutput: hasSharedOutput
+                                )
+                            }
+                            AppShellStatusBanner(
+                                session: session,
+                                exportMessage: exportMessage,
+                                hasDetectionModel: hasDetectionModel
+                            )
+                            // Above the tracked-changes row on purpose: a scan that is not
+                            // looking for names changes what the review list can possibly
+                            // contain, which outranks advice about how a value round trips.
+                            //
+                            // The catalog is the view's own cached copy, not a fresh load:
+                            // a load here would put a disk read and a JSON parse on the
+                            // main thread for every progress publish during a multi
+                            // gigabyte copy. The row still disappears the moment a model
+                            // arrives, because `importer` and `installer` are observed.
+                            if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
+                                isModelMissing: AISettings.isModelMissing(catalog: catalog),
+                                hasAnyModel: hasDetectionModel,
+                                rungUsesLLM: AISettings.detectionLevel(catalog: catalog).usesLLM,
+                                canRunAModel: canRunAModel
+                            ) {
+                                // No trailing button on a Mac that cannot run a model: the
+                                // sentence states the limit and there is nothing to press.
+                                missingModelAdvisory(advice, offersSetUp: canRunAModel)
+                            }
+                            if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
+                                count: model.trackedChangeCount
+                            ) {
+                                trackedChangesAdvisory(advice)
+                            }
+                            if let advice = keychainAdvisory.advisory {
+                                keychainProtectionAdvisory(advice)
+                            }
+                            if let advice = session.mappingHomeAdvisory {
+                                mappingHomeAdvisory(advice)
+                            }
+                            if let completion = handoffCompletion {
+                                HandoffCompletionCard(
+                                    completion: completion,
+                                    onOpenRestore: onOpenRestore,
+                                    onDismiss: { handoffCompletion = nil }
+                                )
+                            }
+                            DocumentPane(session: session, model: model)
+                        }
+                        .frame(width: detail.size.width, height: detail.size.height, alignment: .topLeading)
+                    }
+                    .background(CounselTheme.paper)
                 }
-                AppShellStatusBanner(
-                    session: session,
-                    exportMessage: exportMessage,
-                    hasDetectionModel: hasDetectionModel
-                )
-                // Above the tracked-changes row on purpose: a scan that is not
-                // looking for names changes what the review list can possibly
-                // contain, which outranks advice about how a value round trips.
-                //
-                // The catalog is the view's own cached copy, not a fresh load:
-                // a load here would put a disk read and a JSON parse on the
-                // main thread for every progress publish during a multi
-                // gigabyte copy. The row still disappears the moment a model
-                // arrives, because `importer` and `installer` are observed.
-                if let advice = AnonymizeWorkflowPresentation.missingModelAdvice(
-                    isModelMissing: AISettings.isModelMissing(catalog: catalog),
-                    hasAnyModel: hasDetectionModel,
-                    rungUsesLLM: AISettings.detectionLevel(catalog: catalog).usesLLM,
-                    canRunAModel: canRunAModel
-                ) {
-                    // No trailing button on a Mac that cannot run a model: the
-                    // sentence states the limit and there is nothing to press.
-                    missingModelAdvisory(advice, offersSetUp: canRunAModel)
-                }
-                if let advice = AnonymizeWorkflowPresentation.trackedChangesAdvice(
-                    count: model.trackedChangeCount
-                ) {
-                    trackedChangesAdvisory(advice)
-                }
-                if let advice = keychainAdvisory.advisory {
-                    keychainProtectionAdvisory(advice)
-                }
-                if let advice = session.mappingHomeAdvisory {
-                    mappingHomeAdvisory(advice)
-                }
-                if let completion = handoffCompletion {
-                    HandoffCompletionCard(
-                        completion: completion,
-                        onOpenRestore: onOpenRestore,
-                        onDismiss: { handoffCompletion = nil }
-                    )
-                }
-                DocumentPane(session: session, model: model)
             }
-            .background(CounselTheme.paper)
         }
         .background(CounselTheme.appSurface)
         .background(
@@ -257,7 +271,7 @@ public struct AppShell: View {
             )
                 .frame(width: 0, height: 0)
         )
-        .navigationTitle(windowTitle)
+        .modifier(ActiveModeNavigationTitle(title: windowTitle, isActive: isActive))
         .toolbar {
             AppShellToolbar(
                 session: session,

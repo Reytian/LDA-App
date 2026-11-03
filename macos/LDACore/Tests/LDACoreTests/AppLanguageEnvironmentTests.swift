@@ -37,11 +37,11 @@ final class AppLanguageEnvironmentTests: XCTestCase {
         AppLanguage.select(.french, defaults: defaults)
         XCTAssertEqual(
             L10n.string("Restore", language: .simplifiedChinese, defaults: defaults),
-            "恢复"
+            "还原"
         )
         XCTAssertEqual(
             L10n.formatted("Restore", language: .simplifiedChinese, []),
-            "恢复"
+            "还原"
         )
     }
 

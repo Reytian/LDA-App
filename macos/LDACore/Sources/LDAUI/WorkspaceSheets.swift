@@ -35,34 +35,32 @@ struct WorkspaceSaveSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Protect this workspace")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("The file holds this matter's documents, your review decisions, and the values needed to restore them. Choose a passphrase for it.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             L10n.secureField("Confirm passphrase", text: $flow.confirmation)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             Label {
                 L10n.text(WorkspacePresentation.irrecoverabilityNote)
             } icon: {
                 Image(systemName: "key.fill")
             }
-            .font(.callout)
+            .font(CounselTheme.Typography.supporting)
             .foregroundStyle(CounselTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
 
             if let issue, !flow.passphrase.isEmpty {
                 Text(verbatim: WorkspacePresentation.message(for: issue))
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
             }
 
@@ -79,7 +77,7 @@ struct WorkspaceSaveSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 400)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 }
@@ -94,21 +92,20 @@ struct WorkspaceOpenSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             L10n.text("Open workspace")
-                .font(.headline)
+                .font(CounselTheme.Typography.heading)
                 .foregroundStyle(CounselTheme.textPrimary)
 
             L10n.text("Enter the passphrase this workspace file was saved with. Its contents are decrypted locally after you enter the passphrase.")
-                .font(.callout)
+                .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             L10n.secureField("Passphrase", text: $flow.passphrase)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 320)
 
             if let message = flow.sheetMessage {
                 Text(verbatim: message)
-                    .font(.callout)
+                    .font(CounselTheme.Typography.supporting)
                     .foregroundStyle(CounselTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -126,7 +123,7 @@ struct WorkspaceOpenSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 400)
+        .frame(width: 480)
         .background(CounselTheme.raised)
     }
 }
