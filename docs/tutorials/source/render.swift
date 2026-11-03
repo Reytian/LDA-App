@@ -228,6 +228,10 @@ func run() throws {
         }
         try (vtt.trimmingCharacters(in: .newlines) + "\n").write(to:out.appendingPathComponent(story.id+".vtt"),atomically:true,encoding:.utf8)
         try (transcript.trimmingCharacters(in: .newlines) + "\n").write(to:out.appendingPathComponent(story.id+".md"),atomically:true,encoding:.utf8)
+        let plainTranscript = transcript.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            line.hasPrefix("## ") ? String(line.dropFirst(3)) : line.hasPrefix("# ") ? String(line.dropFirst(2)) : String(line)
+        }.joined(separator: "\n")
+        try plainTranscript.write(to:out.appendingPathComponent(story.id+".txt"),atomically:true,encoding:.utf8)
         print("RENDERED \(story.id): \(String(format:"%.2f",clock)) seconds, \(frames) frames, \(timeline.flatMap(\.cues).count) captions")
         fflush(stdout)
     }

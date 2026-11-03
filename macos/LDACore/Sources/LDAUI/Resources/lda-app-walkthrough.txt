@@ -1,53 +1,53 @@
-# Use the LDA app
+Use the LDA app
 
 LDA 2.0 window recordings and explanatory cards. All documents are fictional. AI prompts and answers are illustrative. Silent video with English subtitles. Recorded interactions are edited for pacing; timings are not benchmarks.
 
-## 00:00:00.000  Start with a document
+00:00:00.000  Start with a document
 
 Add a document, review what should be hidden, then save a redacted copy.
 
-## 00:00:05.800  Ready out of the box
+00:00:05.800  Ready out of the box
 
 LDA V4 is included. There is no model to download before your first scan.
 
-## 00:00:11.985  Scan on your Mac
+00:00:11.985  Scan on your Mac
 
 Choose a document, then click Scan Document. Detection and redaction run on this Mac.
 
-## 00:00:18.169  Check the findings
+00:00:18.169  Check the findings
 
 Review the detected names and contact details. Protect any sensitive text the scan missed.
 
-## 00:00:24.354  You decide what stays
+00:00:24.354  You decide what stays
 
 Turning an item off keeps it visible. Safe Preview shows the change immediately.
 
-## 00:00:30.154  Keep private details hidden
+00:00:30.154  Keep private details hidden
 
 In this example, we turn protection back on before exporting the document.
 
-## 00:00:35.569  Check the redacted copy
+00:00:35.569  Check the redacted copy
 
 Read Safe Preview before sharing. The same company keeps the same placeholder throughout.
 
-## 00:00:41.369  Export for your AI app
+00:00:41.369  Export for your AI app
 
 Choose Export for AI… to save a Markdown file. Keep the matching .ldamap file on this Mac.
 
 Upload only the reviewed, redacted file. Ask your AI app to preserve every placeholder exactly.
 
-## 00:00:55.277  Bring the answer back
+00:00:55.277  Bring the answer back
 
 Save the AI result as a file. This example summary keeps the placeholders unchanged.
 
-## 00:01:01.462  Restore locally
+00:01:01.462  Restore locally
 
 Open Restore and choose the returned file. LDA uses the matching local mapping.
 
-## 00:01:07.262  Review the restored values
+00:01:07.262  Review the restored values
 
 Check the restored values before saving. Correct anything that needs attention.
 
-## 00:01:12.292  Save a new copy
+00:01:12.292  Save a new copy
 
 Choose an output format and save a new copy. Review every export before sharing it.

@@ -21,6 +21,6 @@ Use `python3 build-kit.py /tmp/lda-tutorial-output` to make the offline ZIP and 
 
 ## Update the product
 
-Copy the final MP4 and poster into `macos/LDACore/Sources/LDAUI/Resources`, and copy each Markdown transcript there with a `.txt` extension. Keep transcripts and WebVTT files under `docs/tutorials`. Update durations and fixed tutorial links in the website, app, documentation and the fixed-link security test.
+Copy the final MP4 and poster into `macos/LDACore/Sources/LDAUI/Resources`, and copy each plain-text `.txt` transcript there. Keep transcripts and WebVTT files under `docs/tutorials`. Update durations and fixed tutorial links in the website, app, documentation and the fixed-link security test.
 
 Publish tutorial assets under their own release tag, without marking that release as the latest application. Bundled video changes require a fresh signed and notarized application build. Do not modify an installed notarized bundle in place.
