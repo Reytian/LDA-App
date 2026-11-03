@@ -1,0 +1,274 @@
+{
+  "scan-final": [
+    {
+      "file": "scan-final-000.jpg",
+      "at": 0.067
+    },
+    {
+      "file": "scan-final-004.jpg",
+      "at": 0.997
+    },
+    {
+      "file": "scan-final-007.jpg",
+      "at": 1.207
+    },
+    {
+      "file": "scan-final-009.jpg",
+      "at": 1.424
+    },
+    {
+      "file": "scan-final-012.jpg",
+      "at": 1.628
+    },
+    {
+      "file": "scan-final-014.jpg",
+      "at": 1.853
+    },
+    {
+      "file": "scan-final-018.jpg",
+      "at": 2.111
+    },
+    {
+      "file": "scan-final-020.jpg",
+      "at": 2.331
+    },
+    {
+      "file": "scan-final-024.jpg",
+      "at": 2.589
+    },
+    {
+      "file": "scan-final-026.jpg",
+      "at": 2.837
+    },
+    {
+      "file": "scan-final-029.jpg",
+      "at": 3.04
+    },
+    {
+      "file": "scan-final-031.jpg",
+      "at": 3.261
+    },
+    {
+      "file": "scan-final-035.jpg",
+      "at": 3.523
+    },
+    {
+      "file": "scan-final-037.jpg",
+      "at": 3.742
+    },
+    {
+      "file": "scan-final-040.jpg",
+      "at": 3.957
+    },
+    {
+      "file": "scan-final-042.jpg",
+      "at": 4.179
+    },
+    {
+      "file": "scan-final-044.jpg",
+      "at": 4.31
+    }
+  ],
+  "preview-light": [
+    {
+      "file": "preview-light-000.jpg",
+      "at": 0.058
+    },
+    {
+      "file": "preview-light-003.jpg",
+      "at": 0.358
+    },
+    {
+      "file": "preview-light-004.jpg",
+      "at": 1.308
+    },
+    {
+      "file": "preview-light-008.jpg",
+      "at": 1.668
+    },
+    {
+      "file": "preview-light-012.jpg",
+      "at": 1.921
+    },
+    {
+      "file": "preview-light-015.jpg",
+      "at": 2.205
+    },
+    {
+      "file": "preview-light-019.jpg",
+      "at": 2.479
+    },
+    {
+      "file": "preview-light-021.jpg",
+      "at": 2.694
+    },
+    {
+      "file": "preview-light-025.jpg",
+      "at": 3.057
+    },
+    {
+      "file": "preview-light-028.jpg",
+      "at": 3.267
+    },
+    {
+      "file": "preview-light-030.jpg",
+      "at": 3.502
+    },
+    {
+      "file": "preview-light-034.jpg",
+      "at": 3.771
+    },
+    {
+      "file": "preview-light-036.jpg",
+      "at": 4.003
+    },
+    {
+      "file": "preview-light-040.jpg",
+      "at": 4.379
+    },
+    {
+      "file": "preview-light-043.jpg",
+      "at": 4.584
+    },
+    {
+      "file": "preview-light-044.jpg",
+      "at": 4.643
+    }
+  ],
+  "review-off": [
+    {
+      "file": "review-off-000.jpg",
+      "at": 0.096
+    },
+    {
+      "file": "review-off-004.jpg",
+      "at": 0.973
+    },
+    {
+      "file": "review-off-007.jpg",
+      "at": 1.173
+    },
+    {
+      "file": "review-off-009.jpg",
+      "at": 1.403
+    },
+    {
+      "file": "review-off-012.jpg",
+      "at": 1.681
+    },
+    {
+      "file": "review-off-015.jpg",
+      "at": 1.937
+    },
+    {
+      "file": "review-off-018.jpg",
+      "at": 2.237
+    },
+    {
+      "file": "review-off-022.jpg",
+      "at": 2.514
+    },
+    {
+      "file": "review-off-024.jpg",
+      "at": 2.749
+    },
+    {
+      "file": "review-off-027.jpg",
+      "at": 2.966
+    },
+    {
+      "file": "review-off-029.jpg",
+      "at": 3.188
+    },
+    {
+      "file": "review-off-032.jpg",
+      "at": 3.402
+    },
+    {
+      "file": "review-off-034.jpg",
+      "at": 3.619
+    },
+    {
+      "file": "review-off-037.jpg",
+      "at": 3.825
+    },
+    {
+      "file": "review-off-039.jpg",
+      "at": 4.062
+    },
+    {
+      "file": "review-off-042.jpg",
+      "at": 4.271
+    },
+    {
+      "file": "review-off-044.jpg",
+      "at": 4.494
+    }
+  ],
+  "review-on": [
+    {
+      "file": "review-on-000.jpg",
+      "at": 0.165
+    },
+    {
+      "file": "review-on-004.jpg",
+      "at": 1.073
+    },
+    {
+      "file": "review-on-007.jpg",
+      "at": 1.275
+    },
+    {
+      "file": "review-on-009.jpg",
+      "at": 1.494
+    },
+    {
+      "file": "review-on-012.jpg",
+      "at": 1.695
+    },
+    {
+      "file": "review-on-014.jpg",
+      "at": 1.935
+    },
+    {
+      "file": "review-on-018.jpg",
+      "at": 2.272
+    },
+    {
+      "file": "review-on-021.jpg",
+      "at": 2.483
+    },
+    {
+      "file": "review-on-024.jpg",
+      "at": 2.772
+    },
+    {
+      "file": "review-on-027.jpg",
+      "at": 2.991
+    },
+    {
+      "file": "review-on-030.jpg",
+      "at": 3.272
+    },
+    {
+      "file": "review-on-033.jpg",
+      "at": 3.483
+    },
+    {
+      "file": "review-on-036.jpg",
+      "at": 3.782
+    },
+    {
+      "file": "review-on-039.jpg",
+      "at": 3.989
+    },
+    {
+      "file": "review-on-041.jpg",
+      "at": 4.208
+    },
+    {
+      "file": "review-on-044.jpg",
+      "at": 4.411
+    }
+  ]
+}

@@ -12,7 +12,7 @@ struct TutorialGallery: View {
             L10n.text("Watch the walkthroughs")
                 .font(CounselTheme.Typography.heading)
             // Only an explicit click opens this fixed page in the user's browser.
-            Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {
+            Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20261103")!) {
                 Label {
                     L10n.text("Watch on GitHub")
                 } icon: {
@@ -66,10 +66,10 @@ private enum LDATutorial: String, CaseIterable, Identifiable {
     case app = "lda-app-walkthrough"
     case codex = "lda-codex-walkthrough"
     var id: String { rawValue }
-    var title: String { self == .app ? "Use the LDA app" : "Use LDA in Codex" }
+    var title: String { self == .app ? "Use the LDA app" : "Connect LDA through MCP" }
     var summary: String {
         self == .app ? "Scan, review, export and restore."
-            : "Connect Codex, invoke /LDA and choose documents locally."
+            : "Connect your AI workstation through MCP, with Codex as the example."
     }
     func resource(_ extensionName: String) -> URL? {
         LDAResourceBundle.resolve()?.url(forResource: rawValue, withExtension: extensionName)

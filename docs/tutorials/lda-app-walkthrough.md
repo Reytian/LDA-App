@@ -1,47 +1,53 @@
 # Use the LDA app
 
-Illustrated walkthrough. All data is fictional. Silent video with English subtitles.
+LDA 2.0 window recordings and explanatory cards. All documents are fictional. AI prompts and answers are illustrative. Silent video with English subtitles. Recorded interactions are edited for pacing; timings are not benchmarks.
 
-## 00:00:00.000  Choose your detection setup
+## 00:00:00.000  Start with a document
 
-This illustrated walkthrough uses fictional data throughout.
+Add a document, review what should be hidden, then save a redacted copy.
 
-Open LDA and choose a detection model during setup, or add one later in AI Settings.
+## 00:00:05.800  Ready out of the box
 
-Patterns only has narrower coverage. Names, companies and addresses need a model.
+LDA V4 is included. There is no model to download before your first scan.
 
-## 00:00:16.369  Add a document and scan
+## 00:00:11.985  Scan on your Mac
 
-In Anonymize, add a local document, then choose Scan for PII.
+Choose a document, then click Scan Document. Detection and redaction run on this Mac.
 
-LDA checks the document on your Mac. Our example is a fictional service agreement.
+## 00:00:18.169  Check the findings
 
-## 00:00:27.585  Review what will be protected
+Review the detected names and contact details. Protect any sensitive text the scan missed.
 
-Review the detected values before sharing. Check names, companies, emails and other sensitive details.
+## 00:00:24.354  You decide what stays
 
-Correct the selections and add protection for anything missed. Automatic detection can miss information.
+Turning an item off keeps it visible. Safe Preview shows the change immediately.
 
-## 00:00:39.954  Check Safe Preview and export
+## 00:00:30.154  Keep private details hidden
 
-Read Safe Preview to check what the AI will receive. Protected values become placeholders.
+In this example, we turn protection back on before exporting the document.
 
-Choose Export for AI. Keep the original document and its mapping on your Mac.
+## 00:00:35.569  Check the redacted copy
 
-## 00:00:52.323  Work with the redacted version
+Read Safe Preview before sharing. The same company keeps the same placeholder throughout.
 
-Give your AI app only the reviewed, redacted version and your instruction.
+## 00:00:41.369  Export for your AI app
 
-Ask it to preserve placeholders exactly. Review the remaining context too, because it can still identify a person or matter.
+Choose Export for AI… to save a Markdown file. Keep the matching .ldamap file on this Mac.
 
-## 00:01:06.231  Bring real values back locally
+Upload only the reviewed, redacted file. Ask your AI app to preserve every placeholder exactly.
 
-Save the AI result, open Restore in LDA, and choose the edited file.
+## 00:00:55.277  Bring the answer back
 
-LDA uses the matching local mapping. If asked, select it locally, then review and save the restored output.
+Save the AI result as a file. This example summary keeps the placeholders unchanged.
 
-## 00:01:19.754  Your everyday LDA workflow
+## 00:01:01.462  Restore locally
 
-The routine is simple: add, scan, review, export, and restore.
+Open Restore and choose the returned file. LDA uses the matching local mapping.
 
-Keep originals and mappings local, and check every result before using it.
+## 00:01:07.262  Review the restored values
+
+Check the restored values before saving. Correct anything that needs attention.
+
+## 00:01:12.292  Save a new copy
+
+Choose an output format and save a new copy. Review every export before sharing it.

@@ -1035,9 +1035,9 @@
 // Offline video tutorials
 "Watch the walkthroughs" = "观看使用演示";
 "Use the LDA app" = "使用 LDA 应用";
-"Use LDA in Codex" = "在 Codex 中使用 LDA";
+"Connect LDA through MCP" = "通过 MCP 连接 LDA";
 "Scan, review, export and restore." = "扫描、复核、导出和还原。";
-"Connect Codex, invoke /LDA and choose documents locally." = "连接 Codex，调用 /LDA 并在本机选择文档。";
+"Connect your AI workstation through MCP, with Codex as the example." = "通过 MCP 连接你的 AI 工作站，以 Codex 为例。";
 "Open the offline video player" = "打开离线视频播放器";
 "This tutorial is missing from the app. Reinstall a complete LDA release." = "应用中缺少此演示。请重新安装完整的 LDA 版本。";
 "Read the transcript" = "阅读文字稿";

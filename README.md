@@ -79,27 +79,24 @@ privacy terms then apply.
 
 ## Watch the walkthroughs
 
-[**LDA app: scan, review, export and restore (1:30)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-app-walkthrough.mp4)
+[**LDA app: scan, review, export and restore (1:19)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/lda-app-walkthrough.mp4)
 
-[**LDA in Codex: connect and use /LDA (1:57)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-codex-walkthrough.mp4)
+[**Connect your AI workstation through MCP (1:27)**](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/lda-codex-walkthrough.mp4)
 
-[![LDA app video walkthrough](macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.png)](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/lda-app-walkthrough.mp4)
+[![LDA app video walkthrough](macos/LDACore/Sources/LDAUI/Resources/lda-app-walkthrough.png)](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/lda-app-walkthrough.mp4)
 
-Illustrated tutorials with fictional data, generated on a Mac Mini. The videos are silent, with English
-subtitles embedded in the picture. The Codex tutorial requires a setup-enabled
-build with **Settings > MCP Setup**, the bundled helper, and the LDA skill.
-Older app releases may not include these controls.
+Recorded LDA 2.0 windows and explanatory examples using fictional documents. The videos are silent, with English subtitles embedded in the picture. The MCP tutorial uses **Settings > AI assistants**, with Codex as the example. AI prompts and answers are illustrative.
 
 Open the [setup guide and both videos](docs/setup.md), or download the
-[offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20260909/LDA-Tutorials.zip).
-LDA 1.0 includes offline playback in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
+[offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/LDA-Tutorials.zip).
+LDA 2.0.1 includes the refreshed videos in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
 
 ## Install the macOS app
 
 You need an **Apple Silicon Mac with macOS 14 or later**. The included **LDA V4** detection model works on Macs with **8 GB of memory**. Larger optional models need more memory; LDA shows their requirements in Settings.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-2.0.dmg** from **Assets**.
+   and download **LDA-2.0.1.dmg** from **Assets**.
 2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
    Privacy Policy, then choose your language in the setup wizard.

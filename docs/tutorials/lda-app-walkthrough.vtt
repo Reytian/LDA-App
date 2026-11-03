@@ -1,46 +1,40 @@
 WEBVTT
 
-00:00:00.000 --> 00:00:04.000
-This illustrated walkthrough uses fictional data throughout.
+00:00:00.000 --> 00:00:05.800
+Add a document, review what should be hidden, then save a redacted copy.
 
-00:00:04.000 --> 00:00:10.954
-Open LDA and choose a detection model during setup, or add one later in AI Settings.
+00:00:05.800 --> 00:00:11.985
+LDA V4 is included. There is no model to download before your first scan.
 
-00:00:10.954 --> 00:00:16.369
-Patterns only has narrower coverage. Names, companies and addresses need a model.
+00:00:11.985 --> 00:00:18.169
+Choose a document, then click Scan Document. Detection and redaction run on this Mac.
 
-00:00:16.369 --> 00:00:21.400
-In Anonymize, add a local document, then choose Scan for PII.
+00:00:18.169 --> 00:00:24.354
+Review the detected names and contact details. Protect any sensitive text the scan missed.
 
-00:00:21.400 --> 00:00:27.585
-LDA checks the document on your Mac. Our example is a fictional service agreement.
+00:00:24.354 --> 00:00:30.154
+Turning an item off keeps it visible. Safe Preview shows the change immediately.
 
-00:00:27.585 --> 00:00:33.769
-Review the detected values before sharing. Check names, companies, emails and other sensitive details.
+00:00:30.154 --> 00:00:35.569
+In this example, we turn protection back on before exporting the document.
 
-00:00:33.769 --> 00:00:39.954
-Correct the selections and add protection for anything missed. Automatic detection can miss information.
+00:00:35.569 --> 00:00:41.369
+Read Safe Preview before sharing. The same company keeps the same placeholder throughout.
 
-00:00:39.954 --> 00:00:46.138
-Read Safe Preview to check what the AI will receive. Protected values become placeholders.
+00:00:41.369 --> 00:00:48.708
+Choose Export for AI… to save a Markdown file. Keep the matching .ldamap file on this Mac.
 
-00:00:46.138 --> 00:00:52.323
-Choose Export for AI. Keep the original document and its mapping on your Mac.
+00:00:48.708 --> 00:00:55.277
+Upload only the reviewed, redacted file. Ask your AI app to preserve every placeholder exactly.
 
-00:00:52.323 --> 00:00:57.738
-Give your AI app only the reviewed, redacted version and your instruction.
+00:00:55.277 --> 00:01:01.462
+Save the AI result as a file. This example summary keeps the placeholders unchanged.
 
-00:00:57.738 --> 00:01:06.231
-Ask it to preserve placeholders exactly. Review the remaining context too, because it can still identify a person or matter.
+00:01:01.462 --> 00:01:07.262
+Open Restore and choose the returned file. LDA uses the matching local mapping.
 
-00:01:06.231 --> 00:01:12.031
-Save the AI result, open Restore in LDA, and choose the edited file.
+00:01:07.262 --> 00:01:12.292
+Check the restored values before saving. Correct anything that needs attention.
 
-00:01:12.031 --> 00:01:19.754
-LDA uses the matching local mapping. If asked, select it locally, then review and save the restored output.
-
-00:01:19.754 --> 00:01:24.400
-The routine is simple: add, scan, review, export, and restore.
-
-00:01:24.400 --> 00:01:29.815
-Keep originals and mappings local, and check every result before using it.
+00:01:12.292 --> 00:01:18.862
+Choose an output format and save a new copy. Review every export before sharing it.

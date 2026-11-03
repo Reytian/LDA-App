@@ -15,7 +15,7 @@ need more memory; LDA shows their requirements in Settings. In the Apple menu,
 choose **About This Mac** to check your chip, memory, and macOS version.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest).
-2. Under **Assets**, download **LDA-2.0.dmg**. The automatically generated
+2. Under **Assets**, download **LDA-2.0.1.dmg**. The automatically generated
    **Source code** archives are for developers, not the ready-to-run app.
 3. Double-click the disk image in Finder to open it.
 4. Drag **LDA.app** onto **Applications** and open it from there.
@@ -35,7 +35,7 @@ cd ~/Downloads
 shasum -a 256 -c SHA256SUMS.txt
 ```
 
-The line for **LDA-2.0.dmg** should say **OK**. Use the unchanged filenames
+The line for **LDA-2.0.1.dmg** should say **OK**. Use the unchanged filenames
 and the checksum file for that exact release. A mismatch means you should
 download the files again before opening the app.
 

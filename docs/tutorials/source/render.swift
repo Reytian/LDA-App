@@ -1,10 +1,13 @@
 import AppKit
 import AVFoundation
 
-// Render an original illustrated tutorial from a text-only storyboard.
-// No display capture, user preferences, account data or network access is used.
+// Compose LDA 2.0 window recordings and clearly labeled explanatory cards.
+// All captured documents are synthetic. No audio track is created.
 struct Scene: Decodable {
-    let kind: String
+    let image: String?
+    let crop: [Double]?
+    let clip: String?
+    let card: String?
     let title: String
     let action: String
     let captions: [String]
@@ -27,8 +30,8 @@ struct TimedScene {
     let cues: [Cue]
 }
 enum RenderError: Error { case failed(String) }
-let width = 1600
-let height = 900
+let width = 1920
+let height = 1080
 let fps: Int32 = 15
 let ink = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.22, alpha: 1)
 let teal = NSColor(srgbRed: 0.12, green: 0.40, blue: 0.38, alpha: 1)
@@ -50,158 +53,87 @@ func label(_ text: String, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ size: CGF
         .font:font,.foregroundColor:color,.paragraphStyle:style
     ])
 }
-func pill(_ text: String, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, active: Bool = true) {
-    box(x,y,w,48,active ? teal : mint,10)
-    label(text,x+18,y+10,w-30,20,active ? .white : teal,true)
+struct RecordedFrame: Decodable { let file: String; let at: Double }
+var assetRoot = URL(fileURLWithPath: ".")
+var clips: [String:[RecordedFrame]] = [:]
+var imageCache: [String:NSImage] = [:]
+let blue = NSColor(srgbRed:0.25, green:0.32, blue:0.62, alpha:1)
+let pale = NSColor(srgbRed:0.91, green:0.94, blue:0.98, alpha:1)
+let dark = NSColor(srgbRed:0.13, green:0.17, blue:0.25, alpha:1)
+func capturedImage(_ filename:String, crop:[Double]?, in target:NSRect) {
+    let image: NSImage
+    if let cached=imageCache[filename] { image=cached }
+    else { guard let loaded=NSImage(contentsOf:assetRoot.appendingPathComponent(filename)) else { fatalError("Missing capture: \(filename)") }; image=loaded; imageCache[filename]=loaded }
+    let c=crop ?? [0,0,image.size.width,image.size.height]
+    let source=NSRect(x:c[0],y:image.size.height-c[1]-c[3],width:c[2],height:c[3])
+    let scale=min(target.width/source.width,target.height/source.height)
+    let rect=NSRect(x:target.midX-source.width*scale/2,y:target.midY-source.height*scale/2,width:source.width*scale,height:source.height*scale)
+    image.draw(in:rect,from:source,operation:.sourceOver,fraction:1,respectFlipped:true,hints:[.interpolation:NSImageInterpolation.high])
 }
-func line(_ text: String, y: CGFloat, highlighted: Bool = false, x: CGFloat = 536, w: CGFloat = 906) {
-    if highlighted { box(x-14,y-7,w,48,mint,7) }
-    label(text,x,y,w-22,24,ink,false,true,50)
-}
-func window(_ title: String) {
-    box(466,190,1080,524,.white,20)
-    box(466,190,1080,54,NSColor(srgbRed:0.90,green:0.93,blue:0.92,alpha:1),20)
-    box(466,218,1080,26,NSColor(srgbRed:0.90,green:0.93,blue:0.92,alpha:1),0)
-    for (i,c) in [NSColor.systemRed,NSColor.systemYellow,NSColor.systemGreen].enumerated() {
-        box(487+CGFloat(i)*22,211,12,12,c,6)
+func card(_ kind:String, in area:NSRect) {
+    let x=area.minX+55, y=area.minY+48, w=area.width-110
+    label(kind == "answer" ? "ILLUSTRATIVE AI RESPONSE" : "EXAMPLE / WORKFLOW OVERVIEW",x,y,w,18,blue,true,false,40)
+    switch kind {
+    case "answer":
+        label("Agreement summary",x,y+68,w,42,dark,true)
+        label("{COMPANY_1} engages {COMPANY_2} for monthly market research.",x,y+155,w,31,dark,false,true,150)
+        label("The initial term is 12 months. The agreement renews for one year unless either party gives at least 30 days of written notice.",x,y+300,w,32,dark,false,false,200)
+        label("Placeholders stay exactly as written.",x,y+530,w,28,blue,true)
+    case "prompt":
+        label("Ask for the work you need",x,y+65,w,43,dark,true)
+        box(x,y+170,w,175,pale,16)
+        label("$lda Summarize the renewal terms in these documents. Preserve all placeholders.",x+30,y+203,w-60,31,dark,false,true,160)
+        label("Choose documents in LDA’s local picker.\nChoose the Matter locally if its name is private.",x,y+410,w,31,dark,false,false,190)
+    case "connect":
+        label("Complete the connection",x,y+65,w,43,dark,true)
+        let rows=["1   Open the saved setup script in Terminal.","2   Restart Codex and check its MCP settings.","3   Ask: Run LDA’s connection check (attest)."]
+        for (i,row) in rows.enumerated(){box(x,y+170+CGFloat(i)*125,w,100,pale,14);label(row,x+28,y+198+CGFloat(i)*125,w-56,29,dark,false,false,80)}
+    case "local":
+        label("Choose and review locally",x,y+65,w,43,dark,true)
+        let rows=["Choose the documents on your Mac","Optionally review or add PII protection","Confirm the Matter in LDA"]
+        for (i,row) in rows.enumerated(){box(x,y+160+CGFloat(i)*120,w,92,pale,14);label(row,x+28,y+187+CGFloat(i)*120,w-56,31,dark,true,false,75)}
+        label("Only the redacted text goes to the AI.",x,y+550,w,29,blue,true)
+    case "finish":
+        label("Bring the original details back",x,y+65,w,43,dark,true)
+        box(x,y+180,w,150,pale,16)
+        label("Restore this summary locally and export it.",x+30,y+220,w-60,32,dark,false,true,100)
+        label("Review the saved result on your Mac.\nKeep each document with its matching mapping.",x,y+420,w,32,dark,false,false,180)
+    default:
+        label("Your Mac",x,y+65,w,43,dark,true)
+        label("Original documents\nLocal review\nEncrypted mapping\nRestored results",x,y+150,w,34,dark,false,false,250)
+        box(x,y+435,w,150,pale,16)
+        label("Your AI app receives\nthe reviewed, redacted text.",x+30,y+468,w-60,33,blue,true,false,120)
     }
-    label(title,580,203,900,20,ink,true)
-}
-func document(redacted: Bool, reviewed: Bool = false) {
-    label("SERVICE AGREEMENT",536,278,850,20,muted,true)
-    line(redacted ? "Client: {COMPANY_1}" : "Client: Cedar Example Studio",y:335,highlighted:reviewed)
-    line(redacted ? "Contact: {PERSON_1}" : "Contact: Morgan Example",y:397,highlighted:reviewed)
-    line(redacted ? "Email: {EMAIL_1}" : "Email: morgan@example.com",y:459,highlighted:reviewed)
-    line("Renewal: annual; 30 days' notice to cancel.",y:535)
-}
-func cursor(_ x: CGFloat, _ y: CGFloat, _ progress: Double) {
-    let r = CGFloat(18 + 7 * sin(progress * Double.pi * 2))
-    teal.withAlphaComponent(0.16).setFill()
-    NSBezierPath(ovalIn:NSRect(x:x-r,y:y-r,width:2*r,height:2*r)).fill()
-    let path=NSBezierPath()
-    path.move(to:NSPoint(x:x,y:y)); path.line(to:NSPoint(x:x+3,y:y+30))
-    path.line(to:NSPoint(x:x+10,y:y+22)); path.line(to:NSPoint(x:x+18,y:y+33))
-    path.line(to:NSPoint(x:x+24,y:y+29)); path.line(to:NSPoint(x:x+17,y:y+19))
-    path.line(to:NSPoint(x:x+29,y:y+17)); path.close()
-    ink.setFill(); path.fill(); NSColor.white.setStroke(); path.lineWidth=2; path.stroke()
 }
 func draw(story: Story, timed: TimedScene, index: Int, time: Double, total: Double) {
-    let s=timed.scene
-    let progress=(time-timed.start)/(timed.end-timed.start)
-    box(0,0,1600,900,cream,0)
-    label("LDA",54,32,150,32,teal,true)
-    label("FORME LOCALE STUDIO",146,42,470,17,muted,true)
-    box(919,32,627,40,mint,20)
-    label("ILLUSTRATED WALKTHROUGH  ·  FICTIONAL DATA",940,42,590,16,teal,true)
-    label(story.title,54,109,1470,43,ink,true)
-    label(String(format:"%02d",index+1),54,200,350,74,teal,true)
-    label(s.title,54,304,370,35,ink,true,false,180)
-    label(s.action,54,505,354,23,muted,false,false,160)
-    for i in story.scenes.indices {
-        box(54+CGFloat(i)*49,678,36,5,i<=index ? teal : NSColor.lightGray,2)
-    }
-    var point = NSPoint(x:1400,y:635)
-    switch s.kind {
-    case "model":
-        window("LDA  /  Detection setup")
-        label("Choose a local detection model",526,279,950,30,ink,true)
-        box(526,344,954,108,mint,14)
-        label("Detection model",550,366,890,26,teal,true)
-        label("Download or import a compatible model for this Mac.",550,407,860,21,muted)
-        label("Patterns only",550,485,850,25,ink,true)
-        label("Limited coverage: emails, dates, numbers and similar patterns.",550,527,850,21,muted)
-        pill("Continue",1270,626,196)
-    case "import":
-        window("LDA  /  Anonymize")
-        document(redacted:false)
-        pill("Scan for PII",1220,626,246)
-    case "review", "localreview":
-        window(s.kind == "review" ? "LDA  /  Review findings" : "LDA  /  Local PII review")
-        document(redacted:false,reviewed:true)
-        pill("Add protection",526,626,246,active:false)
-        pill(s.kind == "review" ? "Safe Preview" : "Continue",1220,626,246)
-    case "export":
-        window("LDA  /  Safe Preview")
-        document(redacted:true,reviewed:true)
-        pill("Export for AI",1220,626,246)
-    case "cloud":
-        window("AI app  /  Redacted document only")
-        box(526,282,954,106,mint,14)
-        label("Summarize the renewal terms. Preserve placeholders.",552,312,900,25,teal,true)
-        line("{COMPANY_1} renews annually.",y:441)
-        line("Give 30 days' notice to cancel.",y:497)
-        pill("Save AI result",1220,626,246)
-    case "restore":
-        window("LDA  /  Restore")
-        label("Edited document + matching local mapping",526,280,960,28,ink,true)
-        box(526,350,954,208,mint,14)
-        label("Cedar Example Studio renews annually.",552,387,900,28,teal,true)
-        label("Give 30 days' notice to cancel.",552,444,900,26)
-        label("Review restored values before saving.",552,495,900,22,muted)
-        pill("Save",1270,626,196)
-    case "setup":
-        window("LDA Settings  /  MCP Setup")
-        label("Connect LDA to your AI app",526,278,940,31,ink,true)
-        box(526,342,954,69,mint,12)
-        label("AI app                                      Codex",548,361,900,25,teal,true)
-        label("MCP helper is ready",548,445,900,25)
-        label("Save the script, run it locally, then restart Codex.",548,501,900,23,muted)
-        pill("Save Setup Script",1160,612,306)
-    case "command":
-        window("Codex  /  New task")
-        label("Start with the LDA skill",526,278,900,30,ink,true)
-        box(526,344,954,118,mint,14)
-        label("/LDA",551,367,850,29,teal,true,true)
-        label("LDA   Choose documents locally and work with redacted text",551,414,875,22)
-        box(526,500,954,94,cream,14)
-        let prompt="/LDA Summarize the renewal terms."
-        let count=min(prompt.count,Int(progress*Double(prompt.count)*2)+4)
-        label(String(prompt.prefix(count)),550,528,900,28,ink,false,true)
-        label("Codex skill reference: $lda",550,630,890,22,muted,false,true)
-        point=NSPoint(x:760,y:424)
-    case "picker":
-        window("LDA  /  Choose local documents")
-        label("Choose a file on your Mac",526,279,920,31,ink,true)
-        box(526,349,954,70,mint,12)
-        label("Fictional-Service-Agreement.docx",550,370,900,26,teal,true)
-        box(532,478,28,28,teal,6)
-        label("✓",536,475,35,26,.white,true)
-        label("Review and add PII protection",578,476,860,25)
-        label("Next: confirm the Matter locally in LDA.",532,547,900,22,muted)
-        pill("Choose",1270,626,196)
-    case "answer":
-        window("Codex  /  Redacted answer")
-        label("LDA prepared the reviewed document",526,279,945,29,teal,true)
-        box(526,347,954,206,cream,14)
-        label("Renewal summary",554,370,895,27,ink,true)
-        line("{COMPANY_1} renews annually.",y:431,x:554,w:896)
-        line("Give 30 days' notice to cancel.",y:487,x:554,w:896)
-        label("Check the answer and any detection-coverage warnings.",548,612,900,22,muted)
-        point=NSPoint(x:1300,y:540)
-    case "codexrestore":
-        window("Codex + LDA  /  Restore locally")
-        box(526,279,954,102,mint,14)
-        label("Restore this summary locally and export it.",552,311,900,26,teal,true)
-        label("LDA",550,432,900,25,ink,true)
-        label("Restoration complete. Local export saved.",550,481,900,27)
-        label("Open and review the saved result on your Mac.",550,545,900,22,muted)
-        pill("Local output",1220,626,246,active:false)
-    default:
-        window(s.kind == "recap" ? "LDA  /  Ready to begin" : "LDA in Codex  /  Ready to begin")
-        let rows = s.kind == "recap" ? ["1   Add and scan a local document","2   Review and export the redacted version","3   Restore using the matching local mapping"]
-            : ["1   Invoke /LDA and give your instruction","2   Choose documents and review locally","3   Work with the redacted answer"]
-        for (i,row) in rows.enumerated() {
-            box(526,285+CGFloat(i)*104,954,78,i == 1 ? mint : cream,14)
-            label(row,550,308+CGFloat(i)*104,900,24,ink,true)
+    let scene=timed.scene
+    box(0,0,1920,1080,NSColor(srgbRed:0.95,green:0.965,blue:0.985,alpha:1),0)
+    label("LDA 2.0",52,30,240,31,blue,true,false,55)
+    label("FORME LOCALE STUDIO",270,40,600,18,muted,true,false,40)
+    label(story.title,52,104,1750,45,dark,true,false,70)
+    label(String(format:"%02d",index+1),52,222,285,68,blue,true,false,100)
+    label(scene.title,52,342,312,39,dark,true,false,225)
+    label(scene.action,52,602,300,25,muted,false,false,210)
+    for i in story.scenes.indices { box(52+CGFloat(i)*27,862,19,5,i<=index ? blue : pale,2) }
+    let area=NSRect(x:402,y:210,width:1466,height:695)
+    box(area.minX,area.minY,area.width,area.height,.white,18)
+    if let filename=scene.image {
+        var current=filename
+        if let clip=scene.clip, let frames=clips[clip], let last=frames.last {
+            // Hold the first frame briefly, then preserve captured timing and hold the result.
+            let elapsed=max(0,min(time-timed.start-0.9,last.at))
+            current=frames.last(where:{$0.at<=elapsed})?.file ?? frames.first!.file
         }
-        label("Keep originals, mappings and passwords local.",550,633,900,24,teal,true)
-    }
-    if !s.kind.hasSuffix("recap") { cursor(point.x,point.y,progress) }
-    let caption=timed.cues.first(where: { time >= $0.start && time < $0.end })?.text ?? s.captions.last!
-    box(38,747,1524,114,ink,16)
-    label(caption,72,769,1456,27,.white,false,false,91)
-    box(38,879,1524,5,mint,2)
-    box(38,879,1524*CGFloat(min(time/total,1)),5,teal,2)
+        capturedImage(current,crop:scene.crop,in:area.insetBy(dx:20,dy:20))
+    } else {card(scene.card ?? "boundary",in:area)}
+    let tag=scene.image == nil ? "EXPLANATORY EXAMPLE" : "LDA 2.0 WINDOW CAPTURE"
+    label(tag,404,170,1250,16,blue,true,false,30)
+    label("Fictional documents · Silent · English captions",1290,42,578,18,muted,false,false,40)
+    let caption=timed.cues.first(where: {time >= $0.start && time < $0.end})?.text ?? scene.captions.last!
+    box(38,943,1844,100,dark,14)
+    label(caption,66,965,1788,30,.white,false,false,78)
+    box(38,1063,1844,4,pale,2)
+    box(38,1063,1844*CGFloat(min(time/total,1)),4,blue,2)
 }
 
 func timestamp(_ seconds: Double) -> String {
@@ -213,6 +145,8 @@ func run() throws {
     let input=URL(fileURLWithPath:CommandLine.arguments[1])
     let out=URL(fileURLWithPath:CommandLine.arguments[2],isDirectory:true)
     try FileManager.default.createDirectory(at:out,withIntermediateDirectories:true)
+    assetRoot = input.deletingLastPathComponent().appendingPathComponent("assets")
+    clips = try JSONDecoder().decode([String:[RecordedFrame]].self, from: Data(contentsOf: assetRoot.appendingPathComponent("clips.json")))
     let stories=try JSONDecoder().decode([Story].self,from:Data(contentsOf:input))
     for story in stories {
         var timeline:[TimedScene]=[]
@@ -233,7 +167,7 @@ func run() throws {
         writer.shouldOptimizeForNetworkUse = true
         let videoInput=AVAssetWriterInput(mediaType:.video,outputSettings:[
             AVVideoCodecKey:AVVideoCodecType.h264,AVVideoWidthKey:width,AVVideoHeightKey:height,
-            AVVideoCompressionPropertiesKey:[AVVideoAverageBitRateKey:1_100_000,AVVideoProfileLevelKey:AVVideoProfileLevelH264HighAutoLevel,AVVideoMaxKeyFrameIntervalKey:30]
+            AVVideoCompressionPropertiesKey:[AVVideoAverageBitRateKey:2_800_000,AVVideoProfileLevelKey:AVVideoProfileLevelH264HighAutoLevel,AVVideoMaxKeyFrameIntervalKey:30]
         ])
         let adaptor=AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:videoInput,sourcePixelBufferAttributes:[
             kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32ARGB,
@@ -284,7 +218,7 @@ func run() throws {
         writer.finishWriting { finished.signal() }; finished.wait()
         guard writer.status == .completed else { throw writer.error ?? RenderError.failed("Video finalization failed") }
         var vtt="WEBVTT\n\n"
-        var transcript="# \(story.title)\n\nIllustrated walkthrough. All data is fictional. Silent video with English subtitles.\n\n"
+        var transcript="# \(story.title)\n\nLDA 2.0 window recordings and explanatory cards. All documents are fictional. AI prompts and answers are illustrative. Silent video with English subtitles. Recorded interactions are edited for pacing; timings are not benchmarks.\n\n"
         for item in timeline {
             transcript += "## \(timestamp(item.start))  \(item.scene.title)\n\n"
             for cue in item.cues {

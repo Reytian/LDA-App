@@ -1035,9 +1035,9 @@
 // Offline video tutorials
 "Watch the walkthroughs" = "Watch the walkthroughs";
 "Use the LDA app" = "Use the LDA app";
-"Use LDA in Codex" = "Use LDA in Codex";
+"Connect LDA through MCP" = "Connect LDA through MCP";
 "Scan, review, export and restore." = "Scan, review, export and restore.";
-"Connect Codex, invoke /LDA and choose documents locally." = "Connect Codex, invoke /LDA and choose documents locally.";
+"Connect your AI workstation through MCP, with Codex as the example." = "Connect your AI workstation through MCP, with Codex as the example.";
 "Open the offline video player" = "Open the offline video player";
 "This tutorial is missing from the app. Reinstall a complete LDA release." = "This tutorial is missing from the app. Reinstall a complete LDA release.";
 "Read the transcript" = "Read the transcript";

@@ -2,29 +2,263 @@
   {
     "id": "lda-app-walkthrough",
     "title": "Use the LDA app",
-    "subtitle": "Scan locally. Review carefully. Restore on your Mac.",
+    "subtitle": "LDA 2.0 · Scan, review, export and restore",
     "scenes": [
-      {"kind":"model","title":"Choose your detection setup","action":"Start with a local detection model","captions":["This illustrated walkthrough uses fictional data throughout.","Open LDA and choose a detection model during setup, or add one later in AI Settings.","Patterns only has narrower coverage. Names, companies and addresses need a model."]},
-      {"kind":"import","title":"Add a document and scan","action":"Anonymize  >  Add document  >  Scan for PII","captions":["In Anonymize, add a local document, then choose Scan for PII.","LDA checks the document on your Mac. Our example is a fictional service agreement."]},
-      {"kind":"review","title":"Review what will be protected","action":"Check each finding and protect anything missed","captions":["Review the detected values before sharing. Check names, companies, emails and other sensitive details.","Correct the selections and add protection for anything missed. Automatic detection can miss information."]},
-      {"kind":"export","title":"Check Safe Preview and export","action":"Safe Preview  >  Export for AI","captions":["Read Safe Preview to check what the AI will receive. Protected values become placeholders.","Choose Export for AI. Keep the original document and its mapping on your Mac."]},
-      {"kind":"cloud","title":"Work with the redacted version","action":"Send only the reviewed, redacted document","captions":["Give your AI app only the reviewed, redacted version and your instruction.","Ask it to preserve placeholders exactly. Review the remaining context too, because it can still identify a person or matter."]},
-      {"kind":"restore","title":"Bring real values back locally","action":"Restore  >  Choose edited file  >  Save","captions":["Save the AI result, open Restore in LDA, and choose the edited file.","LDA uses the matching local mapping. If asked, select it locally, then review and save the restored output."]},
-      {"kind":"recap","title":"Your everyday LDA workflow","action":"Add  →  Scan  →  Review  →  Export  →  Restore","captions":["The routine is simple: add, scan, review, export, and restore.","Keep originals and mappings local, and check every result before using it."]}
+      {
+        "title": "Start with a document",
+        "action": "A short tour of LDA 2.0",
+        "captions": [
+          "Add a document, review what should be hidden, then save a redacted copy."
+        ],
+        "image": "app-01-start-light.jpg",
+        "crop": [
+          310,
+          235,
+          690,
+          400
+        ]
+      },
+      {
+        "title": "Ready out of the box",
+        "action": "LDA V4 is included",
+        "captions": [
+          "LDA V4 is included. There is no model to download before your first scan."
+        ],
+        "image": "app-02-model-light.jpg",
+        "crop": [
+          235,
+          55,
+          645,
+          265
+        ]
+      },
+      {
+        "title": "Scan on your Mac",
+        "action": "Choose Files → Scan Document",
+        "captions": [
+          "Choose a document, then click Scan Document. Detection and redaction run on this Mac."
+        ],
+        "image": "app-03-document-light.jpg",
+        "crop": [
+          328,
+          85,
+          979,
+          530
+        ],
+        "clip": "scan-final"
+      },
+      {
+        "title": "Check the findings",
+        "action": "Read the original and the preview",
+        "captions": [
+          "Review the detected names and contact details. Protect any sensitive text the scan missed."
+        ],
+        "image": "app-05-original-light.jpg",
+        "crop": [
+          0,
+          48,
+          1307,
+          550
+        ]
+      },
+      {
+        "title": "You decide what stays",
+        "action": "Switch off only what is safe to share",
+        "captions": [
+          "Turning an item off keeps it visible. Safe Preview shows the change immediately."
+        ],
+        "image": "app-04-safe-light.jpg",
+        "crop": [
+          0,
+          48,
+          1307,
+          550
+        ],
+        "clip": "review-off"
+      },
+      {
+        "title": "Keep private details hidden",
+        "action": "Switch protection back on",
+        "captions": [
+          "In this example, we turn protection back on before exporting the document."
+        ],
+        "image": "app-04-safe-light.jpg",
+        "crop": [
+          0,
+          48,
+          1307,
+          550
+        ],
+        "clip": "review-on"
+      },
+      {
+        "title": "Check the redacted copy",
+        "action": "Names become reusable placeholders",
+        "captions": [
+          "Read Safe Preview before sharing. The same company keeps the same placeholder throughout."
+        ],
+        "image": "app-04-safe-light.jpg",
+        "crop": [
+          380,
+          145,
+          920,
+          440
+        ]
+      },
+      {
+        "title": "Export for your AI app",
+        "action": "Export for AI…",
+        "captions": [
+          "Choose Export for AI… to save a Markdown file. Keep the matching .ldamap file on this Mac.",
+          "Upload only the reviewed, redacted file. Ask your AI app to preserve every placeholder exactly."
+        ],
+        "image": "app-07-exported.jpg",
+        "crop": [
+          328,
+          0,
+          979,
+          285
+        ]
+      },
+      {
+        "title": "Bring the answer back",
+        "action": "Illustrative AI response",
+        "captions": [
+          "Save the AI result as a file. This example summary keeps the placeholders unchanged."
+        ],
+        "card": "answer"
+      },
+      {
+        "title": "Restore locally",
+        "action": "Restore → Choose File & Preview…",
+        "captions": [
+          "Open Restore and choose the returned file. LDA uses the matching local mapping."
+        ],
+        "image": "app-08-restore.jpg",
+        "crop": [
+          355,
+          70,
+          595,
+          355
+        ]
+      },
+      {
+        "title": "Review the restored values",
+        "action": "Original values return on this Mac",
+        "captions": [
+          "Check the restored values before saving. Correct anything that needs attention."
+        ],
+        "image": "app-09-restored.jpg",
+        "crop": [
+          15,
+          15,
+          610,
+          345
+        ]
+      },
+      {
+        "title": "Save a new copy",
+        "action": "Choose your output format",
+        "captions": [
+          "Choose an output format and save a new copy. Review every export before sharing it."
+        ],
+        "image": "app-09-restored.jpg",
+        "crop": [
+          15,
+          370,
+          610,
+          335
+        ]
+      }
     ]
   },
   {
     "id": "lda-codex-walkthrough",
-    "title": "Use LDA in Codex",
-    "subtitle": "A slash command starts a local document workflow.",
+    "title": "Connect LDA through MCP",
+    "subtitle": "LDA 2.0 · Your AI workstation, with Codex as the example",
     "scenes": [
-      {"kind":"setup","title":"Connect LDA once","action":"LDA Settings  >  MCP Setup  >  Codex","captions":["This illustrated walkthrough shows LDA's slash-command skill and local MCP connection, using fictional data.","Keep LDA in its final location. In MCP Setup, choose Codex, save the setup script, and open it in Terminal.","Restart Codex and check the LDA connection. This needs a build with MCP Setup and the bundled helper."]},
-      {"kind":"command","title":"Choose LDA from the slash menu","action":"Type /LDA, select the skill, then add your request","captions":["In Codex, type slash LDA and select the LDA skill from the menu.","For example: slash LDA, summarize the renewal terms. Codex also supports the dollar lda skill reference.","Omit the Matter name to choose it privately in LDA. Anything typed in chat is visible to the AI service."]},
-      {"kind":"picker","title":"Choose documents in the local picker","action":"Choose files locally, then confirm the LDA Matter","captions":["LDA opens a local file picker. Choose the document there instead of attaching an original to the chat.","Turn on the optional PII review to inspect and add protection. Confirm the Matter in LDA's local picker."]},
-      {"kind":"localreview","title":"Add protection before continuing","action":"Inspect highlights and protect additional terms","captions":["With review enabled, inspect the local highlights and protect anything missed.","Additional terms stay local. Finish the review to continue, or cancel to stop the workflow."]},
-      {"kind":"answer","title":"Codex works with redacted text","action":"Read the answer and check its use of placeholders","captions":["Codex receives the prepared redacted text and carries out your instruction.","In this example, it summarizes the renewal terms while keeping the company placeholder. Review the answer and any coverage warnings."]},
-      {"kind":"codexrestore","title":"Ask LDA to restore and export","action":"Restore this summary locally and export it","captions":["For an answer based on one document, ask LDA to restore this summary locally and export it.","Use the matching document mapping. The restored text stays local; Codex receives export status.","Review the saved result on your Mac. Keep separate document mappings separate."]},
-      {"kind":"codexrecap","title":"One command, local choices","action":"/LDA  →  Local selection  →  Review  →  Redacted answer","captions":["Start with slash LDA, choose documents locally, review protection, and work with the redacted answer.","Never attach originals, mappings or passwords. These are illustrated steps; exact controls can vary by version."]}
+      {
+        "title": "Connect your AI workstation",
+        "action": "MCP setup, with Codex as the example",
+        "captions": [
+          "LDA 2.0 connects to supported AI apps through MCP. This walkthrough uses Codex."
+        ],
+        "image": "mcp-01-settings.jpg",
+        "crop": [
+          0,
+          60,
+          900,
+          448
+        ]
+      },
+      {
+        "title": "Save the setup script",
+        "action": "Settings → AI assistants",
+        "captions": [
+          "Keep LDA.app in Applications. Open Settings, choose AI assistants, and select Codex.",
+          "Choose Save Setup Script, then open the saved file locally in Terminal."
+        ],
+        "image": "mcp-02-script-saved.jpg",
+        "crop": [
+          235,
+          55,
+          650,
+          370
+        ]
+      },
+      {
+        "title": "Restart and check",
+        "action": "One-time connection setup",
+        "captions": [
+          "Restart your AI app so it loads the connection. Check that LDA appears in its MCP settings.",
+          "Ask the assistant to run LDA’s connection check, attest, before starting."
+        ],
+        "card": "connect"
+      },
+      {
+        "title": "Give a clear instruction",
+        "action": "Example prompt in Codex",
+        "captions": [
+          "Choose the LDA skill from the slash-command menu, or use $lda in Codex.",
+          "Ask for the work you need. You can choose a Matter locally without naming it in chat."
+        ],
+        "card": "prompt"
+      },
+      {
+        "title": "Choose files on your Mac",
+        "action": "Workflow overview",
+        "captions": [
+          "LDA opens a local document picker. Choose the files there instead of attaching originals to chat.",
+          "Optional local PII review lets you inspect or add protection before the AI receives text."
+        ],
+        "card": "local"
+      },
+      {
+        "title": "Work with redacted text",
+        "action": "Illustrative AI response",
+        "captions": [
+          "The assistant works with the redacted text. Check its answer and any detection-coverage warnings.",
+          "Keep every placeholder unchanged so the result can be restored correctly."
+        ],
+        "card": "answer"
+      },
+      {
+        "title": "Restore and export locally",
+        "action": "Example follow-up request",
+        "captions": [
+          "For a result based on one document, ask LDA to restore it locally and export it.",
+          "Review the saved result on your Mac. Keep each document paired with its own mapping."
+        ],
+        "card": "finish"
+      },
+      {
+        "title": "A simple boundary",
+        "action": "Originals and mappings stay local",
+        "captions": [
+          "Keep originals, mapping files and passwords out of chat. Review redacted text before sharing."
+        ],
+        "card": "boundary"
+      }
     ]
   }
 ]

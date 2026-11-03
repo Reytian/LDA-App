@@ -60,7 +60,7 @@ final class NetworkChokepointTests: XCTestCase {
 
     // The user requested this browser link during setup. Match the entire line
     // so an additional URL, query string or document-derived destination is refused.
-    private let tutorialBrowserLink = #"Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20260909")!) {"#
+    private let tutorialBrowserLink = #"Link(destination: URL(string: "https://github.com/Reytian/LDA-App/releases/tag/tutorials-20261103")!) {"#
 
     // This fixed mailto URL contains no subject, body, attachment, or app data.
     private let supportEmailLink = #"Link(destination: URL(string: "mailto:formelocale@protonmail.com")!) {"#
