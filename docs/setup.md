@@ -38,7 +38,7 @@ The demonstrated integration is an LDA skill plus a local MCP connection. The ve
 
 ## Watch offline
 
-LDA 2.0.1 includes both refreshed videos in the first-run workflow page, **Settings > Tutorials**, and **AI assistants**. Choose **Watch on GitHub** during setup to open the [video release](https://github.com/Reytian/LDA-App/releases/tag/tutorials-20261103) in your browser. The link opens only when selected and contains no document or Matter information. Open a bundled video and press Play; closing the player stops playback. A transcript is available below the player.
+LDA 2.0 includes both refreshed videos in the first-run workflow page, **Settings > Tutorials**, and **AI assistants**. Choose **Watch on GitHub** during setup to open the [video release](https://github.com/Reytian/LDA-App/releases/tag/tutorials-20261103) in your browser. The link opens only when selected and contains no document or Matter information. Open a bundled video and press Play; closing the player stops playback. A transcript is available below the player.
 
 You can also download the [offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/LDA-Tutorials.zip), extract it, and open `setup.html` in a browser. It has no external scripts, analytics, fonts or media requests.
 

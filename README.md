@@ -89,14 +89,14 @@ Recorded LDA 2.0 windows and explanatory examples using fictional documents. The
 
 Open the [setup guide and both videos](docs/setup.md), or download the
 [offline tutorial kit](https://github.com/Reytian/LDA-App/releases/download/tutorials-20261103/LDA-Tutorials.zip).
-LDA 2.0.1 includes the refreshed videos in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
+LDA 2.0 includes the refreshed videos in onboarding and **Settings > Tutorials**, plus a **Watch on GitHub** link during setup.
 
 ## Install the macOS app
 
 You need an **Apple Silicon Mac with macOS 14 or later**. The included **LDA V4** detection model works on Macs with **8 GB of memory**. Larger optional models need more memory; LDA shows their requirements in Settings.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-2.0.1.dmg** from **Assets**.
+   and download **LDA-2.0.dmg** from **Assets**.
 2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
    Privacy Policy, then choose your language in the setup wizard.
