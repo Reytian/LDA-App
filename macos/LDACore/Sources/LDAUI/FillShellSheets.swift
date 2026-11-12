@@ -283,12 +283,11 @@ extension FillShell {
             } else {
                 profile = try ProfileStore.loadWithAccountFallback(from: url)
             }
-            // Clear currentPortfolioID before loading so Save will create a new
-            // library entry rather than overwriting whatever portfolio was previously
-            // open. An externally loaded file is not yet in the library; treating it
-            // as an update to the open portfolio would silently corrupt that entry.
-            model.currentPortfolioID = nil
-            model.loadProfile(profile)
+            // openExternalProfile clears currentPortfolioID so Save creates a
+            // new library entry rather than overwriting whatever portfolio was
+            // previously open (an externally loaded file is not yet in the
+            // library), and drops what that portfolio staged.
+            model.openExternalProfile(profile)
         } catch {
             showAlert(
                 title: L10n.string("Load failed"),

@@ -95,19 +95,10 @@ public final class SessionModel: ObservableObject {
     /// Restore (a file, or the companion's clipboard) runs against this.
     @Published public private(set) var sessionMapping: Mapping?
 
-    /// Bumped when the Export for AI menu command fires.
-    @Published public var exportForAIRequestToken = 0
-
-    /// Bumped when the user asks to scan the whole tray.
-    ///
-    /// The shell owns the answer, because the no-model confirmation has to sit
-    /// on every scan entry point rather than on one button. Scan All used to
-    /// call anonymizeAll() straight from the banner, which is exactly the kind
-    /// of second, ungated entry point this codebase has been bitten by before.
-    @Published public var scanAllRequestToken = 0
-
-    /// Bumped when the File > Open menu command fires.
-    @Published public var openRequestToken = 0
+    /// The window's commands, each taken once by the mode that handles it
+    /// (AppCommandRelay). Every menu command and every scan entry point goes
+    /// through here, so the shell's gates sit on one path.
+    public let commands = AppCommandRelay()
 
     /// A .ldawork file the app has been asked to open, from a double-click in
     /// Finder or the File menu. The shell consumes it (clearing it) and runs
@@ -471,6 +462,9 @@ public final class SessionModel: ObservableObject {
     /// document references the temp directory, so the user's original files
     /// should not remain unpacked on disk.
     public func removeDocument(id: UUID) {
+        // Its undo steps go with it: the window's UndoManager does not retain
+        // the model it would call (review 2026-11-11, F15).
+        entries.first { $0.id == id }?.model.discardProtectUndo()
         entries.removeAll { $0.id == id }
         if selectedID == id {
             selectedID = entries.first?.id
@@ -675,14 +669,8 @@ public final class SessionModel: ObservableObject {
         // would tell the user a redacted value is exposed.
         let tokenBySurface = ReviewModel.tokenBySurface(mapping: linkedMapping)
         for entry in ready {
-            for index in entry.model.entities.indices {
-                entry.model.entities[index].token = entry.model.entities[index].accepted
-                    ? ReviewModel.chipToken(
-                        for: entry.model.entities[index].span.text,
-                        in: tokenBySurface
-                    )
-                    : nil
-            }
+            // One published change per document (review 2026-11-11, T5).
+            entry.model.recordExportTokens(tokenBySurface)
         }
 
         // Cross-document recall check, read-only. The tray sweep runs at
@@ -955,6 +943,7 @@ public final class SessionModel: ObservableObject {
     func resetForWorkspaceOpen(discardingExpansions expansions: Set<URL>) {
         documentImportGeneration += 1
         invalidateWorkStartedInTheOutgoingMatter()
+        entries.forEach { $0.model.discardProtectUndo() }
         entries.removeAll()
         selectedID = nil
         sessionMapping = nil
@@ -1262,6 +1251,7 @@ public final class SessionModel: ObservableObject {
         let openModels = entries.map(\.model)
         if discardingDocuments {
             documentImportGeneration += 1
+            entries.forEach { $0.model.discardProtectUndo() }
             entries.removeAll()
             selectedID = nil
         }
@@ -1279,13 +1269,9 @@ public final class SessionModel: ObservableObject {
         // persisted toggle right after this call.
         adoptMatterScope(id: nil)
 
-        for index in emptyModel.entities.indices {
-            emptyModel.entities[index].token = nil
-        }
+        emptyModel.clearExportTokens()
         for model in openModels {
-            for index in model.entities.indices {
-                model.entities[index].token = nil
-            }
+            model.clearExportTokens()
         }
         return true
     }
@@ -1647,21 +1633,51 @@ public final class SessionModel: ObservableObject {
         return cleaned
     }
 
-    /// Ask the shell to run the Export for AI flow (menu command hook).
-    public func requestExportForAI() { exportForAIRequestToken += 1 }
+    // MARK: - Commands (AppCommandRelay)
 
-    /// Ask the shell to run a Scan All over the tray.
+    /// Ask the window to run the Export for AI flow (menu command hook).
+    public func requestExportForAI() { commands.send(.exportForAI) }
+
+    /// Ask the window to run a Scan All over the tray.
     ///
     /// A request rather than the run itself: the shell confirms first when this
-    /// Mac has no detection model.
-    public func requestScanAll() { scanAllRequestToken += 1 }
+    /// Mac has no detection model, so the no-model confirmation sits on every
+    /// scan entry point rather than on one button.
+    public func requestScanAll() { commands.send(.scanAll) }
 
-    /// Ask the shell to present the document open panel (menu command hook).
+    /// Ask the window to run Scan for PII on the active document, through the
+    /// same gate. Inert while that document cannot be scanned (an import that
+    /// failed has no text to scan; re-opening is the recovery).
+    public func requestScan() {
+        guard let entry = activeEntry, entry.model.canAnonymize else { return }
+        commands.send(.scan(documentID: entry.id))
+    }
+
+    /// Ask the window to begin Save Redacted for the active document. Inert
+    /// while that document cannot be saved: this layer owns no message
+    /// channel, and the reason is already on screen in the status banner.
+    public func requestSaveRedacted() {
+        guard let request = saveRedactedRequest() else { return }
+        commands.send(.saveRedacted(documentID: request.documentID))
+    }
+
+    /// Ask the window to begin the restore flow (menu command hook).
+    public func requestRestore() { commands.send(.restore) }
+
+    /// Ask the window to present the document open panel (menu command hook).
     ///
     /// This is the keyboard path to the ONLY recovery from a failed import.
     /// The document pane already offers it prominently as "Choose Files", but
     /// until now there was no menu item and no shortcut for it at all, so a
     /// keyboard-only user genuinely had no way out of a failed import. That,
     /// not the Scan for PII gate, was the real dead end behind audit item F2.
-    public func requestOpen() { openRequestToken += 1 }
+    public func requestOpen() { commands.send(.openDocuments) }
+
+    /// Ask the window to open a workspace (a double-click in Finder, or the
+    /// File menu). The shell runs the passphrase flow and asks before it
+    /// replaces live work; the session never opens one on its own.
+    public func requestOpenWorkspace(_ url: URL) { commands.send(.openWorkspace(url)) }
+
+    /// Ask the window to open a compliance report, the same two ways.
+    public func requestOpenReport(_ url: URL) { commands.send(.openReport(url)) }
 }

@@ -39,6 +39,18 @@ enum DocxRunText {
         }
     }
 
+    /// The character a run-level hyphen element stands for in the text, or nil
+    /// for any other element. w:noBreakHyphen is a non-breaking hyphen
+    /// (U+2011) and w:softHyphen an optional one (U+00AD). Unlike a break, the
+    /// character belongs to a run: a value may hold it.
+    static func inlineCharacter(forElement name: String) -> String? {
+        switch name {
+        case "w:noBreakHyphen": return "\u{2011}"
+        case "w:softHyphen": return "\u{00AD}"
+        default: return nil
+        }
+    }
+
     /// XML whitespace (space, tab, carriage return, line feed): the characters
     /// a consumer may strip from the edges of element content.
     private static let xmlWhitespace: Set<Unicode.Scalar> = [" ", "\t", "\r", "\n"]

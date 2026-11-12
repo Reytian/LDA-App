@@ -223,7 +223,7 @@ final class ModelSetupGateTests: XCTestCase {
         return text
     }
 
-    func testEveryScanEntryPointOnlyBumpsATokenSoOneGateCoversThemAll() throws {
+    func testEveryScanEntryPointOnlyQueuesACommandSoOneGateCoversThemAll() throws {
         // The gate can only be bypassed by an entry point nobody rerouted, so
         // the banner's three buttons must not dispatch a pass themselves.
         let banner = try uiSource("AppShellStatusBanner.swift")
@@ -236,16 +236,15 @@ final class ModelSetupGateTests: XCTestCase {
             "Scan All must go through the shell's gate too: it was the second, "
                 + "ungated entry point"
         )
-        XCTAssertTrue(banner.contains("model.requestAnonymize()"))
+        XCTAssertTrue(banner.contains("session.requestScan()"))
         XCTAssertTrue(banner.contains("session.requestScanAll()"))
 
+        // Review 2026-11-11 (F13): the requests are commands in the session's
+        // relay, no longer per-document counters, and the shell's handlers
+        // for them still end in the one gate.
         let shell = try uiSource("AppShell.swift")
-        for token in [
-            "model.anonymizeRequestToken",
-            "session.scanAllRequestToken",
-            "session.exportForAIRequestToken"
-        ] {
-            XCTAssertTrue(shell.contains(token), "\(token) must reach the shell")
+        for command in ["case .scan(", "case .scanAll:", "case .exportForAI:"] {
+            XCTAssertTrue(shell.contains(command), "\(command) must reach the shell")
         }
         XCTAssertTrue(shell.contains("handleScanRequest(.active)"))
         XCTAssertTrue(shell.contains("handleScanRequest(.all)"))

@@ -53,42 +53,72 @@ public struct Precompiled {
         return Array(String(decoding: normalizedBlob[start..<end], as: Unicode.UTF8.self).unicodeScalars)
     }
 
-    private static func replace(_ transformations: inout [Transformation], oldCount: Int, new: [Unicode.Scalar]) {
+    /// Append the replacement of `oldCount` scalars by `new`. A removal is
+    /// credited to the scalar before it; one with nothing before it is
+    /// counted in `leadingRemoved`, the transform's initial offset.
+    ///
+    /// Review 2026-11-11 (T2): the leading case was dropped (as in HF
+    /// tokenizers' replace), so a document whose first scalar the charsmap
+    /// deletes had every later alignment one scalar early, and every tagger
+    /// span came back one scalar to the left of its value.
+    private static func replace(
+        _ transformations: inout [Transformation],
+        leadingRemoved: inout Int,
+        oldCount: Int,
+        new: [Unicode.Scalar]
+    ) {
         let diff = new.count - oldCount
         transformations.append(contentsOf: new.map { ($0, 0) })
         if diff > 0 {
             let n = transformations.count
             for k in max(0, n - diff)..<n { transformations[k].change = 1 }
-        } else if diff < 0, !transformations.isEmpty {
-            transformations[transformations.count - 1].change += diff
+        } else if diff < 0 {
+            if transformations.isEmpty {
+                leadingRemoved -= diff
+            } else {
+                transformations[transformations.count - 1].change += diff
+            }
         }
     }
 
     /// `Normalizer::normalize` for Precompiled: grapheme by grapheme (Rust `graphemes(true)`).
     public func normalize(_ s: inout NormalizedString) {
-        var transformations: [Transformation] = []
-        transformations.reserveCapacity(s.normalized.count)
-        var modified = false
         let text = String(decoding: s.normalized, as: Unicode.UTF8.self)
+        let built = Self.transformations(of: text) { transform($0) }
+        if built.modified { s.transform(built.dest, initialOffset: built.initialOffset) }
+    }
+
+    /// What normalize applies to `text`: the transformations, how many
+    /// scalars are removed before the first one kept (the initial offset),
+    /// and whether anything changed. Separate from the charsmap so the
+    /// bookkeeping can be tested on its own.
+    static func transformations(
+        of text: String,
+        transform: ([UInt8]) -> [Unicode.Scalar]?
+    ) -> (dest: [Transformation], initialOffset: Int, modified: Bool) {
+        var transformations: [Transformation] = []
+        transformations.reserveCapacity(text.utf8.count)
+        var modified = false
+        var leadingRemoved = 0
         for grapheme in text {
             let gBytes = Array(String(grapheme).utf8)
             let gScalars = Array(grapheme.unicodeScalars)
             if gBytes.count < 6, let norm = transform(gBytes) {
                 modified = true
-                Precompiled.replace(&transformations, oldCount: gScalars.count, new: norm)
+                Precompiled.replace(&transformations, leadingRemoved: &leadingRemoved, oldCount: gScalars.count, new: norm)
                 continue
             }
             for scalar in gScalars {
                 let part = UTF8Codec.bytes(scalar)
                 if let norm = transform(part) {
                     modified = true
-                    Precompiled.replace(&transformations, oldCount: 1, new: norm)
+                    Precompiled.replace(&transformations, leadingRemoved: &leadingRemoved, oldCount: 1, new: norm)
                 } else {
                     transformations.append((scalar, 0))
                 }
             }
         }
-        if modified { s.transform(transformations, initialOffset: 0) }
+        return (transformations, leadingRemoved, modified)
     }
 }
 

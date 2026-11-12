@@ -205,17 +205,21 @@ public enum Restorer {
     ///   replacement also matches at the same position, or a user-forced
     ///   pseudonym returned more times than this handoff emitted it. Those
     ///   sites are left verbatim, never guessed.
-    /// - suspectPlaceholders stays empty: there is no token grammar to
-    ///   mangle in these styles.
+    /// - suspectPlaceholders lists the occurrences a touching character
+    ///   could have extended ("Item 12" for Item 1, 张某某 for 张某): they
+    ///   may be a replacement the editor changed, so they are reported and
+    ///   left verbatim (see literalBoundaryVerdict).
     private static func restoreLiteralStyle(text: String, mapping: Mapping) -> RestoreResult {
         let valuesByReplacement = distinctValuesByReplacement(mapping)
         let sharedByTwoEntities = Set(
             valuesByReplacement.filter { $0.value.count > 1 }.map { $0.key }
         )
-        let accepted = acceptedLiteralMatches(
+        let scan = restoreMatchesAndDoubts(
             in: text,
-            replacements: Array(valuesByReplacement.keys)
+            replacements: Array(valuesByReplacement.keys),
+            gluedSites: gluedSites(of: mapping)
         )
+        let accepted = scan.accepted
         let overReturnedUserOverrides = userOverridesExceedingEmissionCount(
             returned: accepted.map(\.replacement),
             mapping: mapping
@@ -239,7 +243,7 @@ public enum Restorer {
             text: pass.text,
             restoredCount: pass.restoredCount,
             orphanTokens: orphans,
-            suspectPlaceholders: [],
+            suspectPlaceholders: scan.doubtful,
             ambiguousReplacements: pass.refusedReported
         )
     }
@@ -375,22 +379,80 @@ public enum Restorer {
     /// Find the non-overlapping literal occurrences of the given replacement
     /// strings, in document order, with the longest replacement winning at
     /// any shared start position. Deterministic regardless of input order.
+    ///
+    /// Every occurrence counts, whatever touches it. This is the scan the
+    /// seam guard and the session verifier hold the tokenized text to: when
+    /// every literal occurrence there is an emitted piece, the restore scan
+    /// below, which only ever leaves occurrences out, finds exactly the
+    /// emitted pieces too (their touched spellings are recorded).
     internal static func acceptedLiteralMatches(
         in text: String,
         replacements: [String]
     ) -> [AcceptedLiteralMatch] {
         acceptLongestAtEachPosition(
-            allLiteralMatches(in: text, replacements: replacements)
+            allLiteralMatches(in: text, replacements: replacements, gluedSites: nil).found
         )
     }
 
+    /// The restore scan: the accepted matches among the occurrences that
+    /// stand on their own or spell a site tokenization emitted touched, and
+    /// the doubtful occurrences left out (each widened over the characters
+    /// that touch it), in document order without repeats. An occurrence a
+    /// longer accepted replacement covers is not doubtful: "Item 12" is that
+    /// pseudonym when the mapping has one.
+    internal static func restoreMatchesAndDoubts(
+        in text: String,
+        replacements: [String],
+        gluedSites: [String: Set<String>]
+    ) -> (accepted: [AcceptedLiteralMatch], doubtful: [String]) {
+        let scan = allLiteralMatches(in: text, replacements: replacements, gluedSites: gluedSites)
+        let accepted = acceptLongestAtEachPosition(scan.found)
+        let nsText = text as NSString
+        var seen = Set<String>()
+        var doubtful: [String] = []
+        for range in scan.doubtful.sorted(by: { $0.location < $1.location })
+        where !accepted.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) {
+            let shown = nsText.substring(with: range)
+            if seen.insert(shown).inserted { doubtful.append(shown) }
+        }
+        return (accepted, doubtful)
+    }
+
+    /// replacement -> the touched spellings tokenization recorded for it,
+    /// across every entry that carries the replacement. A replacement with
+    /// no recording entry is absent: it was minted before tokenization
+    /// recorded touched sites, so its own documents may hold touched sites
+    /// nobody wrote down, and it keeps the substring match it always had.
+    static func gluedSites(of mapping: Mapping) -> [String: Set<String>] {
+        var sites: [String: Set<String>] = [:]
+        for entry in mapping.entries.values {
+            guard let spellings = entry.gluedSites, !entry.token.isEmpty else { continue }
+            sites[entry.token, default: []].formUnion(spellings)
+        }
+        return sites
+    }
+
     /// Every literal occurrence of every replacement, in no useful order.
+    ///
+    /// With `gluedSites` nil every occurrence is found, and so is every
+    /// occurrence of a replacement `gluedSites` has no record for (minted
+    /// before touched sites were recorded). Otherwise only the occurrences
+    /// that stand on their own (literalBoundaryVerdict), or whose touched
+    /// spelling tokenization recorded, are found; the doubtful ones come back
+    /// as widened ranges for the report.
+    ///
+    /// Review 2026-11-11 (F10): a bare substring search restored "Person A"
+    /// inside "Person Acting", "Company A" inside "Company Assets", "Item 1"
+    /// inside "Item 12" and "Phone 1" inside "iPhone 15", and counted every
+    /// one of them as restored.
     private static func allLiteralMatches(
         in text: String,
-        replacements: [String]
-    ) -> [AcceptedLiteralMatch] {
+        replacements: [String],
+        gluedSites: [String: Set<String>]?
+    ) -> (found: [AcceptedLiteralMatch], doubtful: [NSRange]) {
         let nsText = text as NSString
         var found: [AcceptedLiteralMatch] = []
+        var doubtful: [NSRange] = []
         for replacement in replacements where !replacement.isEmpty {
             var searchLocation = 0
             while searchLocation < nsText.length {
@@ -400,17 +462,173 @@ public enum Restorer {
                     range: NSRange(location: searchLocation, length: nsText.length - searchLocation)
                 )
                 guard range.location != NSNotFound, range.length > 0 else { break }
-                found.append(
-                    AcceptedLiteralMatch(
-                        range: range,
-                        replacement: replacement,
-                        shadowsShorterReplacement: false
-                    )
-                )
                 searchLocation = range.location + range.length
+                let match = AcceptedLiteralMatch(
+                    range: range,
+                    replacement: replacement,
+                    shadowsShorterReplacement: false
+                )
+                guard let recorded = gluedSites?[replacement] else {
+                    found.append(match)
+                    continue
+                }
+                let verdict = literalBoundaryVerdict(range, replacement: replacement, in: nsText)
+                switch verdict {
+                case .standsAlone:
+                    found.append(match)
+                case .doubtful(let widened), .partOfAWord(let widened):
+                    if recorded.contains(nsText.substring(with: widened)) {
+                        found.append(match)
+                    } else if case .doubtful = verdict {
+                        doubtful.append(widened)
+                    }
+                }
             }
         }
-        return found
+        return (found, doubtful)
+    }
+
+    /// How the characters around one occurrence of a replacement bear on it.
+    enum LiteralBoundaryVerdict: Equatable {
+        /// Nothing touches it: a site.
+        case standsAlone
+        /// Touched otherwise: it may be this replacement or another of its
+        /// sequence, edited or glued to something ("Item 12" for Item 1,
+        /// "iPhone 15" for Phone 1, 张某某 for 张某). Reported, not
+        /// substituted. Carries the occurrence widened over the touching
+        /// characters.
+        case doubtful(NSRange)
+        /// The capital a Latin replacement ends on begins an ordinary
+        /// lowercase word and nothing else touches it ("Person Acting",
+        /// "Company Assets"): not a site, and not worth a report. Carries the
+        /// widened occurrence too.
+        case partOfAWord(NSRange)
+    }
+
+    /// Whether the occurrence at `range` stands on its own.
+    ///
+    /// A Latin replacement follows the word boundary of a regular expression:
+    /// an edge that is a letter or digit must not touch another letter or
+    /// digit (outside CJK).
+    ///
+    /// Chinese text sets a replacement against the characters around it with
+    /// no space, so a CJK replacement is touched only by what continues its
+    /// own sequence: an ASCII digit after a digit edge (某电话1 in 某电话12),
+    /// an ASCII letter after a letter edge (某地址A in 某地址AA), and 某
+    /// after 某 (张某 in 张某某). Every such touch is doubtful.
+    ///
+    /// A document can legitimately write a value against a letter or digit
+    /// ("signed byMarek Okafor2", "建国路1号A座"); tokenization records the
+    /// widened spelling of each such emitted site on its entry
+    /// (MappingEntry.gluedSites), and the restore scan accepts a touched
+    /// occurrence that spells one of them.
+    static func literalBoundaryVerdict(
+        _ range: NSRange,
+        replacement: String,
+        in ns: NSString
+    ) -> LiteralBoundaryVerdict {
+        guard let first = replacement.unicodeScalars.first,
+              let last = replacement.unicodeScalars.last else {
+            return .standsAlone
+        }
+        let isCJK = DefinedTermScanner.containsCJK(replacement)
+        let before = scalar(endingAt: range.location, in: ns)
+        let after = scalar(startingAt: NSMaxRange(range), in: ns)
+        let touchedBefore = before.map { touches($0, edge: first, cjkReplacement: isCJK) } ?? false
+        let touchedAfter = after.map { touches($0, edge: last, cjkReplacement: isCJK) } ?? false
+        guard touchedBefore || touchedAfter else { return .standsAlone }
+
+        // Widen over the touching characters, bounded.
+        var start = range.location
+        var end = NSMaxRange(range)
+        var steps = 0
+        while steps < 24, let previous = scalar(endingAt: start, in: ns),
+              touches(previous, edge: first, cjkReplacement: isCJK) {
+            start -= previous.utf16.count
+            steps += 1
+        }
+        steps = 0
+        while steps < 24, let next = scalar(startingAt: end, in: ns),
+              touches(next, edge: last, cjkReplacement: isCJK) {
+            end += next.utf16.count
+            steps += 1
+        }
+        let widened = NSRange(location: start, length: end - start)
+
+        if !isCJK, !touchedBefore, let after,
+           CharacterSet.uppercaseLetters.contains(last),
+           CharacterSet.lowercaseLetters.contains(after) {
+            return .partOfAWord(widened)
+        }
+        return .doubtful(widened)
+    }
+
+    /// Whether `neighbour` touches a replacement edge (see
+    /// literalBoundaryVerdict).
+    private static func touches(
+        _ neighbour: Unicode.Scalar,
+        edge: Unicode.Scalar,
+        cjkReplacement: Bool
+    ) -> Bool {
+        if cjkReplacement {
+            if edge == "某" { return neighbour == "某" }
+            guard edge.isASCII, neighbour.isASCII else { return false }
+            let digits = CharacterSet.decimalDigits
+            let letters = CharacterSet.letters
+            return (digits.contains(edge) && digits.contains(neighbour))
+                || (letters.contains(edge) && letters.contains(neighbour))
+        }
+        return isLatinWordScalar(edge) && isLatinWordScalar(neighbour)
+    }
+
+    /// A letter or digit outside CJK.
+    private static func isLatinWordScalar(_ scalar: Unicode.Scalar) -> Bool {
+        (CharacterSet.letters.contains(scalar) || CharacterSet.decimalDigits.contains(scalar))
+            && !DefinedTermScanner.containsCJK(String(scalar))
+    }
+
+    private static func scalar(endingAt index: Int, in ns: NSString) -> Unicode.Scalar? {
+        guard index > 0 else { return nil }
+        let unit = ns.character(at: index - 1)
+        if UTF16.isTrailSurrogate(unit), index > 1 {
+            let lead = ns.character(at: index - 2)
+            if UTF16.isLeadSurrogate(lead) {
+                return Unicode.Scalar(0x10000 + ((UInt32(lead) - 0xD800) << 10) + (UInt32(unit) - 0xDC00))
+            }
+        }
+        return Unicode.Scalar(unit)
+    }
+
+    private static func scalar(startingAt index: Int, in ns: NSString) -> Unicode.Scalar? {
+        guard index < ns.length else { return nil }
+        let unit = ns.character(at: index)
+        if UTF16.isLeadSurrogate(unit), index + 1 < ns.length {
+            let trail = ns.character(at: index + 1)
+            if UTF16.isTrailSurrogate(trail) {
+                return Unicode.Scalar(0x10000 + ((UInt32(unit) - 0xD800) << 10) + (UInt32(trail) - 0xDC00))
+            }
+        }
+        return Unicode.Scalar(unit)
+    }
+
+    /// The touched spelling of every emitted site a letter or digit touches,
+    /// for MappingEntry.gluedSites. `sites` are the emitted pieces in the
+    /// tokenized text's UTF-16 offsets.
+    static func gluedSpellings(
+        of sites: [(range: NSRange, replacement: String)],
+        in tokenizedText: String
+    ) -> [String: Set<String>] {
+        let ns = tokenizedText as NSString
+        var spellings: [String: Set<String>] = [:]
+        for site in sites {
+            switch literalBoundaryVerdict(site.range, replacement: site.replacement, in: ns) {
+            case .standsAlone:
+                continue
+            case .doubtful(let widened), .partOfAWord(let widened):
+                spellings[site.replacement, default: []].insert(ns.substring(with: widened))
+            }
+        }
+        return spellings
     }
 
     /// Keep one match per position, scanning left to right.
@@ -484,6 +702,10 @@ public enum Restorer {
         /// refuses the site (asterisk masks) or merely loses the longest
         /// match (pseudonyms). See refusesPrefixConflicts(_:).
         public let refusesPrefixConflicts: Bool
+        /// replacement -> the touched spellings tokenization emitted it in
+        /// (MappingEntry.gluedSites). Any other occurrence a letter or digit
+        /// touches is not a site (Restorer.literalBoundaryVerdict).
+        public let gluedSites: [String: Set<String>]
     }
 
     /// Build the restore plan for a literal-style mapping. The single place
@@ -504,7 +726,8 @@ public enum Restorer {
             allReplacements: Set(
                 mapping.entries.values.map(\.token).filter { !$0.isEmpty }
             ),
-            refusesPrefixConflicts: refusesPrefixConflicts(mapping)
+            refusesPrefixConflicts: refusesPrefixConflicts(mapping),
+            gluedSites: gluedSites(of: mapping)
         )
     }
 
@@ -536,10 +759,11 @@ public enum Restorer {
         in text: String,
         plan: LiteralRestorePlan
     ) -> [LiteralRestoreSite] {
-        acceptedLiteralMatches(
+        restoreMatchesAndDoubts(
             in: text,
-            replacements: Array(plan.allReplacements)
-        ).map { match in
+            replacements: Array(plan.allReplacements),
+            gluedSites: plan.gluedSites
+        ).accepted.map { match in
             let refused = plan.refusesPrefixConflicts && match.shadowsShorterReplacement
             return LiteralRestoreSite(
                 range: match.range,
@@ -652,7 +876,8 @@ public enum Restorer {
             carriedLiterals: LiteralRestorePlan(
                 replacementToValue: [:],
                 allReplacements: [],
-                refusesPrefixConflicts: false
+                refusesPrefixConflicts: false,
+                gluedSites: [:]
             )
         )
     }

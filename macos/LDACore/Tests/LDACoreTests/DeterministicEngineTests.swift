@@ -221,15 +221,25 @@ final class DeterministicEngineTests: XCTestCase {
 
     func testInvalidNationalIDIsNotEmitted() {
         // 110101199003071230 flips the final check digit from 3 to 0, breaking the
-        // ISO-7064 mod-11-2 checksum. It must NOT be emitted as a NATIONAL_ID.
-        let text = "身份证号码：110101199003071230。"
+        // ISO-7064 mod-11-2 checksum. With no label it must NOT be emitted as a
+        // NATIONAL_ID.
+        let text = "编号：110101199003071230。"
         let spans = engine.detect(text)
 
         XCTAssertFalse(
             spans.contains { $0.type == .nationalID },
-            "A checksum-invalid 身份证 must not be emitted as NATIONAL_ID"
+            "A checksum-invalid number with no identity label must not be emitted as NATIONAL_ID"
         )
         assertOffsetsSliceBack(spans, in: text)
+    }
+
+    func testAChecksumInvalidNumberAfterAnIdentityLabelIsStillANationalID() {
+        // Review 2026-11-11 (F8): after 身份证号码 a mistyped check digit still
+        // identifies the person; it used to come out typed USCC.
+        let text = "身份证号码：110101199003071230。"
+        let merged = SpanMerger.merge(deterministic: engine.detect(text), llm: [])
+        XCTAssertEqual(merged.first { $0.text == "110101199003071230" }?.type, .nationalID)
+        assertOffsetsSliceBack(engine.detect(text), in: text)
     }
 
     func testNationalIDChecksumUnit() {

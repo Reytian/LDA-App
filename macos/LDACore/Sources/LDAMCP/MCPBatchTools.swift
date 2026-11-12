@@ -44,6 +44,7 @@ extension MCPServer {
             "skippedCount": reply.skippedCount,
             "failedCount": reply.failedCount,
             "autoProtectedValueCount": reply.autoProtectedValueCount,
+            "precedentReleasedValueCount": reply.precedentReleasedValueCount,
             "note": "The redacted copies, the mappings and lda-batch-report.txt stay in the output folder the person chose. Nobody reviewed these documents."
         ]
     }

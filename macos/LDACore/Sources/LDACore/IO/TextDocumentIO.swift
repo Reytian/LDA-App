@@ -4,10 +4,10 @@
 //
 //  Plain-text DocumentImporter plus the redacted .txt edit-surface writer.
 //
-//  Import path: reads .txt/.text/.md files as UTF-8, falling back to a small set
-//  of common encodings, and returns an ImportedDocument whose text uses the same
-//  UTF-16 offset convention as the engine Spans. The redacted .txt produced for
-//  plain-text inputs is the round-trip edit surface.
+//  Import path: reads .txt/.text/.md files, works out their encoding (see
+//  TextEncodingDetector), and returns an ImportedDocument whose text uses the
+//  same UTF-16 offset convention as the engine Spans. The redacted .txt
+//  produced for plain-text inputs is the round-trip edit surface.
 //
 //  Offset convention: ImportedDocument.text uses UTF-16 code-unit offsets, the
 //  NSRange-compatible convention shared with Span in CoreTypes.swift.
@@ -20,24 +20,12 @@ import Foundation
 
 // MARK: - TextDocumentIO
 
-/// A DocumentImporter for plain-text formats (.txt, .text, .md). It reads the
-/// file as UTF-8 when possible, falls back to other common encodings, and throws
-/// DocumentIOError.unreadable when no encoding succeeds.
+/// A DocumentImporter for plain-text formats (.txt, .text, .md). It decodes
+/// the file with TextEncodingDetector and throws DocumentIOError.unreadable
+/// when no encoding gives plausible text.
 public struct TextDocumentIO: DocumentImporter, Sendable {
     /// The file extensions this importer recognizes. Lowercased, without a dot.
     public static let supportedExtensions: Set<String> = ["txt", "text", "md"]
-
-    /// Encodings tried in order when UTF-8 decoding fails. UTF-8 is attempted
-    /// first because it is the dominant on-disk encoding for these formats.
-    /// isoLatin1 comes before utf16 so that single odd-length bytes (e.g. 0xE9
-    /// alone) are decoded as Latin-1 rather than misinterpreted as UTF-16 big-endian.
-    private static let fallbackEncodings: [String.Encoding] = [
-        .utf8,
-        .isoLatin1,
-        .windowsCP1252,
-        .utf16,
-        .ascii
-    ]
 
     public init() {}
 
@@ -64,10 +52,8 @@ public struct TextDocumentIO: DocumentImporter, Sendable {
             )
         }
 
-        guard let text = TextDocumentIO.decode(data) else {
-            throw DocumentIOError.unreadable(
-                "Could not decode file at \(url.path) with any known text encoding."
-            )
+        guard let text = TextEncodingDetector.decode(data) else {
+            throw DocumentIOError.unreadable(TextEncodingDetector.refusal)
         }
 
         return ImportedDocument(
@@ -115,16 +101,4 @@ public struct TextDocumentIO: DocumentImporter, Sendable {
         }
     }
 
-    // MARK: Decoding
-
-    /// Attempts to decode raw bytes using the fallback encodings in order.
-    /// Returns nil only when every encoding fails.
-    private static func decode(_ data: Data) -> String? {
-        for encoding in fallbackEncodings {
-            if let text = String(data: data, encoding: encoding) {
-                return text
-            }
-        }
-        return nil
-    }
 }

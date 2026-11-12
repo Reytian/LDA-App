@@ -81,6 +81,15 @@ public struct ExtractionResult: Sendable {
     /// deliberately does not gate: blocking output over a value the document
     /// does not contain would refuse clean work for no privacy benefit.
     public let phantomEntityCount: Int
+    /// Places a tagger reported a value at where it runs into the word before
+    /// or after it in a shape the locator does not take for a run-in
+    /// ("Okafor|and", "BY|MAREK"), while the same value stands on its own
+    /// elsewhere in the text: each is the range exactly as reported, never
+    /// widened over the glue, and its value is in `unlocatedEntities`. A
+    /// caller that protects run-ins redacts these places too
+    /// (RunInProtection.protect). Review 2026-11-11, T1, second independent
+    /// review. Empty from the GGUF extractor, which reports no places.
+    public let reportedRunIns: [Span]
 
     /// - Parameters:
     ///   - unlocatedEntities: the values present in the source that anchor
@@ -95,8 +104,10 @@ public struct ExtractionResult: Sendable {
         unlocatedEntities: [ExtractedEntity] = [],
         phantomEntityCount: Int = 0,
         segmentCount: Int = 0,
-        unansweredSegmentCount: Int = 0
+        unansweredSegmentCount: Int = 0,
+        reportedRunIns: [Span] = []
     ) {
+        self.reportedRunIns = reportedRunIns
         self.spans = spans
         self.incompleteSegmentCount = incompleteSegmentCount
         self.segmentCount = segmentCount
@@ -151,7 +162,10 @@ public final class LLMExtractor {
     /// reported it.
     /// TRADEMARK is kept as its own type: LDA V4 tags brands that way, and they
     /// are redacted without counting as companies.
-    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID, .trademark]
+    /// CASE_NUMBER is kept since the 2026-11-11 review (F8): a case number a
+    /// model reports used to be discarded here, and the deterministic rules
+    /// do not know every court's format. The rule's span wins an overlap.
+    public static let keptTypes: Set<EntityType> = [.person, .company, .address, .nationalID, .trademark, .caseNumber]
 
     private let completer: TextCompleter
     private let prompts: PromptStore

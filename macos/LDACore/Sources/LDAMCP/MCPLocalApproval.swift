@@ -3,6 +3,12 @@ import LocalAuthentication
 
 /// Consent happens on this Mac, never through an MCP parameter or a cached approval.
 enum MCPLocalApproval {
+    /// The count shown for an older artifact with no recorded exclusion status.
+    static let unknownExclusionStatus = -1
+    /// The count shown for an artifact redacted with patterns only although a
+    /// detection model is configured.
+    static let detectedWithoutModel = -2
+
     static func confirm(text: String, excludedCount: Int) -> Bool {
         guard Thread.isMainThread else { return false }
         #if DEBUG
@@ -18,9 +24,15 @@ enum MCPLocalApproval {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Share text with visible sensitive values?"
-        let status = excludedCount >= 0
-            ? "\(excludedCount) detected occurrence(s) were left visible."
-            : "This older document has no recorded exclusion status."
+        let status: String
+        switch excludedCount {
+        case detectedWithoutModel:
+            status = "This document was redacted with patterns only, although a detection model is set up, so people's names, company names and addresses were not looked for and may be in the text."
+        case unknownExclusionStatus:
+            status = "This older document has no recorded exclusion status."
+        default:
+            status = "\(excludedCount) detected occurrence(s) were left visible."
+        }
         alert.informativeText = status + " The text below will be sent to the connected AI service. Allowing this applies to this response only."
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Review and Authenticate")

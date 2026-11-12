@@ -241,7 +241,11 @@ final class DocxTrackedChangesAndFieldsTests: XCTestCase {
         XCTAssertEqual(body.components(separatedBy: "about:blank").count, 4, "three body targets neutralized: \(body)")
         XCTAssertTrue(body.contains("<w:fldSimple w:instr=\" HYPERLINK &quot;about:blank&quot; \">"), body)
         XCTAssertTrue(body.contains("<w:instrText xml:space=\"preserve\"> HYPERLINK \"about:blank\" </w:instrText>"), body)
-        XCTAssertTrue(body.contains(Self.keptLink), "http link must be preserved")
+        // Review 2026-11-11 (F5): an http target is a URL like any other in
+        // the run text, so the redacted copy carries a brace token for it and
+        // restore writes it back (checked below).
+        XCTAssertFalse(body.contains(Self.keptLink), "an http target is tokenized in the redacted copy: \(body)")
+        XCTAssertTrue(body.contains(" HYPERLINK \"{URL_"), body)
         XCTAssertEqual(try importer.importDocument(result.redactedFileURL).text, originalText, "display text is not PII")
 
         let header = try DocxTestPackage.readPart("word/header1.xml", from: result.redactedFileURL)
@@ -252,6 +256,8 @@ final class DocxTrackedChangesAndFieldsTests: XCTestCase {
         XCTAssertEqual(report.restoredCount, 0)
         XCTAssertTrue(report.orphanTokens.isEmpty)
         XCTAssertEqual(try importer.importDocument(restored).text, originalText)
+        let restoredBody = try DocxTestPackage.readPart(docxMainPartPath, from: restored)
+        XCTAssertTrue(restoredBody.contains(Self.keptLink), "the http target is restored: \(restoredBody)")
     }
 
     // MARK: - Spans straddling live and tracked runs (known limitation, pinned)

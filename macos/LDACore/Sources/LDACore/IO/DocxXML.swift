@@ -50,11 +50,17 @@ struct DocxRun: Sendable {
 /// - markup: raw XML that is copied through verbatim (tags, attributes,
 ///   whitespace, anything that is not editable run text).
 /// - runText: the decoded text content of a single w:t or w:delText element.
-///   This is the only segment kind a redact pass rewrites. On serialization it
-///   is XML-escaped.
+///   On serialization it is XML-escaped.
+/// - inlineCharacter: a run-level element that stands for one character of
+///   text (w:noBreakHyphen is U+2011, w:softHyphen is U+00AD). It keeps its
+///   markup until an edit covers it; then it is removed, or replaced by a
+///   w:t carrying the inserted text (see DocxRedactor.applyRunEdits).
+///
+/// runText and inlineCharacter are the segment kinds a redact pass rewrites.
 enum DocxSegment: Sendable {
     case markup(String)
     case runText(String)
+    case inlineCharacter(markup: String, character: String)
 }
 
 // MARK: - Layout
@@ -382,6 +388,26 @@ enum DocxDocumentXML {
                 continue
             }
 
+            if !tagInfo.isClosing, runDepth > 0, let character = DocxRunText.inlineCharacter(forElement: name) {
+                // A non-breaking or optional hyphen: one character of the
+                // run's text, so "123", w:noBreakHyphen, "45" reads as the
+                // number it is and a name holding one restores with the
+                // hyphen in place (review 2026-11-11, F5). It is a run of its
+                // own, so an edit that covers it can remove it.
+                flushMarkup()
+                let textSegmentIndex = segments.count
+                segments.append(.inlineCharacter(
+                    markup: String(scalars[i ..< tagInfo.tagEnd]),
+                    character: character
+                ))
+                let length = (character as NSString).length
+                runs.append(DocxRun(charStart: utf16Cursor, charLength: length, textSegmentIndex: textSegmentIndex))
+                concatenated.append(character)
+                utf16Cursor += length
+                i = tagInfo.tagEnd
+                continue
+            }
+
             if name == "w:r" {
                 if tagInfo.isClosing {
                     runDepth = max(0, runDepth - 1)
@@ -431,6 +457,8 @@ enum DocxDocumentXML {
                 out += raw
             case .runText(let text):
                 out += xmlEncode(text)
+            case .inlineCharacter(let markup, _):
+                out += markup
             }
         }
         return out

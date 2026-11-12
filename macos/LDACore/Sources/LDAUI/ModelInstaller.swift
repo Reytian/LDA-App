@@ -432,13 +432,19 @@ public final class ModelInstaller: NSObject, ObservableObject {
     }
 
     /// Streaming SHA-256, so a 13 GB file is never resident in memory.
+    ///
+    /// Each chunk is read inside its own autorelease pool (review 2026-11-11,
+    /// T5): on a background thread the chunks otherwise stay alive until the
+    /// whole file has been read.
     nonisolated static func sha256Hex(of url: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try? handle.read(upToCount: 4 * 1024 * 1024), !chunk.isEmpty {
+        while autoreleasepool(invoking: { () -> Bool in
+            guard let chunk = try? handle.read(upToCount: 4 * 1024 * 1024), !chunk.isEmpty else { return false }
             hasher.update(data: chunk)
-        }
+            return true
+        }) {}
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

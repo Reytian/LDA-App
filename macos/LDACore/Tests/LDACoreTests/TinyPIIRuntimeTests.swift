@@ -37,6 +37,48 @@ final class TinyPIINormalizedStringTests: XCTestCase {
     }
 }
 
+// Review 2026-11-11, T2: when the first scalar of a document was one the
+// charsmap deletes (U+0001 to U+0008, U+000B, U+000E to U+001F, U+007F), every
+// tagger span came back one scalar early (inputs/v/t3_ctrl_vt.txt). A removal
+// was credited to the scalar before it, and the first scalar has none, so it
+// was lost and every later alignment moved one place left (HF tokenizers'
+// own replace has the same gap). Leading removals are now the transform's
+// initial offset. A fake transform stands in for the charsmap.
+final class TinyPIIPrecompiledOffsetTests: XCTestCase {
+    private let deleteControls: ([UInt8]) -> [Unicode.Scalar]? = { bytes in
+        guard bytes.count == 1 else { return nil }
+        let b = bytes[0]
+        return (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) || b == 0x7F ? [] : nil
+    }
+
+    private func normalized(_ text: String) -> NormalizedString {
+        let built = Precompiled.transformations(of: text, transform: deleteControls)
+        var n = NormalizedString(text)
+        if built.modified { n.transform(built.dest, initialOffset: built.initialOffset) }
+        return n
+    }
+
+    func testARemovedFirstScalarDoesNotShiftTheRest() {
+        let n = normalized("\u{0B}Ann met Bo.")
+        XCTAssertEqual(String(decoding: n.normalized, as: Unicode.UTF8.self), "Ann met Bo.")
+        XCTAssertEqual(n.originalRange(normalized: 8..<10), 9..<11, "Bo maps back to its own bytes")
+        XCTAssertEqual(n.originalRange(normalized: 0..<3), 1..<4, "and so does Ann")
+    }
+
+    func testSeveralLeadingRemovalsAndOneInsideStillMapBack() {
+        let n = normalized("\u{01}\u{02}A\u{0B}B")
+        XCTAssertEqual(String(decoding: n.normalized, as: Unicode.UTF8.self), "AB")
+        XCTAssertEqual(n.originalRange(normalized: 0..<1), 2..<3)
+        XCTAssertEqual(n.originalRange(normalized: 1..<2), 4..<5)
+    }
+
+    func testARemovalAfterTheFirstScalarIsUnchanged() {
+        let n = normalized("A\u{0B}Bc")
+        XCTAssertEqual(String(decoding: n.normalized, as: Unicode.UTF8.self), "ABc")
+        XCTAssertEqual(n.originalRange(normalized: 1..<3), 2..<4)
+    }
+}
+
 final class TinyPIIDecodeTests: XCTestCase {
     func testPythonSumIsCompensated() {
         XCTAssertEqual(pythonSum([Double](repeating: 0.1, count: 10)), 1.0)  // CPython 3.12: sum([0.1]*10) == 1.0

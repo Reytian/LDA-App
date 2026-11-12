@@ -22,6 +22,7 @@ enum DocumentErrorPresentation {
         _ error: Error,
         language: AppLanguage? = nil
     ) -> String? {
+        if let refusal = error as? NonBodyScanRefusal { return refusal.message(language: language) }
         guard let ioError = error as? DocumentIOError else { return nil }
         let locale = (language ?? AppLanguage.selected()).locale
         switch ioError {

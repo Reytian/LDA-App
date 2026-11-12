@@ -153,8 +153,10 @@ final class MCPBatchTests: XCTestCase {
         let summary = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(response.text.utf8)) as? [String: Any])
         XCTAssertEqual(
             Set(summary.keys),
-            ["outcome", "documentCount", "writtenCount", "skippedCount", "failedCount", "autoProtectedValueCount", "note"]
+            ["outcome", "documentCount", "writtenCount", "skippedCount", "failedCount", "autoProtectedValueCount",
+             "precedentReleasedValueCount", "note"]
         )
+        XCTAssertEqual(summary["precedentReleasedValueCount"] as? Int, 0)
         XCTAssertEqual(summary["outcome"] as? String, "finished")
         XCTAssertEqual(summary["documentCount"] as? Int, 3)
         XCTAssertEqual(summary["writtenCount"] as? Int, 1)

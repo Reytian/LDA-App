@@ -73,6 +73,11 @@ enum DocxParts {
         }
     }
 
+    /// Every file member of the package, in archive order.
+    static func memberPaths(in url: URL) -> [String] {
+        enumerateEntryPaths(in: url)
+    }
+
     /// Reads every file entry path from the archive. Returns an empty list when the
     /// archive cannot be opened; callers treat that as "no extra parts".
     private static func enumerateEntryPaths(in url: URL) -> [String] {
@@ -209,6 +214,22 @@ enum DocxParts {
         var unsupportedParts: [String]
         /// What was covered outside the body, for the caller's coverage report.
         var coverage: DocxSupplementaryCoverage
+        /// The body part after its markup text (field instructions, text
+        /// attributes) was redacted, when the caller passed one.
+        var body: String? = nil
+        /// Every surface this pass replaced, in run text and in markup, with
+        /// its type: what DocxLeakAudit must not find in the output.
+        var replacedSurfaces: [(String, EntityType)] = []
+    }
+
+    /// A value the body replaced, with the token it was given there. The
+    /// supplementary parts and every part's markup text sweep for it, so a
+    /// header or a field instruction that repeats a body value is redacted
+    /// whether or not detection finds it there (review 2026-11-11, F5).
+    struct ReplacedValue {
+        var value: String
+        var type: EntityType
+        var token: String
     }
 
     /// What the supplementary parts of `url` would receive, WITHOUT writing
@@ -221,9 +242,9 @@ enum DocxParts {
     /// number for one.
     static func supplementaryCoverage(
         url: URL,
-        detect: (String) -> [Span],
+        detect: (String) throws -> [Span],
         budget: ArchiveBudget = ArchiveBudget()
-    ) -> DocxSupplementaryCoverage {
+    ) rethrows -> DocxSupplementaryCoverage {
         var coverage = DocxSupplementaryCoverage.none
         // A package that hits the unpacking ceiling previews as zero rather
         // than throwing from a coverage number. It cannot mislead: the
@@ -233,7 +254,7 @@ enum DocxParts {
         let loaded = (try? loadTextBearingParts(from: url, budget: budget))
             ?? LoadedParts(parts: [], failedParts: [])
         for part in loaded.parts {
-            coverage.add(acceptedSupplementarySpans(in: part.layout.text, detect: detect))
+            coverage.add(try acceptedSupplementarySpans(in: part.layout.text, detect: detect))
         }
         return coverage
     }
@@ -246,9 +267,9 @@ enum DocxParts {
     /// The single source of truth for both the redaction pass and the preview.
     private static func acceptedSupplementarySpans(
         in text: String,
-        detect: (String) -> [Span]
-    ) -> [Span] {
-        acceptedSpans(SpanSplitter.splitAtBreaks(detect(text), in: text), in: text)
+        detect: (String) throws -> [Span]
+    ) rethrows -> [Span] {
+        acceptedSpans(SpanSplitter.splitAtBreaks(try detect(text), in: text), in: text)
     }
 
     /// Redact every non-body text part, scrub docProps metadata, and neutralize
@@ -259,16 +280,30 @@ enum DocxParts {
     ///   - mapping: the body mapping (read-only here); used so a surface already
     ///     mapped in the body reuses its token.
     ///   - detect: detection over arbitrary text (deterministic plus optional LLM).
+    ///   - replacedValues: what the body was rewritten with; a part that
+    ///     repeats one of these values gets the body's token for it.
     /// - Returns: the per-path rewritten bytes, any new mapping entries, and
     ///   how much was covered outside the body.
     static func redactNonBodyParts(
         url: URL,
         mapping: Mapping,
-        detect: (String) -> [Span],
-        budget: ArchiveBudget
+        detect: (String) throws -> [Span],
+        budget: ArchiveBudget,
+        body: String? = nil,
+        replacedValues: [ReplacedValue] = []
     ) throws -> Result {
         let loaded = try loadTextBearingParts(from: url, budget: budget)
-        var text = redactedTextParts(loaded.parts, mapping: mapping, detect: detect)
+        var text = redactedTextParts(
+            loaded.parts,
+            mapping: mapping,
+            detect: detect,
+            body: body,
+            replacedValues: replacedValues
+        )
+        // Headers, footers, notes and comments obey the body's gates: a
+        // detection that failed, stopped short or found a value it could not
+        // remove refuses the export (review 2026-11-11, F9).
+        if let failure = text.detectionFailure { throw failure }
         text.failedParts += loaded.failedParts
 
         // What this package holds that the export removes, and what makes it
@@ -277,7 +312,7 @@ enum DocxParts {
         let paths = enumerateEntryPaths(in: url)
         let classified = DocxPackagePolicy.classify(paths: paths)
         var replacements = text.replacements
-        for (path, bytes) in scrubbedMetadataParts(url: url, budget: budget) {
+        for (path, bytes) in try scrubbedMetadataParts(url: url, paths: paths, budget: budget) {
             replacements[path] = bytes
         }
         // The settings part is not content-free: it carries document
@@ -286,7 +321,13 @@ enum DocxParts {
         for (path, bytes) in try DocxSettingsScrub.replacementParts(in: url, paths: paths, budget: budget) {
             replacements[path] = bytes
         }
-        for (path, bytes) in cleanedPackageParts(url: url, dropped: classified.dropped, budget: budget) {
+        // Every replaced value, short numbers included: a link that holds
+        // one is neutralized (DocxLeakAudit.needles).
+        let needles = DocxLeakAudit.needles(
+            from: replacedValues.map { ($0.value, $0.type) } + text.replacedSurfaces,
+            minimumDigits: 0
+        )
+        for (path, bytes) in cleanedPackageParts(url: url, dropped: classified.dropped, needles: needles, budget: budget) {
             replacements[path] = bytes
         }
 
@@ -296,7 +337,9 @@ enum DocxParts {
             failedParts: text.failedParts,
             removedParts: classified.dropped,
             unsupportedParts: classified.unsupported,
-            coverage: text.coverage
+            coverage: text.coverage,
+            body: text.body,
+            replacedSurfaces: text.replacedSurfaces
         )
     }
 
@@ -307,17 +350,37 @@ enum DocxParts {
         var newEntries: [MappingEntry] = []
         var failedParts: [String] = []
         var coverage = DocxSupplementaryCoverage.none
+        var body: String?
+        var replacedSurfaces: [(String, EntityType)] = []
+        /// The first error detection threw. The pass carries on so the
+        /// failure is reported once, then the caller throws it.
+        var detectionFailure: Error?
     }
 
     /// Every normalized surface the body mapping already knows, aliases
     /// included, pointing at the token it was given. A surface a header
     /// repeats must reuse the body's token, not mint a second one.
-    private static func tokensByNormalizedSurface(in mapping: Mapping) -> [String: String] {
+    ///
+    /// The body's own rewrite decides first: `replacedValues` carry the token
+    /// the body actually spells for each value. A mapping can hold one value
+    /// under two tokens, and the index used to keep whichever the dictionary
+    /// visited last (review 2026-11-11, F11, second independent review).
+    /// Otherwise entries are visited in key order and the first wins, as in
+    /// the tokenizer's seed walk.
+    private static func tokensByNormalizedSurface(
+        in mapping: Mapping,
+        replacedValues: [ReplacedValue]
+    ) -> [String: String] {
         var tokens: [String: String] = [:]
-        for entry in mapping.entries.values {
-            tokens[TextMatching.normalize(entry.surfaceText)] = entry.token
-            for alias in entry.aliases {
-                tokens[TextMatching.normalize(alias)] = entry.token
+        for value in replacedValues {
+            let norm = TextMatching.normalize(value.value)
+            if tokens[norm] == nil { tokens[norm] = value.token }
+        }
+        for key in mapping.entries.keys.sorted() {
+            guard let entry = mapping.entries[key] else { continue }
+            for surface in [entry.surfaceText] + entry.aliases {
+                let norm = TextMatching.normalize(surface)
+                if tokens[norm] == nil { tokens[norm] = entry.token }
             }
         }
         return tokens
@@ -325,46 +388,137 @@ enum DocxParts {
 
     /// Redact every supplementary text part, minting tokens that continue the
     /// body's per-type numbering and reusing the body's token for a surface
-    /// the body already mapped.
+    /// the body already mapped. Every part's markup text (the body's too,
+    /// when given) is redacted through the same token state.
+    ///
+    /// Two passes. The first detects in every supplementary part's run text
+    /// and in every markup text of the package; the second redacts each of
+    /// them with what it detected plus every value replaced anywhere (the
+    /// body's, and what the first pass found), so a value found in one
+    /// place is redacted wherever else it is written: a surname the model
+    /// found in an index entry is also replaced in the citation it repeats
+    /// (review 2026-11-11, F5). Detection runs once per distinct text.
     private static func redactedTextParts(
         _ parts: [LoadedPart],
         mapping: Mapping,
-        detect: (String) -> [Span]
+        detect: (String) throws -> [Span],
+        body: String?,
+        replacedValues: [ReplacedValue]
     ) -> TextPartRedaction {
         // Token reuse index and per-type counters seeded from the body mapping,
         // then carried across parts so numbering never collides.
-        var tokenByNormSurface = tokensByNormalizedSurface(in: mapping)
+        var tokenByNormSurface = tokensByNormalizedSurface(in: mapping, replacedValues: replacedValues)
         var counters = perTypeMaxIndices(in: mapping.entries.keys)
         var outcome = TextPartRedaction()
 
+        func token(for span: Span) -> String {
+            resolveToken(
+                for: span,
+                tokenByNormSurface: &tokenByNormSurface,
+                counters: &counters,
+                newEntries: &outcome.newEntries
+            )
+        }
+
+        var cache: [String: [Span]] = [:]
+        func detected(_ text: String) -> [Span] {
+            if let known = cache[text] { return known }
+            let spans: [Span]
+            do {
+                spans = try detect(text)
+            } catch {
+                if outcome.detectionFailure == nil { outcome.detectionFailure = error }
+                spans = []
+            }
+            cache[text] = spans
+            return spans
+        }
+        // Markup text: the whole text, and each double-quoted field argument
+        // on its own, where the model reads a name without the field syntax
+        // around it ("Ellis, Jordan" whole, not "Ellis" alone).
+        func detectedInMarkup(_ text: String) -> [Span] {
+            var spans = detected(text)
+            let ns = text as NSString
+            for argument in DocxMarkupText.quotedArguments(in: text) where argument.length < ns.length {
+                let inner = ns.substring(with: argument)
+                spans += detected(inner).map { span in
+                    var shifted = span
+                    shifted.start += argument.location
+                    shifted.end += argument.location
+                    return shifted
+                }
+            }
+            return spans
+        }
+
+        // Pass 1: what is detected anywhere.
+        var everywhere: [(value: String, type: EntityType)] = replacedValues.map { ($0.value, $0.type) }
+        let markupSources = (body.map { [$0] } ?? []) + parts.compactMap { String(data: $0.data, encoding: .utf8) }
+        for xml in markupSources {
+            _ = DocxMarkupText.rewrite(xml) { text in
+                everywhere += detectedInMarkup(text).map { ($0.text, $0.type) }
+                return []
+            }
+        }
         for part in parts {
-            // Exactly the spans supplementaryCoverage would preview, so the
-            // preview and this pass can never disagree.
-            let accepted = acceptedSupplementarySpans(in: part.layout.text, detect: detect)
+            everywhere += detected(part.layout.text).map { ($0.text, $0.type) }
+        }
+        var seen = Set<String>()
+        let sweep = everywhere.filter { seen.insert($0.type.rawValue + "\u{1F}" + TextMatching.normalize($0.value)).inserted }
+
+        // Pass 2: redact. Markup text: detection plus a folded sweep, which
+        // finds "jordan.ellis" for "Jordan Ellis". Brace tokens in every
+        // style, restored by token (DocxMarkupText.restore).
+        func redactMarkup(_ xml: String) -> String {
+            DocxMarkupText.rewrite(xml) { text in
+                var spans = detectedInMarkup(text)
+                for value in sweep {
+                    for range in DocxLeakAudit.foldedRanges(of: value.value, in: text) {
+                        spans.append(Span(
+                            start: range.location, end: range.location + range.length, type: value.type,
+                            text: (text as NSString).substring(with: range), source: .deterministic,
+                            confidence: 1, priority: EntityLocator.llmPriority
+                        ))
+                    }
+                }
+                return acceptedSpans(spans, in: text).map { span in
+                    outcome.replacedSurfaces.append((span.text, span.type))
+                    return DocxMarkupText.Edit(
+                        range: NSRange(location: span.start, length: span.end - span.start),
+                        text: token(for: span)
+                    )
+                }
+            }
+        }
+
+        if let body {
+            outcome.body = redactMarkup(body)
+        }
+
+        for part in parts {
+            // Detection plus every value replaced anywhere, so a part that
+            // repeats one is redacted whether or not detection finds it there.
+            let accepted = acceptedSupplementarySpans(
+                in: part.layout.text,
+                detect: { text in detected(text) + sweptSpans(of: sweep, in: text) }
+            )
             outcome.coverage.add(accepted)
 
             // Resolve a token for each accepted span, extending the mapping.
             let replacementsForPart = accepted.map { span in
-                Replacement(
-                    span: span,
-                    token: resolveToken(
-                        for: span,
-                        tokenByNormSurface: &tokenByNormSurface,
-                        counters: &counters,
-                        newEntries: &outcome.newEntries
-                    )
-                )
+                Replacement(span: span, token: token(for: span))
             }
+            outcome.replacedSurfaces += accepted.map { ($0.text, $0.type) }
 
             // Every part also loses the PII its markup carries (field targets,
-            // revision authors), even when detection found nothing in its text.
-            // A part neither pass touched is not listed, so it copies through
-            // byte for byte.
+            // revision authors, markup text), even when detection found
+            // nothing in its run text. A part no pass touched is not listed,
+            // so it copies through byte for byte.
             guard let rewritten = redactedPartXML(part, replacements: replacementsForPart) else {
                 outcome.failedParts.append(part.path)
                 continue
             }
-            let scrubbed = DocxMarkupScrub.scrubRedactedPart(rewritten)
+            let scrubbed = redactMarkup(DocxMarkupScrub.scrubRedactedPart(rewritten))
             if !replacementsForPart.isEmpty || scrubbed != rewritten {
                 outcome.replacements[part.path] = Data(scrubbed.utf8)
             }
@@ -372,12 +526,22 @@ enum DocxParts {
         return outcome
     }
 
+    /// Every place in `text` where one of `values` is written, as spans of
+    /// the value's type. EntityLocator's rules: case aside, whitespace
+    /// variants, word boundaries.
+    private static func sweptSpans(of values: [(value: String, type: EntityType)], in text: String) -> [Span] {
+        values.flatMap { value in
+            EntityLocator.spans(forValue: value.value, type: value.type, in: text, source: .deterministic, confidence: 1)
+        }
+    }
+
     /// The identity metadata parts, blanked. Read best effort: a package that
     /// carries none of them simply contributes nothing here.
     private static func scrubbedMetadataParts(
         url: URL,
+        paths: [String],
         budget: ArchiveBudget
-    ) -> [String: Data] {
+    ) throws -> [String: Data] {
         // Custom document properties matter as much as the core ones:
         // DMS-stamped client names, matter numbers, and billing codes
         // routinely live there as string values.
@@ -387,10 +551,19 @@ enum DocxParts {
             (docxAppPropsPath, scrubAppProps),
             (docxCustomPropsPath, scrubCustomProps)
         ]
+        // A metadata part the package carries but the scrub cannot read
+        // would copy through whole, so it refuses the export (review
+        // 2026-11-11, F5). A part the package does not carry is skipped.
+        let present = Set(paths)
         var replacements: [String: Data] = [:]
-        for (path, scrub) in scrubs {
-            guard let data = try? DocxZip.readEntry(path, from: url, budget: budget),
-                  let xml = String(data: data, encoding: .utf8) else { continue }
+        for (path, scrub) in scrubs where present.contains(path) {
+            let data = try DocxZip.readEntry(path, from: url, budget: budget)
+            guard let xml = String(data: data, encoding: .utf8) else {
+                throw DocumentIOError.corrupt(
+                    "\(path) could not be read as UTF-8 XML, so its metadata could not be cleaned "
+                        + "and the redacted copy was not written"
+                )
+            }
             replacements[path] = Data(scrub(xml).utf8)
         }
         return replacements
@@ -403,6 +576,7 @@ enum DocxParts {
     private static func cleanedPackageParts(
         url: URL,
         dropped: [String],
+        needles: [DocxLeakAudit.Needle],
         budget: ArchiveBudget
     ) -> [String: Data] {
         var replacements: [String: Data] = [:]
@@ -414,7 +588,7 @@ enum DocxParts {
             // matter's recipient list is named after the parties.
             let cleaned = DocxSettingsScrub.removeMailMergeSources(
                 DocxPackagePolicy.removeDroppedRelationships(
-                    neutralizeExternalTargets(xml)
+                    neutralizeExternalTargets(xml, holding: needles)
                 )
             )
             if cleaned != xml {
@@ -475,6 +649,26 @@ enum DocxParts {
             replacements[part.path] = DocxDocumentXML.serialize(layout)
         }
         return replacements
+    }
+
+    /// Write the values back into the markup text (field instructions, text
+    /// attributes) of the body and every supplementary part, by brace token.
+    /// Parts already rewritten in `rewriteParts` are restored from there.
+    static func restoreMarkupText(
+        url: URL,
+        values: [String: String],
+        into rewriteParts: inout [String: Data],
+        budget: ArchiveBudget
+    ) throws {
+        guard !values.isEmpty else { return }
+        for path in [docxMainPartPath] + textBearingPartPaths(in: url) {
+            let data = try rewriteParts[path] ?? DocxZip.readEntry(path, from: url, budget: budget)
+            guard let xml = String(data: data, encoding: .utf8) else { continue }
+            let restored = DocxMarkupText.restore(xml, values: values)
+            if restored != xml {
+                rewriteParts[path] = Data(restored.utf8)
+            }
+        }
     }
 
     // MARK: - Token resolution
@@ -578,11 +772,19 @@ enum DocxParts {
 
     /// Author and title elements whose text content is blanked in core.xml.
     private static let coreScrubElements = [
-        "dc:creator", "cp:lastModifiedBy", "dc:title", "dc:subject", "dc:description"
+        "dc:creator", "cp:lastModifiedBy", "dc:title", "dc:subject", "dc:description",
+        // Review 2026-11-11 (F5): the remaining free-text fields.
+        "cp:keywords", "cp:category", "cp:contentStatus", "dc:identifier"
     ]
 
-    /// Identity elements whose text content is blanked in app.xml.
-    private static let appScrubElements = ["Company", "Manager"]
+    /// Identity elements whose text content is blanked in app.xml: the
+    /// company, the manager, the template name, the hyperlink base, the
+    /// application name (a company named like the word processor would
+    /// otherwise stay in it), and every string in the parts list and the
+    /// hyperlink list (TitlesOfParts, HeadingPairs, HLinks).
+    private static let appScrubElements = [
+        "Company", "Manager", "Template", "HyperlinkBase", "Application", "vt:lpstr", "vt:lpwstr"
+    ]
 
     /// Blank the text content of the configured core-properties elements.
     static func scrubCoreProps(_ xml: String) -> String {
@@ -658,7 +860,7 @@ enum DocxParts {
     /// "External" and whose Target starts with a sensitive scheme (mailto:/tel:),
     /// replacing the address with a neutral value. Other relationships (internal
     /// part targets, http links) are left untouched.
-    static func neutralizeExternalTargets(_ xml: String) -> String {
+    static func neutralizeExternalTargets(_ xml: String, holding needles: [DocxLeakAudit.Needle] = []) -> String {
         // Match each <Relationship ...> start tag (self-closing or not) so we can
         // inspect both TargetMode and Target before rewriting this one tag only.
         // Relationship elements are empty by the OOXML schema, so the attributes
@@ -677,7 +879,7 @@ enum DocxParts {
                 result += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
             }
             let element = ns.substring(with: range)
-            result += rewriteRelationshipElement(element)
+            result += rewriteRelationshipElement(element, holding: needles)
             cursor = range.location + range.length
         }
         if cursor < ns.length {
@@ -707,11 +909,17 @@ enum DocxParts {
     /// be quote-agnostic for the same reason: a quote-agnostic rewrite sitting
     /// behind a double-quote-only guard is dead code for exactly the files that
     /// need it.
-    private static func rewriteRelationshipElement(_ element: String) -> String {
+    private static func rewriteRelationshipElement(_ element: String, holding needles: [DocxLeakAudit.Needle]) -> String {
         guard attributeValue("TargetMode", in: element) == "External" else { return element }
         guard let target = attributeValue("Target", in: element) else { return element }
         let lowered = target.lowercased()
-        guard sensitiveSchemes.contains(where: { lowered.hasPrefix($0) }) else { return element }
+        // Any scheme whose target, decoded, holds a value the export
+        // replaced: an https link to a profile named after the person shown
+        // as {URL_1} in the body (review 2026-11-11, F5).
+        let decoded = xmlDecode(target)
+        let holdsReplacedValue = DocxLeakAudit.holds(decoded, needles)
+            || (decoded.removingPercentEncoding.map { DocxLeakAudit.holds($0, needles) } ?? false)
+        guard holdsReplacedValue || sensitiveSchemes.contains(where: { lowered.hasPrefix($0) }) else { return element }
         guard let regex = try? NSRegularExpression(pattern: targetAttributePattern) else {
             return element
         }

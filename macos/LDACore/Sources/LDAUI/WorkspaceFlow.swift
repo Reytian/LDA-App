@@ -112,7 +112,7 @@ struct WorkspaceFlow: ViewModifier {
                 L10n.text(WorkspacePresentation.replacementPrompt)
             }
             .onChange(of: flow.saveRequestToken) { _, _ in presentSavePanel() }
-            .onChange(of: session.pendingWorkspaceURL) { _, url in
+            .onChange(of: session.pendingWorkspaceURL, initial: true) { _, url in
                 guard let url else { return }
                 session.pendingWorkspaceURL = nil
                 // hasActiveMatterWork, not just the tray: an unfinished restore

@@ -96,9 +96,10 @@ public enum LDAService {
 #endif
     /// Import (by extension; PDF with no text layer falls back to Vision OCR),
     /// run deterministic detection, merge with an empty llm list, tokenize,
-    /// write the redacted edit surface (DocxRedactor.redact for .docx,
-    /// CompanionWriter for text/pdf), write a visual redacted PDF when the input
-    /// is a PDF, and save the encrypted mapping sidecar next to outputDir.
+    /// write the redacted file through RedactedOutputWriter (by default the
+    /// edit surface: DocxRedactor.redact for .docx, CompanionWriter for
+    /// text/pdf, plus a visual redacted PDF when the input is a PDF), and save
+    /// the encrypted mapping sidecar next to outputDir.
     ///
     /// - Parameters:
     ///   - input: the source document.
@@ -134,6 +135,10 @@ public enum LDAService {
     ///     letter or digit runs into it, as Review's Protect would, and
     ///     refuses only a value written in no such place (RunInProtection);
     ///     the result counts what it protected.
+    ///   - format: the format of the redacted file (RedactedOutputWriter).
+    ///     Nil writes the edit surfaces this entry point has always written
+    ///     and its callers read back: the redacted .docx, or a .txt beside a
+    ///     review PDF or boxed PNG.
     public static func anonymize(
         input: URL,
         outputDir: URL,
@@ -146,7 +151,9 @@ public enum LDAService {
         excludedTypes: Set<EntityType> = [],
         additionalPatterns: [CustomPattern] = [],
         expectedReviewDigest: String? = nil,
-        unlocatedPolicy: UnlocatedValuePolicy = .refuse
+        unlocatedPolicy: UnlocatedValuePolicy = .refuse,
+        redactedBaseName: String? = nil,
+        format: RedactedOutputFormat? = nil
     ) throws -> AnonymizeResult {
         // The detector is built first: a requested model that cannot run is
         // refused before the import pays for OCR, and a later image-PII pass
@@ -164,7 +171,9 @@ public enum LDAService {
             spanFilter: spanFilter,
             excludedTypes: excludedTypes,
             additionalPatterns: additionalPatterns,
-            expectedReviewDigest: expectedReviewDigest
+            expectedReviewDigest: expectedReviewDigest,
+            redactedBaseName: redactedBaseName,
+            format: format
         )
     }
 
@@ -184,10 +193,15 @@ public enum LDAService {
         spanFilter: ((Span) -> Bool)? = nil,
         excludedTypes: Set<EntityType> = [],
         additionalPatterns: [CustomPattern] = [],
-        expectedReviewDigest: String? = nil
+        expectedReviewDigest: String? = nil,
+        redactedBaseName: String? = nil,
+        format: RedactedOutputFormat? = nil
     ) throws -> AnonymizeResult {
         let ext = input.pathExtension.lowercased()
         let baseName = input.deletingPathExtension().lastPathComponent
+        // The outputs' base name: <base>_redacted unless the caller chose a
+        // free one (OutputNames, review 2026-11-11, T7).
+        let redactedBase = redactedBaseName ?? "\(baseName)_redacted"
 
         // Detect entities once, then tokenize. The tokenized text and the mapping
         // drive both the edit surface and the mapping sidecar. The primary text
@@ -225,6 +239,14 @@ public enum LDAService {
         let detectSupplementary: (String) -> [Span] = { text in
             review.filterSupplementary(AdditionalProtection.merge(text: text, detected: detector.detectForImages(text), patterns: additionalPatterns))
         }
+        // The DOCX parts outside the body obey the body's gates (F9).
+        let detectDocxPart: (String) throws -> [Span] = { text in
+            review.filterSupplementary(AdditionalProtection.merge(
+                text: text,
+                detected: try detector.detectSupplementaryText(text),
+                patterns: additionalPatterns
+            ))
+        }
         // No replacement may swallow a newline or a tab, on any format. In a
         // DOCX those characters exist in no w:t run, so a crossing surface
         // cannot round-trip; in plain text, Markdown, and the PDF and image
@@ -258,157 +280,65 @@ public enum LDAService {
             withIntermediateDirectories: true
         )
 
-        // Standalone image input produces TWO artifacts and returns early:
-        //  (a) the redacted TEXT companion, the same edit surface shape as the
-        //      PDF path, byte-identically restorable through the mapping; and
-        //  (b) the redacted IMAGE, a PNG with opaque boxes over every
-        //      observation that carries a replaced range. The boxes are
-        //      destructive, so (b) is never a restore surface. Whole
-        //      observation boxes are covered: over-covering is acceptable,
-        //      under-covering is a leak. A replaced range the geometry cannot
-        //      locate is counted in unboxedTokenCount, never dropped.
-        if let extraction = imageExtraction {
-            let companionURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
-            try CompanionWriter.writeText(tokenized.tokenizedText, to: companionURL)
-
-            let coverage = ImageRedactor.coverage(
-                lines: extraction.lines,
-                replacedRanges: spans.map { $0.start..<$0.end }
-            )
-            // Seal candidate channel: red-region clusters in the source
-            // raster are boxed as CANDIDATES alongside the OCR coverage.
-            // Over-covering is acceptable; nothing here claims certain seal
-            // detection. The flag is threaded for later UI wiring.
-            let sealCandidates = includeSealCandidates
-                ? try SealCandidateDetector.candidates(
-                    in: ImageTextExtractor.loadImage(at: input)
-                )
-                : []
-            let imageURL = outputDir.appendingPathComponent("\(baseName)_redacted.png")
-            let render = try ImageRedactor.renderRedactedPNG(
-                originalImageAt: input,
-                covering: coverage.coveredLines,
-                sealCandidates: sealCandidates,
-                to: imageURL
-            )
-
-            let companionBaseName = companionURL.deletingPathExtension().lastPathComponent
-            let sidecarURL = outputDir.appendingPathComponent("\(companionBaseName).ldamap")
-            try MappingStore.save(tokenized.mapping, to: sidecarURL, protection: protection)
-
-            return detector.stamping(AnonymizeResult(
-                redactedFileURL: companionURL,
-                mappingFileURL: sidecarURL,
-                visualPdfURL: nil,
-                entityCount: spans.count,
-                entities: spans,
-                imageRedactionCount: render.paintedBoxCount,
-                embeddedMediaCount: 0,
-                unboxedTokenCount: coverage.unlocatedRangeCount,
-                sealCandidateCount: render.sealCandidateCount,
-                redactedImageURL: imageURL,
-                excludedEntityCount: review.excludedOccurrenceCount,
-                excludedValueCount: review.excludedValueCount
-            ))
-        }
-
-        let redactedFileURL: URL
-        var visualPdfURL: URL?
-        var imageRedactionCount = 0
-        var embeddedMediaCount = 0
-        var unboxedTokenCount = 0
-        // DOCX only: what the parts outside word/document.xml received.
-        var supplementaryCount = 0
-        var supplementaryCountsByType: [EntityType: Int] = [:]
-
-        switch ext {
-        case "docx":
-            redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.docx")
-            // Embedded media (word/media/) copies through unscanned; report the
-            // count so the caller can warn about signature images and stamps.
-            embeddedMediaCount = DocxParts.embeddedMediaPaths(in: input).count
-            let replacements = buildReplacements(
-                spans: spans,
-                mapping: tokenized.mapping
-            )
-            // Redact the body AND every other text-bearing part (headers, footers,
-            // footnotes, endnotes, comments), scrub docProps author/title metadata,
-            // and neutralize external mailto:/tel: hyperlink targets. Surfaces found
-            // only in a non-body part mint new tokens that are folded into the
-            // mapping below so they persist in the sidecar and restore correctly.
-            // detectForImages is the non-throwing detector (deterministic plus
-            // best-effort LLM); the throwing primary pass already gated the body.
-            let outcome = try DocxRedactor.redact(
-                original: input,
-                replacements: replacements,
-                to: redactedFileURL,
-                nonBody: (mapping: tokenized.mapping, detect: detectSupplementary)
-            )
-            for entry in outcome.newEntries {
-                tokenized.mapping.entries[entry.token] = entry
-            }
-            // What those parts covered, so the reported total is the total the
-            // redacted package carries and a restore puts back. Sites, not new
-            // entries: a header repeating a body name mints no entry.
-            supplementaryCount = outcome.coverage.replacementCount
-            supplementaryCountsByType = outcome.coverage.countsByType
-
-        case "pdf":
-            // PDF is never edited in place: write a fresh tokenized companion as
-            // the edit surface, plus a boxes-over-PII review PDF.
-            redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
-            try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
-
-            // Every PII channel a page can carry (text layer, page OCR,
-            // embedded-image OCR), and the occurrences none of them covered.
-            let surface = PdfReviewSurface.locate(
-                in: input,
+        // One writer for every layout and source type (RedactedOutputWriter):
+        // the redacted .docx keeps its formatting, a PDF or an image is boxed,
+        // text keeps its lines, Markdown renders as Export for AI does. The
+        // Word parts outside the body obey the body's gates (F9); the text of
+        // images inside a PDF is read by the non-throwing secondary pass. The
+        // throwing primary pass already gated the body.
+        let written = try RedactedOutputWriter.write(
+            RedactedOutputWriter.Document(
+                source: input,
                 imported: imported,
+                tokenizedText: tokenized.tokenizedText,
                 mapping: tokenized.mapping,
-                detect: detectSupplementary
-            )
-            imageRedactionCount = surface.imageRedactionCount
-            unboxedTokenCount = surface.unboxedOccurrenceCount
-            // Image-origin entries have to reach the mapping before it is saved
-            // below, or the sidecar will not carry them and their restore
-            // fails. This mutation requires `tokenized` to be declared `var`.
-            for entry in surface.newEntries {
-                tokenized.mapping.entries[entry.token] = entry
-            }
-
-            let reviewURL = outputDir.appendingPathComponent("\(baseName)_review.pdf")
-            try PdfRedactor.renderRedactedPDF(original: input, boxes: surface.boxes, to: reviewURL)
-            visualPdfURL = reviewURL
-
-        default:
-            // Plain text and any other text-shaped input: the redacted .txt is the
-            // edit surface.
-            redactedFileURL = outputDir.appendingPathComponent("\(baseName)_redacted.txt")
-            try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedFileURL)
+                spans: spans,
+                replacements: buildReplacements(spans: spans, mapping: tokenized.mapping),
+                style: style,
+                imageLines: imageExtraction?.lines,
+                includeSealCandidates: includeSealCandidates,
+                detectWordParts: detectDocxPart,
+                detectImageText: detectSupplementary
+            ),
+            layout: format.map(RedactedOutputWriter.Layout.chosen) ?? .editSurfaces,
+            to: outputDir,
+            baseName: redactedBase
+        )
+        // Tokens minted outside the body text have to reach the mapping before
+        // it is saved below, or the sidecar will not carry them and their
+        // restore fails.
+        for entry in written.newEntries {
+            tokenized.mapping.entries[entry.token] = entry
         }
+        // What those parts covered, so the reported total is the total the
+        // redacted file carries and a restore puts back. Sites, not new
+        // entries: a header repeating a body name mints no entry.
+        let supplementaryCount = written.supplementary.replacementCount
 
-        // Persist the encrypted mapping sidecar next to the edit surface, keyed by
-        // the redacted file's base name.
-        let redactedBaseName = redactedFileURL.deletingPathExtension().lastPathComponent
+        // Persist the encrypted mapping sidecar next to the redacted file,
+        // keyed by its base name.
+        let redactedBaseName = written.redactedURL.deletingPathExtension().lastPathComponent
         let mappingFileURL = outputDir.appendingPathComponent("\(redactedBaseName).ldamap")
         try MappingStore.save(tokenized.mapping, to: mappingFileURL, protection: protection)
 
         return detector.stamping(AnonymizeResult(
-            redactedFileURL: redactedFileURL,
+            redactedFileURL: written.redactedURL,
             mappingFileURL: mappingFileURL,
-            visualPdfURL: visualPdfURL,
+            visualPdfURL: written.boxedPDFURL,
             // Everything replaced, body and supplementary parts alike. The
             // spans below stay body only; see AnonymizeResult for why.
             entityCount: spans.count + supplementaryCount,
             entities: spans,
-            imageRedactionCount: imageRedactionCount,
-            embeddedMediaCount: embeddedMediaCount,
-            unboxedTokenCount: unboxedTokenCount,
+            imageRedactionCount: written.imageRedactionCount,
+            embeddedMediaCount: written.embeddedMediaCount,
+            unboxedTokenCount: written.unboxedOccurrenceCount,
+            sealCandidateCount: written.sealCandidateCount,
+            redactedImageURL: written.boxedImageURL,
             excludedEntityCount: review.excludedOccurrenceCount,
             excludedValueCount: review.excludedValueCount,
             trackedChangeCount: imported.trackedChangeCount,
             supplementaryEntityCount: supplementaryCount,
-            supplementaryCountsByType: supplementaryCountsByType
+            supplementaryCountsByType: written.supplementary.countsByType
         ))
     }
 
@@ -637,10 +567,10 @@ public enum LDAService {
     /// parts outside word/document.xml, as counts. For every other format the
     /// supplementary side is 0 and this is detect with a total attached.
     ///
-    /// The supplementary pass reuses the SAME detector the run uses (the
-    /// non-throwing secondary pass, over the same parts, with the same break
-    /// splitting and dominance filter), so a preview cannot promise a
-    /// different number than the run delivers.
+    /// The supplementary pass reuses the SAME gated detector the run uses for
+    /// those parts, over the same parts, with the same break splitting and
+    /// dominance filter, so a preview cannot promise a different number than
+    /// the run delivers, nor a run that would refuse.
     ///
     /// - Parameters:
     ///   - input: the source document.
@@ -653,17 +583,22 @@ public enum LDAService {
         let detector = try makeDetector(modelPath: llmModelPath)
         let imported = try importDocument(input, extension: ext)
         let bodySpans = try detector.detectText(imported.text)
-        guard ext == "docx" else { return DetectionSummary(bodySpans: bodySpans) }
-
-        let coverage = DocxParts.supplementaryCoverage(
-            url: input,
-            detect: detector.detectForImages
-        )
-        return DetectionSummary(
-            bodySpans: bodySpans,
-            supplementaryEntityCount: coverage.replacementCount,
-            supplementaryCountsByType: coverage.countsByType
-        )
+        var summary = DetectionSummary(bodySpans: bodySpans)
+        if ext == "docx" {
+            // The gated detector anonymize uses for these parts (F9): a model
+            // error, an unfinished segment or a value it cannot anchor in a
+            // header or note refuses here as it would there. The best-effort
+            // pass used before counted such a part as clean, so the summary
+            // promised a run that would refuse (independent review of F9).
+            let coverage = try DocxParts.supplementaryCoverage(
+                url: input,
+                detect: { try detector.detectSupplementaryText($0) }
+            )
+            summary.supplementaryEntityCount = coverage.replacementCount
+            summary.supplementaryCountsByType = coverage.countsByType
+        }
+        summary.precedentReleasedValueCount = detector.precedentReleasedValueCount
+        return summary
     }
 
     /// Original text for a local review surface. Never return this through MCP.

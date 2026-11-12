@@ -77,6 +77,11 @@ public struct RootShell: View {
     // MARK: - Mode state (shared with LDAApp for command routing)
 
     @ObservedObject private var modeStore: AppModeStore
+
+    /// The window's commands (AppCommandRelay). This view is never torn down,
+    /// so it is the one place that sees every command arrive: it shows the
+    /// mode the oldest one is for, and that mode's shell takes it.
+    @ObservedObject private var commands: AppCommandRelay
     @State private var showsExportHistory = false
     @State private var usesCompactModePicker = true
 
@@ -103,6 +108,7 @@ public struct RootShell: View {
         importer: ModelImporter
     ) {
         self.session = session
+        self.commands = session.commands
         self.fillModel = fillModel
         self.modeStore = modeStore
         self.installer = installer
@@ -192,6 +198,13 @@ public struct RootShell: View {
             // competes for toolbar width on narrow windows.
         }
         .onChange(of: modeStore.requestedExportID) { _, id in if id != nil { showsExportHistory = true } }
+        // A command issued from any mode switches to the mode that handles it
+        // first; that shell then takes it (review 2026-11-11, F13).
+        .onChange(of: commands.queue) { _, _ in
+            if let mode = commands.nextMode, modeStore.activeMode != mode {
+                modeStore.activeMode = mode
+            }
+        }
         .sheet(isPresented: $showsExportHistory, onDismiss: { modeStore.requestedExportID = nil }) {
             ExportHistoryView(session: session, selectedExportID: modeStore.requestedExportID)
         }

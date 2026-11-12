@@ -170,6 +170,10 @@ struct LDAApp: App {
                         AISettings.apply(to: model)
                     }
                     AISettings.apply(to: fillModel)
+                    // Fill re-reads its model path where each extraction or
+                    // plan starts, so a model downloaded or imported after
+                    // launch is used without a relaunch.
+                    fillModel.refreshConfiguration = { AISettings.apply(to: $0) }
                     // NOTE: a parked awaiting-AI session is resumed lazily
                     // (first paste-restore), NOT here. The parked mapping is
                     // Keychain-protected, and a Keychain prompt at app launch
@@ -214,11 +218,9 @@ struct LDAApp: App {
                     // the import budgets are applied.
                     switch url.pathExtension.lowercased() {
                     case WorkspaceArchive.fileExtension:
-                        modeStore.activeMode = .anonymize
-                        sessionModel.pendingWorkspaceURL = url
+                        sessionModel.requestOpenWorkspace(url)
                     case ComplianceReportArchive.fileExtension:
-                        modeStore.activeMode = .anonymize
-                        sessionModel.pendingReportURL = url
+                        sessionModel.requestOpenReport(url)
                     default:
                         break
                     }
@@ -226,6 +228,21 @@ struct LDAApp: App {
                 .onChange(of: customModelPath) { _, _ in
                     sessionModel.reapplyConfiguration()
                     AISettings.apply(to: fillModel)
+                }
+                // A download or an import that finishes changes neither
+                // setting above, and Fill enables Extract only once it has a
+                // model path: re-read it when a model lands (independent
+                // review of T6). Only on .installed, so progress updates do
+                // not reload the model catalog.
+                .onChange(of: modelInstaller.phases) { old, new in
+                    if new.contains(where: { $0.value == .installed && old[$0.key] != .installed }) {
+                        AISettings.apply(to: fillModel)
+                    }
+                }
+                .onChange(of: modelImporter.phase) { _, phase in
+                    if case .installed = phase {
+                        AISettings.apply(to: fillModel)
+                    }
                 }
                 .onChange(of: detectionLevelRaw) { _, _ in
                     sessionModel.reapplyConfiguration()
@@ -248,8 +265,9 @@ struct LDAApp: App {
             // no menu item and no shortcut for it, so after a failed import a
             // keyboard-only user had no way to recover at all.
             CommandGroup(after: .newItem) {
+                // Every command goes through the session's relay: the window
+                // switches to the mode that handles it, which takes it once.
                 Button(localized("Open Documents...")) {
-                    modeStore.activeMode = .anonymize
                     sessionModel.requestOpen()
                 }
                 .keyboardShortcut("o", modifiers: .command)
@@ -283,8 +301,7 @@ struct LDAApp: App {
 
             CommandGroup(after: .saveItem) {
                 Button(localized("Scan for PII")) {
-                    modeStore.activeMode = .anonymize
-                    sessionModel.activeModel.requestAnonymize()
+                    sessionModel.requestScan()
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(!legalAcceptance.hasAcceptedCurrentDocuments || !sessionModel.activeModel.canAnonymize)
@@ -293,7 +310,6 @@ struct LDAApp: App {
                 // card names the file just written, so the menu lands the user
                 // there before the save panel opens.
                 Button(localized("Export for AI…")) {
-                    modeStore.activeMode = .anonymize
                     sessionModel.requestExportForAI()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
@@ -302,16 +318,15 @@ struct LDAApp: App {
                 Divider()
 
                 Button(localized("Save Redacted Document…")) {
-                    sessionModel.activeModel.requestExport()
+                    sessionModel.requestSaveRedacted()
                 }
                 .keyboardShortcut("e", modifiers: .command)
                 .disabled(!legalAcceptance.hasAcceptedCurrentDocuments || !sessionModel.activeModel.exportAvailability.isAvailable)
 
                 Button(localized("Restore…")) {
-                    // Land the user in the Restore mode so the flow has
-                    // visible context, then start it.
-                    modeStore.activeMode = .deanonymize
-                    sessionModel.activeModel.requestRestore()
+                    // The relay lands the user in the Restore mode so the
+                    // flow has visible context, then Restore starts it.
+                    sessionModel.requestRestore()
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(!legalAcceptance.hasAcceptedCurrentDocuments)
@@ -460,7 +475,7 @@ struct LDAApp: App {
         panel.message = localized("Choose a saved LDA workspace file.")
         panel.prompt = localized("Open Workspace")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        sessionModel.pendingWorkspaceURL = url
+        sessionModel.requestOpenWorkspace(url)
     }
 
     /// Choose a .ldareport file and hand it to the review shell, which owns
@@ -476,6 +491,6 @@ struct LDAApp: App {
         panel.message = localized("Choose an encrypted LDA report file.")
         panel.prompt = localized("Open Report")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        sessionModel.pendingReportURL = url
+        sessionModel.requestOpenReport(url)
     }
 }

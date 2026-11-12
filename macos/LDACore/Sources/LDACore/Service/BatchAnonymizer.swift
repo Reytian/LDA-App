@@ -19,8 +19,11 @@
 //    goes into its own subfolder ("lease (docx)", "lease (pdf)").
 //  - It resumes. The report records every finished document with its
 //    source's size and modification date. A later run with the same settings
-//    into the same output folder skips a document whose outputs are still
-//    there and whose source is unchanged.
+//    (the output format among them) into the same output folder skips a
+//    document whose outputs are still there and whose source is unchanged.
+//    A run with other settings never writes over an earlier run's files: its
+//    outputs take the next free name (<base>_redacted_2), so every mapping
+//    still restores the copy it was made with.
 //
 //  The report names documents by their path under the source folder and
 //  counts what was replaced. It holds no document text and no detected
@@ -41,6 +44,11 @@ public struct BatchOptions {
     public var modelPath: String?
     /// How replacements are written.
     public var style: SubstitutionStyle
+    /// The format each redacted copy is written in (RedactedOutputWriter).
+    /// Nil writes the edit surfaces every batch wrote before there was a
+    /// choice: the redacted .docx for Word, a .txt for everything else, with
+    /// the review PDF or boxed PNG beside a PDF or an image.
+    public var format: RedactedOutputFormat?
     /// What a value the model found but could not anchor everywhere does.
     public var unlocatedPolicy: UnlocatedValuePolicy
     /// Process every document again, including those an earlier run finished.
@@ -48,9 +56,11 @@ public struct BatchOptions {
     /// The sealing named in the report: "keychain" or "passphrase". Never the
     /// passphrase itself.
     public var protectionLabel: String
-    /// How the mapping of the document at the given URL is sealed. The CLI
-    /// and the app name Keychain accounts differently, and each looks a key
-    /// up under its own name when it restores, so the caller decides.
+    /// How the mapping file at the given URL is sealed. The CLI and the app
+    /// name Keychain accounts differently, and each derives the account
+    /// from the mapping file's own name when it restores, so the caller
+    /// decides, from that file. The name is not always <base>_redacted: a
+    /// run never writes over another run's files (see process).
     public var protection: (URL) -> MappingProtection
 
     public init(
@@ -59,10 +69,12 @@ public struct BatchOptions {
         unlocatedPolicy: UnlocatedValuePolicy = .protect,
         redoFinished: Bool = false,
         protectionLabel: String,
-        protection: @escaping (URL) -> MappingProtection
+        protection: @escaping (URL) -> MappingProtection,
+        format: RedactedOutputFormat? = nil
     ) {
         self.modelPath = modelPath
         self.style = style
+        self.format = format
         self.unlocatedPolicy = unlocatedPolicy
         self.redoFinished = redoFinished
         self.protectionLabel = protectionLabel
@@ -114,6 +126,43 @@ public struct BatchItem: Codable, Equatable, Sendable {
     /// when it was processed, so a later run can tell whether it changed.
     public var sourceSize: Int64
     public var sourceModified: Double
+    /// Party names left in clear because the document reads as a published
+    /// precedent whose caption names them (PrecedentPartyRule), and whether
+    /// there are any. Absent from reports written before 2.0.2, so they
+    /// decode as 0 and false.
+    public var precedentReleasedValueCount: Int = 0
+    public var precedentPartiesReleased: Bool = false
+}
+
+extension BatchItem {
+    /// Decodes a report line, including one written before the precedent
+    /// fields existed.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decode(String.self, forKey: .source)
+        status = try container.decode(Status.self, forKey: .status)
+        redactedFile = try container.decodeIfPresent(String.self, forKey: .redactedFile)
+        mappingFile = try container.decodeIfPresent(String.self, forKey: .mappingFile)
+        reviewPDF = try container.decodeIfPresent(String.self, forKey: .reviewPDF)
+        redactedImage = try container.decodeIfPresent(String.self, forKey: .redactedImage)
+        replacedCount = try container.decode(Int.self, forKey: .replacedCount)
+        autoProtectedValueCount = try container.decode(Int.self, forKey: .autoProtectedValueCount)
+        unboxedTokenCount = try container.decode(Int.self, forKey: .unboxedTokenCount)
+        embeddedMediaCount = try container.decode(Int.self, forKey: .embeddedMediaCount)
+        trackedChangeCount = try container.decode(Int.self, forKey: .trackedChangeCount)
+        seconds = try container.decode(Double.self, forKey: .seconds)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        sourceSize = try container.decode(Int64.self, forKey: .sourceSize)
+        sourceModified = try container.decode(Double.self, forKey: .sourceModified)
+        precedentReleasedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .precedentReleasedValueCount
+        ) ?? 0
+        precedentPartiesReleased = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .precedentPartiesReleased
+        ) ?? false
+    }
 }
 
 /// The record of one batch run, written to the output folder as
@@ -132,6 +181,10 @@ public struct BatchReport: Codable, Equatable, Sendable {
     /// "LDA V4", a GGUF file name, or "patterns only".
     public var detection: String
     public var style: String
+    /// The format the redacted copies were written in. Absent from reports
+    /// written before there was a choice, which wrote the edit surfaces
+    /// BatchOptions.format describes for nil.
+    public var outputFormat: RedactedOutputFormat?
     public var mappingProtection: String
     public var unlocatedPolicy: String
     /// True when the run was stopped before every document was processed.
@@ -143,6 +196,11 @@ public struct BatchReport: Codable, Equatable, Sendable {
     public var failedCount: Int { items.filter { $0.status == .failed }.count }
     public var autoProtectedValueCount: Int {
         items.reduce(0) { $0 + $1.autoProtectedValueCount }
+    }
+    /// Party names left in clear as a published precedent's own parties,
+    /// summed over the written documents.
+    public var precedentReleasedValueCount: Int {
+        items.reduce(0) { $0 + $1.precedentReleasedValueCount }
     }
 }
 
@@ -213,7 +271,11 @@ public enum BatchAnonymizer {
             modelPath: options.modelPath,
             unlocatedPolicy: options.unlocatedPolicy
         )
+        // The edit surfaces take the documents batches always took: a .md
+        // joined the set with the output formats, and taking it here would
+        // move a same-named .txt into a subfolder.
         let documents = try documents(in: sourceFolder, excluding: outputFolder)
+            .filter { options.format != nil || $0.pathExtension.lowercased() != "md" }
         let folders = outputFolders(for: documents, sourceFolder: sourceFolder, outputFolder: outputFolder)
         try FileManager.default.createDirectory(at: outputFolder, withIntermediateDirectories: true)
 
@@ -224,12 +286,18 @@ public enum BatchAnonymizer {
             sourceFolderName: sourceFolder.lastPathComponent,
             detection: detectionLabel(options.modelPath),
             style: options.style.rawValue,
+            outputFormat: options.format,
             mappingProtection: options.protectionLabel,
             unlocatedPolicy: options.unlocatedPolicy.rawValue,
             cancelled: false,
             items: []
         )
-        let earlier = options.redoFinished ? [:] : finishedItems(in: outputFolder, matching: report)
+        // What an earlier run with these same settings finished. Its names
+        // are reused when a document is written again (redone, or changed),
+        // so a redo replaces its own files; it is skipped only when nothing
+        // asks for a redo.
+        let previous = finishedItems(in: outputFolder, matching: report)
+        let earlier = options.redoFinished ? [:] : previous
 
         for (offset, document) in documents.enumerated() {
             if isCancelled() {
@@ -247,6 +315,7 @@ public enum BatchAnonymizer {
                     source: source,
                     into: folders[document] ?? outputFolder,
                     outputFolder: outputFolder,
+                    previous: previous[source],
                     detector: detector,
                     options: options,
                     now: now
@@ -273,7 +342,7 @@ public enum BatchAnonymizer {
 
     /// The documents a batch over `sourceFolder` processes, in sorted path
     /// order: FolderImporter's discovery (hidden entries, packages and
-    /// symlinks skipped; .txt, .docx, .pdf, .png, .jpg, .jpeg), less Word's
+    /// symlinks skipped; .txt, .md, .docx, .pdf, .png, .jpg, .jpeg), less Word's
     /// owner files ("~$lease.docx", written while a document is open) and
     /// anything under `outputFolder` when it sits inside the source folder.
     public static func documents(in sourceFolder: URL, excluding outputFolder: URL) throws -> [URL] {
@@ -331,6 +400,7 @@ public enum BatchAnonymizer {
         source: String,
         into folder: URL,
         outputFolder: URL,
+        previous: BatchItem?,
         detector: LDAService.Detector,
         options: BatchOptions,
         now: () -> Date
@@ -340,14 +410,17 @@ public enum BatchAnonymizer {
         let fileManager = FileManager.default
         let folderExisted = fileManager.fileExists(atPath: folder.path)
         let before = Set((try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? [])
+        let redactedBase = baseName(for: document, in: folder, previous: previous, format: options.format)
         do {
             let result = try LDAService.anonymize(
                 using: detector,
                 input: document,
                 outputDir: folder,
-                protection: options.protection(document),
+                protection: options.protection(folder.appendingPathComponent("\(redactedBase).ldamap")),
                 createdAtISO8601: timestamp(now()),
-                style: options.style
+                style: options.style,
+                redactedBaseName: redactedBase,
+                format: options.format
             )
             return BatchItem(
                 source: source,
@@ -364,10 +437,23 @@ public enum BatchAnonymizer {
                 seconds: now().timeIntervalSince(started),
                 reason: nil,
                 sourceSize: stamp.size,
-                sourceModified: stamp.modified
+                sourceModified: stamp.modified,
+                precedentReleasedValueCount: result.precedentReleasedValueCount,
+                precedentPartiesReleased: result.precedentPartiesReleased
             )
         } catch {
             removeLeftovers(in: folder, keeping: before, folderExisted: folderExisted, outputFolder: outputFolder)
+            // An earlier run's outputs for this document stay where they are
+            // (a mapping may be the only key to a copy already sent), but the
+            // report says they were made from an earlier version (review
+            // 2026-11-11, T7).
+            var reason = describe(error, policy: options.unlocatedPolicy)
+            let base = document.deletingPathExtension().lastPathComponent
+            let earlier = before.filter { $0.hasPrefix(base + "_redacted") || $0.hasPrefix(base + "_review") }.sorted()
+            if !earlier.isEmpty {
+                reason += " Outputs an earlier run made from an earlier version of this document are still in the output folder: "
+                    + earlier.joined(separator: ", ") + "."
+            }
             return BatchItem(
                 source: source,
                 status: .failed,
@@ -381,10 +467,37 @@ public enum BatchAnonymizer {
                 embeddedMediaCount: 0,
                 trackedChangeCount: 0,
                 seconds: now().timeIntervalSince(started),
-                reason: describe(error, policy: options.unlocatedPolicy),
+                reason: reason,
                 sourceSize: stamp.size,
                 sourceModified: stamp.modified
             )
+        }
+    }
+
+    /// The base name a document's outputs take in `folder`.
+    ///
+    /// The one an earlier run with the same settings used, when there was
+    /// one: writing the document again replaces that run's files, layout for
+    /// layout. Otherwise the first of <base>_redacted, <base>_redacted_2, ...
+    /// under which no file this run would write, and no mapping, exists yet.
+    /// A run with other settings (another output format, a report from
+    /// before formats) must not write over an earlier run's mapping: a copy
+    /// made with it may already have been sent, and it is that copy's only
+    /// key (review 2026-11-11; the rule `lda anonymize` follows, T7).
+    static func baseName(
+        for document: URL,
+        in folder: URL,
+        previous: BatchItem?,
+        format: RedactedOutputFormat?
+    ) -> String {
+        if let mapping = previous?.mappingFile {
+            return ((mapping as NSString).lastPathComponent as NSString).deletingPathExtension
+        }
+        let layout = format.map(RedactedOutputWriter.Layout.chosen) ?? .editSurfaces
+        let base = document.deletingPathExtension().lastPathComponent + "_redacted"
+        return OutputNames.firstFreeBaseName(base, in: folder) { name in
+            RedactedOutputWriter.artifactNames(for: document, layout: layout, baseName: name)
+                + ["\(name).\(MappingStore.fileExtension)"]
         }
     }
 
@@ -422,8 +535,8 @@ public enum BatchAnonymizer {
 
     /// The finished lines of the report an earlier run left in `outputFolder`,
     /// by source path, when that run used the same settings as `current`.
-    /// Mixing two styles or two kinds of sealing in one output folder would
-    /// be a surprise, so different settings start over.
+    /// Mixing two styles, two output formats or two kinds of sealing in one
+    /// output folder would be a surprise, so different settings start over.
     private static func finishedItems(in outputFolder: URL, matching current: BatchReport) -> [String: BatchItem] {
         let url = outputFolder.appendingPathComponent(BatchReport.fileName)
         guard let data = FileManager.default.contents(atPath: url.path),
@@ -431,6 +544,7 @@ public enum BatchAnonymizer {
               earlier.format == BatchReport.currentFormat,
               earlier.detection == current.detection,
               earlier.style == current.style,
+              earlier.outputFormat == current.outputFormat,
               earlier.mappingProtection == current.mappingProtection,
               earlier.unlocatedPolicy == current.unlocatedPolicy else {
             return [:]
@@ -448,10 +562,11 @@ public enum BatchAnonymizer {
         guard let mapping = item.mappingFile, let redacted = item.redactedFile else { return false }
         let stamp = sourceStamp(document)
         let fileManager = FileManager.default
+        // The boxed PDF or image too, when the run wrote one.
+        let outputs = [mapping, redacted] + [item.reviewPDF, item.redactedImage].compactMap { $0 }
         return stamp.size == item.sourceSize
             && stamp.modified == item.sourceModified
-            && fileManager.fileExists(atPath: outputFolder.appendingPathComponent(mapping).path)
-            && fileManager.fileExists(atPath: outputFolder.appendingPathComponent(redacted).path)
+            && outputs.allSatisfy { fileManager.fileExists(atPath: outputFolder.appendingPathComponent($0).path) }
     }
 
     private static func skipping(_ finished: BatchItem) -> BatchItem {
@@ -509,6 +624,7 @@ public enum BatchAnonymizer {
         lines.append("Source folder: \(report.sourceFolderName)")
         lines.append("Detection: \(report.detection)")
         lines.append("Output style: \(report.style)")
+        lines.append("Output format: \(formatLabel(report.outputFormat))")
         lines.append(report.mappingProtection == "passphrase"
             ? "Mappings: protected with a passphrase"
             : "Mappings: keys stored in the Keychain on this Mac")
@@ -555,6 +671,13 @@ public enum BatchAnonymizer {
                         + "before redacting for an exact round trip."
                 )
             }
+            if item.precedentReleasedValueCount > 0 {
+                checks.append(
+                    "- \(item.source): read as a published precedent, so \(item.precedentReleasedValueCount) "
+                        + "party name(s) its caption names were left in clear. Check that it really is a "
+                        + "published judgment."
+                )
+            }
         }
         if !checks.isEmpty {
             lines.append("")
@@ -567,6 +690,19 @@ public enum BatchAnonymizer {
     }
 
     // MARK: Small helpers
+
+    /// The report's name for an output format.
+    static func formatLabel(_ format: RedactedOutputFormat?) -> String {
+        switch format {
+        case .markdown:
+            return "Markdown"
+        case .original:
+            return "original (each document in its own format)"
+        case nil:
+            return "edit surfaces (.docx for Word, .txt for the rest, with a review PDF or boxed PNG "
+                + "beside PDFs and images)"
+        }
+    }
 
     private static func detectionLabel(_ modelPath: String?) -> String {
         guard let modelPath else { return "patterns only" }

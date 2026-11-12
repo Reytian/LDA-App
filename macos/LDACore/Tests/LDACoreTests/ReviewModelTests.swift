@@ -886,18 +886,9 @@ final class ReviewModelTests: XCTestCase {
         XCTAssertFalse(model.canAnonymize)
     }
 
-    func testRequestAnonymizeStaysInertAfterAFailedImport() {
-        let model = ReviewModel(modelPath: nil)
-        model.status = .failed("unreadable")
-        let tokenBefore = model.anonymizeRequestToken
-
-        model.requestAnonymize()
-
-        XCTAssertEqual(
-            model.anonymizeRequestToken, tokenBefore,
-            "an empty document must not be scannable; re-opening is the recovery"
-        )
-    }
+    // The menu's Scan for PII request moved to the session's command relay
+    // (review 2026-11-11, F13); that it stays inert after a failed import is
+    // AppCommandRelayTests.testAScanIsNotQueuedForADocumentWhoseImportFailed.
 
     func testAFailedImportClearsAnyPreviousDocumentText() async throws {
         // The attribution guard. open(_:) sets the NEW sourceURL before it

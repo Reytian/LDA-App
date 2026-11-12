@@ -75,15 +75,20 @@ public struct PdfOCRImporter: DocumentImporter {
         pageTexts.reserveCapacity(pageCount)
 
         for pageIndex in 0..<pageCount {
-            guard let page = document.page(at: pageIndex) else {
-                throw DocumentIOError.corrupt(
-                    "PDF page \(pageIndex) could not be accessed"
-                )
-            }
+            // One autorelease pool per page (review 2026-11-11, T5): each
+            // rendered page image otherwise stays alive until the whole
+            // document has been read.
+            try autoreleasepool {
+                guard let page = document.page(at: pageIndex) else {
+                    throw DocumentIOError.corrupt(
+                        "PDF page \(pageIndex) could not be accessed"
+                    )
+                }
 
-            let cgImage = try Self.render(page: page)
-            let lines = try Self.recognizeLines(in: cgImage)
-            pageTexts.append(PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n")))
+                let cgImage = try Self.render(page: page)
+                let lines = try Self.recognizeLines(in: cgImage)
+                pageTexts.append(PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n")))
+            }
         }
 
         let fullText = pageTexts.joined(separator: "\n\n")
@@ -115,20 +120,110 @@ public struct PdfOCRImporter: DocumentImporter {
 
         var result: [Int: String] = [:]
         for pageIndex in pages {
-            guard pageIndex >= 0, pageIndex < document.pageCount,
-                  let page = document.page(at: pageIndex) else {
-                throw DocumentIOError.corrupt(
-                    "PDF page \(pageIndex) could not be accessed"
-                )
+            try autoreleasepool {
+                guard pageIndex >= 0, pageIndex < document.pageCount,
+                      let page = document.page(at: pageIndex) else {
+                    throw DocumentIOError.corrupt(
+                        "PDF page \(pageIndex) could not be accessed"
+                    )
+                }
+                let cgImage = try render(page: page)
+                let lines = try recognizeLines(in: cgImage)
+                result[pageIndex] = PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n"))
             }
-            let cgImage = try render(page: page)
-            let lines = try recognizeLines(in: cgImage)
-            result[pageIndex] = PdfLineReflow.joinSoftBreaks(lines.joined(separator: "\n"))
         }
         return result
     }
 
     // MARK: - Bounding boxes for visual redaction
+
+    /// Every occurrence of each surface text on one page's recognized lines,
+    /// with one box per line it touches (the whole recognized line, which
+    /// over-covers rather than under-covers).
+    ///
+    /// The lines are read the way the import reads them, joined by a newline
+    /// in reading order and normalized like the text-layer search (whitespace
+    /// collapsed, dropped between two CJK characters), so a value wrapped
+    /// across two recognized lines, which the import joined into one value,
+    /// is one occurrence here too (review 2026-11-11, F6). Matching one line
+    /// at a time boxed neither half of it.
+    static func occurrences(
+        onLines lines: [(text: String, rect: CGRect)],
+        matching surfaceTexts: [(text: String, token: String)],
+        pageIndex: Int
+    ) -> [PdfTextOccurrence] {
+        var joined = ""
+        var lineOfUnit: [Int] = []
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                joined += "\n"
+                lineOfUnit.append(index)
+            }
+            joined += line.text
+            lineOfUnit += Array(repeating: index, count: (line.text as NSString).length)
+        }
+        let normalized = PdfImporter.normalizeWhitespace(joined)
+        let haystack = normalized.text as NSString
+        var found: [PdfTextOccurrence] = []
+        for entry in surfaceTexts {
+            let needle = PdfImporter.normalizeWhitespace(entry.text).text
+            guard !needle.isEmpty else { continue }
+            var start = 0
+            while start < haystack.length {
+                let range = haystack.range(
+                    of: needle,
+                    options: [.caseInsensitive],
+                    range: NSRange(location: start, length: haystack.length - start)
+                )
+                guard range.location != NSNotFound, range.length > 0 else { break }
+                let touched = Set(
+                    normalized.originalIndexes[range.location ..< range.location + range.length].map { lineOfUnit[$0] }
+                )
+                let indexes = normalized.originalIndexes[range.location ..< NSMaxRange(range)]
+                let sourceRange = NSRange(
+                    location: indexes.first!, length: indexes.last! - indexes.first! + 1
+                )
+                found.append(PdfTextOccurrence(
+                    pageIndex: pageIndex,
+                    token: entry.token,
+                    boxes: touched.sorted().map {
+                        RedactionBox(pageIndex: pageIndex, rect: lines[$0].rect, token: entry.token)
+                    },
+                    textRange: sourceRange,
+                    matchedText: (joined as NSString).substring(with: sourceRange)
+                ))
+                start = range.location + range.length
+            }
+        }
+        return PdfRedactionCoverage.assigningSites(found, surfaceTexts: surfaceTexts)
+    }
+
+    /// Every occurrence of each surface text on the OCR'd pages (all pages, or
+    /// `pages`), for the boxes and for per-occurrence coverage.
+    public static func ocrOccurrences(
+        in url: URL,
+        matching surfaceTexts: [(text: String, token: String)],
+        pages: [Int]? = nil
+    ) -> [PdfTextOccurrence] {
+        guard let document = PDFDocument(url: url) else { return [] }
+        let needles = surfaceTexts.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !needles.isEmpty else { return [] }
+        var found: [PdfTextOccurrence] = []
+        for pageIndex in pages ?? Array(0..<document.pageCount) {
+            autoreleasepool {
+                guard pageIndex >= 0, pageIndex < document.pageCount,
+                      let page = document.page(at: pageIndex),
+                      let cgImage = try? render(page: page),
+                      let observations = try? recognize(in: cgImage) else { return }
+                let lines: [(text: String, rect: CGRect)] = observations.compactMap { observation in
+                    guard let text = observation.topCandidates(1).first?.string, !text.isEmpty else { return nil }
+                    return (text, pageRect(fromNormalized: observation.boundingBox, page: page))
+                }
+                found += occurrences(onLines: lines, matching: needles, pageIndex: pageIndex)
+            }
+        }
+        return found
+    }
 
     /// Runs OCR over every page and returns redaction boxes for observations whose
     /// recognized text contains one of the requested surface texts.
@@ -149,55 +244,7 @@ public struct PdfOCRImporter: DocumentImporter {
         matching surfaceTexts: [(text: String, token: String)],
         pages: [Int]? = nil
     ) -> [RedactionBox] {
-        guard let document = PDFDocument(url: url) else {
-            return []
-        }
-
-        // Normalize the needles once. Skip empty surface texts so they do not
-        // match every observation.
-        let needles: [(needle: String, token: String)] = surfaceTexts.compactMap {
-            pair in
-            let lowered = pair.text.lowercased()
-            guard !lowered.isEmpty else { return nil }
-            return (needle: lowered, token: pair.token)
-        }
-        guard !needles.isEmpty else { return [] }
-
-        var boxes: [RedactionBox] = []
-
-        let pageIndexes = pages ?? Array(0..<document.pageCount)
-        for pageIndex in pageIndexes {
-            guard pageIndex >= 0, pageIndex < document.pageCount,
-                  let page = document.page(at: pageIndex) else { continue }
-            guard let cgImage = try? render(page: page) else { continue }
-            guard let observations = try? recognize(in: cgImage) else { continue }
-
-            for observation in observations {
-                guard let candidate = observation.topCandidates(1).first else {
-                    continue
-                }
-                let recognized = candidate.string.lowercased()
-                guard !recognized.isEmpty else { continue }
-
-                for entry in needles where recognized.contains(entry.needle) {
-                    let rect = pageRect(
-                        fromNormalized: observation.boundingBox,
-                        page: page
-                    )
-                    boxes.append(
-                        RedactionBox(
-                            pageIndex: pageIndex,
-                            rect: rect,
-                            token: entry.token
-                        )
-                    )
-                    // One box per observation is enough; stop at the first match.
-                    break
-                }
-            }
-        }
-
-        return boxes
+        ocrOccurrences(in: url, matching: surfaceTexts, pages: pages).flatMap(\.boxes)
     }
 
     // MARK: - Image-origin observations (hybrid text + image PDFs)
@@ -221,19 +268,21 @@ public struct PdfOCRImporter: DocumentImporter {
         var result: [ImageTextObservation] = []
 
         for pageIndex in pages {
-            guard pageIndex >= 0, pageIndex < document.pageCount,
-                  let page = document.page(at: pageIndex),
-                  let image = try? Self.render(page: page),
-                  let observations = try? Self.recognize(in: image) else { continue }
+            autoreleasepool {
+                guard pageIndex >= 0, pageIndex < document.pageCount,
+                      let page = document.page(at: pageIndex),
+                      let image = try? Self.render(page: page),
+                      let observations = try? Self.recognize(in: image) else { return }
 
-            for observation in observations {
-                guard let candidate = observation.topCandidates(1).first else { continue }
-                let text = candidate.string
-                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                for observation in observations {
+                    guard let candidate = observation.topCandidates(1).first else { continue }
+                    let text = candidate.string
+                    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
 
-                let rect = Self.pageRect(fromNormalized: observation.boundingBox, page: page)
-                if Self.textLayerCovers(text: text, rect: rect, page: page) { continue }
-                result.append(ImageTextObservation(pageIndex: pageIndex, rect: rect, text: text))
+                    let rect = Self.pageRect(fromNormalized: observation.boundingBox, page: page)
+                    if Self.textLayerCovers(text: text, rect: rect, page: page) { continue }
+                    result.append(ImageTextObservation(pageIndex: pageIndex, rect: rect, text: text))
+                }
             }
         }
         return result

@@ -63,7 +63,15 @@ enum DocxPackagePolicy {
     ///
     /// docProps/thumbnail: a rendered raster of the first page, generated
     /// before redaction. There is nothing to redact in a picture, so it goes.
-    private static let droppedPrefixes = ["customxml/", "docprops/thumbnail"]
+    ///
+    /// docProps/meta.xml: the part Apple's Cocoa OOXML writer adds to every
+    /// package it writes (TextEdit, textutil -convert docx). It is a custom
+    /// XML part in Apple's own metadata schema, linked from the main document
+    /// part by a customXml relationship, and names the writer. Word does not
+    /// need it and no schema this app redacts covers it, so it goes like the
+    /// data stores above, relationship included, instead of refusing every
+    /// document TextEdit saved. Nothing it holds is copied through.
+    private static let droppedPrefixes = ["customxml/", "docprops/thumbnail", "docprops/meta.xml"]
 
     /// Structural or presentational members with no free-form user content.
     /// Everything here copies through unchanged.
@@ -122,9 +130,9 @@ enum DocxPackagePolicy {
     /// examples below are schema names rather than anything read from the
     /// document.
     static func unsupportedPartsError(count: Int) -> DocumentIOError {
-        let noun = count == 1 ? "part" : "parts"
+        let subject = count == 1 ? "1 part of this document holds" : "\(count) parts of this document hold"
         return DocumentIOError.unsupportedFormat(
-            "\(count) \(noun) of this document hold content the redactor cannot clean "
+            "\(subject) content the redactor cannot clean "
                 + "(SmartArt, a chart, an embedded workbook, or a glossary entry), "
                 + "so the redacted copy was not written. Remove that content in Word "
                 + "and export again."

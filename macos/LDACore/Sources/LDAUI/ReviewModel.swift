@@ -361,20 +361,18 @@ public final class ReviewModel: ObservableObject {
     /// pane can open the kind chooser anchored to the selection.
     @Published public var protectSelectionRequestToken: Int = 0
 
+    /// The undo managers Protect steps were registered with, held weakly, so
+    /// the steps can be removed when the document goes away
+    /// (discardProtectUndo). An UndoManager does not retain its targets.
+    let protectUndoManagers = NSHashTable<UndoManager>.weakObjects()
+
+    /// Bumped when the Protect steps registered so far stop belonging to what
+    /// is on screen; a step from an older generation does nothing when run.
+    var protectUndoGeneration = 0
+
     /// The group the sidebar should scroll into view, set by a legend click or
     /// a Protect action. The sidebar consumes it; nil means nothing pending.
     @Published public var groupToReveal: String?
-
-    /// Bumped when the Export menu command fires, so the window can present the
-    /// export flow (which owns the panels and passphrase sheet).
-    @Published public var exportRequestToken: Int = 0
-
-    /// Bumped when the Restore menu command fires.
-    @Published public var restoreRequestToken: Int = 0
-
-    /// Bumped when the Scan for PII menu command fires, so the window can
-    /// start the pass (the shell owns the async run).
-    @Published public var anonymizeRequestToken: Int = 0
 
     /// The open document's file name, for the window title.
     public var documentName: String? { sourceURL?.lastPathComponent }
@@ -405,9 +403,6 @@ public final class ReviewModel: ObservableObject {
     /// remain visible in the exported document.
     public var visibleCount: Int { entities.filter { !$0.accepted }.count }
 
-    /// Ask the window to begin the restore flow. Used by the File menu command.
-    public func requestRestore() { restoreRequestToken += 1 }
-
     /// True when a Scan for PII pass can start (a document is loaded and no
     /// pass is running). Shared by the banner button and the menu command.
     /// `.failed` is deliberately NOT scannable. Do not "fix" this by allowing a
@@ -436,12 +431,6 @@ public final class ReviewModel: ObservableObject {
         }
     }
 
-    /// Ask the window to run Scan for PII. Used by the menu command.
-    public func requestAnonymize() {
-        guard canAnonymize else { return }
-        anonymizeRequestToken += 1
-    }
-
     /// Whether Save Redacted can run for this document, and why not when it
     /// cannot. Every entry point reads this rather than a bare Bool: a
     /// disabled toolbar button swallows its own click, so the reason is the
@@ -451,17 +440,6 @@ public final class ReviewModel: ObservableObject {
             status: status,
             sourceChangedSinceScan: sourceChangedSinceScan
         )
-    }
-
-    /// Ask the window to begin the export flow. Used by the File menu command.
-    ///
-    /// A blocked request stops here rather than reporting, because this layer
-    /// owns no message channel; the reason is derived from the same status the
-    /// status banner is already rendering, so the answer is on screen before
-    /// the user asks. ExportFlow, which does own a channel, reports it there.
-    public func requestExport() {
-        guard exportAvailability.isAvailable else { return }
-        exportRequestToken += 1
     }
 
     /// True when the open document is a standalone image, the one source kind
@@ -571,6 +549,9 @@ public final class ReviewModel: ObservableObject {
         // document; their results must not land on this one.
         sessionGeneration += 1
         let generation = sessionGeneration
+        // Undo steps for the document this model held must not reach the one
+        // it holds now (review 2026-11-11, F15).
+        discardProtectUndo()
 
         status = .importing
         sourceURL = url
@@ -733,6 +714,9 @@ public final class ReviewModel: ObservableObject {
         // IDs from the old pass cannot silently select findings in the new one.
         // The cancellation branch above deliberately leaves selection intact.
         selectedGroupIDs = []
+        // The Protect steps of the replaced pass would write its list back
+        // over this one (review 2026-11-11, F15).
+        discardProtectUndo()
         // A published precedent's own parties are listed unticked: left in
         // clear unless the user ticks them (PrecedentPartyRule).
         entities = outcome.spans.map {
@@ -878,6 +862,34 @@ public final class ReviewModel: ObservableObject {
         AnonymizeWorkflowPresentation.etaText(seconds: seconds)
     }
 
+    /// Record the assigned tokens back onto the matching entities so the UI
+    /// can render sealed chips after export. A value that crossed a newline
+    /// or a tab was sealed as several tokens; chipToken shows the first.
+    ///
+    /// Built on a copy and published once (review 2026-11-11, T5): changing
+    /// the published array element by element re-rendered the review pane
+    /// once per entity.
+    func recordExportTokens(_ tokenBySurface: [String: String]) {
+        var updated = entities
+        for index in updated.indices {
+            updated[index].token = updated[index].accepted
+                ? Self.chipToken(for: updated[index].span.text, in: tokenBySurface)
+                : nil
+        }
+        entities = updated
+    }
+
+    /// Drop every token an export recorded on the review list, as one
+    /// published change (review 2026-11-11, T5).
+    func clearExportTokens() {
+        guard entities.contains(where: { $0.token != nil }) else { return }
+        var updated = entities
+        for index in updated.indices {
+            updated[index].token = nil
+        }
+        entities = updated
+    }
+
     // MARK: - Accept toggle
 
     /// Set the accepted flag of one entity. A no-op if the id is unknown.
@@ -890,17 +902,22 @@ public final class ReviewModel: ObservableObject {
     /// occurrences of the same value) can be accepted or rejected together.
     public func setAccepted(ids: Set<ReviewEntity.ID>, _ accepted: Bool) {
         guard !ids.isEmpty else { return }
-        for index in entities.indices where ids.contains(entities[index].id) {
-            entities[index].accepted = accepted
+        // One published change, not one per entity (review 2026-11-11, T5).
+        var updated = entities
+        for index in updated.indices where ids.contains(updated[index].id) {
+            updated[index].accepted = accepted
         }
+        entities = updated
     }
 
     /// Set the accepted flag for EVERY entity of a type, so a section header
     /// can dispatch a whole category ("keep all dates visible") in one action.
     public func setAccepted(type: EntityType, _ accepted: Bool) {
-        for index in entities.indices where entities[index].span.type == type {
-            entities[index].accepted = accepted
+        var updated = entities
+        for index in updated.indices where updated[index].span.type == type {
+            updated[index].accepted = accepted
         }
+        entities = updated
     }
 
     // MARK: - Add a missed item (R5)
@@ -1069,11 +1086,13 @@ public final class ReviewModel: ObservableObject {
     /// keep it. The caller supplies createdAtISO8601 so tokenize stays
     /// deterministic.
     ///
-    /// The edit surface depends on the source format: a run-preserving redacted
-    /// .docx for .docx input, otherwise a redacted .txt companion. When a
-    /// previous export already occupies the name, a numeric suffix is added
-    /// instead of overwriting: a prior export may already have been shared, so
-    /// silent overwrite is never acceptable.
+    /// What is written depends on `format` (RedactedOutputWriter): one .md
+    /// for Markdown; in the original format a run-preserving redacted .docx
+    /// for .docx input, the same kind of text for text input, and a boxed PDF
+    /// or image with its redacted text beside it. When a previous export
+    /// already occupies the name, a numeric suffix is added instead of
+    /// overwriting: a prior export may already have been shared, so silent
+    /// overwrite is never acceptable.
     ///
     /// WHERE THE KEY GOES, which is the question this method must never leave
     /// unanswered. A `passphrase` writes a .ldamap sidecar next to the output,
@@ -1090,9 +1109,17 @@ public final class ReviewModel: ObservableObject {
         to outputDir: URL,
         passphrase: String?,
         createdAtISO8601: String,
+        format: RedactedOutputFormat = .original,
         seedMapping: Mapping? = nil,
         keepMapping: (Mapping) throws -> URL? = { _ in nil }
     ) async throws -> ExportResult {
+        // The gate, here too. Every save path checks it before it asks, but a
+        // request can outlive that check (the folder panel is not modal), and
+        // a document that was never scanned would be written with no entity
+        // redacted (review 2026-11-11, F12). Nothing has run yet.
+        if let blocked = SaveAvailabilityPresentation.notice(exportAvailability) {
+            throw SaveRefusal(message: blocked)
+        }
         let acceptedSpans = entities.filter { $0.accepted }.map { $0.span }
         let keepVisible = Self.precedentValuesLeftVisible(
             entities: entities,
@@ -1139,7 +1166,7 @@ public final class ReviewModel: ObservableObject {
                 // the "redacted" document without ever having been reviewed.
                 // Nothing has been written yet, so refusing here leaves no
                 // half-finished export behind.
-                if let source, let expectedFingerprint, Self.exportReadsSource(source) {
+                if let source, let expectedFingerprint, Self.exportReadsSource(source, format: format) {
                     try SourceFingerprint.verify(source, matches: expectedFingerprint)
                 }
                 return try Self.performExport(
@@ -1153,6 +1180,7 @@ public final class ReviewModel: ObservableObject {
                     passphrase: passphrase,
                     createdAtISO8601: createdAtISO8601,
                     style: style,
+                    format: format,
                     includeSealCandidates: wantsSealCandidates,
                     seedMapping: seedMapping,
                     keepVisible: keepVisible,
@@ -1220,14 +1248,7 @@ public final class ReviewModel: ObservableObject {
             )
         }
 
-        // Record the assigned tokens back onto the matching entities so the UI
-        // can render sealed chips after export. A value that crossed a newline
-        // or a tab was sealed as several tokens; chipToken shows the first.
-        for index in entities.indices {
-            entities[index].token = entities[index].accepted
-                ? Self.chipToken(for: entities[index].span.text, in: result.tokenBySurface)
-                : nil
-        }
+        recordExportTokens(result.tokenBySurface)
 
         // Learn from this export: the accept and reject decisions the user just
         // committed reinforce future auto-redaction and suppression, in the
@@ -1249,8 +1270,8 @@ public final class ReviewModel: ObservableObject {
     }
 
     /// Remove the files one export wrote, for the fail-closed path above.
-    /// Only the edit surface and the redacted image: the sidecar is never
-    /// among them, because its presence is what makes the export worth
+    /// Only the redacted file and the boxed PDF or image: the sidecar is
+    /// never among them, because its presence is what makes the export worth
     /// keeping.
     private static func removeExportArtifacts(of export: ExportResult) {
         for url in [export.redactedURL] + (export.redactedImageURL.map { [$0] } ?? []) {

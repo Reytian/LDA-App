@@ -567,6 +567,33 @@ extension ReviewModel {
     }
 
     // MARK: - Undo
+    //
+    // Review 2026-11-11 (F15): a Protect step is registered with the window's
+    // UndoManager, which does not retain its target. After the document left
+    // the tray, Cmd-Z called a deallocated model (the probe aborted), and after
+    // a re-scan the step wrote back the entity list of the old scan. The model
+    // now remembers the undo managers it registered with and removes its steps
+    // from them when its document is removed, replaced or scanned again
+    // (discardProtectUndo), and every step checks that it still belongs to
+    // the list on screen before it writes anything.
+
+    /// Retire every Protect step registered so far: a retired step does
+    /// nothing when run.
+    func retireProtectUndoSteps() {
+        protectUndoGeneration += 1
+    }
+
+    /// Retire every Protect step and remove them from each undo manager they
+    /// were registered with. Called when the document is removed from the
+    /// tray, replaced by another file, or given a new entity list (a scan, a
+    /// restored review).
+    public func discardProtectUndo() {
+        retireProtectUndoSteps()
+        for manager in protectUndoManagers.allObjects {
+            manager.removeAllActions(withTarget: self)
+        }
+        protectUndoManagers.removeAllObjects()
+    }
 
     /// Register one undoable step that puts the entity list back to
     /// `snapshot`; performing it registers the mirror step so redo re-applies
@@ -578,7 +605,12 @@ extension ReviewModel {
         undoManager: UndoManager?
     ) {
         guard let undoManager, snapshot != reapplying else { return }
+        protectUndoManagers.add(undoManager)
+        let generation = protectUndoGeneration
         undoManager.registerUndo(withTarget: self) { model in
+            // A step from before a re-scan or a replacement would write back
+            // a list that no longer exists.
+            guard model.protectUndoGeneration == generation else { return }
             model.entities = snapshot
             model.protectNotice = nil
             model.registerProtectUndo(

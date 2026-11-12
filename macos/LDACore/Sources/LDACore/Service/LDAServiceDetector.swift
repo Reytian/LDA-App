@@ -77,7 +77,7 @@ extension LDAService {
                 }
                 if !result.fullyAnchored {
                     let outcome = unlocatedPolicy == .protect
-                        ? RunInProtection.protect(result.unlocatedEntities, in: text)
+                        ? RunInProtection.protect(result.unlocatedEntities, in: text, reported: result.reportedRunIns)
                         : nil
                     guard let outcome, outcome.unprotectedValues.isEmpty else {
                         throw LDAServiceError.unanchoredEntities(
@@ -104,6 +104,53 @@ extension LDAService {
             precedent.set(release)
             guard let release else { return expanded }
             return expanded.filter { !release.releases($0) }
+        }
+
+        /// Detection over the text of a DOCX part outside the body (a header,
+        /// footer, footnote, endnote or comment, or a markup text there),
+        /// under the body's gates (review 2026-11-11, F9). It used to share
+        /// detectForImages, which turned an extractor error, a truncated
+        /// completion and a value the locator could not anchor into "nothing
+        /// found", so a footnote naming "byMarek Okafor2" was exported while the
+        /// same run-in in the body refused the document. Throws what
+        /// detectText throws; under UnlocatedValuePolicy.protect a value
+        /// written only run into other text is redacted at those places and
+        /// counted with the body's.
+        func detectSupplementaryText(_ text: String) throws -> [Span] {
+            var llm: [Span] = []
+            var protectedPlaces = RunInProtection.spans(
+                for: autoProtected.values,
+                in: text,
+                source: .llm
+            )
+            if let extractor {
+                let result = try extractor.extractDetailed(from: text, onProgress: nil)
+                guard result.fullyCovered else {
+                    throw LDAServiceError.incompleteExtraction(
+                        incompleteSegmentCount: result.incompleteSegmentCount
+                    )
+                }
+                if !result.fullyAnchored {
+                    let outcome = unlocatedPolicy == .protect
+                        ? RunInProtection.protect(result.unlocatedEntities, in: text, reported: result.reportedRunIns)
+                        : nil
+                    guard let outcome, outcome.unprotectedValues.isEmpty else {
+                        throw LDAServiceError.unanchoredEntities(
+                            unlocatableEntityCount: outcome?.unprotectedValues.count
+                                ?? result.unlocatableEntityCount
+                        )
+                    }
+                    protectedPlaces += outcome.spans
+                    autoProtected.add(outcome)
+                }
+                llm = result.spans
+            }
+            let merged = SpanMerger.merge(
+                deterministic: DeterministicEngine().detect(text) + protectedPlaces,
+                llm: llm
+            )
+            guard let release = precedent.release else { return merged }
+            return merged.filter { !release.releases($0) }
         }
 
         /// Secondary detection over short OCR'd image-origin text for the image-PII
@@ -141,7 +188,15 @@ extension LDAService {
             var stamped = result
             stamped.autoProtectedValueCount = autoProtected.values.count
             stamped.autoProtectedPlaceCount = autoProtected.placeCount
+            stamped.precedentReleasedValueCount = precedentReleasedValueCount
             return stamped
+        }
+
+        /// How many party values detectText left in clear in its document as
+        /// a published precedent's own parties. Every headless path reports
+        /// it, so a release is never silent (review 2026-11-11, F1).
+        var precedentReleasedValueCount: Int {
+            precedent.release?.values.count ?? 0
         }
     }
 
@@ -157,6 +212,18 @@ extension LDAService {
             lock.lock()
             currentValues = outcome?.protectedValues ?? []
             currentPlaceCount = outcome?.spans.count ?? 0
+            lock.unlock()
+        }
+
+        /// Add what a supplementary part protected: its places are counted,
+        /// a value the body already protected is not counted twice.
+        func add(_ outcome: RunInProtection.Outcome) {
+            lock.lock()
+            let known = Set(currentValues.map { "\($0.type.rawValue)\u{1F}\(TextMatching.normalize($0.value))" })
+            currentValues += outcome.protectedValues.filter {
+                !known.contains("\($0.type.rawValue)\u{1F}\(TextMatching.normalize($0.value))")
+            }
+            currentPlaceCount += outcome.spans.count
             lock.unlock()
         }
 

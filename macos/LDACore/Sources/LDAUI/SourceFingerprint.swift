@@ -102,13 +102,19 @@ extension ReviewModel {
         try SourceFingerprint.verify(sourceURL, matches: sourceFingerprint)
     }
 
-    /// True for the source kinds whose export reads the FILE rather than only
-    /// the reviewed text: a DOCX (the redactor rewrites the original package)
-    /// and a standalone image (the PNG is boxed over a re-read of the
-    /// picture). A .txt or .pdf export is written from the reviewed text
-    /// alone, so a changed file cannot contribute to it and is not checked.
-    nonisolated static func exportReadsSource(_ source: URL) -> Bool {
+    /// True for the exports that read the FILE rather than only the reviewed
+    /// text: in the original format, a DOCX (the redactor rewrites the
+    /// original package), a PDF (its pages are re-rendered with the boxes)
+    /// and a standalone image (the boxes are painted over a re-read of the
+    /// picture). A .txt export, and every Markdown export, is written from
+    /// the reviewed text alone, so a changed file cannot contribute to it and
+    /// is not checked.
+    nonisolated static func exportReadsSource(
+        _ source: URL,
+        format: RedactedOutputFormat = .original
+    ) -> Bool {
+        guard format == .original else { return false }
         let ext = source.pathExtension.lowercased()
-        return ext == "docx" || ImageTextExtractor.shouldTreatAsImage(source, extension: ext)
+        return ext == "docx" || ext == "pdf" || ImageTextExtractor.shouldTreatAsImage(source, extension: ext)
     }
 }

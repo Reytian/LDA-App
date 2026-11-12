@@ -151,13 +151,17 @@ final class ReviewModelSealCandidateUITests: XCTestCase {
         )
     }
 
-    /// Ranges the image geometry cannot box are counted, never dropped. A
-    /// replaced range sitting on the newline BETWEEN two observation lines
-    /// belongs to no line box, which is exactly the shape of the real failure
-    /// (a value the text companion redacted that the exported image may still
-    /// show). The fixture carries no red, so the candidate count stays 0 and
-    /// the two counts are proven independent.
-    func testOCRRoundTrip_windowExportReportsRangesItCouldNotBox() throws {
+    /// A range that holds only the newline BETWEEN two observation lines
+    /// belongs to no line box, but it replaces nothing either: no replacement
+    /// may swallow a break (SpanSplitter), so the text companion carries no
+    /// placeholder there and there is nothing for the image to hide. The
+    /// image used to count it as an unboxed value anyway, a warning about a
+    /// value that was never replaced. The boxes now follow what was replaced,
+    /// as LDAService's always did. A replaced value no line box holds is
+    /// refused in the original format and counted in the edit surfaces (see
+    /// RedactedOutputFormatTests). The fixture carries no red, so the
+    /// candidate count stays 0.
+    func testOCRRoundTrip_windowExportCountsNoBreakAsAnUnboxedValue() throws {
         let png = track(try ImageFixtureRenderer.writePNG(lines: [
             "联系电话 13812345678",
             "邮箱 user@example.com"
@@ -192,9 +196,10 @@ final class ReviewModelSealCandidateUITests: XCTestCase {
 
         XCTAssertEqual(
             outcome.export.unboxedTokenCount,
-            1,
-            "a replaced range with no line box must reach the reported result"
+            0,
+            "a break replaces nothing, so no value is left showing"
         )
+        XCTAssertNotNil(outcome.export.redactedImageURL, "the boxed image is still written")
         XCTAssertEqual(outcome.export.sealCandidateCount, 0, "this fixture has no red regions")
     }
 

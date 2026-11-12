@@ -42,8 +42,11 @@ import LDACore
 public struct DeanonymizeShell: View {
     @ObservedObject private var session: SessionModel
 
-    /// The active document's review model: its restoreRequestToken is the
-    /// Cmd+R menu hook.
+    /// The window's commands (AppCommandRelay). Restore takes Cmd+R's, once,
+    /// while it is shown.
+    @ObservedObject private var commands: AppCommandRelay
+
+    /// The active document's review model.
     private var model: ReviewModel { session.activeModel }
 
     /// Whether this shell is the frontmost mode. Gates the toolbar so hidden
@@ -81,6 +84,7 @@ public struct DeanonymizeShell: View {
         isActive: Bool = true
     ) {
         self.session = session
+        self.commands = session.commands
         self.isActive = isActive
     }
 
@@ -121,8 +125,15 @@ public struct DeanonymizeShell: View {
         }
         .modifier(ActiveModeNavigationTitle(title: "Restore", isActive: isActive, localized: true))
         .background(WindowContentTopInsetReader(topInset: $windowChromeTopInset))
-        .onChange(of: model.restoreRequestToken) { _, _ in
-            presentRestore()
+        // Commands are taken here, each once, only while Restore is shown
+        // (AppCommandRelay). Selecting another document is not a command; the
+        // counter this replaced was read through the active document, so a
+        // switch opened the panel.
+        .onChange(of: commands.queue) { _, _ in
+            takeCommands()
+        }
+        .onChange(of: isActive, initial: true) { _, _ in
+            takeCommands()
         }
         // onDismiss covers both ways the sheet closes, the reader's Cancel and
         // the Escape key, so the dropped file's grant is given back on every
@@ -239,6 +250,16 @@ public struct DeanonymizeShell: View {
     }
 
     // MARK: - Restore flow
+
+    /// Take Restore's waiting commands while this shell is shown.
+    private func takeCommands() {
+        guard isActive else { return }
+        while let command = session.commands.take(for: .deanonymize) {
+            if case .restore = command {
+                presentRestore()
+            }
+        }
+    }
 
     /// The button path: pick the file, then run the shared flow. A file chosen
     /// in an open panel is granted on its own and needs no held scope.

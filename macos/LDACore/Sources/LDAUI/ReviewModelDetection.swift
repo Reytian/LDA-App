@@ -378,6 +378,9 @@ extension ReviewModel {
     ///     in there. Without it, two exports of one document would mint the
     ///     same {COMPANY_1} for different values and the second would silently
     ///     make the first file unrestorable.
+    ///   - format: the format of the redacted file (RedactedOutputWriter).
+    ///     The window passes the person's choice. Callers that predate the
+    ///     choice get the original format, which is what Save Redacted wrote.
     nonisolated static func performExport(
         text: String,
         acceptedSpans: [Span],
@@ -389,6 +392,7 @@ extension ReviewModel {
         passphrase: String?,
         createdAtISO8601: String,
         style: SubstitutionStyle = .token,
+        format: RedactedOutputFormat = .original,
         includeSealCandidates: Bool = true,
         seedMapping: Mapping? = nil,
         keepVisible: Set<String> = [],
@@ -396,7 +400,6 @@ extension ReviewModel {
     ) throws -> (export: ExportResult, mapping: Mapping, tokenBySurface: [String: String]) {
         let baseName = source?.deletingPathExtension().lastPathComponent ?? "document"
         let sourceFile = source?.lastPathComponent ?? "document.txt"
-        let sourceExt = source?.pathExtension.lowercased() ?? "txt"
 
         // No replacement may swallow a newline or a tab, on any format: in a
         // DOCX those characters exist in no w:t run, and in a .txt or .md edit
@@ -432,83 +435,70 @@ extension ReviewModel {
             withIntermediateDirectories: true
         )
 
-        // An image source additionally yields a redacted PNG under the same
-        // base name, so the collision probe covers that artifact too.
-        let isImageSource = source.map {
-            ImageTextExtractor.shouldTreatAsImage($0, extension: sourceExt)
-        } ?? false
-        let redactedExt = sourceExt == "docx" && source != nil ? "docx" : "txt"
+        // One writer for every format and source type, the one a batch uses
+        // too (RedactedOutputWriter). The collision probe covers every file
+        // the chosen format writes under this base name, the redacted PNG or
+        // PDF and the text beside it included, so an export never replaces a
+        // file that was already in the folder.
+        let layout = RedactedOutputWriter.Layout.chosen(format)
+        let extensions = RedactedOutputWriter.artifactExtensions(for: source, layout: layout)
         let redactedBaseName = collisionFreeBaseName(
             baseName + DefaultWorkspace.redactedSuffix,
-            extension: redactedExt,
+            extension: extensions[0],
             in: outputDir,
-            alsoProbing: isImageSource ? ["png"] : []
+            alsoProbing: Array(extensions.dropFirst())
         )
-        let redactedURL = outputDir.appendingPathComponent("\(redactedBaseName).\(redactedExt)")
-        var embeddedMediaCount = 0
-        var redactedImageURL: URL?
-        var sealCandidateCount = 0
-        var unboxedTokenCount = 0
+        // The Word parts outside the body (headers, footers, footnotes,
+        // endnotes, comments) are redacted too, with docProps scrubbed and
+        // external mailto:/tel: targets neutralized, mirroring
+        // LDAService.anonymize. Their detector is built from this model's own
+        // settings and obeys the body's gates (nonBodyDetector, F9); it never
+        // re-runs the LLM over the body. The text of images inside a PDF is
+        // read by the same detector at best effort, as LDAService reads it.
+        // Surfaces found only in those places mint new tokens that are
+        // folded into the mapping below so they persist in the sidecar and
+        // restore correctly.
+        let detect = Self.nonBodyDetector(
+            useLLM: useLLM,
+            modelPath: modelPath,
+            custom: custom,
+            keepVisible: keepVisible,
+            protectedRunIns: protectedRunIns
+        )
+        let written = try RedactedOutputWriter.write(
+            RedactedOutputWriter.Document(
+                source: source,
+                imported: nil,
+                tokenizedText: tokenized.tokenizedText,
+                mapping: tokenized.mapping,
+                spans: exportSpans,
+                replacements: Self.buildReplacements(spans: exportSpans, tokenized: tokenized),
+                style: style,
+                imageLines: try Self.reviewedImageLines(source: source, reviewedText: text, layout: layout),
+                includeSealCandidates: includeSealCandidates,
+                detectWordParts: detect,
+                detectImageText: { (try? detect($0)) ?? [] },
+                // A boxed PDF reprints every page: the writer refuses it when
+                // the file reads differently from what this review covered.
+                reviewedText: text
+            ),
+            layout: layout,
+            to: outputDir,
+            baseName: redactedBaseName
+        )
+        /// Tokens emitted OUTSIDE the body text: docx headers, footers and
+        /// fields, and images inside a PDF. They belong to this document but
+        /// never appear in tokenizedText, so a sidecar filtered on the body
+        /// alone would drop them and their values would restore as nothing.
+        var nonBodyTokens: Set<String> = []
+        for entry in written.newEntries {
+            tokenized.mapping.entries[entry.token] = entry
+            nonBodyTokens.insert(entry.token)
+        }
         // DOCX only: replacements made in headers, footers, notes, and
         // comments. Those parts are redacted but are not in the review list,
         // so the window must add them to report honest coverage.
-        var supplementaryCount = 0
-        /// Tokens emitted OUTSIDE the body text: docx headers, footers and
-        /// fields. They belong to this document but never appear in
-        /// tokenizedText, so a sidecar filtered on the body alone would drop
-        /// them and their values would restore as nothing.
-        var nonBodyTokens: Set<String> = []
-
-        if sourceExt == "docx", let source {
-            embeddedMediaCount = DocxRedactor.embeddedMediaCount(in: source)
-            let replacements = Self.buildReplacements(
-                spans: exportSpans,
-                mapping: tokenized.mapping
-            )
-            // Redact the body AND every other text-bearing part (headers, footers,
-            // footnotes, endnotes, comments), scrub docProps metadata, and
-            // neutralize external mailto:/tel: hyperlink targets, mirroring
-            // LDAService.anonymize. The non-body detector is the same deterministic
-            // plus best-effort LLM detection the body used, built from this model's
-            // own settings; it never re-runs the LLM over the body. Surfaces found
-            // only in a non-body part mint new tokens that are folded into the
-            // mapping below so they persist in the sidecar and restore correctly.
-            let detect = Self.nonBodyDetector(
-                useLLM: useLLM,
-                modelPath: modelPath,
-                custom: custom,
-                keepVisible: keepVisible,
-                protectedRunIns: protectedRunIns
-            )
-            let outcome = try DocxRedactor.redact(
-                original: source,
-                replacements: replacements,
-                to: redactedURL,
-                nonBody: (mapping: tokenized.mapping, detect: detect)
-            )
-            for entry in outcome.newEntries {
-                tokenized.mapping.entries[entry.token] = entry
-                nonBodyTokens.insert(entry.token)
-            }
-            supplementaryCount = outcome.coverage.replacementCount
-        } else {
-            try CompanionWriter.writeText(tokenized.tokenizedText, to: redactedURL)
-        }
-
-        // Image source: also render the redacted PNG, and carry its two
-        // counts out for the window to report.
-        if isImageSource, let source {
-            let artifact = try renderImageArtifact(
-                source: source,
-                reviewedText: text,
-                acceptedSpans: acceptedSpans,
-                includeSealCandidates: includeSealCandidates,
-                to: outputDir.appendingPathComponent("\(redactedBaseName).png")
-            )
-            redactedImageURL = artifact.url
-            sealCandidateCount = artifact.sealCandidateCount
-            unboxedTokenCount = artifact.unboxedTokenCount
-        }
+        let supplementaryCount = written.supplementary.replacementCount
 
         // The sidecar is written IF AND ONLY IF the user typed a passphrase,
         // which is the whole of two decisions at once.
@@ -561,48 +551,45 @@ extension ReviewModel {
         }
 
         let export = ExportResult(
-            redactedURL: redactedURL,
+            // A boxed PDF or image is no restore surface: the redacted text
+            // beside it is. So the text is redactedURL and the boxed copy is
+            // redactedImageURL, as for an image before there were formats.
+            redactedURL: written.redactedURL,
             mappingURL: mappingURL,
             tokenCount: tokenized.mapping.entries.count,
-            embeddedMediaCount: embeddedMediaCount,
-            redactedImageURL: redactedImageURL,
-            sealCandidateCount: sealCandidateCount,
-            unboxedTokenCount: unboxedTokenCount,
+            embeddedMediaCount: written.embeddedMediaCount,
+            redactedImageURL: written.boxedImageURL ?? written.boxedPDFURL,
+            sealCandidateCount: written.sealCandidateCount,
+            unboxedTokenCount: written.unboxedOccurrenceCount,
             entityCount: exportSpans.count + supplementaryCount,
             supplementaryEntityCount: supplementaryCount
         )
         return (
             export: export,
             mapping: tokenized.mapping,
-            tokenBySurface: tokenBySurface(mapping: tokenized.mapping)
+            tokenBySurface: tokenBySurface(of: tokenized)
         )
     }
 
-    /// Render the redacted PNG for a standalone image source.
+    /// The OCR lines a boxed image is painted from, for an export whose
+    /// format boxes the image; nil for any other export.
     ///
-    /// The image is re-read here (export is a separate call from open, and the
-    /// model stores no geometry); when its recognized text no longer matches
-    /// the reviewed text, the ranges cannot be trusted to sit on the right
-    /// lines, so the export fails closed instead of shipping a leaking
-    /// "redacted" image. Whole observation boxes are covered; over-covering is
-    /// acceptable, under-covering is a leak.
-    ///
-    /// Two counts come back and must reach the user, exactly as they do on the
-    /// CLI route: how many red-region seal CANDIDATES entered the coverage
-    /// (candidates, never certain detections), and how many replaced values
-    /// the geometry could not box at all. The second one means the exported
-    /// PNG may still show a value the text companion redacted, so it is a
-    /// warning, never a dropped number.
-    ///
-    /// - Parameter includeSealCandidates: the document's own choice. Off means
-    ///   OCR coverage only, for a page whose red letterhead over-covers.
-    nonisolated static func renderImageArtifact(
-        source: URL,
+    /// The image is read again here (export is a separate call from open, and
+    /// the model stores no geometry); when its recognized text no longer
+    /// matches the reviewed text, the ranges cannot be trusted to sit on the
+    /// right lines, so the export fails closed instead of shipping a leaking
+    /// "redacted" image. The writer covers whole observation boxes:
+    /// over-covering is acceptable, under-covering is a leak.
+    nonisolated static func reviewedImageLines(
+        source: URL?,
         reviewedText: String,
-        acceptedSpans: [Span],
-        includeSealCandidates: Bool,
-        to imageURL: URL
-    ) throws -> (url: URL, sealCandidateCount: Int, unboxedTokenCount: Int) {
+        layout: RedactedOutputWriter.Layout
+    ) throws -> [ImageTextLine]? {
+        if case .format(.markdown, _) = layout { return nil }
+        guard let source,
+              ImageTextExtractor.shouldTreatAsImage(source, extension: source.pathExtension.lowercased()) else {
+            return nil
+        }
         let extraction = try ImageTextExtractor().extract(source)
         guard extraction.text == reviewedText else {
             throw DocumentIOError.corrupt(
@@ -611,24 +598,7 @@ extension ReviewModel {
                     + "\(source.lastPathComponent) and export again."
             )
         }
-        let coverage = ImageRedactor.coverage(
-            lines: extraction.lines,
-            replacedRanges: acceptedSpans.map { $0.start..<$0.end }
-        )
-        let sealCandidates = includeSealCandidates
-            ? try SealCandidateDetector.candidates(inImageAt: source)
-            : []
-        let render = try ImageRedactor.renderRedactedPNG(
-            originalImageAt: source,
-            covering: coverage.coveredLines,
-            sealCandidates: sealCandidates,
-            to: imageURL
-        )
-        return (
-            url: imageURL,
-            sealCandidateCount: render.sealCandidateCount,
-            unboxedTokenCount: coverage.unlocatedRangeCount
-        )
+        return extraction.lines
     }
 
     /// First base name (base, base_2, base_3, ...) whose edit-surface file AND
@@ -640,25 +610,27 @@ extension ReviewModel {
         in directory: URL,
         alsoProbing extraExtensions: [String] = []
     ) -> String {
-        let fm = FileManager.default
-        func taken(_ name: String) -> Bool {
-            let probes = [ext, "ldamap"] + extraExtensions
-            return probes.contains { probe in
-                fm.fileExists(atPath: directory.appendingPathComponent("\(name).\(probe)").path)
-            }
+        OutputNames.firstFreeBaseName(base, in: directory) { name in
+            ([ext, "ldamap"] + extraExtensions).map { "\(name).\($0)" }
         }
-        guard taken(base) else { return base }
-        var counter = 2
-        while taken("\(base)_\(counter)") { counter += 1 }
-        return "\(base)_\(counter)"
     }
 
-    /// A non-throwing detector over arbitrary part text for the DOCX non-body
-    /// pass, built from this model's own settings. It is deterministic plus
-    /// custom vocabulary, merged with best-effort LLM spans (any LLM failure
-    /// degrades to empty), mirroring LDAService's detectForImages. It only ever
-    /// scans the small non-body parts (headers, footers, notes), never the body,
-    /// so it does not re-run the LLM over the document the user already reviewed.
+    /// The detector over arbitrary part text for the DOCX non-body pass,
+    /// built from this model's own settings: deterministic plus custom
+    /// vocabulary, merged with the model's spans. It only ever scans the small
+    /// non-body parts (headers, footers, notes, comments, and their markup
+    /// text), never the body, so it does not re-run the model over the
+    /// document the user already reviewed.
+    ///
+    /// The parts obey the body's gates (review 2026-11-11, F9). The pass used
+    /// to be best effort, so a model error, a truncated answer or a value the
+    /// locator could not anchor in a footnote left that footnote in clear and
+    /// the export reported success. The user never reviews these parts, so a
+    /// value written only run into other text there is redacted at those
+    /// places, as Protect would; a model error, a part it could not scan, or
+    /// a value it found but cannot remove refuses the export
+    /// (NonBodyScanRefusal). A model that is not installed is the condition
+    /// the body scan already reported, and is not refused again here.
     ///
     /// `keepVisible` holds the normalized party names a published precedent
     /// leaves in clear in the body. They stay in clear in the other parts too:
@@ -681,7 +653,7 @@ extension ReviewModel {
         custom: [CustomPattern],
         keepVisible: Set<String> = [],
         protectedRunIns: [ExtractedEntity] = []
-    ) -> (String) -> [Span] {
+    ) -> (String) throws -> [Span] {
         return { text in
             // The same places a batch protects without asking
             // (RunInProtection), marked as the user's own decision.
@@ -691,19 +663,43 @@ extension ReviewModel {
                 source: .manual,
                 priority: ProtectSelectionRules.manualPriority
             )
+            let model = try gatedModelSpans(in: text, useLLM: useLLM, modelPath: modelPath)
             let deterministic = DeterministicEngine().detect(text)
                 + CustomPatternEngine.detect(text, patterns: custom)
                 + runIns
-            let merged = SpanMerger.merge(
-                deterministic: deterministic,
-                llm: llmSpans(in: text, useLLM: useLLM, modelPath: modelPath).spans
-            )
+                + model.protected
+            let merged = SpanMerger.merge(deterministic: deterministic, llm: model.spans)
             guard !keepVisible.isEmpty else { return merged }
             return merged.filter {
                 !(($0.type == .person || $0.type == .company)
                     && keepVisible.contains(TextMatching.normalize($0.text)))
             }
         }
+    }
+
+    /// The model's spans over one non-body text, under the body's gates, and
+    /// the run-in places of the values it could not anchor.
+    nonisolated static func gatedModelSpans(
+        in text: String,
+        useLLM: Bool,
+        modelPath: String?
+    ) throws -> (spans: [Span], protected: [Span]) {
+        guard useLLM, let modelPath, FileManager.default.fileExists(atPath: modelPath) else { return ([], []) }
+        let result: ExtractionResult
+        do {
+            let extractor: EntityExtracting = try effectiveLLMExtractorFactory.map { $0(modelPath, nil) }
+                ?? EntityExtractorFactory.make(modelPath: modelPath)
+            result = try extractor.extractDetailed(from: text, onProgress: nil)
+        } catch {
+            throw NonBodyScanRefusal.notScanned
+        }
+        guard result.fullyCovered, !result.scannedNothing else { throw NonBodyScanRefusal.notScanned }
+        guard !result.fullyAnchored else { return (result.spans, []) }
+        let outcome = RunInProtection.protect(result.unlocatedEntities, in: text, reported: result.reportedRunIns)
+        guard outcome.unprotectedValues.isEmpty else {
+            throw NonBodyScanRefusal.valuesLeft(outcome.unprotectedValues.count)
+        }
+        return (result.spans, outcome.spans)
     }
 
     /// How many replacements a .docx export would make OUTSIDE the body, so
@@ -726,20 +722,36 @@ extension ReviewModel {
         let detect = nonBodyDetector(
             useLLM: useLLM, modelPath: modelPath, custom: custom, keepVisible: keepVisible
         )
-        return DocxRedactor.supplementaryCoverage(in: source, detect: detect).replacementCount
+        // A preview: a part the export would refuse counts as nothing here,
+        // and the export itself says why it refused.
+        return DocxRedactor.supplementaryCoverage(in: source, detect: { (try? detect($0)) ?? [] }).replacementCount
     }
 
-    /// Map each accepted span to a Replacement by looking up its token via the
-    /// tokenizer mapping (one token per distinct surface text).
+    /// Map each accepted span to a Replacement carrying the token the
+    /// tokenizer emitted for it (tokenBySurface(of:)).
     nonisolated static func buildReplacements(
         spans: [Span],
-        mapping: Mapping
+        tokenized: TokenizeResult
     ) -> [Replacement] {
-        let tokenBySurface = tokenBySurface(mapping: mapping)
+        let tokenBySurface = tokenBySurface(of: tokenized)
         return spans.compactMap { span in
             guard let token = tokenBySurface[span.text] else { return nil }
             return Replacement(span: span, token: token)
         }
+    }
+
+    /// Surface form -> token for a document just tokenized: the replacement
+    /// the tokenizer bound each surface to in THIS text first, then the
+    /// mapping's first token for anything it did not bind (an alias).
+    ///
+    /// A seed can hold a value under a token the tokenizer will not reuse
+    /// here (the document spells that token literally), so the mapping then
+    /// holds the value twice. Looked up in the mapping, the older token came
+    /// first and the Word file and the sealed chips carried a token the text
+    /// did not (review 2026-11-11, F11, second independent review, where the
+    /// seed of that time made this the ordinary case).
+    nonisolated static func tokenBySurface(of tokenized: TokenizeResult) -> [String: String] {
+        tokenized.replacementBySurface.merging(tokenBySurface(mapping: tokenized.mapping)) { emitted, _ in emitted }
     }
 
     /// Known surface form -> token, keeping the first token seen for a value.

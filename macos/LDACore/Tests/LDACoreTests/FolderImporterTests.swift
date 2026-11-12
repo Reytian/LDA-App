@@ -83,6 +83,7 @@ final class FolderImporterTests: XCTestCase {
         // Supported documents, including a nested one and an uppercase
         // extension.
         try makeFile("b.txt", under: root)
+        try makeFile("notes.md", under: root)
         try makeFile("A/nested.pdf", under: root)
         try makeFile("z.docx", under: root)
         try makeFile("photo.JPG", under: root)
@@ -90,7 +91,7 @@ final class FolderImporterTests: XCTestCase {
         // Unsupported types. An archive is deliberately among them: a folder
         // import must not open a container the user never chose.
         try makeFile("bundle.zip", under: root)
-        try makeFile("notes.md", under: root)
+        try makeFile("page.html", under: root)
         try makeFile("data.rtf", under: root)
         // Hidden file and hidden directory.
         try makeFile(".hidden.txt", under: root)
@@ -112,7 +113,7 @@ final class FolderImporterTests: XCTestCase {
 
         XCTAssertEqual(
             relativePaths(discovered, under: root),
-            ["A/nested.pdf", "b.txt", "photo.JPG", "scan.jpeg", "z.docx"],
+            ["A/nested.pdf", "b.txt", "notes.md", "photo.JPG", "scan.jpeg", "z.docx"],
             "discovery must return exactly the supported set, sorted by path"
         )
     }

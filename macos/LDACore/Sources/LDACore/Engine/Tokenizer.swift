@@ -231,7 +231,8 @@ public enum Tokenizer {
                     documentName: sourceFile,
                     originalText: text,
                     detailed: detailed
-                )
+                ),
+                replacementBySurface: detailed.replacementBySurface
             )
         }
         guard style == .pseudonym, detailed.requiresWholeAssignmentRepair else {
@@ -526,7 +527,11 @@ public enum Tokenizer {
                     type: span.type,
                     surfaceText: surfaceText,
                     aliases: [],
-                    userOverrideEmissionCount: overrides[surfaceText] == replacement ? 0 : nil
+                    userOverrideEmissionCount: overrides[surfaceText] == replacement ? 0 : nil,
+                    // A literal replacement minted here records its touched
+                    // sites (recordGluedSites); nil marks the older entries
+                    // that never did.
+                    gluedSites: style == .token ? nil : []
                 ),
                 into: &entries
             )
@@ -538,6 +543,10 @@ public enum Tokenizer {
         // inserted token is re-scanned.
         var pieces: [String] = []
         var cursor = 0
+        // Where each replacement lands in the tokenized text, for the sites a
+        // letter or digit touches (recordGluedSites).
+        var emittedSites: [(range: NSRange, replacement: String)] = []
+        var emittedLength = 0
         let userOverrideEntryKeys = userOverrideEmissionEntryKeys(
             currentOverrides: overrides,
             entries: entries
@@ -551,9 +560,13 @@ public enum Tokenizer {
             }
 
             if span.start > cursor {
-                pieces.append(utf16Substring(of: text, from: cursor, to: span.start))
+                let gap = utf16Substring(of: text, from: cursor, to: span.start)
+                pieces.append(gap)
+                emittedLength += gap.utf16.count
             }
             pieces.append(token)
+            emittedSites.append((NSRange(location: emittedLength, length: token.utf16.count), token))
+            emittedLength += token.utf16.count
             recordUserOverrideEmission(
                 replacement: token,
                 surface: span.text,
@@ -568,6 +581,12 @@ public enum Tokenizer {
         }
 
         let tokenizedText = pieces.joined()
+        if style != .token {
+            recordGluedSites(
+                Restorer.gluedSpellings(of: emittedSites, in: tokenizedText),
+                into: &entries
+            )
+        }
 
         let mapping = Mapping(
             entries: entries,
@@ -577,7 +596,11 @@ public enum Tokenizer {
         )
 
         return DetailedTokenizeResult(
-            result: TokenizeResult(tokenizedText: tokenizedText, mapping: mapping),
+            result: TokenizeResult(
+                tokenizedText: tokenizedText,
+                mapping: mapping,
+                replacementBySurface: textToToken
+            ),
             replacementBySurface: textToToken,
             acceptedSpans: accepted,
             requiresWholeAssignmentRepair: carriedReplacementOccursNaturally
@@ -720,6 +743,33 @@ public enum Tokenizer {
         guard let key = entryKeys[emission], var entry = entries[key] else { return }
         entry.userOverrideEmissionCount = (entry.userOverrideEmissionCount ?? 0) + 1
         entries[key] = entry
+    }
+
+    /// Record on the entries how the redacted text spells each emitted site
+    /// a letter or digit of the document touches (MappingEntry.gluedSites),
+    /// kept with the spellings the seed already carried. An entry carried
+    /// from a mapping written before the field stays nil: the touched sites
+    /// of its earlier documents were never recorded, so it keeps the
+    /// substring match that restores them.
+    ///
+    /// Review 2026-11-11 (F10): the literal restore no longer substitutes an
+    /// occurrence that a letter or digit touches ("Item 1" inside "Item 12"),
+    /// and a document that writes a value against a letter ("建国路1号A座",
+    /// "signed byMarek Okafor2") must still restore to itself.
+    private static func recordGluedSites(
+        _ spellings: [String: Set<String>],
+        into entries: inout [String: MappingEntry]
+    ) {
+        guard !spellings.isEmpty else { return }
+        let keysByToken = Dictionary(grouping: entries.keys.sorted()) { entries[$0]?.token ?? "" }
+        for (replacement, sites) in spellings {
+            // Restore unions the spellings of every entry with this
+            // replacement, so the first key is enough.
+            guard let key = keysByToken[replacement]?.first(where: { entries[$0]?.gluedSites != nil }),
+                  var entry = entries[key], let recorded = entry.gluedSites else { continue }
+            entry.gluedSites = Array(Set(recorded).union(sites)).sorted()
+            entries[key] = entry
+        }
     }
 
     /// Insert a freshly minted entry under a collision-free key.

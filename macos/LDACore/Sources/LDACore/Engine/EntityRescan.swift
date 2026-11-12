@@ -153,7 +153,7 @@ public enum EntityRescan {
             for pair in pairs {
                 let key = pair.alias.lowercased()
                 guard !seenNeedles.contains(key) else { continue }
-                guard isSafeNeedle(pair.alias, type: pair.type) else { continue }
+                guard isSafeAliasNeedle(pair.alias, type: pair.type) else { continue }
                 seenNeedles.insert(key)
                 let seed = spanBySurface[pair.canonical]
                 needles.append(
@@ -341,7 +341,7 @@ public enum EntityRescan {
                 continue
             }
             guard alias != canonical.text else { continue }
-            guard isSafeNeedle(alias, type: canonical.type) else { continue }
+            guard isSafeAliasNeedle(alias, type: canonical.type) else { continue }
             guard DefinedTermScanner.isDerivedAlias(alias, of: canonical.text) else { continue }
             guard seenAliases.insert(alias.lowercased()).inserted else { continue }
             pairs.append(AliasPair(canonical: canonical.text, alias: alias, type: canonical.type))
@@ -407,6 +407,22 @@ public enum EntityRescan {
         }
         // shouldDrop includes the RoleLabels check.
         return !LegalBoilerplate.shouldDrop(value, type: type)
+    }
+
+    /// True when a defined short name bound to a confirmed name is safe to
+    /// sweep. The binding (the definition follows the confirmed name and the
+    /// alias is derived from it) already says the alias names that party, so
+    /// the boilerplate test that guards a free-standing needle does not apply
+    /// to an alias of two or more words: "Hartwell Law" bound to "Hartwell
+    /// Law LLP", or "Brightwater Court" bound to "Brightwater Court Inc.", is
+    /// a name, not a statute or a tribunal (review 2026-11-11, F2). A
+    /// single-word alias that is itself boilerplate ("Seller" for "Seller
+    /// Group Inc.") is a role word in the rest of the document and stays out.
+    static func isSafeAliasNeedle(_ value: String, type: EntityType) -> Bool {
+        let isMultiWordLatin = !DefinedTermScanner.containsCJK(value)
+            && value.split(whereSeparator: { $0.isWhitespace }).count >= 2
+        guard isMultiWordLatin else { return isSafeNeedle(value, type: type) }
+        return value.count >= minimumLatinNeedleCharacters
     }
 
     // MARK: - Private helpers

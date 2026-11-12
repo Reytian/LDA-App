@@ -36,10 +36,15 @@ public struct SessionDocument: Sendable {
 public struct SessionTokenizedDocument: Sendable {
     public var name: String
     public var tokenizedText: String
+    /// Surface text to the replacement this document's tokenization bound it
+    /// to (TokenizeResult.replacementBySurface). Empty from a caller that
+    /// built the document by hand.
+    public var replacementBySurface: [String: String]
 
-    public init(name: String, tokenizedText: String) {
+    public init(name: String, tokenizedText: String, replacementBySurface: [String: String] = [:]) {
         self.name = name
         self.tokenizedText = tokenizedText
+        self.replacementBySurface = replacementBySurface
     }
 }
 
@@ -176,7 +181,8 @@ public enum SessionTokenizer {
         return TokenizeResult(
             tokenizedText: repaired.documents.first?.tokenizedText ?? text,
             mapping: repaired.mapping,
-            seamIssues: repaired.seamIssues
+            seamIssues: repaired.seamIssues,
+            replacementBySurface: repaired.documents.first?.replacementBySurface ?? [:]
         )
     }
 
@@ -376,7 +382,8 @@ public enum SessionTokenizer {
             tokenized.append(
                 SessionTokenizedDocument(
                     name: document.name,
-                    tokenizedText: detailed.result.tokenizedText
+                    tokenizedText: detailed.result.tokenizedText,
+                    replacementBySurface: detailed.replacementBySurface
                 )
             )
             assignments.append(detailed.replacementBySurface)

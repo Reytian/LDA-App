@@ -80,3 +80,16 @@ enum StoreBlobKeys {
         defaults.removeObject(forKey: storageKey)
     }
 }
+
+/// How a store seals and opens its blob: the Keychain-keyed LocalDataVault in
+/// the app, a stand-in in tests (so a test never reads or creates a Keychain
+/// item).
+public struct StoreVault: Sendable {
+    public var open: @Sendable (Data, String) throws -> Data
+    public var seal: @Sendable (Data, String) throws -> Data
+    public init(open: @escaping @Sendable (Data, String) throws -> Data, seal: @escaping @Sendable (Data, String) throws -> Data) {
+        self.open = open
+        self.seal = seal
+    }
+    public static let keychain = StoreVault(open: { try LocalDataVault.open($0, account: $1) }, seal: { try LocalDataVault.seal($0, account: $1) })
+}

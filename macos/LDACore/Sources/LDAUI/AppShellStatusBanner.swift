@@ -181,7 +181,7 @@ struct AppShellStatusBanner: View {
         Group {
             if prominent {
                 Button {
-                    model.requestAnonymize()
+                    session.requestScan()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "text.magnifyingglass")
@@ -194,7 +194,7 @@ struct AppShellStatusBanner: View {
                 .tint(CounselTheme.inkAccentFill)
             } else {
                 Button {
-                    model.requestAnonymize()
+                    session.requestScan()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.clockwise")

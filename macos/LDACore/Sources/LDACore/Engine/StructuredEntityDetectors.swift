@@ -102,11 +102,20 @@ extension DeterministicEngine {
     static let caseNumberPattern: String = {
         let digit = "[0-9０-９]"
         let year = "[12１２]" + digit + "{3}"
-        let court = "(?:最高法|(?:[" + courtProvinceChars + "]兵?[团團]?|兵[团團]?|[军軍])" + digit + "{0,4})"
+        // Review 2026-11-11 (F8): a space between the parts, as typed or as a
+        // PDF extracts it ((2023) 京0105民初1234号, （2026）粤 03 民初 12345 号).
+        let gap = "[ \\u3000]{0,2}"
+        let court = "(?:最高法|(?:[" + courtProvinceChars + "]兵?[团團]?|兵[团團]?|[军軍])" + gap + digit + "{0,4})"
         let caseType = "[" + caseTypeChars + "]{1,4}"
         let serial = digit + "{1,8}"
         let subCase = "(?:之[一二三四五六七八九十]{1,3})?"
-        return "[（(]" + year + "[）)]" + court + caseType + serial + "[号號]" + subCase
+        let current = "[（(]" + year + "[）)]" + gap + court + gap + caseType + gap + serial + gap + "[号號]" + subCase
+        // The form used before 2016: court and type in words, then 字第 and
+        // the serial ((2014)沪二中民二(民)终字第1234号, (2012)民提字第123号).
+        // 字第 is the anchor; the words before it are bounded.
+        let legacy = "[（(]" + year + "[）)]" + gap + "[\\p{Han}0-9]{0,12}?(?:[（(][\\p{Han}]{1,2}[）)])?[\\p{Han}]{0,4}?"
+            + "字第" + gap + serial + gap + "[号號]"
+        return "(?:" + current + "|" + legacy + ")"
     }()
 
     // MARK: - LICENSE_PLATE (mainland vehicle plates)

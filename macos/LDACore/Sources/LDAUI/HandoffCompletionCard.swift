@@ -161,7 +161,12 @@ struct HandoffCompletionCard: View {
         result: ExportResult
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            L10n.text("App export saved · %@ · Redacted", result.redactedURL.pathExtension.uppercased() as NSString)
+            // The kind of file the person chose: the boxed PDF or image when
+            // the original format wrote one, the redacted file otherwise.
+            L10n.text(
+                "App export saved · %@ · Redacted",
+                (result.redactedImageURL ?? result.redactedURL).pathExtension.uppercased() as NSString
+            )
                 .font(CounselTheme.Typography.supporting.weight(.semibold))
                 .foregroundStyle(CounselTheme.textPrimary)
             completionFileLine(
@@ -199,9 +204,9 @@ struct HandoffCompletionCard: View {
             if let imageURL = result.redactedImageURL {
                 completionFileLine(
                     String(
-                        format: L10n.string(
-                            "Redacted image: %@  \u{00B7}  boxes are permanent, not restorable"
-                        ),
+                        format: imageURL.pathExtension.lowercased() == "pdf"
+                            ? L10n.string("Redacted PDF: %@  \u{00B7}  boxes are permanent, not restorable")
+                            : L10n.string("Redacted image: %@  \u{00B7}  boxes are permanent, not restorable"),
                         imageURL.lastPathComponent as NSString
                     ),
                     help: imageURL.lastPathComponent

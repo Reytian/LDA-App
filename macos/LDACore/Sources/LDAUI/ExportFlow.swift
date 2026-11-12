@@ -19,6 +19,12 @@
 //  The destination is collected BEFORE the sheet, because the sheet's
 //  iCloud warning depends on which folder was chosen.
 //
+//  The sheet also asks for the output format (RedactedOutputFormat):
+//  Markdown, or the document's original format with its layout kept. It
+//  opens on the format the last successful save wrote
+//  (AISettings.saveRedactedFormat), Markdown until there is one; a choice
+//  made on a sheet that was cancelled or failed is not remembered.
+//
 //  The flow reads the active document through the session rather than holding
 //  a ReviewModel, for the reason spelled out on the seal candidate binding:
 //  the tray can change the active document under an open sheet, and a
@@ -42,6 +48,8 @@ final class ExportFlowModel: ObservableObject {
 
     /// The directory chosen for export, held while the sheet is up.
     @Published var pendingExportDir: URL?
+    /// The document this save is for, taken when the folder panel opened.
+    @Published var pendingRequest: SessionModel.SaveRedactedRequest?
 
     /// Whether the user asked for a .ldamap next to the redacted document.
     /// Off is the default and the whole point of it: the key is kept in the
@@ -56,11 +64,23 @@ final class ExportFlowModel: ObservableObject {
     /// Mac and the file exists to be opened somewhere else.
     @Published var confirmation = ""
 
+    /// The format this save writes. See the file header for what is
+    /// remembered.
+    @Published var format: RedactedOutputFormat
+
     @Published var isChoosingDirectory = false
     @Published private(set) var isSaving = false
     @Published private(set) var saveError: String?
     @Published private(set) var savedExport: ExportResult?
     @Published var isShowingSuccess = false
+
+    /// Where the format of the last successful save is kept.
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.format = AISettings.saveRedactedFormat(defaults: defaults)
+    }
 
     var isBusy: Bool {
         isChoosingDirectory || isPromptingPassphrase || isSaving || savedExport != nil
@@ -90,14 +110,16 @@ final class ExportFlowModel: ObservableObject {
         do {
             let output = try await operation()
             savedExport = output
+            AISettings.setSaveRedactedFormat(format, defaults: defaults)
             isPromptingPassphrase = false
             pendingExportDir = nil
+            pendingRequest = nil
             resetInput()
             return output
         } catch {
             saveError = String(
                 format: L10n.string("Save failed: %@"),
-                error.localizedDescription as NSString
+                (RedactedOutputFormatPresentation.refusal(error) ?? error.localizedDescription) as NSString
             )
             return nil
         }
@@ -114,8 +136,10 @@ final class ExportFlowModel: ObservableObject {
         savedExport = nil
     }
 
-    /// Clear everything the sheet collected.
+    /// Clear everything the sheet collected, the format back to the one the
+    /// last successful save wrote.
     func resetInput() {
+        format = AISettings.saveRedactedFormat(defaults: defaults)
         wantsSidecar = false
         passphrase = ""
         confirmation = ""
@@ -139,6 +163,17 @@ struct ExportFlow: ViewModifier {
 
     /// The active document's review model, read fresh on every access.
     private var model: ReviewModel { session.activeModel }
+
+    /// The model of the document the open sheet is saving: the one its
+    /// request names, which the selection may have moved away from.
+    private var savingModel: ReviewModel {
+        flow.pendingRequest.flatMap { session.reviewModel(for: $0) } ?? model
+    }
+
+    @Environment(\.appLanguage) private var language
+
+    /// The format this sheet writes (ExportFlowModel.format).
+    private var format: RedactedOutputFormat { flow.format }
 
     /// Why the sidecar the user asked for cannot be written yet, or nil.
     /// Always nil while the sidecar toggle is off, which is the default.
@@ -171,11 +206,11 @@ struct ExportFlow: ViewModifier {
                               saved.redactedURL.deletingLastPathComponent().path as NSString)
                 }
             }
-            // Two independent triggers, one panel: the toolbar bumps the
-            // flow's own token, and the Save Redacted menu command bumps the
-            // document's. Watching both here keeps each path one hop long.
+            // One trigger: the toolbar bumps the flow's token, and so does the
+            // shell for the Save Redacted menu command (AppCommandRelay). The
+            // document's own counter is gone: read through the active
+            // document, selecting another one opened the panel.
             .onChange(of: flow.requestToken) { _, _ in presentExportPanel() }
-            .onChange(of: model.exportRequestToken) { _, _ in presentExportPanel() }
     }
 
     // MARK: - Passphrase sheet
@@ -202,19 +237,23 @@ struct ExportFlow: ViewModifier {
                 .foregroundStyle(CounselTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            formatSection
+                .disabled(flow.isSaving)
+
             // Trust confirmation: what is and is not being redacted. The
             // count is the whole export, headers and footers included, not
-            // the length of the review list.
+            // the length of the review list. Markdown carries the body only,
+            // so it counts the body only.
             ExportCoverageSummary(
-                redactedCount: model.totalRedactedCount,
-                visibleCount: model.visibleCount
+                redactedCount: format == .markdown ? savingModel.redactedCount : savingModel.totalRedactedCount,
+                visibleCount: savingModel.visibleCount
             )
                 .font(CounselTheme.Typography.supporting)
                 .foregroundStyle(CounselTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let note = AnonymizeWorkflowPresentation.supplementaryCoverageNote(
-                count: model.supplementaryRedactedCount
+            if format == .original, let note = AnonymizeWorkflowPresentation.supplementaryCoverageNote(
+                count: savingModel.supplementaryRedactedCount
             ) {
                 Text(note)
                     .font(CounselTheme.Typography.metadata)
@@ -269,6 +308,32 @@ struct ExportFlow: ViewModifier {
         .padding(24)
         .frame(width: 520)
         .background(CounselTheme.raised)
+    }
+
+    /// The output format, and in one sentence what it writes for the open
+    /// document.
+    private var formatSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            L10n.picker("Output format", selection: $flow.format) {
+                ForEach(RedactedOutputFormat.allCases, id: \.self) { choice in
+                    Text(verbatim: L10n.string(RedactedOutputFormatPresentation.labelKey(choice), language: language))
+                        .tag(choice)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 360, alignment: .leading)
+            .accessibilityIdentifier("saveRedactedFormat")
+            Text(verbatim: L10n.string(
+                RedactedOutputFormatPresentation.saveExplanationKey(
+                    format,
+                    sourceExtension: savingModel.documentName.map { ($0 as NSString).pathExtension } ?? ""
+                ),
+                language: language
+            ))
+                .font(CounselTheme.Typography.metadata)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// The one choice left on this sheet: a mapping file the user can carry to
@@ -330,13 +395,16 @@ struct ExportFlow: ViewModifier {
         // document's, which the Cmd+E menu command bumps), and a silent return
         // here is indistinguishable from a save that worked. Report the reason
         // into the banner instead.
-        let availability = model.exportAvailability
-        guard availability.isAvailable else {
-            report(SaveAvailabilityPresentation.notice(availability))
+        // The request names the document it is for, taken now: the panel
+        // below is not modal, and the selection can move before the sheet is
+        // confirmed (review 2026-11-11, F12).
+        guard let request = session.saveRedactedRequest() else {
+            report(SaveAvailabilityPresentation.notice(model.exportAvailability))
             return
         }
         report(nil)
         flow.resetInput()
+        flow.pendingRequest = request
         flow.isChoosingDirectory = true
         let panel = NSOpenPanel()
         panel.title = L10n.string("Save Redacted Document…")
@@ -353,7 +421,10 @@ struct ExportFlow: ViewModifier {
         panel.begin { response in
             DispatchQueue.main.async {
                 flow.isChoosingDirectory = false
-                guard response == .OK, let dir = panel.url else { return }
+                guard response == .OK, let dir = panel.url else {
+                    flow.pendingRequest = nil
+                    return
+                }
                 flow.pendingExportDir = dir
                 flow.isPromptingPassphrase = true
             }
@@ -363,11 +434,12 @@ struct ExportFlow: ViewModifier {
     private func cancelPassphrase() {
         flow.isPromptingPassphrase = false
         flow.pendingExportDir = nil
+        flow.pendingRequest = nil
         flow.resetInput()
     }
 
     private func confirmExport() {
-        guard let dir = flow.pendingExportDir else { return }
+        guard let dir = flow.pendingExportDir, let request = flow.pendingRequest else { return }
 
         // One function decides whether a sidecar is written and under what.
         // nil is the default answer and is exactly what export reads as
@@ -378,6 +450,7 @@ struct ExportFlow: ViewModifier {
             confirmation: flow.confirmation
         )
         let createdAt = ISO8601DateFormatter().string(from: Date())
+        let chosenFormat = format
         let exportMatterID = session.matterScopeID
         let exportMatterLabel = session.clientLabel
         Task {
@@ -389,9 +462,13 @@ struct ExportFlow: ViewModifier {
                 // Through the SESSION, not the model: the mapping's home is a
                 // workspace, and only the session knows the matter, the
                 // overrides, and the document's tray identity that go into one.
+                // The request, not the selection, names the document, and the
+                // session checks its gate again before anything is written.
                 return try await session.exportRedacted(
+                    request: request,
                     to: dir,
                     passphrase: phrase,
+                    format: chosenFormat,
                     createdAtISO8601: createdAt
                 )
             }) else { return }

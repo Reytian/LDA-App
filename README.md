@@ -96,7 +96,7 @@ LDA 2.0 includes the refreshed videos in onboarding and **Settings > Tutorials**
 You need an **Apple Silicon Mac with macOS 14 or later**. The included **LDA V4** detection model works on Macs with **8 GB of memory**. Larger optional models need more memory; LDA shows their requirements in Settings.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest)
-   and download **LDA-2.0.dmg** from **Assets**.
+   and download **LDA-2.1.dmg** from **Assets**.
 2. Open the disk image and drag **LDA.app** onto **Applications**.
 3. Open LDA from Applications. Review and accept the Terms of Service and
    Privacy Policy, then choose your language in the setup wizard.
@@ -179,10 +179,14 @@ The Python prototype's API instructions below do not apply to LDA.app.
 **What can I import, and what will I get back?**
 
 The Mac app accepts Word `.docx`, PDF, and text documents. **Export for AI**
-produces Markdown text plus an encrypted mapping. Restore accepts Word,
-Markdown, and text files. The Markdown route does not preserve the original
-Word or PDF layout. PDF import is not a promise to produce a visually redacted
-PDF; inspect the actual exported file before sharing it. See the
+produces Markdown text plus an encrypted mapping. **Save Redacted** saves one
+document as Markdown, the default, or in its original format: Word keeps its
+formatting, and a PDF keeps its pages and page sizes with every replaced value
+covered by a box and no text left to copy out. When LDA cannot cover every
+replaced value, or a PDF has a page the review did not read (a scanned page in
+a typed PDF), it saves nothing in the original format and asks for Markdown.
+Restore accepts Word, Markdown, and text files. The Markdown route does not preserve the original Word or PDF
+layout. Inspect the actual exported file before sharing it. See the
 [guide's format notes](docs/user-guide.md#file-formats-and-layout).
 
 **Will it detect everything?**
@@ -200,7 +204,11 @@ MCP (it opens the same window and tells the AI only the counts), or
 `lda batch --input-dir <folder> --output-dir <folder>` with the command-line
 tool inside the app (`LDA.app/Contents/Helpers/lda`), writes one redacted copy
 and one encrypted mapping per document, in the same folder layout, with no
-review step. A name the model found but could not match exactly, because a
+review step. The app's batch writes one Markdown file per document unless you
+choose **Original format** in Settings > General, which keeps each document's
+own format and layout (Word stays Word, a PDF keeps its pages with every value
+covered); `lda batch` takes `--format markdown` or `--format original`, and
+without it writes the same files from the same documents as before. A name the model found but could not match exactly, because a
 footnote number or another word runs into it, is redacted there automatically,
 as Protect would do. A document that still cannot be cleaned is skipped and
 listed in the batch report (`lda-batch-report.txt`), and running the batch again

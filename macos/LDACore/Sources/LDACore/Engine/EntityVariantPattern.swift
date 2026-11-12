@@ -99,6 +99,12 @@ enum EntityVariantPattern {
                     flushLiteral()
                     pieces.append(gap(optional: boundary))
                     gapCount += 1
+                } else if isIdeograph(previous), isIdeograph(scalar) {
+                    // A Chinese name padded to a fixed width holds a space
+                    // inside it (张　伟 for 张伟, review 2026-11-11, F8).
+                    flushLiteral()
+                    pieces.append(ideographGap)
+                    gapCount += 1
                 }
             }
             literal.append(scalar)
@@ -109,6 +115,17 @@ enum EntityVariantPattern {
 
         guard gapCount > 0 else { return nil }
         return pieces.joined()
+    }
+
+    /// The optional gap between two ideographs: at most two horizontal spaces
+    /// (space, no-break space, ideographic space), never a line break.
+    static let ideographGap = "[ \\u00A0\\u3000]{0,2}"
+
+    static func isIdeograph(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x2FA1F: return true
+        default: return false
+        }
     }
 
     /// One bounded gap: optional at a script boundary, required elsewhere.

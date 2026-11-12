@@ -28,16 +28,17 @@ struct Batch: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Anonymize every document in a folder, one redacted copy and mapping each, with no confirmation step.",
         discussion: """
-            Processes every .txt, .docx, .pdf, .png, .jpg and .jpeg file under --input-dir, \
-            subfolders included (hidden files and Word's "~$" owner files are skipped), into the \
-            same layout under --output-dir, and writes lda-batch-report.json and \
-            lda-batch-report.txt there.
+            Processes every .txt, .docx, .pdf, .png, .jpg and .jpeg file under --input-dir, and \
+            every .md file when --format is given, subfolders included (hidden files and Word's \
+            "~$" owner files are skipped), into the same layout under --output-dir, and writes \
+            lda-batch-report.json and lda-batch-report.txt there.
 
             A value the model found but could not match exactly because a letter or digit runs \
             into it ("Jordan Lee2") is redacted at those places, as Review's Protect does. A \
             document that still cannot be cleaned is skipped, nothing is written for it, and the \
             report says why. Run the same command again to resume: documents finished with the \
-            same settings and unchanged since are skipped.
+            same settings and unchanged since are skipped. A run with other settings, another \
+            --format for example, writes beside an earlier run's files, never over them.
 
             Exit status: 0 when every document was written, 2 when the batch finished but at \
             least one document was not, 1 when the batch could not run.
@@ -58,6 +59,9 @@ struct Batch: ParsableCommand {
 
     @Option(name: .long, help: "Output style: token (default), pseudonym or asterisk. See lda anonymize --help.")
     var style: SubstitutionStyle = .token
+
+    @Option(name: .long, help: "Format of the redacted copies: markdown (one .md per document) or original (each document in its own format with its layout kept: .docx, .txt, .md, a PDF or an image with every value boxed). Without it, the files lda batch has always written: .docx for Word, .txt for the rest, with a review PDF or boxed PNG beside PDFs and images.")
+    var format: RedactedOutputFormat?
 
     @Flag(name: .long, help: "Protect every mapping with one passphrase, typed at a prompt and never on the command line. Without it each mapping's key goes into the login keychain, one item per document, and the mappings restore only on this Mac.")
     var askPassphrase = false
@@ -92,14 +96,8 @@ struct Batch: ParsableCommand {
             unlocatedPolicy: refuseUnlocated ? .refuse : .protect,
             redoFinished: redo,
             protectionLabel: passphrase == nil ? "keychain" : "passphrase",
-            protection: { document in
-                // The same account rule as `lda anonymize`, so `lda restore`
-                // finds every key.
-                LDACLI.protectionFor(
-                    passphrase: passphrase,
-                    derivedAccount: LDACLI.mappingBaseName(forInput: document)
-                )
-            }
+            protection: Self.mappingProtection(passphrase: passphrase),
+            format: format
         )
         let output = URL(fileURLWithPath: outputDir, isDirectory: true)
         let report: BatchReport
@@ -123,6 +121,19 @@ struct Batch: ParsableCommand {
         }
     }
 
+    /// How a batch seals each mapping: the passphrase, or the Keychain account
+    /// `lda restore` derives from the mapping file's own name, which is
+    /// <base>_redacted or, when an earlier run's files hold that name, the
+    /// next free one.
+    static func mappingProtection(passphrase: String?) -> (URL) -> MappingProtection {
+        { mapping in
+            LDACLI.protectionFor(
+                passphrase: passphrase,
+                derivedAccount: mapping.deletingPathExtension().lastPathComponent
+            )
+        }
+    }
+
     /// One stderr line per finished document.
     static func progressLine(_ progress: BatchProgress, _ item: BatchItem) -> String {
         let position = "[\(progress.index)/\(progress.total)] \(item.source): "
@@ -131,6 +142,9 @@ struct Batch: ParsableCommand {
             var line = position + "written, \(item.replacedCount) replaced"
             if item.autoProtectedValueCount > 0 {
                 line += ", \(item.autoProtectedValueCount) protected automatically"
+            }
+            if item.precedentReleasedValueCount > 0 {
+                line += ", read as a published precedent: \(item.precedentReleasedValueCount) party name(s) left in clear"
             }
             return line + String(format: " (%.1f s)\n", item.seconds)
         case .skipped:
@@ -189,23 +203,45 @@ enum BatchCLIError: Error, CustomStringConvertible {
     }
 }
 
+/// Let --format parse directly into the engine enum ("markdown", "original").
+extension RedactedOutputFormat: ExpressibleByArgument {
+    public init?(argument: String) {
+        self.init(rawValue: argument)
+    }
+
+    /// Shown by ArgumentParser in help output.
+    public static var allValueStrings: [String] {
+        RedactedOutputFormat.allCases.map { $0.rawValue }
+    }
+}
+
 /// The JSON object the batch subcommand prints when it finishes.
 struct BatchSummaryJSON: Codable, Equatable {
+    /// The format of the redacted copies. Absent when the run wrote the
+    /// edit surfaces lda batch writes without --format.
+    let outputFormat: RedactedOutputFormat?
     let documents: Int
     let written: Int
     let skipped: Int
     let failed: Int
     let autoProtectedValueCount: Int
+    /// Party names left in clear as published precedents' own parties, and
+    /// whether there are any.
+    let precedentReleasedValueCount: Int
+    let precedentPartiesReleased: Bool
     let cancelled: Bool
     let reportFile: String
     let summaryFile: String
 
     init(report: BatchReport, outputFolder: URL) {
+        outputFormat = report.outputFormat
         documents = report.items.count
         written = report.doneCount
         skipped = report.skippedCount
         failed = report.failedCount
         autoProtectedValueCount = report.autoProtectedValueCount
+        precedentReleasedValueCount = report.precedentReleasedValueCount
+        precedentPartiesReleased = report.precedentReleasedValueCount > 0
         cancelled = report.cancelled
         reportFile = outputFolder.appendingPathComponent(BatchReport.fileName).path
         summaryFile = outputFolder.appendingPathComponent(BatchReport.summaryFileName).path

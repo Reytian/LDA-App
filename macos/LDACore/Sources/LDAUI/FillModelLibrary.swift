@@ -122,9 +122,8 @@ extension FillModel {
         // one (an extraction, a save, a plan) must not land on this portfolio.
         invalidateInFlightEditorWork()
         currentPortfolioID = nil
-        // Reset the source list so a new portfolio starts with no staged documents
-        // from a prior session.
-        sourcePaths = []
+        // A new portfolio starts with nothing another one staged.
+        clearPerProfileState()
         profile = emptyPortfolio
         profileDirty = true
         stage = .profileReady
@@ -139,6 +138,9 @@ extension FillModel {
         // requested while this one reads supersedes it rather than losing to
         // it.
         invalidateInFlightEditorWork()
+        // Nothing the previous profile staged may reach this one, whether or
+        // not the load below succeeds (review 2026-11-11, F14).
+        clearPerProfileState()
         let generation = editorGeneration
         do {
             let lib = try await resolveLibrary()
@@ -156,6 +158,17 @@ extension FillModel {
             guard generation == editorGeneration else { return }
             publishFailure(error, context: .library)
         }
+    }
+
+    /// Open a profile read from a file outside the library.
+    ///
+    /// The identity is cleared so Save creates a new library entry rather
+    /// than overwriting whatever portfolio was open, and so is everything the
+    /// previous profile staged (review 2026-11-11, F14).
+    public func openExternalProfile(_ profile: ClientPortfolio) {
+        currentPortfolioID = nil
+        clearPerProfileState()
+        loadProfile(profile)
     }
 
     /// Identical to openForEdit. The shell drives the target-opening flow from

@@ -10,11 +10,9 @@ model the user has asked for, and this core is not part of that path.
 
 ## System requirements
 
-**Minimum: a Mac with 16 GB of memory.** LDA runs its detection model on your
-machine, and the model has to fit in memory alongside whatever else you have
-open. Below 16 GB there is no configuration that both detects names reliably and
-leaves room for a word processor and a browser, so 16 GB is the floor rather
-than a recommendation.
+**Works on Macs with 8 GB of memory using the bundled LDA V4 model.** Larger
+optional models have their own memory requirements, listed below. Allow enough
+memory for other applications when choosing an optional model.
 
 What each detection level needs, measured on an Apple M4:
 
@@ -52,9 +50,16 @@ values (emails, phones, dates, amounts, ID and case numbers).
   to `LLMExtractor.locate`, the same filters and locator an LLM tier's values
   go through. Brands get their own `{TRADEMARK_N}` placeholder, so they never
   count as companies; vessels are replaced as COMPANY. Spans of one name that
-  the tagger reports end to end are joined first, and a short generic word that
-  only ends a longer name (巧克力 in 费列罗巧克力, `NameHeads`) is redacted
-  where it was found but never spread to its other occurrences. It runs on the
+  the tagger reports end to end are joined first. Every span the tagger
+  reports is redacted where it was reported; the filters written for an LLM's
+  over-reporting (legal boilerplate, the lowercase rule, defined terms) decide
+  only whether the value is also spread to its other occurrences, so a short
+  name such as "Hartwell Law" or a lowercase name in a chat export is no longer
+  dropped. A short generic word that only ends a longer name (巧克力 in
+  费列罗巧克力, `NameHeads`) is one such value: redacted where it was found,
+  never spread. A defined short name of two or more words bound to a redacted
+  full name ("Hartwell Law LLP ("Hartwell Law")") is swept everywhere, even
+  when the tagger calls it a court. It runs on the
   CPU, where the Swift runtime matches the reference pipeline bit for bit.
 - **PDF line breaks.** A PDF's text layer ends every printed line with a line
   break. `PdfLineReflow` joins the breaks the layout shows to be wraps (the line
@@ -93,22 +98,32 @@ values (emails, phones, dates, amounts, ID and case numbers).
 
 When the document is itself a published precedent, its own parties' names are
 public and stay in clear (`PrecedentPartyRule`). The caption is found
-conservatively by `TinyPII.PrecedentRule`: the title block of an SPC or SPP
-guiding case, or the caption line of a US opinion that shows opinion markers
-and no "not for publication" notice. Every PERSON or COMPANY value of two or
-more characters that the caption spells is left in clear, by value, on every
-channel, so a header never carries a token for a name that is in clear in the
-body. Witnesses, judges, counsel and short forms the caption does not spell
-stay redacted, and a value another document of the session redacts is never
+conservatively by `TinyPII.PrecedentRule`: the document's own heading must be
+the title block of an SPC or SPP guiding case (a line that begins with its
+number, the case name ending in 案, optionally the issuing line, then the first
+body heading), or a US opinion's header (a court header, then the caption, then
+an opinion heading or a panel or authoring judge line, with no "not for
+publication" notice). A memo, email, letter, brief or pleading is never a
+precedent: a header field such as `Re:` or `Subject:`, a salutation, a
+privilege or draft legend, or the title of a brief or pleading refuses, and
+"opinion" or "justice" in prose counts for nothing. Every PERSON or COMPANY
+value of two or more characters that the caption names is left in clear, by
+value, on every channel, so a header never carries a token for a name that is
+in clear in the body; a Latin-script value must be whole words of the caption.
+Witnesses, judges, counsel and short forms the caption does not spell stay
+redacted, and a value another document of the session redacts is never
 released. The app lists the released names unticked and says so in the status
-line; ticking one redacts it everywhere.
+line; ticking one redacts it everywhere. The headless paths report every
+release: `precedentReleasedValueCount` and `precedentPartiesReleased` in the
+CLI summaries, the batch report and the MCP responses, and a notice on stderr.
 
 ## Batch anonymization
 
 `BatchAnonymizer` anonymizes every supported document under one folder
-(`.txt`, `.docx`, `.pdf`, `.png`, `.jpg`, `.jpeg`, subfolders included) into
-the same layout under an output folder: one redacted copy and one mapping per
-document, with no review and no confirmation step. Hidden files, packages,
+(`.txt`, `.docx`, `.pdf`, `.png`, `.jpg`, `.jpeg`, and `.md` when an output
+format is chosen; subfolders included) into the same layout under an output
+folder: one redacted copy and one mapping per document, with no review and no
+confirmation step. Hidden files, packages,
 symlinks and Word's `~$` owner files are skipped, and so is the output folder
 when it sits inside the source folder.
 
@@ -120,16 +135,43 @@ when it sits inside the source folder.
   written only inside longer words, a corrupt file, or any other failure is
   left without output and listed in the report; the batch carries on.
 - **One model load.** The detector is built once for the whole batch.
+- **Output format.** `BatchOptions.format` (`RedactedOutputFormat`, written by
+  `RedactedOutputWriter`, the same writer Save Redacted uses). `markdown`
+  writes `<base>_redacted.md` for every document, the redacted text as Export
+  for AI renders it (a Word document contributes its body). `original` keeps
+  each document's own type and layout: the run-preserving redacted `.docx`;
+  `.txt` and `.md` with their lines; a PDF re-rendered page by page with every
+  replaced value boxed, the same page count and page sizes, and no text layer;
+  an image boxed in its own type with only its orientation and resolution
+  kept. Beside a boxed PDF or image the redacted text is written as
+  `<base>_redacted.txt`, which the report records as `redactedFile` (it is
+  what restores); the boxed PDF is `reviewPDF` and the boxed image
+  `redactedImage`. A PDF or image that would still show a replaced value is
+  refused in `original` and listed in the report. With no format the batch
+  writes the edit surfaces it always wrote, from the documents it always took
+  (no `.md`): `.docx` for Word, `.txt` for the rest, with `<base>_review.pdf`
+  or a boxed PNG beside a PDF or an image. The
+  app's window takes the format from Settings > General (Markdown until
+  changed); `lda batch` takes `--format markdown|original` and writes the edit
+  surfaces without it.
 - **Layout.** Two documents in one folder with the same base name
   (`lease.docx`, `lease.pdf`) each get a subfolder (`lease (docx)`,
-  `lease (pdf)`), because both would write `lease_redacted.ldamap`.
+  `lease (pdf)`), because both would write `lease_redacted.ldamap` (and, as
+  Markdown, `lease_redacted.md`).
 - **Report.** `lda-batch-report.json` and `lda-batch-report.txt` in the output
   folder: counts, every failure with its reason, and the documents to check
   (review PDFs that still show a value, unscanned embedded images, tracked
   changes). They hold relative paths and counts, never document text.
 - **Resume.** A second run with the same settings into the same output folder
   skips every document whose source is unchanged and whose outputs are still
-  there. `--redo` (CLI) or the window's checkbox processes everything again.
+  there. The output format is one of those settings, recorded in the report
+  as `outputFormat`; a report from before formats has none and resumes only a
+  run that writes the edit surfaces. `--redo` (CLI) or the window's checkbox
+  processes everything again, writing over that run's own files. A run with
+  other settings never writes over an earlier run's files: its outputs take
+  the next free name (`OutputNames`, `<base>_redacted_2`), and each mapping is
+  sealed under the Keychain account derived from its own file name, as
+  `lda restore` and the app's Restore derive it.
 
 From the command line, the model defaults to the LDA V4 folder of the app the
 tool sits in:
@@ -394,12 +436,12 @@ launch); exports land only in the vault's own `outbox/`.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `prepare_documents` | `workspaceName?` | local document picker, optional additional PII review, and Matter confirmation; returns redacted/source handles, `format`, `sourceFormat`, `kind`, counts, detection mode, review status and an optional opaque workspace ID |
-| `batch_anonymize` | none | opens the app's Batch Anonymize window, where the person chooses the folders and options; `outcome` (`finished`, `stopped`, `failed`, `closed`, `busy` or `still_open`), `documentCount`, `writtenCount`, `skippedCount`, `failedCount`, `autoProtectedValueCount`; the redacted copies, mappings and report stay in the chosen folder |
+| `batch_anonymize` | none | opens the app's Batch Anonymize window, where the person chooses the folders and options; `outcome` (`finished`, `stopped`, `failed`, `closed`, `busy` or `still_open`), `documentCount`, `writtenCount`, `skippedCount`, `failedCount`, `autoProtectedValueCount`, `precedentReleasedValueCount`; the redacted copies, mappings and report stay in the chosen folder |
 | `list_pending` | none | every staged document and derived artifact: `handle`, `kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for redacted artifacts `excludedEntityCount` (occurrences the review step left visible, on every channel; 0 means fully redacted) |
 | `choose_workspace` | `handle` | local LDA Matter picker; only `handle`, `assigned`, and an optional opaque `workspaceID` return to the host |
 | `detect_entities` | `handle`, `modelPath?` | `detectionId`, `entityCount`, `entityTypes`, `entities[]` of `{id, type, start, end}`; never the detected text |
-| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `excludedValueCount`, `detectionChanged` |
-| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `unresolvedSeams` |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `entityCount`, `entityTypes`, `perTypeCounts`, `imageRedactionCount`, `embeddedMediaCount`, `unboxedTokenCount`, `excludedCount`, `excludedValueCount`, `detectionChanged`, `precedentReleasedValueCount`, `precedentPartiesReleased` |
+| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` and `precedentReleasedValueCount` per document, `totalEntityCount`, `entityTypes`, `perTypeCounts`, `excludedCount`, `precedentPartiesReleased`, `unresolvedSeams` |
 | `read_redacted` | `handle` (red_) | `text` and `localApproval`; known partial or legacy unknown-exclusion artifacts require fresh local confirmation and macOS authentication |
 | `import_edited_document` | `redactedHandle` only | local picker and source confirmation; `status`, `editedHandle`, `format`, `kind`, tracked-change policy; document bytes stay local |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format` (`docx`, `txt`, or `md`), `restoredCount`, `orphanTokens`, `suspectPlaceholderCount`, `ambiguousReplacements`; `suspectPlaceholders` strings only when the restored text is already known to the caller; plus `editedRedactedHandle` on the `editedText` path |
@@ -427,7 +469,7 @@ Unconfirmed selections remain in a separate encrypted preparation registry and a
 
 First-run onboarding offers optional setup for Codex, Claude Code, Claude Desktop, or another local STDIO MCP client. **Set Up Later** skips it. **Settings > MCP Setup** exports configuration, a setup script, and the portable skill; **Settings > CLI Setup** exports a CLI shortcut installer and explains usage. The app bundles both `lda` and `lda-mcp`. Setup scripts run through the bundled CLI without requiring Python, preserve existing LDA entries and skills, and back up settings before changes. Nonstandard Codex TOML forms are left untouched with instructions for manual setup. Restart the AI client after setup and use `attest` to verify the connection.
 
-The exported connection uses the model selected in LDA. A configured `LDA_MODEL_PATH` authorizes that exact model file even on an external volume, without authorizing sibling files or document paths. If no model is configured, preparation explicitly reports `patterns_only`. Browser-only clients requiring a hosted HTTP MCP endpoint cannot connect directly to this local STDIO server.
+The exported connection uses the model selected in LDA. A configured `LDA_MODEL_PATH` authorizes that exact model file even on an external volume, without authorizing sibling files or document paths. `detect_entities`, `anonymize`, `anonymize_session` and `prepare_documents` all run that model when the request names no other `modelPath`, so an assistant cannot turn detection off by leaving the argument out. Each response reports `detectionMode` (`local_model` or `patterns_only`), the vault records it per redacted artifact (`list_pending` shows it), and `read_redacted` asks for the same authenticated local approval as partly redacted text before it returns an artifact that was redacted with patterns only while a model is configured. If no model is configured, every run explicitly reports `patterns_only`. Browser-only clients requiring a hosted HTTP MCP endpoint cannot connect directly to this local STDIO server.
 
 ### Matter association
 
@@ -594,9 +636,30 @@ only when it carries this very mapping (otherwise `mapping_mismatch`).
 
 The restored `.docx` keeps every run property of the runs that held
 placeholders and copies every untouched package part (styles, numbering,
-media) byte for byte. Two redaction-time edits are deliberately not reversed:
-the `docProps` author and title scrub, and the neutralized `mailto:` and
-`tel:` hyperlink targets. Staging the edited file is the human's action by
+media) byte for byte. Field instructions (a `HYPERLINK` target, a `TA`
+citation, an `XE` index entry), content-control aliases, tags and list items,
+legacy form-field entries, VML watermark strings and picture alternative text
+are redacted with brace tokens in every style and restored by token. A header,
+footer, note or comment that repeats a value the body replaced is redacted
+whether or not detection finds it there, and those parts obey the body's
+gates: a model error, a part the model did not finish, or a value it found
+but could not anchor refuses the export, or under `--auto-protect` (and in
+`lda batch`) is redacted at its run-in places and counted. The app's export
+redacts such run-in places in the parts the user never reviewed and refuses
+the rest. Two kinds of redaction-time edit are
+deliberately not reversed: the `docProps` scrub (title, subject, author,
+keywords, category, status, template, company, manager, hyperlink base, the
+parts list and the hyperlink list are blanked) and the neutralized external
+link targets (`mailto:`, `tel:`, and any target that held a value the export
+replaced).
+
+Before a redacted `.docx` is moved into place it is audited
+(`DocxLeakAudit`): every XML member is parsed, and its character data and
+attribute values, relationship targets percent-decoded, are searched for every
+value the export replaced, case and separators aside. A hit refuses the export
+and names the member and the element, never the value, so a place LDA does
+not clean yet is a refusal rather than a leak. Font tables, theme parts and
+font attributes are not read. Staging the edited file is the human's action by
 design; an agent that ran the CLI itself would be handling the path the
 surface keeps out of context.
 

@@ -33,6 +33,14 @@ import LDACore
 public struct AppShell: View {
     @ObservedObject private var session: SessionModel
 
+    /// The window's commands (AppCommandRelay). This shell takes Redact's,
+    /// each once, while it is shown.
+    @ObservedObject private var commands: AppCommandRelay
+
+    /// What the completion card and messages on screen belong to, compared
+    /// when the shell comes back (AppShellCardContext).
+    @State private var cardContext: AppShellCardContext?
+
     /// The active document's review model (the session forwards its changes).
     private var model: ReviewModel { session.activeModel }
 
@@ -181,6 +189,7 @@ public struct AppShell: View {
         onOpenMatters: @escaping () -> Void = {}
     ) {
         self.session = session
+        self.commands = session.commands
         self.installer = installer
         self.importer = importer
         self.isActive = isActive
@@ -360,17 +369,18 @@ public struct AppShell: View {
             // sidebar choice while scanning or switching between documents.
             findingsVisibility = isEmpty ? .detailOnly : .all
         }
-        .onChange(of: model.anonymizeRequestToken) { _, _ in
-            handleScanRequest(.active)
+        // Commands are taken here, each once, only while this shell is shown;
+        // RootShell has already switched to Redact (AppCommandRelay).
+        // Selecting another document is not a command, so it can no longer
+        // start a scan or open a panel. The modifiers on this Group exist only
+        // while the shell is active, so coming back also checks whether the
+        // card on screen still belongs to the matter and document shown.
+        .onChange(of: commands.queue) { _, _ in
+            takeCommands()
         }
-        .onChange(of: session.scanAllRequestToken) { _, _ in
-            handleScanRequest(.all)
-        }
-        .onChange(of: session.exportForAIRequestToken) { _, _ in
-            requestExportForAI()
-        }
-        .onChange(of: session.openRequestToken) { _, _ in
-            presentOpenPanel()
+        .onChange(of: isActive, initial: true) { _, _ in
+            resetCardIfStale()
+            takeCommands()
         }
         .onChange(of: model.status) { _, status in
             announce(status)
@@ -386,14 +396,10 @@ public struct AppShell: View {
             }
         }
         .onChange(of: session.selectedID) { _, _ in
-            exportMessage = nil
-            handoffCompletion = nil
-            hasSharedOutput = false
+            resetCardIfStale()
         }
         .onChange(of: session.clientLabel) { _, _ in
-            exportMessage = nil
-            handoffCompletion = nil
-            hasSharedOutput = false
+            resetCardIfStale()
         }
     }
 
@@ -464,6 +470,63 @@ public struct AppShell: View {
     /// then Return as one gesture, and that reflex then fires through the
     /// genuinely different unresolved-seam advisory, which renders in the same
     /// region.
+    // MARK: - Commands
+
+    /// Take Redact's waiting commands, oldest first, while this shell is shown.
+    private func takeCommands() {
+        guard isActive else { return }
+        while let command = session.commands.take(for: .anonymize) {
+            perform(command)
+        }
+    }
+
+    private func perform(_ command: AppCommand) {
+        switch command {
+        case .openDocuments:
+            presentOpenPanel()
+        case .openWorkspace(let url):
+            // WorkspaceFlow runs the passphrase flow and asks before it
+            // replaces live work.
+            session.pendingWorkspaceURL = url
+        case .openReport(let url):
+            session.pendingReportURL = url
+        case .scan(let documentID):
+            guard selectDocument(documentID) else { return }
+            handleScanRequest(.active)
+        case .scanAll:
+            handleScanRequest(.all)
+        case .exportForAI:
+            requestExportForAI()
+        case .saveRedacted(let documentID):
+            guard selectDocument(documentID) else { return }
+            exportFlow.requestExport()
+        case .restore:
+            break
+        }
+    }
+
+    /// Show the document a command was issued for, when it is still in the
+    /// tray. A command for a document since removed is dropped.
+    private func selectDocument(_ documentID: UUID) -> Bool {
+        guard session.entries.contains(where: { $0.id == documentID }) else { return false }
+        if session.selectedID != documentID {
+            session.selectedID = documentID
+        }
+        return true
+    }
+
+    /// Clear the completion card and messages when the matter or document
+    /// they were shown for is no longer the one on screen.
+    private func resetCardIfStale() {
+        let now = AppShellCardContext(session: session)
+        if cardContext != now {
+            exportMessage = nil
+            handoffCompletion = nil
+            hasSharedOutput = false
+        }
+        cardContext = now
+    }
+
     private func handleScanRequest(_ request: ScanRequest) {
         guard let pending = resolveScan(request) else { return }
         guard AISettings.scanNeedsModelConfirmation(catalog: catalog) else {

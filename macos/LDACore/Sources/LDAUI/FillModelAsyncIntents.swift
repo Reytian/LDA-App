@@ -63,6 +63,7 @@ extension FillModel {
         kind: PortfolioKind = .company
     ) async {
         let ticket = beginExtraction()
+        refreshConfiguration?(self)
         let path = modelPath ?? ""
         let seam = Self.effectiveExtractProfileOverride
         let progressCallback: @Sendable (Int, Int) -> Void = { [weak self] done, total in
@@ -172,6 +173,7 @@ extension FillModel {
         startTargetScope(target)
 
         let seam = Self.effectivePlanFillOverride
+        refreshConfiguration?(self)
         let path = modelPath
 
         do {

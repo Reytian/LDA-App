@@ -4,13 +4,26 @@ import XCTest
 
 @MainActor
 final class ExportFlowTests: XCTestCase {
+    /// A successful save remembers its format, so every flow here keeps it
+    /// in a suite of its own rather than the shared defaults domain.
+    private let suiteName = TestNamespace.suiteName("export-flow")
+
+    override func tearDown() {
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    private func makeFlow() -> ExportFlowModel {
+        ExportFlowModel(defaults: UserDefaults(suiteName: suiteName)!)
+    }
+
     private func result(image: URL? = nil) -> ExportResult {
         ExportResult(redactedURL: URL(fileURLWithPath: "/tmp/synthetic-save/document_redacted.docx"),
                      mappingURL: nil, tokenCount: 1, redactedImageURL: image)
     }
 
     func testSaveKeepsProgressVisibleAndRejectsDuplicateRequestsUntilFinished() async {
-        let flow = ExportFlowModel()
+        let flow = makeFlow()
         flow.pendingExportDir = URL(fileURLWithPath: "/tmp/synthetic-save")
         flow.isPromptingPassphrase = true
         flow.wantsSidecar = true
@@ -68,7 +81,7 @@ final class ExportFlowTests: XCTestCase {
         struct SaveFailure: LocalizedError {
             var errorDescription: String? { "Synthetic destination is unavailable" }
         }
-        let flow = ExportFlowModel()
+        let flow = makeFlow()
         let destination = URL(fileURLWithPath: "/tmp/synthetic-save")
         flow.pendingExportDir = destination
         flow.isPromptingPassphrase = true
@@ -98,14 +111,14 @@ final class ExportFlowTests: XCTestCase {
     }
 
     func testCancelDoesNotShowASuccessPrompt() {
-        let flow = ExportFlowModel()
+        let flow = makeFlow()
         flow.saveSheetDismissed()
         XCTAssertFalse(flow.isShowingSuccess)
         XCTAssertTrue(flow.savedFiles.isEmpty)
     }
 
     func testSuccessPromptIncludesTheImageCompanionAndResetsBeforeTheNextSave() async {
-        let flow = ExportFlowModel()
+        let flow = makeFlow()
         let image = URL(fileURLWithPath: "/tmp/synthetic-save/image_redacted.png")
         let first = result(image: image)
         await flow.save { first }

@@ -86,7 +86,7 @@ struct ComplianceReportFlow: ViewModifier {
         content
             .sheet(isPresented: sheetBinding) { sheet }
             .onChange(of: flow.exportRequestToken) { _, _ in presentExportPanel() }
-            .onChange(of: session.pendingReportURL) { _, url in
+            .onChange(of: session.pendingReportURL, initial: true) { _, url in
                 guard let url else { return }
                 session.pendingReportURL = nil
                 presentOpenDestinationPanel(source: url)

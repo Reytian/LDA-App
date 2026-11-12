@@ -123,15 +123,19 @@ final class PatternOnlyRecallClaimTests: XCTestCase {
             "32 values must have no overlapping span at all: they are left in "
                 + "the document verbatim"
         )
+        // Review 2026-11-11 (F8): the street address rule runs on through a
+        // building or complex name and a bare room number, so two of the four
+        // Chinese street addresses are now matched whole and two still stop
+        // short. The 32 untouched values, the figure the copy quotes, are
+        // unchanged.
         XCTAssertEqual(
-            total.partial, 4,
-            "the four Chinese street addresses are matched but truncated at "
-                + "the street number, so the building name and floor stay in "
-                + "cleartext"
+            total.partial, 2,
+            "two Chinese street addresses are matched but stop short of the "
+                + "whole address, so part of it stays in cleartext"
         )
         XCTAssertEqual(
-            total.exact, 0,
-            "not one name, company or address is redacted exactly without a model"
+            total.exact, 2,
+            "only two street addresses are redacted exactly without a model"
         )
     }
 

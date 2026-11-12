@@ -22,8 +22,8 @@ import Foundation
 
 public enum FolderImporter {
 
-    /// The document types a directory import collects: text, Word, PDF, and
-    /// evidence images.
+    /// The document types a directory import collects: plain text and
+    /// Markdown, Word, PDF, and evidence images.
     ///
     /// Archives are deliberately NOT collected. A folder import is the app's
     /// lowest-trust entry point (the user picks a folder somebody sent them,
@@ -34,7 +34,7 @@ public enum FolderImporter {
     /// want an archive's contents drops the .zip on the app directly, which
     /// still expands, metered by the import's ArchiveBudget.
     public static let supportedExtensions: Set<String> =
-        ["txt", "docx", "pdf", "png", "jpg", "jpeg"]
+        ["txt", "md", "docx", "pdf", "png", "jpg", "jpeg"]
 
     /// The most files one directory import may add to the tray.
     ///

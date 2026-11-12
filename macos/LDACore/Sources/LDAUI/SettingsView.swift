@@ -675,6 +675,7 @@ private struct GeneralTab: View {
     @AppStorage(AppLanguage.storageKey) private var languageRaw = AppLanguage.system.rawValue
     @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(AISettings.outputStyleKey) private var outputStyleRaw = SubstitutionStyle.token.rawValue
+    @AppStorage(AISettings.batchOutputFormatKey) private var batchFormatRaw = RedactedOutputFormat.default.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -739,6 +740,35 @@ private struct GeneralTab: View {
 
             Text(verbatim: L10n.string(
                 Self.explanation(for: SubstitutionStyle(rawValue: outputStyleRaw) ?? .token),
+                language: appLanguage
+            ))
+                .font(CounselTheme.Typography.supporting)
+                .foregroundStyle(CounselTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            L10n.text("Batch output format")
+                .font(CounselTheme.Typography.heading)
+                .foregroundStyle(CounselTheme.textPrimary)
+
+            Picker(selection: $batchFormatRaw) {
+                ForEach(RedactedOutputFormat.allCases, id: \.self) { format in
+                    Text(verbatim: L10n.string(RedactedOutputFormatPresentation.labelKey(format), language: appLanguage))
+                        .tag(format.rawValue)
+                }
+            } label: {
+                L10n.text("Batch output format")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 380, alignment: .leading)
+            .accessibilityIdentifier("batchOutputFormat")
+
+            Text(verbatim: L10n.string(
+                RedactedOutputFormatPresentation.batchExplanationKey(
+                    RedactedOutputFormat(rawValue: batchFormatRaw) ?? .default
+                ),
                 language: appLanguage
             ))
                 .font(CounselTheme.Typography.supporting)

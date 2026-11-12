@@ -22,7 +22,8 @@ private struct AuditOptions: ParsableArguments {
             }
             return try JSONDecoder().decode(MCPAuditCheckpoint.self, from: data)
         }
-        return try MCPAuditJournal(vault: DocumentVault(rootDirectory: root)).verify(expectedCheckpoint: expected)
+        return try MCPAuditJournal(vault: DocumentVault(rootDirectory: root, protection: DocumentVault.defaultProtection()))
+            .verify(expectedCheckpoint: expected)
     }
 }
 

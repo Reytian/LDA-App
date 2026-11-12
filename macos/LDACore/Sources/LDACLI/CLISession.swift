@@ -23,6 +23,10 @@ public struct SessionSummaryJSON: Codable, Equatable {
         public let sourceFile: String
         public let redactedFile: String
         public let entityCount: Int
+        /// Party names this document leaves in clear as a published
+        /// precedent's own parties (PrecedentPartyRule). Absent in older
+        /// summaries, so it decodes as 0.
+        public var precedentReleasedValueCount: Int = 0
     }
 
     public let documents: [DocumentJSON]
@@ -42,6 +46,36 @@ public struct SessionSummaryJSON: Codable, Equatable {
     /// party's name at one of these sites. Reported, never repaired here:
     /// the engine already tried every remint available to it.
     public let unresolvedSeams: [String]
+    /// True when any document leaves a published precedent's parties in
+    /// clear. Absent in older summaries, so it decodes as false.
+    public var precedentPartiesReleased: Bool = false
+}
+
+extension SessionSummaryJSON.DocumentJSON {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourceFile = try container.decode(String.self, forKey: .sourceFile)
+        redactedFile = try container.decode(String.self, forKey: .redactedFile)
+        entityCount = try container.decode(Int.self, forKey: .entityCount)
+        precedentReleasedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .precedentReleasedValueCount
+        ) ?? 0
+    }
+}
+
+extension SessionSummaryJSON {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        documents = try container.decode([DocumentJSON].self, forKey: .documents)
+        mappingFile = try container.decode(String.self, forKey: .mappingFile)
+        totalEntityCount = try container.decode(Int.self, forKey: .totalEntityCount)
+        unresolvedSeams = try container.decode([String].self, forKey: .unresolvedSeams)
+        precedentPartiesReleased = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .precedentPartiesReleased
+        ) ?? false
+    }
 }
 
 // MARK: - Session helpers
@@ -148,7 +182,8 @@ extension LDACLI {
                 SessionSummaryJSON.DocumentJSON(
                     sourceFile: output.sourceURL.path,
                     redactedFile: url.path,
-                    entityCount: output.entityCount
+                    entityCount: output.entityCount,
+                    precedentReleasedValueCount: output.precedentReleasedValueCount
                 )
             )
         }
@@ -173,7 +208,8 @@ extension LDACLI {
             documents: documents,
             mappingFile: mappingURL.path,
             totalEntityCount: session.documents.reduce(0) { $0 + $1.entityCount },
-            unresolvedSeams: session.unresolvedSeams
+            unresolvedSeams: session.unresolvedSeams,
+            precedentPartiesReleased: session.documents.contains { $0.precedentReleasedValueCount > 0 }
         )
     }
 

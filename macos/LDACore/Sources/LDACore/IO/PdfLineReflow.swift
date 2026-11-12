@@ -28,16 +28,18 @@ import Foundation
 
 public enum PdfLineReflow {
 
-    /// Returns `text` with every soft line break joined: removed between two
-    /// CJK characters, replaced by one space between two Latin words, removed
-    /// after a URL, email address or path. Lines are measured in display
-    /// columns (a CJK or full-width character is two, anything else one).
+    /// Returns `text` with every soft line break joined: removed next to a CJK
+    /// character, after a hyphenated word and after an address broken at one
+    /// of its own separators, and replaced by one space everywhere else. Lines
+    /// are measured in display columns (a CJK or full-width character is two,
+    /// anything else one).
     public static func joinSoftBreaks(_ text: String) -> String {
         let lines = text.components(separatedBy: "\n")
         guard lines.count > 1 else { return text }
         let widths = lines.map { width(of: trimmedTrailing($0)) }
-        guard let measure = measure(of: widths) else { return text }
-        let full = measure - tolerance(for: measure)
+        // No measure (a page of short lines) joins nothing but a code broken
+        // at its own hyphen.
+        let full = measure(of: widths).map { $0 - tolerance(for: $0) } ?? Int.max
 
         var result = ""
         result.reserveCapacity(text.utf16.count)
@@ -50,6 +52,8 @@ public enum PdfLineReflow {
             let next = lines[index + 1]
             if widths[index] >= full, let joiner = joiner(between: line, and: next) {
                 result += trimmedTrailing(line) + joiner
+            } else if breaksACodeAtItsHyphen(line, next) {
+                result += trimmedTrailing(line)
             } else {
                 result += line + "\n"
             }
@@ -100,14 +104,76 @@ public enum PdfLineReflow {
     /// What replaces the break between `line` and `next`, or nil when the break
     /// is a real one: `next` is blank, starts indented, or opens a heading or a
     /// list item.
+    ///
+    /// Review 2026-11-11 (F6): a Latin break used to join with nothing unless
+    /// a letter stood on both sides, so "Agreement," + "and" read
+    /// "Agreement,and", and an email at a line end ran into the next word
+    /// ("jordan.ellis@example.comfor"), which then went into the placeholder.
+    /// A space is the default now; nothing is inserted next to a CJK
+    /// character, after a line that ends in a hyphen, or after an address
+    /// broken at one of its own separators ("…/2026/" + "annex-b").
+    ///
+    /// A hyphen at the end of a line is the value's own: a hyphenated word
+    /// ("sub-" + "ject"), a compound name ("Jean-" + "Pierre"), or a number
+    /// broken at one of its separators ("212-555-" + "0148", "123-45-" +
+    /// "6789", "1:24-cv-" + "01234"). The independent review of F6 found the
+    /// space this used to insert after a digit or before a capital, which no
+    /// rule reads, leaving those values in the redacted text.
+    ///
+    /// Only a hyphen attached to what precedes it is the value's own. The
+    /// second independent review of F6 (probe t01_spaced_dash.pdf): a line
+    /// ending in a dash set off by a space ("Tenant SSN -") joined with
+    /// nothing, so the SSN at the start of the next line read "-123-45-6789",
+    /// which no rule reads, and went into the redacted text in clear. Such a
+    /// dash joins with a space.
     static func joiner(between line: String, and next: String) -> String? {
         let current = trimmedTrailing(line)
         guard let last = current.unicodeScalars.last,
               let first = next.unicodeScalars.first,
               !CharacterSet.whitespaces.contains(first),
               !opensBlock(next) else { return nil }
-        if endsInAddress(current) { return "" }
-        return isLatinWordCharacter(last) && isLatinWordCharacter(first) ? " " : ""
+        if isWide(last) || isWide(first) { return "" }
+        if lineEndHyphens.contains(last) { return endsInAttachedHyphen(current) ? "" : " " }
+        if endsInAddress(current), addressSeparators.contains(last) { return "" }
+        return " "
+    }
+
+    /// Whether `line` ends in a letter or digit and a hyphen and `next` starts
+    /// with a digit: a number or code broken at one of its own separators
+    /// ("212-555-" + "0148", "1:24-cv-" + "01234"). Joined with nothing even
+    /// when the line is short, which the measure would call a hard break: the
+    /// independent review's p19 kept such numbers split across lines, where
+    /// no rule reads them, and in clear.
+    static func breaksACodeAtItsHyphen(_ line: String, _ next: String) -> Bool {
+        let scalars = Array(trimmedTrailing(line).unicodeScalars)
+        guard scalars.count >= 2, lineEndHyphens.contains(scalars[scalars.count - 1]),
+              let first = next.unicodeScalars.first, first.isASCII,
+              CharacterSet.decimalDigits.contains(first) else { return false }
+        let beforeHyphen = scalars[scalars.count - 2]
+        return beforeHyphen.isASCII && CharacterSet.alphanumerics.contains(beforeHyphen)
+    }
+
+    /// Whether `line` ends in a hyphen with no space before it ("Jean-",
+    /// "212-555-"), not in a dash set off by a space ("Tenant SSN -").
+    static func endsInAttachedHyphen(_ line: String) -> Bool {
+        let scalars = Array(line.unicodeScalars)
+        guard scalars.count >= 2, let last = scalars.last, lineEndHyphens.contains(last) else { return false }
+        return !CharacterSet.whitespaces.contains(scalars[scalars.count - 2])
+    }
+
+    /// Hyphens a line can end in: the hyphen-minus, U+2010 HYPHEN, U+2011
+    /// NON-BREAKING HYPHEN and U+00AD SOFT HYPHEN.
+    static let lineEndHyphens: Set<Unicode.Scalar> = ["-", "\u{2010}", "\u{2011}", "\u{00AD}"]
+
+    /// The characters an address may be broken after without a space.
+    static let addressSeparators: Set<Unicode.Scalar> = ["/", ".", "-", "_", "@", "?", "=", "&", "#", "%", "~", "+", ":"]
+
+    static func isLatinLetter(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.isASCII && CharacterSet.letters.contains(scalar)
+    }
+
+    static func isLatinLowercase(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.isASCII && CharacterSet.lowercaseLetters.contains(scalar)
     }
 
     /// A heading or list marker at the start of a line: 第三条, 1. or 1、

@@ -93,6 +93,8 @@ extension ReviewModel {
             ? (restored: snapshot.entities.map(Self.entity(from:)), dropped: 0)
             : relocated(snapshot.entities)
 
+        // A restored review replaces the list wholesale, like a scan.
+        discardProtectUndo()
         entities = outcome.restored
         // A relocated review is one whose text is no longer the text that was
         // scanned. Whatever the record says about that scan, it ran over other

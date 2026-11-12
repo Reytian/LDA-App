@@ -607,14 +607,14 @@ final class AIScanIncompleteReviewTests: XCTestCase {
 
     // MARK: - Headers, footers and notes of a .docx
 
-    func testAProtectedValueIsRedactedWhereItIsRunInOutsideTheBody() {
+    func testAProtectedValueIsRedactedWhereItIsRunInOutsideTheBody() throws {
         // Review finding: Review said Protected while a footer that wrote the
         // value the same way exported it in clear, because the non-body pass
         // never sees the body's manual entities and refuses the same edge.
         let footer = "Prepared for Jordan Lee2 | The Jordan Leeds office | Confidential"
         let protected = [ExtractedEntity(value: "Jordan Lee", type: .person)]
 
-        let spans = ReviewModel.nonBodyDetector(
+        let spans = try ReviewModel.nonBodyDetector(
             useLLM: false, modelPath: nil, custom: [], protectedRunIns: protected
         )(footer)
 
@@ -629,7 +629,7 @@ final class AIScanIncompleteReviewTests: XCTestCase {
             "an ordinary word is never cut"
         )
 
-        let unprotected = ReviewModel.nonBodyDetector(useLLM: false, modelPath: nil, custom: [])(footer)
+        let unprotected = try ReviewModel.nonBodyDetector(useLLM: false, modelPath: nil, custom: [])(footer)
         XCTAssertFalse(
             unprotected.contains { $0.type == .person },
             "nothing changes for a value the user did not protect"

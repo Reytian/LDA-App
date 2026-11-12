@@ -100,22 +100,36 @@ final class SaveGateDisciplineTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            bareGuards, ["ReviewModel.swift"],
+            bareGuards, [],
             "a save refusal returned without saying why. Report the reason "
                 + "through the shell's banner: "
-                + "`report(SaveAvailabilityPresentation.notice(availability))`. "
-                + "ReviewModel.requestExport is the ONE allowed bare return: it "
-                + "owns no message channel, and the reason it would print is "
-                + "derived from the same status the banner is already rendering, "
-                + "so the answer is on screen before the user asks."
+                + "`report(SaveAvailabilityPresentation.notice(availability))`."
+        )
+
+        // The one refusal with no message channel is the Save Redacted menu
+        // command. It used to be ReviewModel.requestExport's bare return; the
+        // command now goes through the session's relay (review 2026-11-11,
+        // F13) and reads the gate through saveRedactedRequest(), which names
+        // the document the save is for (F12). The reason it would print is
+        // derived from the same status the banner is already rendering, so
+        // the answer is on screen before the user asks.
+        let session = try Self.uiSource("SessionModel.swift")
+        XCTAssertTrue(
+            session.contains("guard let request = saveRedactedRequest() else { return }"),
+            "the menu command must read the gate through saveRedactedRequest()"
+        )
+        let workspace = try Self.uiSource("SessionModel+Workspace.swift")
+        XCTAssertTrue(
+            workspace.contains("entry.model.exportAvailability.isAvailable else { return nil }"),
+            "saveRedactedRequest() must refuse on the same availability the banner renders"
         )
 
         // The premise of that exception: the banner really does render it.
         let banner = try Self.uiSource("AppShellStatusBanner.swift")
         XCTAssertTrue(
             banner.contains("SaveAvailabilityPresentation.notice("),
-            "the status banner must render the reason, or ReviewModel's bare "
-                + "return has nothing standing behind it"
+            "the status banner must render the reason, or the menu command's "
+                + "silent refusal has nothing standing behind it"
         )
         XCTAssertTrue(
             banner.contains("model.exportAvailability"),

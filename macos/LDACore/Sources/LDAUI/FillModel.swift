@@ -206,6 +206,29 @@ public final class FillModel: ObservableObject {
         editorGeneration += 1
     }
 
+    /// Clear what the editor staged for the profile it held: the source
+    /// documents, the last extraction's warnings and progress, and the plan
+    /// for a target (its blanks, review position, picker request, text and
+    /// manual widgets).
+    ///
+    /// Review 2026-11-11 (F14): only createPortfolio cleared sourcePaths, so
+    /// after opening profile B, Re-extract from Sources ran over client A's
+    /// documents and overwrote B. Called whenever another profile is opened,
+    /// loaded or created, and on the way back to the library. Landing an
+    /// extraction is none of those and keeps the sources it ran over. The
+    /// target's sandbox scope keeps its own rules (see scopedTargetURL).
+    func clearPerProfileState() {
+        sourcePaths = []
+        sourceFailures = []
+        progress = 0
+        blanks = []
+        selectedBlankID = nil
+        pickerRequestID = nil
+        targetURL = nil
+        targetText = nil
+        manualWidgetNames = []
+    }
+
     /// Count of extractions started, so a later extraction supersedes an
     /// earlier one still running for the SAME occupant. See
     /// FillModelAsyncIntents.swift.
@@ -247,14 +270,24 @@ public final class FillModel: ObservableObject {
     // internal(set) for FillModelLibrary.swift
     @Published public internal(set) var exportError: String?
 
-    /// Source document URLs staged for the current extraction session. Cleared
-    /// when createPortfolio runs so a new portfolio starts with no sources from a
-    /// previous session. FillShell appends to this list when the user adds sources,
-    /// and reads it to drive the Extract button and source-list display.
+    /// Source document URLs staged for the profile in the editor. Cleared with
+    /// the rest of the per-profile state whenever another profile is opened,
+    /// loaded or created, and on the way back to the library
+    /// (clearPerProfileState). FillShell appends to this list when the user
+    /// adds sources, and reads it to drive the Extract button and source-list
+    /// display.
     @Published public var sourcePaths: [URL] = []
 
     /// Optional absolute path to the GGUF model. Passed to LDAService.extractProfile.
     public var modelPath: String?
+
+    /// Re-reads the configuration (the model path) where each pass that uses
+    /// the model starts, extraction and planning alike. The app points it at
+    /// AISettings. Review 2026-11-11 (T6): the path was set at launch and when
+    /// the custom model setting changed, never after a model was downloaded or
+    /// imported, so Fill ran without the model it had until a relaunch. Nil
+    /// keeps modelPath as it is.
+    public var refreshConfiguration: (@MainActor (FillModel) -> Void)?
 
     // MARK: - Security-scope ownership
 
@@ -579,12 +612,13 @@ public final class FillModel: ObservableObject {
 
     /// Navigate back to the library stage from any stage.
     ///
-    /// Clears pickerRequestID and any in-flight blank/target state, mirroring
-    /// backToProfile's hygiene. Does NOT release the security scope (mirrors
+    /// Clears everything the profile staged (clearPerProfileState): its
+    /// sources, the extraction's warnings and progress, and the plan for a
+    /// target. Does NOT release the security scope (mirrors
     /// backToProfile's rationale: the scope was opened for a target and will be
     /// reclaimed when a new target is opened or when the session ends).
     public func backToLibrary() {
-        pickerRequestID = nil
+        clearPerProfileState()
         stage = .library
     }
 

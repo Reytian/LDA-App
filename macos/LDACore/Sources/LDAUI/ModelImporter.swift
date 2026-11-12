@@ -538,22 +538,31 @@ public final class ModelImporter: ObservableObject {
         // anyway. The first and last updates always go through, so a caller
         // watching the phase stream still sees the copy begin and finish.
         var lastReportedPercent = -1
+        // Each chunk is handled inside its own autorelease pool (review
+        // 2026-11-11, T5): on a background thread the chunks otherwise stay
+        // alive until the whole file has been copied.
+        enum ChunkStep { case more, done, failed(StreamOutcome) }
         while true {
             if cancel.isCancelled { return .cancelled }
-            let chunk: Data?
-            do {
-                chunk = try reader.read(upToCount: chunkBytes)
-            } catch {
-                return .failure(.unreadable(source.lastPathComponent))
+            let step: ChunkStep = autoreleasepool {
+                let chunk: Data?
+                do {
+                    chunk = try reader.read(upToCount: chunkBytes)
+                } catch {
+                    return .failed(.failure(.unreadable(source.lastPathComponent)))
+                }
+                guard let chunk, !chunk.isEmpty else { return .done }
+                hasher.update(data: chunk)
+                do {
+                    try writer.write(contentsOf: chunk)
+                } catch {
+                    return .failed(.failure(.storage(error.localizedDescription)))
+                }
+                written += Int64(chunk.count)
+                return .more
             }
-            guard let chunk, !chunk.isEmpty else { break }
-            hasher.update(data: chunk)
-            do {
-                try writer.write(contentsOf: chunk)
-            } catch {
-                return .failure(.storage(error.localizedDescription))
-            }
-            written += Int64(chunk.count)
+            if case .failed(let outcome) = step { return outcome }
+            if case .done = step { break }
             let percent = expectedBytes > 0
                 ? Int(Double(written) / Double(expectedBytes) * 100) : 100
             if percent != lastReportedPercent || written == expectedBytes {

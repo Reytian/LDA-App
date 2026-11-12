@@ -105,6 +105,11 @@ public struct DetectSummaryJSON: Codable, Equatable {
     public let supplementaryCountsByType: [String: Int]
     /// The body entities, with their offsets.
     public let entities: [DetectedEntityJSON]
+    /// Party names a published precedent's caption names, which a run would
+    /// leave in clear (PrecedentPartyRule), and whether there are any. Absent
+    /// in older summaries, so they decode as 0 and false.
+    public let precedentReleasedValueCount: Int
+    public let precedentPartiesReleased: Bool
 
     public init(summary: DetectionSummary) {
         self.entityCount = summary.entityCount
@@ -115,6 +120,24 @@ public struct DetectSummaryJSON: Codable, Equatable {
             }
         )
         self.entities = summary.bodySpans.map(DetectedEntityJSON.init)
+        self.precedentReleasedValueCount = summary.precedentReleasedValueCount
+        self.precedentPartiesReleased = summary.precedentReleasedValueCount > 0
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entityCount = try container.decode(Int.self, forKey: .entityCount)
+        supplementaryEntityCount = try container.decode(Int.self, forKey: .supplementaryEntityCount)
+        supplementaryCountsByType = try container.decode([String: Int].self, forKey: .supplementaryCountsByType)
+        entities = try container.decode([DetectedEntityJSON].self, forKey: .entities)
+        precedentReleasedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .precedentReleasedValueCount
+        ) ?? 0
+        precedentPartiesReleased = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .precedentPartiesReleased
+        ) ?? false
     }
 }
 
@@ -154,6 +177,12 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
     /// Always 0 without the flag. Absent in older summaries, so it decodes as
     /// 0 when missing.
     public let autoProtectedValueCount: Int
+    /// Party names left in clear because the document reads as a published
+    /// precedent whose caption names them (PrecedentPartyRule), and whether
+    /// there are any. Non-zero means those names are in the output. Absent in
+    /// older summaries, so they decode as 0 and false.
+    public let precedentReleasedValueCount: Int
+    public let precedentPartiesReleased: Bool
 
     public init(result: AnonymizeResult) {
         self.redactedFileURL = result.redactedFileURL.path
@@ -167,6 +196,8 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
         self.trackedChangeCount = result.trackedChangeCount
         self.supplementaryEntityCount = result.supplementaryEntityCount
         self.autoProtectedValueCount = result.autoProtectedValueCount
+        self.precedentReleasedValueCount = result.precedentReleasedValueCount
+        self.precedentPartiesReleased = result.precedentPartiesReleased
     }
 
     public init(from decoder: Decoder) throws {
@@ -188,6 +219,14 @@ public struct AnonymizeSummaryJSON: Codable, Equatable {
             Int.self,
             forKey: .autoProtectedValueCount
         ) ?? 0
+        precedentReleasedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .precedentReleasedValueCount
+        ) ?? 0
+        precedentPartiesReleased = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .precedentPartiesReleased
+        ) ?? false
     }
 }
 
@@ -258,9 +297,17 @@ public enum LDACLI {
         // account and looked up under another and every keychain-protected
         // restore failed with errSecItemNotFound. The MCP server already keyed
         // on the mapping name; the CLI now matches it.
+        //
+        // The outputs take the next free name (base_redacted, base_redacted_2,
+        // ...) rather than writing over an earlier run's, whose mapping may be
+        // the only key to a redacted copy already sent (review 2026-11-11,
+        // T7). The account is keyed on the name taken.
+        let redactedBase = OutputNames.firstFreeBaseName(mappingBaseName(forInput: input), in: outputDir) {
+            OutputNames.anonymizeArtifacts(forInput: input, redactedBase: $0)
+        }
         let protection = protectionFor(
             passphrase: passphrase,
-            derivedAccount: mappingBaseName(forInput: input)
+            derivedAccount: redactedBase
         )
         return try LDAService.anonymize(
             input: input,
@@ -269,7 +316,8 @@ public enum LDACLI {
             createdAtISO8601: timestamp(),
             llmModelPath: llmModelPath,
             style: style,
-            unlocatedPolicy: unlocatedPolicy
+            unlocatedPolicy: unlocatedPolicy,
+            redactedBaseName: redactedBase
         )
     }
 
@@ -505,6 +553,9 @@ struct Anonymize: ParsableCommand {
                 if let notice = LDACLI.trackedChangeNotice(count: result.trackedChangeCount) {
                     fputs(notice, stderr)
                 }
+                if let notice = LDACLI.precedentReleaseNotice(count: result.precedentReleasedValueCount) {
+                    fputs(notice, stderr)
+                }
             } else {
                 let result = try LDACLI.runAnonymizeSession(
                     inputs: inputs,
@@ -519,6 +570,10 @@ struct Anonymize: ParsableCommand {
                 // just written restores to the wrong party. It is on stdout
                 // as JSON either way; stderr is what a person actually reads.
                 if let notice = LDACLI.unresolvedSeamNotice(for: result.unresolvedSeams) {
+                    fputs(notice, stderr)
+                }
+                let released = result.documents.reduce(0) { $0 + $1.precedentReleasedValueCount }
+                if let notice = LDACLI.precedentReleaseNotice(count: released) {
                     fputs(notice, stderr)
                 }
             }
@@ -585,8 +640,11 @@ struct Detect: ParsableCommand {
                 llmModelPath: model
             )
             print(try CLIJSON.encode(DetectSummaryJSON(summary: summary)))
+            if let notice = LDACLI.precedentReleaseNotice(count: summary.precedentReleasedValueCount) {
+                fputs(notice, stderr)
+            }
         } catch {
-            throw CLIRuntimeError(error)
+            throw CLIRuntimeError(error, readOnly: true)
         }
     }
 }
@@ -598,9 +656,14 @@ struct Detect: ParsableCommand {
 /// message is human-readable rather than the raw enum description.
 struct CLIRuntimeError: Error, CustomStringConvertible {
     let underlying: Error
+    /// True for a command that writes nothing (detect): its refusals say what
+    /// anonymize would do instead of "Nothing was written" (review
+    /// 2026-11-11, T1).
+    let readOnly: Bool
 
-    init(_ underlying: Error) {
+    init(_ underlying: Error, readOnly: Bool = false) {
         self.underlying = underlying
+        self.readOnly = readOnly
     }
 
     var description: String {
@@ -628,10 +691,16 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
             return "Could not decrypt the mapping (wrong passphrase or tampered file)."
         case DocumentIOError.keychainError(let status):
             return "Keychain operation failed with status \(status)."
+        case LDAServiceError.incompleteExtraction(let count) where readOnly:
+            return "The document could not be fully scanned: the model gave no usable answer for \(count) segment(s) (the reply was cut off, failed, or was not an entity list). Anonymize would refuse this document, because an unscanned segment may still contain names, companies, or addresses."
         case LDAServiceError.incompleteExtraction(let count):
             return "The document could not be fully scanned: the model gave no usable answer for \(count) segment(s) (the reply was cut off, failed, or was not an entity list). Nothing was written, because an unscanned segment may still contain names, companies, or addresses."
+        case LDAServiceError.unanchoredEntities(let count) where readOnly:
+            return "\(count) detected value(s) are present in the document in a form that could not be matched exactly. Anonymize would refuse this document, because its output would still contain them."
         case LDAServiceError.unanchoredEntities(let count):
             return "\(count) detected value(s) are present in the document in a form that could not be matched exactly, so they could not be removed. Nothing was written, because the output would still contain them."
+        case LDAServiceError.modelUnavailable(let path, let reason) where readOnly:
+            return "The model at \(path) could not be run: \(reason). Without the model people's names, company names, and addresses are not looked for. Fix the --model path, or omit --model for pattern-only detection."
         case LDAServiceError.modelUnavailable(let path, let reason):
             return "The model at \(path) could not be run: \(reason). Nothing was written, because without the model people's names, company names, and addresses are not looked for. Fix the --model path, or omit --model for pattern-only detection."
         case LDAServiceError.staleTarget(let detail):
@@ -641,6 +710,21 @@ struct CLIRuntimeError: Error, CustomStringConvertible {
         default:
             return "\(error)"
         }
+    }
+}
+
+// MARK: - Published precedent notice
+
+extension LDACLI {
+    /// One stderr line for a document whose published-precedent parties were
+    /// left in clear, or nil when nothing was released.
+    public static func precedentReleaseNotice(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let subject = count == 1 ? "1 party name" : "\(count) party names"
+        let verb = count == 1 ? "was" : "were"
+        return "Notice: the document reads as a published precedent, so \(subject) its caption "
+            + "names \(verb) left in clear, at every place it appears. Check that the document "
+            + "really is a published judgment before sharing it, and redact those names in LDA if not.\n"
     }
 }
 

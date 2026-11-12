@@ -15,7 +15,7 @@ need more memory; LDA shows their requirements in Settings. In the Apple menu,
 choose **About This Mac** to check your chip, memory, and macOS version.
 
 1. Open the [latest app release](https://github.com/Reytian/LDA-App/releases/latest).
-2. Under **Assets**, download **LDA-2.0.dmg**. The automatically generated
+2. Under **Assets**, download **LDA-2.1.dmg**. The automatically generated
    **Source code** archives are for developers, not the ready-to-run app.
 3. Double-click the disk image in Finder to open it.
 4. Drag **LDA.app** onto **Applications** and open it from there.
@@ -35,7 +35,7 @@ cd ~/Downloads
 shasum -a 256 -c SHA256SUMS.txt
 ```
 
-The line for **LDA-2.0.dmg** should say **OK**. Use the unchanged filenames
+The line for **LDA-2.1.dmg** should say **OK**. Use the unchanged filenames
 and the checksum file for that exact release. A mismatch means you should
 download the files again before opening the app.
 
@@ -165,6 +165,20 @@ repair an incorrect substantive edit. A missing mapping or inaccessible key can
 make automatic restoration impossible. Keep the original source, mapping, and
 appropriate protected backups until the work is complete.
 
+**Known limitation in this version.** LDA does not yet record which mapping
+wrote a redacted file. When you save a document redacted again in a later
+session, after saving other documents in that session, LDA may give its values
+the placeholders that session already uses and rewrite the document's saved
+mapping. A file written by an earlier save of that document can then restore
+with another document's values. A file restored while another session's
+mapping is loaded is restored with that mapping first. Until this is fixed:
+
+- restore the files of an earlier save before saving the same document again;
+- when you will need an older file later, save it with a passphrase so its own
+  `.ldamap` is written beside it, and restore it with that file;
+- check names, addresses, numbers, and dates in every restored copy against the
+  original.
+
 ## 8. Fill a draft from a saved profile
 
 This is a separate local workflow for reusing client facts.
@@ -197,11 +211,15 @@ step.
 2. Under **From**, choose the folder of documents (subfolders are included).
    Under **To**, choose an output folder outside it.
 3. Choose **Start**. Each document gets its own redacted copy and mapping in
-   the same folder layout. **Stop** ends the batch after the current document.
+   the same folder layout: by default one Markdown file per document. To keep
+   each document's own format and layout instead, choose **Original format**
+   under **Batch output format** in **Settings > General**; the batch window
+   shows which format the run will write. **Stop** ends the batch after the
+   current document.
 4. The window then lists only the documents that need attention: those that
-   were not written and why, and the ones to check, such as a review PDF that
-   still shows a value. **Show in Finder** selects `lda-batch-report.txt`,
-   which covers every document.
+   were not written and why, and the ones to check, such as a Word document
+   whose embedded images were copied without scanning. **Show in Finder**
+   selects `lda-batch-report.txt`, which covers every document.
 
 **More options** sets the output style (by default the one chosen in
 Settings), keeps the mappings under one passphrase you type twice instead of
@@ -210,9 +228,18 @@ in this Mac's Keychain, and redoes documents an earlier run finished.
 A value that runs into a number or another word ("Jordan Lee2") is protected
 automatically, as **Protect** would do in a review. A document that still
 cannot be cleaned is not written. Running the same batch again skips the
-documents already finished. Nobody reviews a batch, so check a sample of the
+documents already finished, unless the output format or another setting
+changed, in which case every document is processed again. A run with other
+settings never writes over an earlier run's files: its copies and mappings
+take the next free name (`contract_redacted_2.md`), so every earlier copy still
+restores with its own mapping. The batch report names the format. A `.md`
+document is processed when the batch writes a chosen format. Nobody reviews a batch, so check a sample of the
 redacted copies before you share them. The command-line tool runs the same
 batch: `LDA.app/Contents/Helpers/lda batch --input-dir <folder> --output-dir <folder>`.
+Without `--format` it writes what it always has (`.docx` for Word, `.txt` for
+everything else, with a review PDF or boxed PNG beside PDFs and images) and
+takes the same documents, leaving `.md` files alone; add `--format markdown`
+or `--format original` to choose.
 
 ## Optional: connect LDA to an AI app
 
@@ -253,8 +280,28 @@ remain outside LDA's controls.
 |---|---|
 | Import for de-identification | Word `.docx`, PDF, and text. Review extraction or OCR results where applicable. |
 | Export for AI | A redacted Markdown document and an encrypted `.ldamap`. Word/PDF page layout is not preserved in this route. |
+| Save Redacted | One document, as **Markdown** (the default) or in its **Original format**. The sheet remembers your last choice. |
 | Restore | Word `.docx`, Markdown `.md`, or plain text `.txt`, using the correct mapping. |
 | Fill from profile | Supported Word text blanks and PDF AcroForm text fields. |
+
+**Save Redacted** asks for an output format each time you save one document.
+**Markdown** writes `<name>_redacted.md`, the redacted text as Export for AI
+writes it; for a Word document that is the body only, without headers, footers,
+notes or comments. **Original format** keeps the document's own type and
+layout: a Word document keeps its fonts, styles, tables, numbering, headers,
+footers and notes; a `.txt` or `.md` file keeps its lines; a PDF keeps its pages
+and page sizes with every replaced value covered by a box, and its pages become
+images, so no text can be copied out of it; an image keeps its type with the
+values boxed and no camera or location data. Beside a PDF or an image LDA also
+saves the redacted text as `<name>_redacted.txt`, which is what Restore uses.
+If LDA cannot find where a replaced value sits on a PDF page or in an image, it
+saves nothing in the original format and asks you to choose Markdown. The same
+happens for a PDF with a page the review did not read, such as a scanned page
+in an otherwise typed PDF: the review reads only the text layer of such a PDF,
+and a copy in the original format would show that page unredacted. Markdown
+holds only the reviewed text; Batch Anonymize reads scanned pages and covers
+their values too. A PDF in the original format also covers only the values
+this document replaced, never a value you left visible in it.
 
 Reading a PDF or a scan does not guarantee coverage of every image, annotation,
 or hidden element. Upload the reviewed export, not the original PDF. If you need
@@ -272,6 +319,7 @@ and verify the saved file's text, comments, metadata, and layout before sharing.
 | A document was skipped during export | Scan and review that document, then export again. Check the resulting file contains everything intended. |
 | Restore cannot find the key or mapping | Locate the matching `.ldamap` or workspace. Keep the original mapping name and use the Mac/account or passphrase that can unlock it. |
 | Some placeholders remain | Check whether the AI changed them or whether the mapping belongs to another export. Correct against the original locally; do not guess identities. |
+| A restored copy shows another document's values | The document was probably saved again after the file was made (see the known limitation in section 7). Restore the file with the `.ldamap` saved beside it, or from the original, and check every value. |
 | MCP Setup or the LDA command is missing | Use a compatible setup-enabled build, complete setup, and restart the AI app. Otherwise use the manual workflow. |
 
 For a bug report, open a [GitHub issue](https://github.com/Reytian/LDA-App/issues)

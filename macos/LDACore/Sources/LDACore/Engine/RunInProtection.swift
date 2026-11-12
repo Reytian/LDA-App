@@ -82,13 +82,27 @@ public enum RunInProtection {
 
     /// Protects `values`, the values a scan of `text` could not anchor
     /// everywhere: their run-in places as spans, and which values that leaves
-    /// unprotected.
-    public static func protect(_ values: [ExtractedEntity], in text: String) -> Outcome {
+    /// unprotected. `reported` are run-in places the scan itself reported
+    /// (ExtractionResult.reportedRunIns); each counts as a place of the value
+    /// it spells.
+    public static func protect(
+        _ values: [ExtractedEntity],
+        in text: String,
+        reported: [Span] = []
+    ) -> Outcome {
         var spans: [Span] = []
         var protectedValues: [ExtractedEntity] = []
         var unprotectedValues: [ExtractedEntity] = []
         for value in values {
-            let places = Self.spans(for: [value], in: text, source: .llm)
+            var places = Self.spans(for: [value], in: text, source: .llm)
+            for place in reported where place.text == value.value && place.type == value.type
+                && !places.contains(where: { $0.start == place.start && $0.end == place.end }) {
+                places.append(Span(
+                    start: place.start, end: place.end, type: value.type, text: place.text,
+                    source: .llm, confidence: 1.0, priority: Self.priority
+                ))
+            }
+            places.sort { $0.start < $1.start }
             if places.isEmpty {
                 unprotectedValues.append(value)
             } else {

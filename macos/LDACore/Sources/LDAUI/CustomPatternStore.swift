@@ -23,6 +23,12 @@ public final class CustomPatternStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let storageKey: String
+    private let vault: StoreVault
+
+    /// True when the stored blob exists but could not be opened at launch.
+    /// Nothing is written over it this session: the vocabulary it holds may still
+    /// open on the next launch, and an overwrite would lose them for good.
+    public private(set) var isHoldingUnreadableBlob = false
 
     /// The production UserDefaults key of the GLOBAL vocabulary blob.
     /// Nonisolated so scope derivation and matter cleanup can run anywhere.
@@ -40,17 +46,29 @@ public final class CustomPatternStore: ObservableObject {
     public init(
         defaults: UserDefaults = .standard,
         storageKey: String = CustomPatternStore.defaultStorageKey
+    ,
+        vault: StoreVault = .keychain
     ) {
         self.defaults = defaults
         self.storageKey = storageKey
+        self.vault = vault
 
         // Preferred path: the encrypted blob. (Static helpers here: instance
         // computed properties are unavailable before stored properties
         // initialize.)
-        if let sealed = defaults.data(forKey: StoreBlobKeys.sealed(storageKey)),
-           let data = try? LocalDataVault.open(sealed, account: StoreBlobKeys.vaultAccount(storageKey)),
-           let decoded = try? JSONDecoder().decode([CustomPattern].self, from: data) {
-            self.patterns = decoded
+        if let sealed = defaults.data(forKey: StoreBlobKeys.sealed(storageKey)) {
+            if let data = try? vault.open(sealed, StoreBlobKeys.vaultAccount(storageKey)),
+               let decoded = try? JSONDecoder().decode([CustomPattern].self, from: data) {
+                self.patterns = decoded
+                return
+            }
+            // The blob is there but will not open (a refused or locked
+            // Keychain, a key that went missing, damaged bytes). Review
+            // 2026-11-11 (T4): it used to load as empty and the next save
+            // wrote over it, so one refusal cost every stored term. It is
+            // kept as it is; this session runs on what it holds in memory.
+            self.patterns = []
+            self.isHoldingUnreadableBlob = true
             return
         }
 
@@ -147,9 +165,12 @@ public final class CustomPatternStore: ObservableObject {
     }
 
     private func save() {
+        // Never over a blob this session could not read (see
+        // isHoldingUnreadableBlob).
+        guard !isHoldingUnreadableBlob else { return }
         do {
             let data = try JSONEncoder().encode(patterns)
-            let sealed = try LocalDataVault.seal(data, account: vaultAccount)
+            let sealed = try vault.seal(data, vaultAccount)
             defaults.set(sealed, forKey: sealedKey)
             // Never leave a plaintext copy behind, including right after the
             // legacy migration.

@@ -175,6 +175,14 @@ enum SaveAvailabilityRules {
 /// Each one names the button it is about and says what to do next, not merely
 /// what is missing: the user arrived here by clicking something that did
 /// nothing, so "no document" alone would leave them exactly where they were.
+/// A save refused before anything was written, with the sentence to show.
+/// Thrown where a request outlived the moment its gate was checked (review
+/// 2026-11-11, F12).
+public struct SaveRefusal: LocalizedError, Equatable {
+    public let message: String
+    public var errorDescription: String? { message }
+}
+
 enum SaveAvailabilityPresentation {
 
     /// The catalog key for a reason. Held here as the one spelling, so the

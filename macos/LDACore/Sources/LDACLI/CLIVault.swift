@@ -57,14 +57,17 @@ extension LDACLI {
     /// rest), and return the new entries. Expansion scratch space is cleaned
     /// up before returning (the vault holds its own copies by then).
     ///
-    /// protection selects how the vault master key is held; the default
-    /// resolves LDA_VAULT_PASSPHRASE from the process environment, else the
-    /// Keychain master key. Tests inject a passphrase.
+    /// protection selects how the vault master key is held. The commands pass
+    /// DocumentVault.defaultProtection() (LDA_VAULT_PASSPHRASE from the
+    /// process environment, else the Keychain master key); tests pass a
+    /// passphrase. It has no default (review 2026-11-11, T8): a test that
+    /// left it out reached the real Keychain and waited for hours on its
+    /// dialog.
     public static func runVaultStage(
         inputs: [URL],
         vaultRoot: URL,
         timestamp: TimestampProvider = defaultTimestampProvider,
-        protection: MappingProtection = DocumentVault.defaultProtection(),
+        protection: MappingProtection,
         progress: (VaultStagingPhase) throws -> Void = { _ in }
     ) throws -> [VaultEntryJSON] {
         defer { ZipImporter.cleanUpAllExpansions() }
@@ -75,10 +78,11 @@ extension LDACLI {
         }
     }
 
-    /// List core: every vault entry, oldest first.
+    /// List core: every vault entry, oldest first. protection has no default,
+    /// as for runVaultStage.
     public static func runVaultList(
         vaultRoot: URL,
-        protection: MappingProtection = DocumentVault.defaultProtection()
+        protection: MappingProtection
     ) throws -> [VaultEntryJSON] {
         try DocumentVault(rootDirectory: vaultRoot, protection: protection)
             .list()
@@ -122,6 +126,7 @@ struct VaultStage: ParsableCommand {
             let entries = try LDACLI.runVaultStage(
                 inputs: [URL(fileURLWithPath: path)],
                 vaultRoot: root,
+                protection: DocumentVault.defaultProtection(),
                 progress: { phase in
                     FileHandle.standardError.write(Data((phase.message + "\n").utf8))
                 }
@@ -148,7 +153,7 @@ struct VaultList: ParsableCommand {
         do {
             let root = vaultDir.map { URL(fileURLWithPath: $0, isDirectory: true) }
                 ?? DocumentVault.rootDirectory()
-            print(try CLIJSON.encode(LDACLI.runVaultList(vaultRoot: root)))
+            print(try CLIJSON.encode(LDACLI.runVaultList(vaultRoot: root, protection: DocumentVault.defaultProtection())))
         } catch {
             throw CLIRuntimeError(error)
         }

@@ -58,14 +58,17 @@ public enum SpanMerger {
     ///   - llm: Fuzzy LLM detections (lower priority).
     /// - Returns: Accepted, non-overlapping spans sorted by start ascending.
     public static func merge(deterministic: [Span], llm: [Span]) -> [Span] {
-        let candidates = deduplicated(deterministic + llm)
-        let accepted = resolveOverlaps(candidates.sorted(by: winnerOrder))
+        let candidates = deduplicated((deterministic + llm).sorted(by: winnerOrder))
+        let accepted = resolveOverlaps(candidates)
         return accepted.sorted(by: documentOrder)
     }
 
     /// Steps 1 and 2: drop role-label spans, then collapse spans identical in
-    /// (start, end, text). The first occurrence in the given order is kept, so
-    /// redundant candidates never reach the resolver.
+    /// (start, end, text). The spans arrive in winner order, so the one kept
+    /// is the best-ranked: two rules that read the same characters as two
+    /// types keep the higher priority. Keeping the first one DETECTED let a
+    /// BANK_ACCOUNT run found early beat a labelled 15-digit resident ID
+    /// (review 2026-11-11, F8).
     private static func deduplicated(_ spans: [Span]) -> [Span] {
         var seenKeys = Set<DedupKey>()
         var deduped: [Span] = []

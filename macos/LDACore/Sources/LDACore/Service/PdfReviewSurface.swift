@@ -38,30 +38,39 @@ enum PdfReviewSurface {
     ///   - input: the source PDF.
     ///   - imported: its import result, for the scanned-page geometry.
     ///   - mapping: the mapping from the text-layer tokenization (read only).
+    ///   - sitesByToken: how many sites of each token the redacted text has.
     ///   - detect: detection over arbitrary text, for image-origin PII.
     static func locate(
         in input: URL,
         imported: ImportedDocument,
         mapping: Mapping,
+        sitesByToken: [String: Int],
         detect: (String) -> [Span]
     ) -> Outcome {
         // Pairs come from text-layer entries only; image-origin regions are
-        // boxed by the image-PII channel below, not via text search.
-        let pairs = mapping.entries.values.map { (text: $0.surfaceText, token: $0.token) }
-        let text = textChannel(in: input, imported: imported, pairs: pairs)
+        // boxed by the image-PII channel below, not via text search. And only
+        // from the values this document replaced: a seeded session mapping
+        // also holds other documents' values, and boxing one this document
+        // left in clear would label it with a placeholder that its redacted
+        // text never wrote, telling a reader what that placeholder stands
+        // for. The image channel still mints against the whole mapping.
+        let pairs = mapping.entries.values
+            .filter { (sitesByToken[$0.token] ?? 0) > 0 }
+            .map { (text: $0.surfaceText, token: $0.token) }
+        let located = textChannel(in: input, imported: imported, pairs: pairs)
         let images = imageChannel(in: input, imported: imported, mapping: mapping, detect: detect)
-        let boxes = text.boxes + images.boxes
+        let boxes = located.flatMap(\.boxes) + images.boxes
 
-        // Any replaced OCCURRENCE with no box is reported. Per occurrence and
-        // never per unique token: asking only whether SOME box carried the
-        // token called a value covered while a second, wrapped occurrence of
-        // it kept the original pixels.
+        // Any replaced OCCURRENCE with no box is reported, counted against the
+        // sites the text replaced (review 2026-11-11, F6). Asking only
+        // whether SOME box carried the token called a value covered while a
+        // second, wrapped occurrence of it kept the original pixels, and so
+        // did counting only the occurrences the search happened to locate.
         return Outcome(
             boxes: boxes,
             unboxedOccurrenceCount: PdfRedactionCoverage.unboxedOccurrenceCount(
-                surfaceTexts: pairs,
-                textCoverage: text.coverage,
-                boxedTokens: Set(boxes.map(\.token))
+                sitesByToken: sitesByToken,
+                occurrences: located
             ),
             imageRedactionCount: images.imageRedactionCount,
             newEntries: images.newEntries
@@ -69,33 +78,29 @@ enum PdfReviewSurface {
     }
 
     /// The text-layer channel, plus page-scoped OCR wherever a page carries no
-    /// text layer for the search to work on. One search, so the boxes and the
-    /// coverage they came from are returned together.
+    /// text layer for the search to work on. Every occurrence either channel
+    /// located is returned with its boxes, so coverage is counted for scanned
+    /// pages too (review 2026-11-11, F6).
     private static func textChannel(
         in input: URL,
         imported: ImportedDocument,
         pairs: [(text: String, token: String)]
-    ) -> (boxes: [RedactionBox], coverage: PdfRedactionCoverage) {
+    ) -> [PdfTextOccurrence] {
         guard !imported.isScanned else {
-            // No text layer anywhere: every box comes from page OCR, so there
-            // is no text-layer coverage to report.
-            return (
-                PdfOCRImporter.ocrBoxes(in: input, matching: pairs),
-                PdfRedactionCoverage()
-            )
+            // No text layer anywhere: every occurrence comes from page OCR.
+            return PdfOCRImporter.ocrOccurrences(in: input, matching: pairs)
         }
-        let coverage = PdfImporter.redactionCoverage(in: input, surfaceTexts: pairs)
-        var boxes = coverage.boxes
+        var occurrences = PdfImporter.redactionCoverage(in: input, surfaceTexts: pairs).occurrences
         // Hybrid PDFs: the scanned pages have no text layer for the selection
-        // search, so their PII is boxed via page-scoped OCR.
+        // search, so their PII is located via page-scoped OCR.
         if !imported.scannedPageIndexes.isEmpty {
-            boxes += PdfOCRImporter.ocrBoxes(
+            occurrences += PdfOCRImporter.ocrOccurrences(
                 in: input,
                 matching: pairs,
                 pages: imported.scannedPageIndexes
             )
         }
-        return (boxes, coverage)
+        return occurrences
     }
 
     /// Image-PII channel: a non-scanned PDF can still embed raster images

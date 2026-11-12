@@ -35,10 +35,21 @@ public struct PdfTextOccurrence: Sendable, Equatable {
     /// the review PDF will still show.
     public var boxes: [RedactionBox]
 
-    public init(pageIndex: Int, token: String, boxes: [RedactionBox]) {
+    /// UTF-16 range in the page text (or joined OCR lines), before normalization.
+    /// Unlike a bounding box, this identifies distinct values on one OCR line.
+    public var textRange: NSRange?
+    /// The text actually printed at this site, before whitespace normalization.
+    public var matchedText: String?
+
+    public init(
+        pageIndex: Int, token: String, boxes: [RedactionBox],
+        textRange: NSRange? = nil, matchedText: String? = nil
+    ) {
         self.pageIndex = pageIndex
         self.token = token
         self.boxes = boxes
+        self.textRange = textRange
+        self.matchedText = matchedText
     }
 
     /// True when at least one box covers this occurrence.
@@ -51,6 +62,44 @@ public struct PdfRedactionCoverage: Sendable, Equatable {
 
     public init(occurrences: [PdfTextOccurrence] = []) {
         self.occurrences = occurrences
+    }
+
+    /// Assign each text site once before drawing or counting its boxes.
+    /// Searches remain case-insensitive for PDF/OCR noise, but a literal case
+    /// match owns a site when the mapping carries multiple spellings. A nested
+    /// short value is not another replacement inside the longer value.
+    static func assigningSites(
+        _ occurrences: [PdfTextOccurrence],
+        surfaceTexts: [(text: String, token: String)]
+    ) -> [PdfTextOccurrence] {
+        let spellings = surfaceTexts.map {
+            (text: PdfImporter.normalizeWhitespace($0.text).text, token: $0.token)
+        }
+        // Cache by matched spelling, not by token: mixed-case sites can choose
+        // different owners without transforming any UTF-16 offsets.
+        var owners: [String: String] = [:]
+        let assigned = occurrences.filter { occurrence in
+            guard let matched = occurrence.matchedText else { return true }
+            let spelling = PdfImporter.normalizeWhitespace(matched).text
+            if let owner = owners[spelling] { return owner == occurrence.token }
+            let exact = spellings.filter { $0.text == spelling }
+            let candidates = exact.isEmpty ? spellings.filter {
+                $0.text.compare(spelling, options: .caseInsensitive) == .orderedSame
+            } : exact
+            // Tie-breaking is independent of dictionary/search iteration order.
+            guard let owner = candidates.map(\.token).sorted().first else { return true }
+            owners[spelling] = owner
+            return owner == occurrence.token
+        }
+        return assigned.filter { occurrence in
+            guard let range = occurrence.textRange else { return true }
+            return !assigned.contains { other in
+                guard other.pageIndex == occurrence.pageIndex,
+                      let outer = other.textRange else { return false }
+                return outer.length > range.length && NSLocationInRange(range.location, outer)
+                    && NSMaxRange(range) <= NSMaxRange(outer)
+            }
+        }
     }
 
     /// Every box, in occurrence order. This is what the redactor paints.
@@ -90,5 +139,54 @@ public struct PdfRedactionCoverage: Sendable, Equatable {
             !locatedTokens.contains(entry.token) && !boxedTokens.contains(entry.token)
         }
         return textCoverage.uncoveredOccurrenceCount + neverLocated.count
+    }
+
+    /// How many replaced OCCURRENCES the review PDF may still show, counted
+    /// against the sites the text replaced: for each token, its sites in the
+    /// redacted text less the occurrences any channel boxed.
+    ///
+    /// Review 2026-11-11 (F6): the count above asked whether a token was boxed
+    /// SOMEWHERE, so a value boxed where it is printed on one line and left
+    /// unboxed where it wraps (the search never located that occurrence at
+    /// all) read as fully covered. The sites are what the text replaced, so a
+    /// located occurrence short of them is an occurrence still showing.
+    ///
+    /// - Parameters:
+    ///   - sitesByToken: how many sites of each token the redacted text has.
+    ///   - occurrences: every occurrence the text-layer search and page OCR
+    ///     located, covered or not.
+    public static func unboxedOccurrenceCount(
+        sitesByToken: [String: Int],
+        occurrences: [PdfTextOccurrence]
+    ) -> Int {
+        // An occurrence lying wholly inside another token's box is part of
+        // that longer value ("Ellis" found in "Jordan Ellis"), not a site of
+        // its own; counted as covered it cancelled a real unboxed site of
+        // the short value (independent review of F6).
+        func isInsideAnotherValue(_ occurrence: PdfTextOccurrence) -> Bool {
+            occurrences.contains { other in
+                guard other.token != occurrence.token, other.pageIndex == occurrence.pageIndex else {
+                    return false
+                }
+                if let inner = occurrence.textRange, let outer = other.textRange {
+                    // OCR deliberately covers a whole line. Equal geometry is
+                    // not evidence that two different text sites are nested.
+                    return outer.length > inner.length && NSLocationInRange(inner.location, outer)
+                        && NSMaxRange(inner) <= NSMaxRange(outer)
+                }
+                // Keep the conservative geometry fallback for callers that do
+                // not carry text ranges. Equal boxes cannot pay for both tokens.
+                return occurrence.boxes.allSatisfy { box in
+                    other.boxes.contains { $0.rect.insetBy(dx: -1, dy: -1).contains(box.rect) }
+                }
+            }
+        }
+        var covered: [String: Int] = [:]
+        for occurrence in occurrences where occurrence.isCovered && !isInsideAnotherValue(occurrence) {
+            covered[occurrence.token, default: 0] += 1
+        }
+        return sitesByToken.reduce(0) { total, entry in
+            total + max(0, entry.value - (covered[entry.key] ?? 0))
+        }
     }
 }

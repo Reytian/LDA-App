@@ -146,6 +146,19 @@ public struct MappingEntry: Equatable, Sendable, Codable {
     /// later restore can distinguish expected sites from extra AI-authored
     /// occurrences. Optional so older sidecars decode as ordinary entries.
     public var userOverrideEmissionCount: Int?
+    /// Literal styles only: how the redacted text spells each site where
+    /// this replacement was emitted against a letter or digit of the
+    /// document, widened over the touching characters (某地址B for an
+    /// address written before "A座" reads 某地址BA; "Person B" written as
+    /// "signed byMarek Okafor2" reads byPerson B2). The literal restore
+    /// accepts an occurrence that a letter or digit touches only when it
+    /// spells one of these, so a document restores to itself while "Item 12"
+    /// in an AI reply does not restore Item 1 (review 2026-11-11, F10).
+    /// Empty when no site was touched. Nil for an entry minted before the
+    /// field existed (and for token-style entries): its documents' touched
+    /// sites were never recorded, so restore keeps matching it as a bare
+    /// substring, as it always did.
+    public var gluedSites: [String]?
 
     public init(
         token: String,
@@ -154,7 +167,8 @@ public struct MappingEntry: Equatable, Sendable, Codable {
         surfaceText: String,
         aliases: [String],
         canonicalToken: String? = nil,
-        userOverrideEmissionCount: Int? = nil
+        userOverrideEmissionCount: Int? = nil,
+        gluedSites: [String]? = nil
     ) {
         self.token = token
         self.value = value
@@ -163,6 +177,7 @@ public struct MappingEntry: Equatable, Sendable, Codable {
         self.aliases = aliases
         self.canonicalToken = canonicalToken
         self.userOverrideEmissionCount = userOverrideEmissionCount
+        self.gluedSites = gluedSites
     }
 }
 
@@ -281,6 +296,15 @@ public struct TokenizeResult: Sendable {
     /// under any output style. A non-empty list means this output must not
     /// be released without an explicit warning or refusal.
     public var seamIssues: [SessionSeamIssue]
+    /// Surface text to the replacement this run bound it to: the replacement
+    /// emitted wherever that surface was tokenized, a seed binding reused or
+    /// a fresh one. A caller that rewrites another copy of the same text (a
+    /// Word file, an image) must use this rather than look the surface up in
+    /// `mapping`: the mapping can hold the same value under more than one
+    /// replacement (a seed entry kept for earlier files, but reserved), and
+    /// only this table says which one this text spells (review 2026-11-11,
+    /// F11). Empty from a caller that built the result by hand.
+    public var replacementBySurface: [String: String]
     /// Compatibility lines for command-line callers and safety errors.
     public var unresolvedSeams: [String] {
         seamIssues.map(\.englishDescription)
@@ -289,11 +313,13 @@ public struct TokenizeResult: Sendable {
     public init(
         tokenizedText: String,
         mapping: Mapping,
-        seamIssues: [SessionSeamIssue] = []
+        seamIssues: [SessionSeamIssue] = [],
+        replacementBySurface: [String: String] = [:]
     ) {
         self.tokenizedText = tokenizedText
         self.mapping = mapping
         self.seamIssues = seamIssues
+        self.replacementBySurface = replacementBySurface
     }
 }
 

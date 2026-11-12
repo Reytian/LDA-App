@@ -74,7 +74,7 @@ extension MCPServer {
         else {
             throw MCPToolError.missingArgument("handles")
         }
-        let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        let modelPath = try detectionModelPath(arguments)
         // excludeTypes only: per-entity ids are single-document by
         // construction, and the parser refuses them here explicitly.
         let review = try MCPReviewArguments.parse(arguments, allowsEntityIds: false)
@@ -165,19 +165,23 @@ extension MCPServer {
                     sourceHandle: handles[index],
                     mappingFile: mappingURL,
                     mappingAccountBase: firstSlot.handle,
-                    excludedEntityCount: output.excludedEntityCount
+                    excludedEntityCount: output.excludedEntityCount,
+                    detection: MCPServer.detectionMode(modelPath: modelPath)
                 )
                 committedHandles.insert(slot.handle)
                 documents.append([
                     "handle": handles[index],
                     "redactedHandle": committed.handle,
-                    "entityCount": output.entityCount
+                    "entityCount": output.entityCount,
+                    "precedentReleasedValueCount": output.precedentReleasedValueCount
                 ])
                 allSpans.append(contentsOf: output.entities)
             }
 
             return [
                 "documents": documents,
+                // Whether a model looked for names, companies and addresses.
+                "detectionMode": MCPServer.detectionMode(modelPath: modelPath),
                 "totalEntityCount": allSpans.count,
                 "entityTypes": entityTypeStrings(allSpans),
                 "perTypeCounts": MCPServer.perTypeCounts(allSpans),
@@ -192,6 +196,9 @@ extension MCPServer {
                 // across the whole session. An excluded type is visible in
                 // every document and every part, so this is the blast radius.
                 "excludedCount": session.documents.reduce(0) { $0 + $1.excludedEntityCount },
+                // True when any document leaves a published precedent's own
+                // parties in clear; each document says how many.
+                "precedentPartiesReleased": session.documents.contains { $0.precedentReleasedValueCount > 0 },
                 // Sites this session would restore to a DIFFERENT party's real
                 // name. Empty in the ordinary case. Non-empty means the
                 // artifacts above are written, look finished, and must not be

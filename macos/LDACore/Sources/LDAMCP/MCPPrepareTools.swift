@@ -88,7 +88,7 @@ extension MCPServer {
             documents.append(summary)
         }
         return ["documents": documents, "documentCount": documents.count,
-                "detectionMode": modelPath == nil ? "patterns_only" : "local_model",
+                "detectionMode": Self.detectionMode(modelPath: modelPath),
                 "localReviewCompleted": selection.review]
     }
 }

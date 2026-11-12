@@ -738,12 +738,12 @@ final class SessionModelTests: XCTestCase {
         XCTAssertEqual(try MappingStore.load(from: SessionModel.sidecarURL(for: destination), protection: .passphrase("sidecar-pw")).style, .pseudonym)
     }
 
-    func testRequestExportForAIBumpsTheToken() {
+    func testRequestExportForAIQueuesTheCommand() {
         let session = makeSession()
 
         session.requestExportForAI()
 
-        XCTAssertEqual(session.exportForAIRequestToken, 1)
+        XCTAssertEqual(session.commands.take(for: .anonymize), .exportForAI)
     }
 
     // MARK: - Bring back and restore
@@ -1406,16 +1406,15 @@ final class SimpleDocxWriterTests: XCTestCase {
     // MARK: - File > Open command hook (audit F2)
 
     @MainActor
-    func testRequestOpenBumpsTheOpenToken() {
+    func testRequestOpenQueuesTheOpenCommand() {
         // The keyboard path to the only recovery from a failed import. Before
         // this existed, "Choose Files" in the document pane was reachable by
         // pointer only: there was no File > Open item and no shortcut.
         let session = SessionModel(makeModel: { ReviewModel(modelPath: nil) })
-        let before = session.openRequestToken
 
         session.requestOpen()
 
-        XCTAssertEqual(session.openRequestToken, before + 1)
+        XCTAssertEqual(session.commands.take(for: .anonymize), .openDocuments)
     }
 
 }

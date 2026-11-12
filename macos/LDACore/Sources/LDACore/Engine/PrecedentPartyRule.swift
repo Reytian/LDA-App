@@ -15,10 +15,17 @@
 //  in passing returns nil, and then nothing is released.
 //
 //  The release is BY VALUE, like SpanExclusion: a PERSON or COMPANY value of
-//  two or more characters that appears in the caption stays visible at every
+//  two or more characters that the caption names stays visible at every
 //  occurrence, on every channel. Witnesses, judges and counsel are not named
 //  in a caption, so they stay redacted, and so does a short form the caption
-//  does not spell (大华公司 for 西安市大华餐饮有限公司).
+//  does not spell (大华公司 for 西安市大华餐饮有限公司). A Latin-script value
+//  must be whole words of the caption: "Ann" is not named by "Annabel Lee".
+//
+//  Review 2026-11-11 (F1): memos, emails, letters, briefs and pleadings used
+//  to pass as precedents and released their parties' names. The caption test
+//  now asks for the shape of a guiding case's title block or of a published
+//  opinion's header (see TinyPII.PrecedentRule), and every headless path
+//  reports a release (AnonymizeResult.precedentReleasedValueCount).
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -67,13 +74,12 @@ public enum PrecedentPartyRule {
         redactedElsewhere: [Span] = []
     ) -> PrecedentRelease? {
         guard let caption = caption(of: text) else { return nil }
-        let folded = compact(caption)
         let elsewhere = Set(redactedElsewhere.map { TextMatching.normalize($0.text) })
         var values: [String] = []
         var normalized = Set<String>()
         for span in spans where partyTypes.contains(span.type) {
             let surface = span.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard surface.unicodeScalars.count >= 2, folded.contains(compact(surface)) else { continue }
+            guard surface.unicodeScalars.count >= 2, PrecedentRule.caption(caption, names: surface) else { continue }
             let key = TextMatching.normalize(span.text)
             guard !elsewhere.contains(key) else { continue }
             if normalized.insert(key).inserted {
@@ -82,14 +88,5 @@ public enum PrecedentPartyRule {
         }
         guard !values.isEmpty else { return nil }
         return PrecedentRelease(caption: caption, values: values, normalizedValues: normalized)
-    }
-
-    /// Lowercased with every whitespace character removed, so a party name the
-    /// caption wraps across lines (a PDF title set larger than the body, which
-    /// PdfLineReflow leaves as printed) still matches the same name in the body.
-    static func compact(_ text: String) -> String {
-        String(String.UnicodeScalarView(
-            text.lowercased().unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
-        ))
     }
 }

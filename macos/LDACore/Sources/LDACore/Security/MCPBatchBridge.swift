@@ -91,6 +91,8 @@ public struct MCPBatchReply: Codable, Sendable, Equatable {
     public let skippedCount: Int
     public let failedCount: Int
     public let autoProtectedValueCount: Int
+    /// Party names left in clear as published precedents' own parties.
+    public let precedentReleasedValueCount: Int
     public let createdAt: Date
 
     public init(requestID: UUID, outcome: Outcome, report: BatchReport? = nil) {
@@ -101,7 +103,24 @@ public struct MCPBatchReply: Codable, Sendable, Equatable {
         skippedCount = report?.skippedCount ?? 0
         failedCount = report?.failedCount ?? 0
         autoProtectedValueCount = report?.autoProtectedValueCount ?? 0
+        precedentReleasedValueCount = report?.precedentReleasedValueCount ?? 0
         createdAt = Date()
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requestID = try container.decode(UUID.self, forKey: .requestID)
+        outcome = try container.decode(Outcome.self, forKey: .outcome)
+        documentCount = try container.decode(Int.self, forKey: .documentCount)
+        writtenCount = try container.decode(Int.self, forKey: .writtenCount)
+        skippedCount = try container.decode(Int.self, forKey: .skippedCount)
+        failedCount = try container.decode(Int.self, forKey: .failedCount)
+        autoProtectedValueCount = try container.decode(Int.self, forKey: .autoProtectedValueCount)
+        precedentReleasedValueCount = try container.decodeIfPresent(
+            Int.self,
+            forKey: .precedentReleasedValueCount
+        ) ?? 0
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 }
 

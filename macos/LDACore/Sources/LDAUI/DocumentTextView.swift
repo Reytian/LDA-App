@@ -331,13 +331,17 @@ struct DocumentTextView: NSViewRepresentable {
     let menuContext: DocumentTextMenuContext
     /// Bumped by the Review menu command; a change opens the kind chooser.
     let chooserRequestToken: Int
+    /// The document the count belongs to. This view is shared by every
+    /// document, so a count that changed because another document is now
+    /// shown opens nothing (ChooserRequestGate).
+    let chooserRequestOwner: ObjectIdentifier
     /// Builds the chooser for the current selection; the argument closes it.
     let makeChooser: (@escaping () -> Void) -> AnyView
     let onSelectionChange: (NSRange?) -> Void
     let onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(lastChooserToken: chooserRequestToken)
+        Coordinator(chooserGate: ChooserRequestGate(owner: chooserRequestOwner, token: chooserRequestToken))
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -357,8 +361,9 @@ struct DocumentTextView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
         apply(to: textView, coordinator: context.coordinator)
-        guard chooserRequestToken != context.coordinator.lastChooserToken else { return }
-        context.coordinator.lastChooserToken = chooserRequestToken
+        guard context.coordinator.chooserGate.update(owner: chooserRequestOwner, token: chooserRequestToken) else {
+            return
+        }
         // Presenting during SwiftUI's update pass would re-enter it; defer.
         let builder = makeChooser
         let coordinator = context.coordinator
@@ -381,11 +386,11 @@ struct DocumentTextView: NSViewRepresentable {
     final class Coordinator {
         weak var textView: ProtectableTextView?
         var appliedContent: NSAttributedString?
-        var lastChooserToken: Int
+        var chooserGate: ChooserRequestGate
         private var popover: NSPopover?
 
-        init(lastChooserToken: Int) {
-            self.lastChooserToken = lastChooserToken
+        init(chooserGate: ChooserRequestGate) {
+            self.chooserGate = chooserGate
         }
 
         /// Show the kind chooser anchored to the first line of the selection.

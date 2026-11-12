@@ -134,6 +134,10 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     /// An imported edit is still private original content, bound to the locally
     /// confirmed mapping source. It must never become readable via read_redacted.
     public internal(set) var editingSourceHandle: String? = nil
+    /// For redacted artifacts: how they were detected, "local_model" (a model
+    /// looked for names, companies and addresses) or "patterns_only". Nil for
+    /// originals and for entries written before this field existed.
+    public internal(set) var detection: String? = nil
 }
 
 // MARK: - Errors
@@ -222,9 +226,10 @@ public struct DocumentVault {
     /// Where the vault lives.
     public let rootDirectory: URL
 
-    /// How the vault master key is held. Injectable so tests run on a
-    /// passphrase and never touch the real Keychain; the default resolves to
-    /// the Keychain master key account (see DocumentVaultEncryption.swift).
+    /// How the vault master key is held. Every caller names it: the app and
+    /// the commands pass DocumentVault.defaultProtection(), tests a
+    /// passphrase, so a test never touches the real Keychain by leaving it out
+    /// (review 2026-11-11, T8; see DocumentVaultEncryption.swift).
     let protection: MappingProtection
 
     // registryLock, the cross-process lock, and withRegistryTransaction live
@@ -233,7 +238,7 @@ public struct DocumentVault {
 
     public init(
         rootDirectory: URL,
-        protection: MappingProtection = DocumentVault.defaultProtection()
+        protection: MappingProtection
     ) {
         self.rootDirectory = rootDirectory
         self.protection = protection
@@ -440,7 +445,8 @@ public struct DocumentVault {
         mappingFile: URL?,
         mappingAccountBase: String?,
         excludedEntityCount: Int? = nil,
-        workspaceFallbackHandle: String? = nil
+        workspaceFallbackHandle: String? = nil,
+        detection: String? = nil
     ) throws -> VaultEntry {
         let relativePath = try vaultRelativePath(of: primaryFile)
         let mappingRelativePath = try mappingFile.map { try vaultRelativePath(of: $0) }
@@ -470,6 +476,7 @@ public struct DocumentVault {
             mappingAccountBase: mappingAccountBase,
             excludedEntityCount: excludedEntityCount
         )
+        entry.detection = detection
 
         try withRegistryTransaction {
             var registry = try loadRegistryLocked()

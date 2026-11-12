@@ -157,7 +157,9 @@ public struct PdfImporter: DocumentImporter {
                 normalizedPages: pages
             )
         }
-        return PdfRedactionCoverage(occurrences: located)
+        return PdfRedactionCoverage(occurrences: PdfRedactionCoverage.assigningSites(
+            located, surfaceTexts: surfaceTexts
+        ))
     }
 
     /// Both search paths for one value, merged into one occurrence set.
@@ -181,18 +183,27 @@ public struct PdfImporter: DocumentImporter {
             in: document,
             pageIndexByPage: pageIndexByPage
         )
-        // Deduplicate: a contiguous occurrence is seen by BOTH searches. Keep
-        // the exact selection's box, which is the proven geometry, and drop the
-        // normalized duplicate instead of stacking two rects on one set of
-        // glyphs.
-        let wrapped = normalizedOccurrences(
-            needle: entry.text,
-            token: entry.token,
-            pages: pages
-        ).filter { candidate in
-            !exact.contains { isSameOccurrence($0, candidate) }
+        // A contiguous occurrence is seen by BOTH searches. Its boxes are the
+        // union of the two: PDFKit's selection bounds can sit several glyphs
+        // to one side of the text they select (a CJK line in the review's
+        // probe was boxed four characters to the left, leaving "有限公司"
+        // visible), while the normalized search reads each glyph's own bounds.
+        // Over-covering is safe; under-covering is the leak (review
+        // 2026-11-11, F6).
+        var merged = exact
+        for candidate in normalizedOccurrences(needle: entry.text, token: entry.token, pages: pages) {
+            if let index = merged.firstIndex(where: { isSameOccurrence($0, candidate) }) {
+                // A glyph box the selection already covers adds nothing; one
+                // it misses is the part the selection left visible.
+                let missed = candidate.boxes.filter { box in
+                    !merged[index].boxes.contains { $0.rect.insetBy(dx: -1, dy: -1).contains(box.rect) }
+                }
+                merged[index].boxes += missed
+            } else {
+                merged.append(candidate)
+            }
         }
-        return exact + wrapped
+        return merged
     }
 
     /// True when two occurrences describe the same place on the same page.
@@ -209,6 +220,7 @@ public struct PdfImporter: DocumentImporter {
         _ rhs: PdfTextOccurrence
     ) -> Bool {
         guard lhs.pageIndex == rhs.pageIndex else { return false }
+        if let left = lhs.textRange, let right = rhs.textRange { return left == right }
         return lhs.boxes.contains { left in
             rhs.boxes.contains { $0.rect.intersects(left.rect) }
         }
@@ -235,7 +247,10 @@ public struct PdfImporter: DocumentImporter {
                     PdfTextOccurrence(
                         pageIndex: pageIndex,
                         token: token,
-                        boxes: [RedactionBox(pageIndex: pageIndex, rect: rect, token: token)]
+                        boxes: [RedactionBox(pageIndex: pageIndex, rect: rect, token: token)],
+                        textRange: selection.numberOfTextRanges(on: page) == 1
+                            ? selection.range(at: 0, on: page) : nil,
+                        matchedText: selection.string
                     )
                 )
             }
@@ -333,6 +348,11 @@ public struct PdfImporter: DocumentImporter {
                 let originalIndexes = Array(
                     entry.originalIndexes[range.location ..< range.location + range.length]
                 )
+                let sourceRange = NSRange(
+                    location: originalIndexes[0],
+                    length: originalIndexes[originalIndexes.count - 1] - originalIndexes[0] + 1
+                )
+                let pageText = (entry.page.string ?? "") as NSString
                 found.append(
                     PdfTextOccurrence(
                         pageIndex: entry.pageIndex,
@@ -342,7 +362,9 @@ public struct PdfImporter: DocumentImporter {
                             on: entry.page,
                             pageIndex: entry.pageIndex,
                             token: token
-                        )
+                        ),
+                        textRange: sourceRange,
+                        matchedText: pageText.substring(with: sourceRange)
                     )
                 )
                 searchStart = range.location + range.length
@@ -354,8 +376,11 @@ public struct PdfImporter: DocumentImporter {
     /// A whitespace-normalized copy of text plus, for each UTF-16 code unit of
     /// the normalized text, the UTF-16 index it came from in the original.
     ///
-    /// Normalization collapses every run of whitespace to a single space and
-    /// trims the ends. INVARIANT: originalIndexes.count == text.utf16.count,
+    /// Normalization collapses every run of whitespace to a single space,
+    /// drops it altogether between two CJK characters (a Chinese name wrapped
+    /// at the margin holds no space: the page text has "华光精密" + newline +
+    /// "仪器有限公司" where the document text, joined by PdfLineReflow, has the
+    /// name in one piece; review 2026-11-11, F6), and trims the ends. INVARIANT: originalIndexes.count == text.utf16.count,
     /// one entry per unit, so a UTF-16 search range over `text` indexes the map
     /// directly. Keeping the map per-unit (not per-character) is what makes
     /// decomposed accents and surrogate pairs safe: a combining mark is its own
@@ -366,6 +391,24 @@ public struct PdfImporter: DocumentImporter {
         var output = ""
         var indexes: [Int] = []
         var previousWasSpace = true // leading whitespace is dropped
+        // The space a whitespace run will become, written only once the next
+        // character shows it is not between two CJK characters.
+        var pendingSpace: Int?
+        var lastScalar: Unicode.Scalar?
+        func emit(_ scalar: Unicode.Scalar, at index: Int, width: Int) {
+            if let space = pendingSpace {
+                if !(lastScalar.map(PdfLineReflow.isWide) == true && PdfLineReflow.isWide(scalar)) {
+                    output.append(" ")
+                    indexes.append(space)
+                }
+                pendingSpace = nil
+            }
+            output.unicodeScalars.append(scalar)
+            indexes.append(index)
+            if width == 2 { indexes.append(index + 1) }
+            lastScalar = scalar
+            previousWasSpace = false
+        }
 
         var index = 0
         while index < source.length {
@@ -402,8 +445,7 @@ public struct PdfImporter: DocumentImporter {
             if scalar.value == UInt32(PdfTextNormalizer.artifactMarkerUnit),
                isNbspArtifactPair(at: index, in: source) {
                 if !previousWasSpace {
-                    output.append(" ")
-                    indexes.append(index)
+                    pendingSpace = index
                     previousWasSpace = true
                 }
                 index += 2
@@ -412,28 +454,19 @@ public struct PdfImporter: DocumentImporter {
 
             if Character(scalar).isWhitespace {
                 if !previousWasSpace {
-                    output.append(" ")
-                    indexes.append(index)
+                    pendingSpace = index
                     previousWasSpace = true
                 }
                 index += unitWidth
                 continue
             }
 
-            output.unicodeScalars.append(scalar)
-            indexes.append(index)
-            if unitWidth == 2 {
-                indexes.append(index + 1)
-            }
-            previousWasSpace = false
+            emit(scalar, at: index, width: unitWidth)
             index += unitWidth
         }
 
-        // Drop a trailing collapsed space so a match at the end is not padded.
-        if output.hasSuffix(" ") {
-            output.removeLast()
-            indexes.removeLast()
-        }
+        // A trailing whitespace run is dropped (pendingSpace is never
+        // written), so a match at the end is not padded.
         return (output, indexes)
     }
 
@@ -466,6 +499,22 @@ public struct PdfImporter: DocumentImporter {
         pageIndex: Int,
         token: String
     ) -> [RedactionBox] {
+        // PDFKit's own selection for the matched range, one rect per line.
+        // characterBounds(at:) can drift from the page string by one index per
+        // line break (in the review's CJK probe the wrapped half of a name was
+        // boxed one glyph to the right, leaving 仪 visible, and a line further
+        // down four glyphs off), while a selection made from the same range
+        // lands on the glyphs (review 2026-11-11, F6). The glyph rects remain
+        // the fallback when PDFKit gives no selection.
+        if let first = originalIndexes.min(), let last = originalIndexes.max(),
+           let selection = page.selection(for: NSRange(location: first, length: last - first + 1)) {
+            let boxes = selection.selectionsByLine().compactMap { line -> RedactionBox? in
+                let rect = line.bounds(for: page)
+                guard !rect.isNull, !rect.isEmpty else { return nil }
+                return RedactionBox(pageIndex: pageIndex, rect: rect, token: token)
+            }
+            if !boxes.isEmpty { return boxes }
+        }
         let characterCount = page.numberOfCharacters
         var boxes: [RedactionBox] = []
         var current: CGRect?

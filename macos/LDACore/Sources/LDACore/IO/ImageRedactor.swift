@@ -13,6 +13,10 @@
 //  destructive by design, so an image artifact is never restorable; restore
 //  lives on the paired redacted TEXT artifact.
 //
+//  The edit-surface layout writes a PNG with no properties. The original
+//  format writes the source's own type (renderRedactedImage) and carries
+//  only its orientation and resolution, never its other metadata.
+//
 //  CoreGraphics and ImageIO only: no UI frameworks in LDACore.
 //
 //  House rules: all comments and strings in English. No em-dash and no
@@ -145,6 +149,99 @@ public enum ImageRedactor {
         )
     }
 
+    /// The raster type a redacted image is written in.
+    public enum OutputType: String, Sendable, CaseIterable {
+        case png
+        case jpeg
+
+        /// The type of the image at `url`: its extension when that names a
+        /// type, otherwise what its bytes say, PNG when neither does.
+        public init(of url: URL) {
+            switch url.pathExtension.lowercased() {
+            case "png":
+                self = .png
+            case "jpg", "jpeg":
+                self = .jpeg
+            default:
+                let source = CGImageSourceCreateWithURL(url as CFURL, nil)
+                let type = source.flatMap { CGImageSourceGetType($0) } as String?
+                self = type == "public.jpeg" ? .jpeg : .png
+            }
+        }
+
+        var typeIdentifier: String {
+            switch self {
+            case .png: return "public.png"
+            case .jpeg: return "public.jpeg"
+            }
+        }
+    }
+
+    /// Paint the covered lines and seal candidates, as renderRedactedPNG
+    /// does, and write the result in `type` with the source's layout: its
+    /// display orientation and its resolution. Nothing else of the source's
+    /// metadata is carried over (no EXIF, GPS, TIFF, IPTC or XMP), because
+    /// the pixels are drawn into a fresh canvas and only those two
+    /// properties are written with them.
+    ///
+    /// The boxes are painted in the source's stored pixel space, the same
+    /// space OCR read (no orientation is applied on either side), so carrying
+    /// the orientation tag makes the copy display exactly as the source does.
+    @discardableResult
+    public static func renderRedactedImage(
+        originalImageAt url: URL,
+        covering lines: [ImageTextLine],
+        sealCandidates: [CGRect],
+        as type: OutputType,
+        to outputURL: URL
+    ) throws -> RenderedRedaction {
+        let image = try ImageTextExtractor.loadImage(at: url)
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else {
+            throw DocumentIOError.corrupt("\(url.lastPathComponent) has an empty pixel size.")
+        }
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        let lineRects = paddedLineRects(for: lines, width: width, height: height, bounds: bounds)
+        let merged = merge(
+            candidates: sealCandidates,
+            intoLineRects: lineRects,
+            width: width,
+            height: height,
+            bounds: bounds
+        )
+        var properties = layoutProperties(of: url)
+        if type == .jpeg {
+            properties[kCGImageDestinationLossyCompressionQuality] = 0.92
+        }
+        try paint(
+            rects: merged.rects,
+            over: image,
+            bounds: bounds,
+            to: outputURL,
+            typeIdentifier: type.typeIdentifier,
+            properties: properties
+        )
+        return RenderedRedaction(
+            paintedBoxCount: merged.rects.count,
+            sealCandidateCount: merged.candidateCount
+        )
+    }
+
+    /// The source properties that describe layout rather than provenance:
+    /// how the image is turned for display and how large it prints.
+    private static func layoutProperties(of url: URL) -> [CFString: Any] {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let all = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return [:]
+        }
+        var kept: [CFString: Any] = [:]
+        for key in [kCGImagePropertyOrientation, kCGImagePropertyDPIWidth, kCGImagePropertyDPIHeight] {
+            if let value = all[key] { kept[key] = value }
+        }
+        return kept
+    }
+
     /// Scale each covered line's normalized box into pixel space and outset
     /// it. Vision normalized boxes share CoreGraphics' bottom-left origin, so
     /// the box scales straight into context coordinates. Each box is outset a
@@ -203,12 +300,15 @@ public enum ImageRedactor {
     }
 
     /// Draw the source image, fill the given rects in opaque ink, and write
-    /// the result as a PNG at the output URL.
+    /// the result at the output URL: a PNG with no properties unless the
+    /// caller names another type and the properties to write with it.
     private static func paint(
         rects: [CGRect],
         over image: CGImage,
         bounds: CGRect,
-        to outputURL: URL
+        to outputURL: URL,
+        typeIdentifier: String = "public.png",
+        properties: [CFString: Any] = [:]
     ) throws {
         guard let context = CGContext(
             data: nil,
@@ -232,7 +332,7 @@ public enum ImageRedactor {
         }
         guard let destination = CGImageDestinationCreateWithURL(
             outputURL as CFURL,
-            "public.png" as CFString,
+            typeIdentifier as CFString,
             1,
             nil
         ) else {
@@ -240,7 +340,11 @@ public enum ImageRedactor {
                 "Could not create the redacted image at \(outputURL.path)."
             )
         }
-        CGImageDestinationAddImage(destination, redacted, nil)
+        CGImageDestinationAddImage(
+            destination,
+            redacted,
+            properties.isEmpty ? nil : properties as CFDictionary
+        )
         guard CGImageDestinationFinalize(destination) else {
             throw DocumentIOError.unreadable(
                 "Could not write the redacted image at \(outputURL.path)."

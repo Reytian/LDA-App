@@ -63,14 +63,25 @@ payloads.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `list_pending` | none | handles plus neutral metadata (`kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`) |
-| `detect_entities` | `handle`, `modelPath?` | `detectionId` and `entities[]` of `{id, type, start, end}`; the detected text never leaves the machine |
-| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, counts per type, `excludedCount`, `excludedValueCount`, `detectionChanged` |
-| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, counts, `excludedCount`, `unresolvedSeams` |
-| `read_redacted` | `handle` (red_) | the redacted `text`; the only tool that returns body text |
+| `list_pending` | none | handles plus neutral metadata (`kind`, `format`, `byteCount`, `pages`, `stagedAt`, `sourceHandle`, and for a redacted artifact `excludedEntityCount` and `detectionMode`) |
+| `detect_entities` | `handle`, `modelPath?` | `detectionId`, `detectionMode` and `entities[]` of `{id, type, start, end}`; the detected text never leaves the machine |
+| `anonymize` | `handle`, `passphrase?`, `modelPath?`, `style?`, `excludeEntityIds?` with `detectionId`, `excludeTypes?` | `redactedHandle`, `detectionMode`, counts per type, `excludedCount`, `excludedValueCount`, `detectionChanged`, `precedentPartiesReleased` |
+| `anonymize_session` | `handles`, `passphrase?`, `modelPath?`, `client?`, `style?`, `excludeTypes?` | one `redactedHandle` per document, `detectionMode`, counts, `excludedCount`, `precedentPartiesReleased`, `unresolvedSeams` |
+| `read_redacted` | `handle` (red_) | the redacted `text`; the only tool that returns body text. A partly redacted artifact, or one redacted with patterns only while a model is configured, is returned only after the person approves it on the Mac |
 | `restore` | `redactedHandle`, `passphrase?`, at most one of `editedText?` or `editedHandle?` | `restoredHandle`, `format`, `restoredCount`, `orphanTokens`, `suspectPlaceholders`, `ambiguousReplacements` |
 | `export` | `handle` (red_ or res_) | `ok`; the file lands in the vault's `outbox/` |
 | `attest` | none | the server's data-boundary posture and byte counters |
+
+Which model runs: `detect_entities`, `anonymize` and `anonymize_session` use
+the model the server was launched with (`LDA_MODEL_PATH`, normally the LDA V4
+folder inside LDA.app) unless the request names another `modelPath` inside
+the allowed model folders. The agent cannot turn detection off by leaving the
+argument out. Each response says how the run detected (`detectionMode`:
+`local_model`, or `patterns_only` when no model is configured), the vault
+records it per artifact, and `read_redacted` asks the person on the Mac
+before it returns an artifact that was redacted with patterns only while a
+model is configured, because people's names, company names and addresses
+were not looked for in it.
 
 Review before redacting: call `detect_entities` once, then pass the ids to
 keep visible as `excludeEntityIds` together with the `detectionId` they came

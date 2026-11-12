@@ -385,6 +385,50 @@ public enum AISettings {
         defaults.set(style.rawValue, forKey: outputStyleKey)
     }
 
+    // MARK: Output format
+
+    /// UserDefaults key for the format Save Redacted last wrote, so the sheet
+    /// opens on the person's last choice. Stored as the RedactedOutputFormat
+    /// raw value; absent means Markdown.
+    public static let saveRedactedFormatKey = "com.haotianyi.LDA.saveRedactedFormat"
+
+    /// UserDefaults key for the format Batch Anonymize writes, chosen in
+    /// Settings. Stored as the RedactedOutputFormat raw value; absent means
+    /// Markdown.
+    public static let batchOutputFormatKey = "com.haotianyi.LDA.batchOutputFormat"
+
+    /// The format the Save Redacted sheet opens on: the last one chosen, or
+    /// Markdown when there is none or it is not recognized.
+    public static func saveRedactedFormat(defaults: UserDefaults = .standard) -> RedactedOutputFormat {
+        storedFormat(forKey: saveRedactedFormatKey, defaults: defaults)
+    }
+
+    /// Remember the format Save Redacted wrote.
+    public static func setSaveRedactedFormat(
+        _ format: RedactedOutputFormat,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(format.rawValue, forKey: saveRedactedFormatKey)
+    }
+
+    /// The format Batch Anonymize writes: the Settings choice, or Markdown
+    /// when there is none or it is not recognized.
+    public static func batchOutputFormat(defaults: UserDefaults = .standard) -> RedactedOutputFormat {
+        storedFormat(forKey: batchOutputFormatKey, defaults: defaults)
+    }
+
+    /// Store the format Batch Anonymize writes.
+    public static func setBatchOutputFormat(
+        _ format: RedactedOutputFormat,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.set(format.rawValue, forKey: batchOutputFormatKey)
+    }
+
+    private static func storedFormat(forKey key: String, defaults: UserDefaults) -> RedactedOutputFormat {
+        defaults.string(forKey: key).flatMap(RedactedOutputFormat.init(rawValue:)) ?? .default
+    }
+
     /// Whether to show the one-time offer to stop using the retired lda-v2
     /// fine tune.
     ///

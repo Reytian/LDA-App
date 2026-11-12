@@ -44,6 +44,111 @@ public struct DeterministicEngine: Sendable {
 
     public init() {}
 
+    /// `text` as the patterns read it: U+2010 and U+2011 as "-", and the
+    /// full-width digits, hyphen-minus, plus sign and parentheses as their
+    /// ASCII forms (review 2026-11-11, F8: a phone number typed in full-width
+    /// digits was not a phone number). Each replacement is one UTF-16 unit
+    /// for one, so offsets are unchanged.
+    static func patternView(of text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        var mapped = scalars.map(patternViewScalar)
+        // A full-width full stop between two digits is a decimal point
+        // ("1，250，000．00元"), and a full-width comma that groups thousands
+        // is a thousands separator: read as "." and ",". Anywhere else they
+        // are punctuation and stay. The independent review of F7 found such
+        // amounts cut at every comma, the leading digits left in clear.
+        for index in scalars.indices where scalars[index] == "\u{FF0E}" {
+            guard index > 0, index + 1 < scalars.count,
+                  isDigitScalar(mapped[index - 1]), isDigitScalar(mapped[index + 1]) else { continue }
+            mapped[index] = "."
+        }
+        for index in thousandsCommas(in: mapped) {
+            mapped[index] = ","
+        }
+        guard mapped != scalars else { return text }
+        return String(String.UnicodeScalarView(mapped))
+    }
+
+    /// The full-width commas of `scalars` (digits already ASCII) that group
+    /// thousands.
+    ///
+    /// The second independent review of F7 (probes t05 and q03): reading
+    /// every full-width comma between digits as a separator made
+    /// "1，000，2，000元" the malformed "1,000,2,000元", which no rule reads,
+    /// and "100，200，300元" one amount. Digit runs joined by full-width
+    /// commas are now grouped left to right: a group continues while the
+    /// next run has exactly three digits, after a first run of one to three.
+    /// A first run of three groups only when a later run is 000 or a decimal
+    /// part follows ("100，000元", "123，456．78元"); "100，200，300" is an
+    /// enumeration. A comma no group takes stays punctuation, so
+    /// "1，000，2，000元" reads "1,000，2,000元".
+    static func thousandsCommas(in scalars: [Unicode.Scalar]) -> [Int] {
+        var commas: [Int] = []
+        var index = 0
+        while index < scalars.count {
+            guard isDigitScalar(scalars[index]), index == 0 || !isDigitScalar(scalars[index - 1]) else {
+                index += 1
+                continue
+            }
+            // The chain of digit runs joined by full-width commas from here.
+            var runs: [Range<Int>] = []
+            var cursor = index
+            while true {
+                var end = cursor
+                while end < scalars.count, isDigitScalar(scalars[end]) { end += 1 }
+                runs.append(cursor..<end)
+                guard end + 1 < scalars.count, scalars[end] == "\u{FF0C}", isDigitScalar(scalars[end + 1]) else {
+                    cursor = end
+                    break
+                }
+                cursor = end + 1
+            }
+            let decimalFollows = cursor + 1 < scalars.count
+                && (scalars[cursor] == "." || scalars[cursor] == "\u{FF0E}")
+                && isDigitScalar(scalars[cursor + 1])
+            // For each run, the last run of the three-digit streak after it
+            // and whether that streak holds a 000, in one backward pass so a
+            // long chain stays linear.
+            var streakEnd = Array(runs.indices)
+            var zeroAhead = Array(repeating: false, count: runs.count)
+            for run in runs.indices.reversed().dropFirst() where runs[run + 1].count == 3 {
+                streakEnd[run] = streakEnd[run + 1]
+                zeroAhead[run] = runs[run + 1].allSatisfy { scalars[$0] == "0" } || zeroAhead[run + 1]
+            }
+            var first = 0
+            while first < runs.count {
+                let last = streakEnd[first]
+                let lead = runs[first].count
+                let groups = last > first && (1...3).contains(lead) && (
+                    lead < 3 || zeroAhead[first] || (last == runs.count - 1 && decimalFollows)
+                )
+                if groups {
+                    commas += runs[first..<last].map(\.upperBound)
+                    first = last + 1
+                } else {
+                    first += 1
+                }
+            }
+            index = cursor
+        }
+        return commas
+    }
+
+    private static func isDigitScalar(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value >= 0x30 && scalar.value <= 0x39
+    }
+
+    private static func patternViewScalar(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        switch scalar.value {
+        case 0x2010, 0x2011, 0xFF0D: return "-"
+        case 0xFF10...0xFF19: return Unicode.Scalar(scalar.value - 0xFF10 + 0x30)!
+        case 0xFF0B: return "+"
+        case 0xFF08: return "("
+        case 0xFF09: return ")"
+        default: return scalar
+        }
+    }
+
     /// Detect deterministic PII candidates in the given text.
     ///
     /// All offsets in the returned spans are UTF-16 code-unit offsets, computed by
@@ -54,6 +159,20 @@ public struct DeterministicEngine: Sendable {
     /// - Returns: Candidate spans with source .deterministic. Overlaps are kept;
     ///   SpanMerger resolves them later. Role-label candidates are dropped.
     public func detect(_ text: String) -> [Span] {
+        // Word's non-breaking hyphen (U+2011), the Unicode hyphen (U+2010)
+        // and the full-width digits and signs read as their ASCII forms for
+        // the patterns: an SSN or a phone number written with them is still
+        // one (review 2026-11-11, F5 and F8). One UTF-16 unit each, so offsets
+        // are unchanged, and the spans keep the characters the document has.
+        let view = Self.patternView(of: text)
+        guard view == text else {
+            let original = text as NSString
+            return detect(view).map { span in
+                var kept = span
+                kept.text = original.substring(with: NSRange(location: span.start, length: span.end - span.start))
+                return kept
+            }
+        }
         let ns = text as NSString
         let fullRange = NSRange(location: 0, length: ns.length)
 
@@ -75,6 +194,7 @@ public struct DeterministicEngine: Sendable {
         spans.append(contentsOf: detectBankAccount(ns, fullRange))
         spans.append(contentsOf: detectAmount(ns, fullRange))
         spans.append(contentsOf: detectDate(ns, fullRange))
+        spans.append(contentsOf: detectCuedValues(ns, fullRange))
 
         return spans.filter { !RoleLabels.isRoleLabel($0.text) }
     }
@@ -185,8 +305,15 @@ public struct DeterministicEngine: Sendable {
     /// Standard RFC-ish email address. Deliberately practical, not a full RFC 5322
     /// grammar: local part allows common atoms plus dot, the domain is one or more
     /// dot-separated labels, and the TLD is at least two letters.
+    ///
+    /// A match starts only where a run of local-part characters starts (the
+    /// lookbehind). Review 2026-11-11 (T3): without it every start position
+    /// inside a long unbroken run consumed the rest of the run looking for "@"
+    /// and gave it back, so 40,000 characters took 13.9 s. The leftmost match
+    /// always started at a run start anyway, so the addresses found are the
+    /// same. The domain (253) and TLD (63) are bounded at their RFC lengths.
     private func detectEmail(_ ns: NSString, _ range: NSRange) -> [Span] {
-        let pattern = #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#
+        let pattern = #"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,63}"#
         var out: [Span] = []
         enumerate(pattern, in: ns, range: range) { match in
             out.append(
@@ -235,7 +362,15 @@ public struct DeterministicEngine: Sendable {
         // be embedded in a longer digit run.
         let grouped = #"(?<![\d+])\(\d{3}\)[\s.\-]?\d{3,4}[\s.\-]\d{4}(?!\d)|(?<![\d+])\d{3}[\s.\-]\d{3,4}[\s.\-]\d{4}(?!\d)"#
 
-        for pattern in [intl, cnMobile, grouped] {
+        // Review 2026-11-11 (F8): a mainland landline with its area code
+        // (010-62551234, (010)65551234, 0312-5551234), a French national
+        // number in pairs (01 42 68 53 00), and an international number whose
+        // first group is one digit (+33 6 12 34 56 78).
+        let cnLandline = #"(?<![\d\-])0\d{2,3}-\d{7,8}(?![\d\-])|\(0\d{2,3}\)[ ]?\d{7,8}(?!\d)"#
+        let frNational = #"(?<![\d+])0[1-9](?:[ .]\d{2}){4}(?!\d)"#
+        let intlShortGroup = #"\+\d{1,3}[ .\-]?\d(?:[ .\-]?\d{2}){4}(?!\d)"#
+
+        for pattern in [intl, cnMobile, grouped, cnLandline, frNational, intlShortGroup] {
             enumerate(pattern, in: ns, range: range) { match in
                 out.append(
                     self.makeSpan(
@@ -571,7 +706,14 @@ public struct DeterministicEngine: Sendable {
         let unitWord = "(?:" + hao + "[楼樓]|[单單]元|[栋棟]|幢|座|[楼樓]|[层層]|室)"
         let units = "(?:[0-9０-９A-Za-z甲乙丙丁]{1,5}" + unitWord + ")*"
         let buildingLetter = #"(?:[甲乙丙丁](?!方))?"#
-        return road + number + units + buildingLetter
+        // Review 2026-11-11 (F8): a building or complex name after the street
+        // number, Latin or Chinese (88号SOHO现代城A座1001), and a room number
+        // written bare after its building or floor. The name must end in a
+        // building word, so prose after an address is not absorbed.
+        let complexWord = "(?:城|大厦|大廈|广场|廣場|中心|花园|花園|公寓|大楼|大樓|苑|小区|小區|商城|写字楼|寫字樓)"
+        let complex = "(?:[A-Za-z]{2,12}(?:[一-龥]{0,6}" + complexWord + ")?|[一-龥]{1,6}" + complexWord + ")?"
+        let room = "(?:(?<=[座楼樓层層元栋棟幢])[0-9０-９]{2,5}(?:室|房)?)?"
+        return road + number + complex + units + room + buildingLetter
     }()
 
     /// How far left the walk may reach. Real administrative prefixes run long
@@ -744,7 +886,7 @@ public struct DeterministicEngine: Sendable {
         // would have to be split again before it could be written back).
         let gap = #"[\p{Zs}\t]{0,4}"#
         let chinese = #"\d{4}"# + gap + #"年"# + gap + #"\d{1,2}"# + gap
-            + #"月"# + gap + #"\d{1,2}"# + gap + #"日"#
+            + #"月"# + gap + #"\d{1,2}"# + gap + #"[日号]"#
 
         // English month names: full names, three-letter abbreviations, the "Sept"
         // variant, and an optional trailing period. The day takes an optional
@@ -756,7 +898,18 @@ public struct DeterministicEngine: Sendable {
         let monthYear = #"(?<![A-Za-z])"# + month + #"\.?\s+\d{4}(?!\d)"#
         let dayOf = #"(?<!\d)\d{1,2}"# + ordinal + #"\s+(?:day\s+of|of)\s+"# + month + #"\.?,?\s+\d{4}(?!\d)"#
 
-        for pattern in [iso, slashed, dotted, chinese, monthFirst, dayFirst, monthYear, dayOf] {
+        // Review 2026-11-11 (F8): a year and a month (2026年11月), Chinese
+        // numerals (二〇二七年十一月二日), the Minguo calendar (民國115年11月3日)
+        // and French dates (3 novembre 2026, 1er janvier 1985).
+        let chineseMonth = #"(?<!\d)\d{4}"# + gap + #"年"# + gap + #"\d{1,2}"# + gap + #"月"#
+        let chineseNumerals = "[〇零一二三四五六七八九]{4}年[一二三四五六七八九十]{1,3}月(?:[一二三四五六七八九十]{1,3}[日号])?"
+        let minguo = "民[國国]" + gap + #"\d{2,3}"# + gap + "年" + gap + #"\d{1,2}"# + gap + "月(?:" + gap
+            + #"\d{1,2}"# + gap + "[日号])?"
+        let frenchMonth = "(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)"
+        let french = #"(?<!\d)(?:\d{1,2}|1er)\s{1,2}"# + frenchMonth + #"\s{1,2}\d{4}(?!\d)"#
+
+        for pattern in [iso, slashed, dotted, chinese, monthFirst, dayFirst, monthYear, dayOf,
+                        chineseMonth, chineseNumerals, minguo, french] {
             enumerate(pattern, options: [.caseInsensitive], in: ns, range: range) { match in
                 out.append(
                     self.makeSpan(
@@ -769,23 +922,77 @@ public struct DeterministicEngine: Sendable {
                 )
             }
         }
+        // Review 2026-11-11 (F8): ISO with dots (2026.11.03) and a dashed day
+        // and month before a four-digit year (03-07-1990), each only when the
+        // month and day are possible, so versions and references stay prose.
+        enumerate(#"(?<![\d.])\d{4}\.\d{1,2}\.\d{1,2}(?![\d.])"#, in: ns, range: range) { match in
+            let parts = ns.substring(with: match.range).split(separator: ".").compactMap { Int($0) }
+            guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]) else { return }
+            out.append(self.makeSpan(ns, range: match.range, type: .date, confidence: Conf.date, priority: Pri.date))
+        }
+        enumerate(#"(?<![\d\-])\d{1,2}-\d{1,2}-\d{4}(?![\d\-])"#, in: ns, range: range) { match in
+            let parts = ns.substring(with: match.range).split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3, (1...31).contains(parts[0]), (1...31).contains(parts[1]),
+                  parts[0] <= 12 || parts[1] <= 12 else { return }
+            out.append(self.makeSpan(ns, range: match.range, type: .date, confidence: Conf.date, priority: Pri.date))
+        }
         return out
     }
 
     // MARK: - AMOUNT
 
-    /// Currency amounts in two shapes:
-    ///   1. Symbol- or code-prefixed: a currency symbol (¥ ￥ $ € £), the word
-    ///      人民币, or a major ISO 4217 code (GBP, USD, EUR, CNY, ...) before
-    ///      the number. Added for the 2026-08-27 live recall gap where
-    ///      "GBP 45,000.00" stayed in cleartext.
-    ///   2. Number followed by a Chinese magnitude unit 万 or 亿, optionally with a
-    ///      trailing 元.
+    /// The numbers enumerated right before an amount whose currency is
+    /// written after it, each an amount: the currency covers them all
+    /// ("分别为100，200，300元", "500，1，500元"). Walks back over numbers
+    /// joined by a full-width comma or an enumeration comma (、), at most
+    /// ten. The second independent review of F7 found "1，000" and "500"
+    /// in clear before the amount that named the currency.
+    private func enumeratedAmounts(before location: Int, in ns: NSString, range: NSRange) -> [Span] {
+        var out: [Span] = []
+        var cursor = location
+        while out.count < 10, cursor - 2 >= range.location {
+            let separator = ns.character(at: cursor - 1)
+            guard separator == 0xFF0C || separator == 0x3001 else { break }
+            let windowStart = max(range.location, cursor - 1 - 32)
+            let window = NSRange(location: windowStart, length: cursor - 1 - windowStart)
+            // Transparent bounds: the lookbehind sees past the window's start.
+            guard let regex = Self.enumeratedNumber,
+                  let match = regex.firstMatch(in: ns as String, options: [.withTransparentBounds], range: window)
+            else { break }
+            out.append(makeSpan(ns, range: match.range, type: .amount, confidence: Conf.amount, priority: Pri.amount))
+            cursor = match.range.location
+        }
+        return out
+    }
+
+    /// A number ending where the search window ends, not preceded by a digit
+    /// or a separator: "1,000" or "500" before "，2,000元".
+    private static let enumeratedNumber = try? NSRegularExpression(
+        pattern: #"(?<![\d.,])(?:\d{1,3}(?:,\d{3}){1,6}|\d{1,12})(?:\.\d{1,4})?$"#
+    )
+
+    /// Currency amounts, in the shapes legal documents write them:
+    ///   1. A currency before the number: a symbol (¥ ￥ $ € £), a
+    ///      country-qualified dollar (US$, HK$, A$, C$, NT$, S$, NZ$), a major
+    ///      ISO 4217 code, optionally followed by $ (CAD$75,000), or a Chinese
+    ///      currency word (人民币, 港币, 美元, 欧元 ...). Added for the 2026-08-27
+    ///      live recall gap where "GBP 45,000.00" stayed in cleartext.
+    ///   2. A currency after the number: 元 or 圆 (8000元, 3000 元, 100,000元整),
+    ///      a Chinese currency word (100美元, 500万美元), a code (500,000 USD), an
+    ///      English currency word (1,000 euros, 12,500 U.S. dollars) or a
+    ///      trailing symbol, the French way (12 500,00 €).
+    ///   3. A number followed by a Chinese magnitude unit 万 or 亿, optionally
+    ///      with 元 (12000万, 5000万元).
+    ///   4. Chinese numerals: the financial capitals (伍佰万元整,
+    ///      壹拾贰万叁仟肆佰元) and ordinary numerals that carry a magnitude
+    ///      (五十万元).
     ///
-    /// Numbers may be comma-grouped with a decimal dot, dot-grouped with a
-    /// decimal comma (European style), or a plain digit run with one decimal
-    /// separator. The two shapes are matched separately so a value like
-    /// "人民币 1,250,000.50" and a value like "500万" are both captured.
+    /// The number may be comma-grouped with a decimal dot, dot-grouped with a
+    /// decimal comma, grouped by a space, a no-break space or a narrow
+    /// no-break space with a decimal comma (French), or a plain digit run. A
+    /// magnitude word (million, billion, thousand, m, mn, bn, k) belongs to the
+    /// amount: "US$1.2 million" used to leave "US" and "million" in clear
+    /// (review 2026-11-11, F7).
     ///
     /// Precision choices, each covered by a test:
     ///   - ISO codes that read as English words in prose (ALL, TRY, TOP, CUP,
@@ -795,45 +1002,63 @@ public struct DeterministicEngine: Sendable {
     ///     or "mop 3 floors".
     ///   - A letter must not immediately precede a code, so USD never anchors
     ///     inside a longer token such as BUSD.
+    ///   - A space-grouped number is an amount only next to a currency, so
+    ///     "12 500 habitants" stays prose.
+    ///   - Ordinary Chinese numerals need a magnitude (十 百 千 万 亿) before
+    ///     元, so 一元化 and 三元组 stay prose; 万元户 has no numeral at all.
+    ///
+    /// Every quantifier is bounded or singly nested, so the scan is linear.
     private func detectAmount(_ ns: NSString, _ range: NSRange) -> [Span] {
         var out: [Span] = []
 
-        // Currency designators. Symbols take no boundary (US$ is a valid
-        // prefix); code words require a non-letter on their left.
+        let codeList = "RMB|USD|EUR|GBP|CNY|JPY|HKD|TWD|SGD|MYR|THB|IDR|VND|INR|KRW|AUD|NZD|CAD|CHF|SEK|NOK|DKK|PLN|"
+            + "CZK|HUF|BGN|UAH|ILS|AED|QAR|KWD|BHD|OMR|JOD|EGP|ZAR|NGN|KES|BRL|MXN|CLP"
+        let chineseCurrency = "人民币|港币|港元|美元|欧元|英镑|日元|新台币|台币|澳元|加元|新加坡元|瑞士法郎"
         let symbols = #"[¥￥$€£]"#
-        let codes = #"(?<![A-Za-z])(?:人民币|RMB|USD|EUR|GBP|CNY|JPY|HKD|TWD|SGD|MYR|THB|IDR|VND|INR|KRW|AUD|NZD|CAD|CHF|SEK|NOK|DKK|PLN|CZK|HUF|BGN|UAH|ILS|AED|QAR|KWD|BHD|OMR|JOD|EGP|ZAR|NGN|KES|BRL|MXN|CLP)"#
-        let currency = "(?:" + symbols + "|" + codes + ")"
+        let qualifiedDollar = #"(?<![A-Za-z])(?:US|HK|NZ|NT|AU|CA|SG|A|C|S|R)\$"#
+        let codes = "(?<![A-Za-z])(?:" + codeList + #")\$?"#
+        let before = "(?:" + qualifiedDollar + "|" + codes + "|" + symbols + "|" + chineseCurrency + ")"
 
-        // A formatted number: comma-grouped thousands with optional decimal
-        // dot, dot-grouped thousands with optional decimal comma, or a plain
-        // digit run with one optional decimal separator.
-        let number =
-            #"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"#
+        let number = #"(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?"#
+            + #"|\d{1,3}(?:[   ]\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d+)?)"#
+        let magnitude = #"(?:[  ]?(?:million|billion|trillion|thousand|mn|bn|m|k)(?![A-Za-z]))?"#
+        let yuan = #"(?:[  ]?[元圆](?:整|正)?)?"#
 
-        // Prefixed by a currency designator, then a formatted number, then an
-        // optional Chinese magnitude unit and 元.
-        let prefixed = currency + #"\s?"# + number + #"(?:[万亿])?(?:元)?"#
+        // 1. A currency before the number.
+        let prefixed = before + #"[  ]?"# + number + magnitude + "(?:[万亿])?" + yuan
 
-        // A number that is suffixed by a Chinese magnitude unit and optional 元.
-        let suffixed = #"(?<![\d.])\d{1,3}(?:,\d{3})*(?:\.\d+)?[万亿](?:元)?"#
+        // 2. A currency after the number.
+        let after = "(?:[元圆]|" + chineseCurrency + "|" + codeList
+            + #"|U\.S\.\s{1,2}dollars?|US\s{1,2}dollars?|dollars?|euros?|pounds?(?:\s{1,2}sterling)?|yen|yuan|renminbi|[€£¥￥])"#
+        let suffixed = #"(?<![\d.,])"# + number + magnitude + "(?:[万亿])?" + #"[   ]?"# + after
+            + "(?:整|正)?(?![A-Za-z])"
 
-        for pattern in [prefixed, suffixed] {
-            enumerate(
-                pattern,
-                options: [.caseInsensitive],
-                in: ns,
-                range: range
-            ) { match in
+        // 3. A number with a Chinese magnitude unit, optionally with 元.
+        let magnitudeUnit = #"(?<![\d.])\d+(?:,\d{3})*(?:\.\d+)?[万亿](?:元)?"#
+
+        // 4. Financial capitals, starting with a numeral (not 万 or 亿).
+        let capitals = "(?:人民币)?[零壹贰叁肆伍陆柒捌玖拾佰仟][零壹贰叁肆伍陆柒捌玖拾佰仟万亿]{0,23}[元圆]"
+            + "(?:[零壹贰叁肆伍陆柒捌玖]{1,2}[角分]){0,2}(?:整|正)?"
+
+        for pattern in [prefixed, suffixed, magnitudeUnit, capitals] {
+            enumerate(pattern, options: [.caseInsensitive], in: ns, range: range) { match in
                 out.append(
-                    self.makeSpan(
-                        ns,
-                        range: match.range,
-                        type: .amount,
-                        confidence: Conf.amount,
-                        priority: Pri.amount
-                    )
+                    self.makeSpan(ns, range: match.range, type: .amount, confidence: Conf.amount, priority: Pri.amount)
                 )
+                if pattern == suffixed || pattern == magnitudeUnit {
+                    out += self.enumeratedAmounts(before: match.range.location, in: ns, range: range)
+                }
             }
+        }
+
+        // 4b. Ordinary numerals, only with a magnitude before 元.
+        let numerals = "(?:人民币)?[一二三四五六七八九十两][一二三四五六七八九十百千万亿两零〇]{0,15}[元圆](?:整)?"
+        enumerate(numerals, in: ns, range: range) { match in
+            let text = ns.substring(with: match.range)
+            guard text.contains(where: { "十百千万亿".contains($0) }) else { return }
+            out.append(
+                self.makeSpan(ns, range: match.range, type: .amount, confidence: Conf.amount, priority: Pri.amount)
+            )
         }
         return out
     }

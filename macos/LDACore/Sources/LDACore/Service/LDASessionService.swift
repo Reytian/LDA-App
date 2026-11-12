@@ -32,19 +32,26 @@ public struct SessionDocumentOutput: Sendable {
     /// How many detected occurrences the caller's excludedTypes left visible
     /// in this document. Always 0 when no exclusion was supplied.
     public var excludedEntityCount: Int
+    /// How many distinct party values this document leaves in clear as a
+    /// published precedent's own parties (PrecedentPartyRule). A value
+    /// another document of the session redacts is redacted here too by the
+    /// session-wide sweep, and is not counted.
+    public var precedentReleasedValueCount: Int
 
     public init(
         sourceURL: URL,
         redactedMarkdown: String,
         entityCount: Int,
         entities: [Span],
-        excludedEntityCount: Int = 0
+        excludedEntityCount: Int = 0,
+        precedentReleasedValueCount: Int = 0
     ) {
         self.sourceURL = sourceURL
         self.redactedMarkdown = redactedMarkdown
         self.entityCount = entityCount
         self.entities = entities
         self.excludedEntityCount = excludedEntityCount
+        self.precedentReleasedValueCount = precedentReleasedValueCount
     }
 }
 
@@ -136,11 +143,13 @@ extension LDAService {
         let exclusion = SpanExclusion(excludedTypes: excludedTypes, bodyFilter: nil)
         var sessionDocuments: [SessionDocument] = []
         var excludedCounts: [Int] = []
+        var releases: [PrecedentRelease?] = []
         for input in inputs {
             let imported = try importDocument(input, extension: input.pathExtension.lowercased())
             let review = exclusion.resolve(bodySpans: try detector.detectText(imported.text))
             let spans = review.keptBodySpans
             excludedCounts.append(review.excludedOccurrenceCount)
+            releases.append(detector.precedent.release)
             sessionDocuments.append(
                 SessionDocument(
                     name: input.lastPathComponent,
@@ -213,7 +222,11 @@ extension LDAService {
                 redactedMarkdown: document.tokenizedText,
                 entityCount: spansByIndex[index].count,
                 entities: spansByIndex[index],
-                excludedEntityCount: excludedCounts[index]
+                excludedEntityCount: excludedCounts[index],
+                precedentReleasedValueCount: Self.precedentValuesLeftInClear(
+                    releases[index],
+                    redacted: spansByIndex[index]
+                )
             )
         }
         // Carry the seam pass's verdict out with the result. A seam it could
@@ -225,6 +238,15 @@ extension LDAService {
             mapping: mapping,
             seamIssues: result.seamIssues
         )
+    }
+
+    /// How many of a document's precedent-released values are still in clear
+    /// after the session-wide sweep, which redacts a value any other document
+    /// of the session redacts.
+    static func precedentValuesLeftInClear(_ release: PrecedentRelease?, redacted: [Span]) -> Int {
+        guard let release else { return 0 }
+        let redactedValues = Set(redacted.map { TextMatching.normalize($0.text) })
+        return release.values.filter { !redactedValues.contains(TextMatching.normalize($0)) }.count
     }
 
     /// Restore pasted AI output text against a saved mapping sidecar.

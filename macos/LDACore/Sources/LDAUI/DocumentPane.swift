@@ -227,6 +227,7 @@ public struct DocumentPane: View {
                 isSelectable: true,
                 menuContext: menuContext,
                 chooserRequestToken: model.protectSelectionRequestToken,
+                chooserRequestOwner: ObjectIdentifier(model),
                 makeChooser: { dismiss in AnyView(chooser(dismiss: dismiss)) },
                 onSelectionChange: { range in model.selectedTextRange = range },
                 onCancel: { model.protectNotice = nil }

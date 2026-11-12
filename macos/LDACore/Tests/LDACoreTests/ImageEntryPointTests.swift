@@ -144,16 +144,20 @@ final class ImageEntryPointTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: png) }
 
         // Human intake: CLI staging.
+        // The shared test passphrase, for the staging here and the server
+        // below: left out, both used the real Keychain and the test waited on
+        // its dialog (review 2026-11-11, T8).
         let staged = try LDACLI.runVaultStage(
             inputs: [png],
             vaultRoot: vaultDir,
-            timestamp: { "2026-08-30T12:00:00Z" }
+            timestamp: { "2026-08-30T12:00:00Z" },
+            protection: VaultTestSupport.protection
         )
         XCTAssertEqual(staged.count, 1)
         let handle = try XCTUnwrap(staged.first?.handle)
 
         // Agent flow: anonymize by handle, then read the redacted text.
-        let server = MCPServer(environment: [DocumentVault.environmentKey: vaultDir.path])
+        let server = MCPServer(environment: VaultTestSupport.serverEnvironment(vaultDir: vaultDir))
 
         let anonymized = try callSummary(server, tool: "anonymize", arguments: [
             "handle": handle,

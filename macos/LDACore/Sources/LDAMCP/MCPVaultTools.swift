@@ -248,6 +248,12 @@ extension MCPServer {
             if let excluded = entry.excludedEntityCount {
                 item["excludedEntityCount"] = excluded
             }
+            // Whether a model looked for names, companies and addresses.
+            // Absent for originals and for entries made before it was
+            // recorded.
+            if let detection = entry.detection {
+                item["detectionMode"] = detection
+            }
             return item
         }
         return ["documents": documents]
@@ -273,7 +279,7 @@ extension MCPServer {
         }
     ) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
-        let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        let modelPath = try detectionModelPath(arguments)
         // The review step's arguments are validated before any vault work so
         // a bad type or a missing detectionId costs no detection pass.
         let review = try MCPReviewArguments.parse(arguments, allowsEntityIds: true)
@@ -372,10 +378,13 @@ extension MCPServer {
                 sourceHandle: handle,
                 mappingFile: mappingURL,
                 mappingAccountBase: slot.handle,
-                excludedEntityCount: stagedResult.excludedEntityCount
+                excludedEntityCount: stagedResult.excludedEntityCount,
+                detection: MCPServer.detectionMode(modelPath: modelPath)
             )
             var response: [String: Any] = [
                 "redactedHandle": committed.handle,
+                // Whether a model looked for names, companies and addresses.
+                "detectionMode": MCPServer.detectionMode(modelPath: modelPath),
                 "format": committed.format,
                 "kind": committed.kind.rawValue,
                 "imageRedactionCount": stagedResult.imageRedactionCount,
@@ -391,7 +400,12 @@ extension MCPServer {
                 // from the one the caller reviewed.
                 "excludedCount": stagedResult.excludedEntityCount,
                 "excludedValueCount": stagedResult.excludedValueCount,
-                "detectionChanged": verdict.detectionChanged
+                "detectionChanged": verdict.detectionChanged,
+                // Party names left in clear because the document reads as a
+                // published precedent whose caption names them. A count and
+                // a flag, never the names (review 2026-11-11, F1).
+                "precedentReleasedValueCount": stagedResult.precedentReleasedValueCount,
+                "precedentPartiesReleased": stagedResult.precedentPartiesReleased
             ]
             // entityCount, entityTypes, perTypeCounts, and the supplementary
             // split: a DOCX is redacted in its headers, footers, notes, and
@@ -439,9 +453,22 @@ extension MCPServer {
             text = decoded
         }
 
-        // Older artifacts with no recorded exclusion status also require local review.
-        let needsApproval = entry.excludedEntityCount != 0
-        if needsApproval, !approvePartialDisclosure(text, entry.excludedEntityCount ?? -1) {
+        // Older artifacts with no recorded exclusion status also require local
+        // review, and so does an artifact a model never read while one is
+        // configured: its names, companies and addresses were not looked for
+        // (review 2026-11-11, F3).
+        let shownCount: Int?
+        if let excluded = entry.excludedEntityCount, excluded > 0 {
+            shownCount = excluded
+        } else if entry.excludedEntityCount == nil {
+            shownCount = MCPLocalApproval.unknownExclusionStatus
+        } else if configuredModelPath != nil, entry.detection != Self.localModelDetection {
+            shownCount = MCPLocalApproval.detectedWithoutModel
+        } else {
+            shownCount = nil
+        }
+        let needsApproval = shownCount != nil
+        if let shownCount, !approvePartialDisclosure(text, shownCount) {
             throw MCPVaultToolError.localApprovalRequired
         }
         return ["handle": handle, "text": text, "localApproval": needsApproval]
@@ -461,7 +488,7 @@ extension MCPServer {
     /// new and are never valid for another document.
     func callDetectHandle(_ arguments: [String: Any]) throws -> [String: Any] {
         let handle = try requireStringArgument(arguments, key: "handle")
-        let modelPath = try allowedModelPath(arguments, key: "modelPath")
+        let modelPath = try detectionModelPath(arguments)
         let summary = try openVault().withPlaintextFileURL(handle: handle) { url in
             try LDAService.detectSummary(input: url, llmModelPath: modelPath)
         }
@@ -486,7 +513,12 @@ extension MCPServer {
                 modelPathPresent: modelPath != nil,
                 ids: ids
             ),
-            "entities": entities
+            "entities": entities,
+            "detectionMode": MCPServer.detectionMode(modelPath: modelPath),
+            // Party names a run would leave in clear as a published
+            // precedent's own parties. They are not in `entities`.
+            "precedentReleasedValueCount": summary.precedentReleasedValueCount,
+            "precedentPartiesReleased": summary.precedentReleasedValueCount > 0
         ]
         response.merge(
             MCPServer.coverageFields(

@@ -342,19 +342,41 @@ extension SessionModel {
     /// belt and braces: after a quit and relaunch the session mapping is gone,
     /// and an unseeded second export would mint the same {COMPANY_1} for a
     /// different value, then overwrite the workspace and leave the FIRST
-    /// export's redacted file restoring to the wrong party. Seeding makes
-    /// every rewrite of a default workspace a superset of what it replaced.
+    /// export's redacted file restoring to the wrong party.
     ///
-    /// A workspace that cannot be opened yields no seed rather than throwing,
-    /// and the export goes on to REPLACE it. That is deliberate and it loses
-    /// nothing: a workspace this Mac can no longer open was already no key to
-    /// anything, so refusing to overwrite it would only leave the user with a
-    /// document they cannot redact and a file they cannot read. What it must
-    /// never do is replace a workspace that WOULD have opened, which is why
-    /// the seed is read on the same rule the writer names its output by.
-    func exportMappingSeed(forSource source: URL) -> Mapping? {
+    /// This is 2.0's choice, kept for this release (review 2026-11-11, F11,
+    /// second independent review, owner's decision): with a session mapping,
+    /// an export of a document whose workspace holds other tokens rewrites
+    /// that workspace, and the files its earlier exports wrote may then
+    /// restore to the wrong value. Restore those files before exporting the
+    /// document again. Binding every file to the mapping that wrote it is
+    /// the fix, a design change (docs/design/mapping-identity.md).
+    ///
+    /// A workspace that exists but will not open THROWS when it would seed
+    /// the export. 2.0 read it with try?, so a locked or refused Keychain
+    /// read as "no seed" and the export replaced a workspace that may still
+    /// be the only key to the files earlier exports wrote. A workspace folder
+    /// that cannot be resolved at all holds nothing to replace: the export
+    /// goes on.
+    func exportMappingSeed(forSource source: URL) throws -> Mapping? {
         if let sessionMapping { return sessionMapping }
-        return try? defaultWorkspaceMapping(forSource: source)
+        guard let url = try? defaultWorkspaceURL(forSource: source),
+              FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        do {
+            return try WorkspaceArchive.readMapping(
+                from: url,
+                protection: defaultWorkspaceProtection(url)
+            )
+        } catch {
+            // One literal, deliberately not a concatenation; see ReviewModel.export.
+            throw DocumentIOError.unreadable(String(
+                format: L10n.string("This document's earlier exports keep their mapping in \"%@\", and that file could not be opened. Nothing was exported and the file was left as it is: replacing it would leave those exports with no mapping. %@"),
+                url.lastPathComponent as NSString,
+                error.localizedDescription as NSString
+            ))
+        }
     }
 
     /// The mapping held in the default workspace for a document, or nil when
@@ -394,6 +416,61 @@ extension SessionModel {
 
     // MARK: - Save Redacted
 
+    /// One Save Redacted, tied to the document it was asked for.
+    ///
+    /// Review 2026-11-11 (F12): the save used to export whichever document
+    /// was active when its sheet was confirmed. The gate was checked once,
+    /// before the folder panel opened, and that panel is not modal, so
+    /// selecting another tray row (or Scan All moving the selection) wrote
+    /// <other>_redacted for a document that was never scanned, with no
+    /// entity redacted. The request is taken when the panel opens and names
+    /// its document, and exportRedacted(request:) checks that document's
+    /// gate again immediately before the export runs.
+    public struct SaveRedactedRequest: Equatable, Sendable {
+        /// The tray entry the save was asked for.
+        public let documentID: UUID
+    }
+
+    /// A Save Redacted request for the active document, or nil while that
+    /// document cannot be saved (its exportAvailability is blocked).
+    public func saveRedactedRequest() -> SaveRedactedRequest? {
+        guard let entry = activeEntry, entry.model.exportAvailability.isAvailable else { return nil }
+        return SaveRedactedRequest(documentID: entry.id)
+    }
+
+    /// The review model of the document `request` names, or nil when it has
+    /// left the tray. The Save Redacted sheet reads its counts from it, not
+    /// from the document selected now (independent review of F12).
+    public func reviewModel(for request: SaveRedactedRequest) -> ReviewModel? {
+        entries.first { $0.id == request.documentID }?.model
+    }
+
+    /// Redact the document `request` names into `outputDir` and keep its key,
+    /// whatever the tray has selected since. Refuses, writing nothing, when
+    /// that document has left the tray or can no longer be saved. `format`
+    /// is as for exportRedacted(to:passphrase:format:createdAtISO8601:).
+    public func exportRedacted(
+        request: SaveRedactedRequest,
+        to outputDir: URL,
+        passphrase: String?,
+        format: RedactedOutputFormat = .original,
+        createdAtISO8601: String
+    ) async throws -> ExportResult {
+        guard let entry = entries.first(where: { $0.id == request.documentID }) else {
+            throw SaveRefusal(message: L10n.string("The document this save was started for is no longer open, so nothing was saved."))
+        }
+        if let blocked = SaveAvailabilityPresentation.notice(entry.model.exportAvailability) {
+            throw SaveRefusal(message: blocked)
+        }
+        return try await exportRedacted(
+            entry: entry,
+            to: outputDir,
+            passphrase: passphrase,
+            format: format,
+            createdAtISO8601: createdAtISO8601
+        )
+    }
+
     /// Redact the active document into `outputDir` and keep its key.
     ///
     /// The session owns this rather than the review model because the key's
@@ -401,17 +478,39 @@ extension SessionModel {
     /// label, the pseudonym overrides, the matter's own rule layer. The
     /// per-document model cannot see any of that.
     ///
-    /// - Parameter passphrase: nil, the default, writes no .ldamap beside the
-    ///   output. A passphrase writes one, protected by it, for a mapping the
-    ///   user means to carry to another Mac.
+    /// - Parameters:
+    ///   - passphrase: nil, the default, writes no .ldamap beside the output.
+    ///     A passphrase writes one, protected by it, for a mapping the user
+    ///     means to carry to another Mac.
+    ///   - format: the format of the redacted file. The window always passes
+    ///     the person's choice (Markdown until they pick another, see
+    ///     AISettings.saveRedactedFormat). Callers that predate the choice
+    ///     get the original format, which is what Save Redacted wrote.
     public func exportRedacted(
         to outputDir: URL,
         passphrase: String?,
+        format: RedactedOutputFormat = .original,
         createdAtISO8601: String
     ) async throws -> ExportResult {
         guard let entry = activeEntry else {
             throw DocumentIOError.unreadable("No document is open to redact.")
         }
+        return try await exportRedacted(
+            request: SaveRedactedRequest(documentID: entry.id),
+            to: outputDir,
+            passphrase: passphrase,
+            format: format,
+            createdAtISO8601: createdAtISO8601
+        )
+    }
+
+    private func exportRedacted(
+        entry: DocumentEntry,
+        to outputDir: URL,
+        passphrase: String?,
+        format: RedactedOutputFormat,
+        createdAtISO8601: String
+    ) async throws -> ExportResult {
         let source = entry.url
         // The key's home is decided HERE, before the export suspends, and the
         // completion writes that snapshot rather than reading the session
@@ -426,7 +525,8 @@ extension SessionModel {
             to: outputDir,
             passphrase: passphrase,
             createdAtISO8601: createdAtISO8601,
-            seedMapping: exportMappingSeed(forSource: source),
+            format: format,
+            seedMapping: try exportMappingSeed(forSource: source),
             keepMapping: { mapping in
                 try keepMapping(mapping, in: home)
             }

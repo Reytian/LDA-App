@@ -120,7 +120,7 @@ public enum DocxRedactor {
         original: URL,
         replacements: [Replacement],
         to out: URL,
-        nonBody: (mapping: Mapping, detect: (String) -> [Span])? = nil,
+        nonBody: (mapping: Mapping, detect: (String) throws -> [Span])? = nil,
         budget: ArchiveBudget = ArchiveBudget()
     ) throws -> DocxNonBodyOutcome {
         // ONE ledger for this whole pass: the body, every supplementary part,
@@ -150,16 +150,27 @@ public enum DocxRedactor {
         // user keeps stays whole.
         var removals: Set<String> = []
 
+        // What the audit must not find in the output (privacy export only).
+        var auditValues: [(String, EntityType)] = []
+
         if let nonBody {
             // The redacted copy also loses the PII the body keeps in markup:
-            // mailto:/tel: field targets and revision authors.
-            rewriteParts[docxMainPartPath] = Data(DocxMarkupScrub.scrubRedactedPart(bodyXML).utf8)
+            // mailto:/tel: field targets, revision authors, and the text of
+            // field instructions and text attributes (DocxMarkupText).
+            let scrubbedBody = DocxMarkupScrub.scrubRedactedPart(bodyXML)
+            let replaced = replacements.map {
+                DocxParts.ReplacedValue(value: $0.span.text, type: $0.span.type, token: $0.token)
+            }
             let result = try DocxParts.redactNonBodyParts(
                 url: original,
                 mapping: nonBody.mapping,
                 detect: nonBody.detect,
-                budget: budget
+                budget: budget,
+                body: scrubbedBody,
+                replacedValues: replaced
             )
+            rewriteParts[docxMainPartPath] = Data((result.body ?? scrubbedBody).utf8)
+            auditValues = replacements.map { ($0.span.text, $0.span.type) } + result.replacedSurfaces
             // A supplementary part that could not be parsed or rewritten would
             // copy into the output verbatim, PII included, while the caller
             // reported success. Refuse before anything is written. The message
@@ -191,13 +202,30 @@ public enum DocxRedactor {
             )
         }
 
-        try DocxZip.rewrite(
-            source: original,
-            replacing: rewriteParts,
-            removing: removals,
-            to: out,
-            budget: budget
-        )
+        guard nonBody != nil else {
+            try DocxZip.rewrite(source: original, replacing: rewriteParts, removing: removals, to: out, budget: budget)
+            return outcome
+        }
+        // The privacy export is written beside its destination, audited, and
+        // only then moved into place: no value it replaced may remain
+        // anywhere in the package (DocxLeakAudit, review 2026-11-11, F5). A
+        // refused package is removed and nothing reaches `out`.
+        let staged = out.deletingLastPathComponent()
+            .appendingPathComponent(".\(out.lastPathComponent).lda-partial-\(UUID().uuidString)")
+        do {
+            try DocxZip.rewrite(source: original, replacing: rewriteParts, removing: removals, to: staged, budget: budget)
+            if let finding = try DocxLeakAudit.firstFinding(inPackage: staged, values: auditValues) {
+                throw DocxLeakAudit.refusal(for: finding)
+            }
+            if FileManager.default.fileExists(atPath: out.path) {
+                _ = try FileManager.default.replaceItemAt(out, withItemAt: staged)
+            } else {
+                try FileManager.default.moveItem(at: staged, to: out)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: staged)
+            throw error
+        }
         return outcome
     }
 
@@ -211,10 +239,10 @@ public enum DocxRedactor {
     /// reason on the CLI and MCP edges.
     public static func supplementaryCoverage(
         in original: URL,
-        detect: (String) -> [Span],
+        detect: (String) throws -> [Span],
         budget: ArchiveBudget = ArchiveBudget()
-    ) -> DocxSupplementaryCoverage {
-        DocxParts.supplementaryCoverage(url: original, detect: detect, budget: budget)
+    ) rethrows -> DocxSupplementaryCoverage {
+        try DocxParts.supplementaryCoverage(url: original, detect: detect, budget: budget)
     }
 
     /// How many embedded media files (word/media/...) the package carries.
@@ -298,9 +326,13 @@ public enum DocxRedactor {
             }
         }
 
-        // Validate every targeted segment is a run-text segment.
+        // Validate every targeted segment is a run-text or inline-character
+        // segment.
         for index in bySegment.keys {
-            guard case .runText = segments[index] else {
+            switch segments[index] {
+            case .runText, .inlineCharacter:
+                continue
+            case .markup:
                 throw DocumentIOError.corrupt("edit targets a non-text segment")
             }
         }
@@ -318,7 +350,15 @@ public enum DocxRedactor {
         atSegment segmentIndex: Int,
         in layout: inout DocxLayout
     ) throws {
-        guard case .runText(let original) = layout.segments[segmentIndex] else {
+        let original: String
+        var inlineMarkup: String?
+        switch layout.segments[segmentIndex] {
+        case .runText(let text):
+            original = text
+        case .inlineCharacter(let markup, let character):
+            original = character
+            inlineMarkup = markup
+        case .markup:
             throw DocumentIOError.corrupt("run segment index does not point at run text")
         }
 
@@ -330,6 +370,15 @@ public enum DocxRedactor {
             current = (prefix + edit.insertText + suffix) as NSString
         }
         let rewritten = current as String
+        if inlineMarkup != nil {
+            // An edit always covers the whole character. Covered and not the
+            // first run of its edit: the element goes. The first run of its
+            // edit: a text element carrying what the edit inserts.
+            layout.segments[segmentIndex] = .markup(
+                rewritten.isEmpty ? "" : "<w:t xml:space=\"preserve\">" + xmlEncode(rewritten) + "</w:t>"
+            )
+            return
+        }
         layout.segments[segmentIndex] = .runText(rewritten)
 
         // A rewrite that leaves whitespace at either edge of the run (the tail
@@ -419,6 +468,14 @@ public enum DocxRedactor {
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
         }
+        // Field instructions and text attributes carry brace tokens in every
+        // style (DocxMarkupText); write their values back too.
+        try DocxParts.restoreMarkupText(
+            url: redactedDocx,
+            values: plan.tokenToValue,
+            into: &rewriteParts,
+            budget: budget
+        )
 
         try DocxZip.rewrite(
             source: redactedDocx,
@@ -479,6 +536,14 @@ public enum DocxRedactor {
         for (path, bytes) in nonBody {
             rewriteParts[path] = bytes
         }
+        // Field instructions and text attributes carry brace tokens in every
+        // style (DocxMarkupText); write their values back too.
+        try DocxParts.restoreMarkupText(
+            url: redactedDocx,
+            values: plan.replacementToValue.filter { TokenGrammar.isPlaceholderShaped($0.key) },
+            into: &rewriteParts,
+            budget: budget
+        )
 
         try DocxZip.rewrite(
             source: redactedDocx,

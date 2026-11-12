@@ -119,6 +119,13 @@ public struct AnonymizeResult: Sendable {
     /// The body places those values were redacted at. Each is also counted in
     /// entityCount.
     public var autoProtectedPlaceCount: Int = 0
+    /// How many distinct PERSON or COMPANY values this run left in clear
+    /// because the document reads as a published precedent whose caption
+    /// names them (PrecedentPartyRule). 0 for every other document. A
+    /// non-zero count must be surfaced: those names are in the output.
+    public var precedentReleasedValueCount: Int = 0
+    /// True when the precedent rule left any party name in clear.
+    public var precedentPartiesReleased: Bool { precedentReleasedValueCount > 0 }
 
     public init(
         redactedFileURL: URL,
@@ -257,6 +264,9 @@ public struct DetectionSummary: Sendable {
     /// Those replacements' types and how many of each. Sums to
     /// supplementaryEntityCount.
     public var supplementaryCountsByType: [EntityType: Int]
+    /// How many distinct PERSON or COMPANY values the published-precedent
+    /// rule leaves in clear (see AnonymizeResult.precedentReleasedValueCount).
+    public var precedentReleasedValueCount: Int = 0
 
     /// The preview of AnonymizeResult.entityCount: body sites plus
     /// supplementary sites.

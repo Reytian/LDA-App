@@ -332,6 +332,36 @@ public struct MCPServer {
         return value
     }
 
+    /// The model a detecting tool runs with: the request's modelPath when it
+    /// names one (checked against the allowed roots), otherwise the model
+    /// this server was launched with (LDA_MODEL_PATH), otherwise none.
+    ///
+    /// Review 2026-11-11 (F3): anonymize, anonymize_session and
+    /// detect_entities used to read modelPath from the request only, so an
+    /// assistant that left it out got a patterns-only run, with every name,
+    /// company and address still in the text, whatever the person had set up.
+    func detectionModelPath(_ arguments: [String: Any]) throws -> String? {
+        if let requested = try allowedModelPath(arguments, key: "modelPath") {
+            return requested
+        }
+        return configuredModelPath
+    }
+
+    /// The model this server was launched with (LDA_MODEL_PATH), or nil.
+    var configuredModelPath: String? {
+        guard let configured = environment["LDA_MODEL_PATH"], !configured.isEmpty else { return nil }
+        return configured
+    }
+
+    /// The detection modes recorded in the vault and reported to the caller.
+    static let localModelDetection = "local_model"
+    static let patternsOnlyDetection = "patterns_only"
+
+    /// How an artifact detected with `modelPath` was detected.
+    static func detectionMode(modelPath: String?) -> String {
+        modelPath == nil ? patternsOnlyDetection : localModelDetection
+    }
+
     /// Parse the optional "style" argument shared by the anonymize tools.
     /// Absent or empty means .token (the historical behavior); an unknown
     /// value is an explicit error rather than a silent default.

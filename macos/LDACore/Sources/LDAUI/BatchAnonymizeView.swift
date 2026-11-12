@@ -13,11 +13,12 @@
 //  up (SessionModel.sidecarKeychainAccount), or under one passphrase typed
 //  here. A Keychain-sealed mapping restores only in LDA on this Mac.
 //
-//  The window shows only the two folders and Start. The output style (the
-//  Settings choice unless changed), the passphrase and redoing finished
-//  documents sit under More options. After a run it lists only the
-//  documents that need attention; the report in the output folder has the
-//  rest.
+//  The window shows only the two folders, the output format a run will
+//  write (chosen in Settings > General, Markdown until changed) and Start.
+//  The output style (the Settings choice unless changed), the passphrase and
+//  redoing finished documents sit under More options. After a run it lists
+//  only the documents that need attention; the report in the output folder
+//  has the rest.
 //
 //  House rules: all comments and strings in English. No em-dash and no
 //  en-dash-as-separator anywhere.
@@ -76,13 +77,18 @@ final class BatchAnonymizeModel: ObservableObject {
 
     private var stopFlag = BatchStopFlag()
     private let modelPath: () -> String?
+    /// The Settings choice, read when a run starts, so a change made while
+    /// the window is open applies to the next run.
+    private let format: () -> RedactedOutputFormat
 
     init(
         modelPath: @escaping () -> String? = { LDAV4Extractor.bundledModelPath() },
-        style: SubstitutionStyle = AISettings.outputStyle()
+        style: SubstitutionStyle = AISettings.outputStyle(),
+        format: @escaping () -> RedactedOutputFormat = { AISettings.batchOutputFormat() }
     ) {
         self.modelPath = modelPath
         self.style = style
+        self.format = format
     }
 
     /// Closing the window stops the batch after the document in progress,
@@ -160,21 +166,7 @@ final class BatchAnonymizeModel: ObservableObject {
             return
         }
         let passphrase = keyMode == .passphrase ? self.passphrase : nil
-        let options = BatchOptions(
-            modelPath: modelPath,
-            style: style,
-            unlocatedPolicy: .protect,
-            redoFinished: redoFinished,
-            protectionLabel: passphrase == nil ? "keychain" : "passphrase",
-            protection: { document in
-                if let passphrase { return .passphrase(passphrase) }
-                // The account the app's Restore derives from the sidecar's name.
-                let sidecar = URL(
-                    fileURLWithPath: document.deletingPathExtension().lastPathComponent + "_redacted.ldamap"
-                )
-                return .keychain(account: SessionModel.sidecarKeychainAccount(for: sidecar))
-            }
-        )
+        let options = batchOptions(modelPath: modelPath, passphrase: passphrase)
         let flag = BatchStopFlag()
         stopFlag = flag
         phase = .running
@@ -223,6 +215,25 @@ final class BatchAnonymizeModel: ObservableObject {
 
     func stop() {
         stopFlag.set()
+    }
+
+    /// What a run started now hands the batch: the window's choices, the
+    /// output format from Settings, and the sealing the app's Restore expects.
+    func batchOptions(modelPath: String, passphrase: String?) -> BatchOptions {
+        BatchOptions(
+            modelPath: modelPath,
+            style: style,
+            unlocatedPolicy: .protect,
+            redoFinished: redoFinished,
+            protectionLabel: passphrase == nil ? "keychain" : "passphrase",
+            protection: { mapping in
+                if let passphrase { return .passphrase(passphrase) }
+                // The account the app's Restore derives from the sidecar's
+                // name, which is not always <base>_redacted (BatchAnonymizer).
+                return .keychain(account: SessionModel.sidecarKeychainAccount(for: mapping))
+            },
+            format: format()
+        )
     }
 
     private func apply(_ progress: BatchProgress) {
@@ -343,6 +354,13 @@ final class BatchAnonymizeModel: ObservableObject {
                     [Int64(item.trackedChangeCount)]
                 ))
             }
+            if item.precedentReleasedValueCount > 0 {
+                lines.append(L10n.formatted(
+                    "Read as a published judgment: %lld party names its caption names were left in clear. Check that it really is one.",
+                    language: language,
+                    [Int64(item.precedentReleasedValueCount)]
+                ))
+            }
             return lines.isEmpty ? nil : BatchProblem(source: item.source, lines: lines, failed: false)
         }
     }
@@ -364,6 +382,10 @@ public struct BatchAnonymizeView: View {
     @ObservedObject private var handoff = MCPBatchHandoff.shared
     @Environment(\.appLanguage) private var language
     @State private var showsOptions = false
+    /// The Settings choice, observed so the line below follows a change made
+    /// while the window is open. The model reads the same value when a run
+    /// starts.
+    @AppStorage(AISettings.batchOutputFormatKey) private var formatRaw = RedactedOutputFormat.default.rawValue
 
     public init() {}
 
@@ -388,6 +410,7 @@ public struct BatchAnonymizeView: View {
             if model.hasFolderConflict {
                 validationNotice("Choose an output folder different from the source folder.")
             }
+            formatLine
             options
             controls
             outcome
@@ -450,6 +473,17 @@ public struct BatchAnonymizeView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// The format a run writes, which Settings decides.
+    private var formatLine: some View {
+        let format = RedactedOutputFormat(rawValue: formatRaw) ?? .default
+        let label = L10n.string(RedactedOutputFormatPresentation.labelKey(format), language: language)
+        return L10n.text("Output format: %@. Change it in Settings > General.", label as NSString)
+            .font(CounselTheme.Typography.supporting)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("batchOutputFormatLine")
     }
 
     private var options: some View {

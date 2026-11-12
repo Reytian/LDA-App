@@ -91,8 +91,8 @@ struct AppShellToolbar: ToolbarContent {
                     // narrow windows, and the primary action must never disappear.
                     // Two doors, one Restore. Export for AI writes the whole
                     // session as ONE Markdown file for chat or upload; Save
-                    // Redacted writes one document in its original format for
-                    // editors that keep formatting. They leave their key in
+                    // Redacted writes one document, as Markdown or in its
+                    // original format, as its sheet asks. They leave their key in
                     // different places (Export for AI beside its Markdown, Save
                     // Redacted in the document's workspace on this Mac), and
                     // Restore finds either without being told.
@@ -118,7 +118,7 @@ struct AppShellToolbar: ToolbarContent {
                     .disabled(!model.exportAvailability.isAvailable)
                     .disabled(exportFlow.isBusy)
                     .accessibilityIdentifier("saveRedacted")
-                    .l10nHelp("Save this document redacted in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back with formatting preserved.")
+                    .l10nHelp("Save this document redacted, as Markdown or in its original format. The mapping is kept in a workspace on this Mac, and Restore brings the document back.")
 
                     Menu {
                         Button {
